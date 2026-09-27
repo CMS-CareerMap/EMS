@@ -140,7 +140,7 @@ This document defines who can access what in the Employee Management System (EMS
 | Area | What They Can Do |
 |------|------------------|
 | **Payroll** | Create/edit salary structures, create payroll runs, generate payslips, change run status (draft → approved → paid) |
-| **Payroll inputs** | Enter each employee's monthly TDS amount (₹0 needs a reason) and monthly incentive amounts |
+| **Payroll inputs** | Enter monthly incentive amounts; and, only if the company deducts TDS through payroll (Settings → Payroll Config, off by default), each employee's monthly TDS amount (₹0 needs a reason) |
 
 **No access to:** Employees page, Attendance, Leave, Documents, Reports, Settings.
 **Can view:** Employee financial data (PAN, bank details) within payslip context.

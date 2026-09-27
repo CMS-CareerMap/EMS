@@ -70,6 +70,15 @@ model OrganizationPolicy {
   /// payslip records the one it was calculated on.
   lopBasis LopBasis @default(calendar_days)
 
+  /// Whether the company deducts income tax (TDS) through payroll.
+  ///
+  /// Off by default: the client does not — no Income Tax line on the payslip,
+  /// and no TDS directive asked for before a run. When it is on, every person
+  /// in a run needs a directive for the month, ₹0 with a reason included.
+  /// TDS on salary is compulsory once someone's taxable income crosses the
+  /// limit (section 192), which is when this is turned on.
+  tdsEnabled Boolean @default(false)
+
   /// Whether a weekly off or holiday between two days of loss of pay is itself
   /// unpaid. Absent Friday and Monday: with this on, the weekend goes too.
   /// Off by default — it costs employees money, so it is the company's call.

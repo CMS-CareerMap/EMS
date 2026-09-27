@@ -167,6 +167,7 @@ export const getReadiness: RequestHandler = async (req, res) => {
   reply(res, 200, {
     year: result.year,
     month: result.month,
+    tds_enabled: result.tdsEnabled,
     run: result.run,
     blocked: result.blockers.length > 0,
     blockers: result.blockers.map((b) => ({

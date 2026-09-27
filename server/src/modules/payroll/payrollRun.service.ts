@@ -60,6 +60,9 @@ export interface Person {
   /** Null when no policy was in force — the run is blocked, and there is nothing to count days by. */
   lop: LossOfPay | null
   sandwichRule: boolean | null
+  /** Whether TDS is deducted for them this month. Null when no policy was in force. */
+  tdsEnabled: boolean | null
+  /** Null when TDS is off — or missing, which blocks the run when it is on. */
   directive: DatedDirective | null
   entries: EntryRow[]
   warnings: string[]
@@ -69,7 +72,7 @@ export interface MonthPlan {
   year: number
   month: number
   /** The rules the run is labelled with — those in force on the earliest day anybody in it was employed. */
-  rules: { lopBasis: LopBasis; sandwichRule: boolean } | null
+  rules: { lopBasis: LopBasis; sandwichRule: boolean; tdsEnabled: boolean } | null
   holidays: CalendarDate[]
   people: Person[]
   blockers: Blocker[]
@@ -193,7 +196,7 @@ export async function planMonth(ctx: AppContext, year: number, month: number): P
     } else {
       if (earliest === null || window.from < earliest) {
         earliest = window.from
-        rules = { lopBasis: policy.lopBasis, sandwichRule: policy.sandwichRule }
+        rules = { lopBasis: policy.lopBasis, sandwichRule: policy.sandwichRule, tdsEnabled: policy.tdsEnabled }
       }
 
       const weeklyOffDays = policy.weeklyOffDays as Weekday[]
@@ -246,8 +249,11 @@ export async function planMonth(ctx: AppContext, year: number, month: number): P
       })
     }
 
-    const directive = directiveFor(directivesOf.get(employee.id) ?? [], year, month)
-    if (!directive) {
+    // Asked for only where the company deducts TDS. Off, there is nothing to
+    // direct and nothing to deduct.
+    const tdsEnabled = policy ? policy.tdsEnabled : null
+    const directive = tdsEnabled ? directiveFor(directivesOf.get(employee.id) ?? [], year, month) : null
+    if (tdsEnabled && !directive) {
       blockers.push({
         code: 'no_tds_directive',
         employee: who(employee),
@@ -260,6 +266,7 @@ export async function planMonth(ctx: AppContext, year: number, month: number): P
       window,
       lop,
       sandwichRule: policy?.sandwichRule ?? null,
+      tdsEnabled,
       directive,
       entries: entriesOf.get(employee.id) ?? [],
       warnings,
@@ -298,7 +305,7 @@ function blocked(year: number, month: number, blockers: readonly Blocker[]) {
 
 // ── 2. Calculate ────────────────────────────────────────────────────────────
 
-function toPayslip(person: Person, lop: LossOfPay, directive: DatedDirective, calc: Calculation): repo.NewPayslip {
+function toPayslip(person: Person, lop: LossOfPay, directive: DatedDirective | null, calc: Calculation): repo.NewPayslip {
   const r = calc.result
   const b = calc.basis
 
@@ -369,13 +376,16 @@ function toPayslip(person: Person, lop: LossOfPay, directive: DatedDirective, ca
       epsMember: b.epsMember,
       ptState: b.ptState,
       ptGender: b.ptGender,
-      tdsDirective: {
-        id: directive.id,
-        financialYear: directive.financialYear,
-        effectiveFrom: directive.effectiveFrom,
-        monthlyAmount: Number(directive.monthlyAmount),
-        reason: directive.reason,
-      },
+      tdsEnabled: person.tdsEnabled,
+      tdsDirective: directive
+        ? {
+            id: directive.id,
+            financialYear: directive.financialYear,
+            effectiveFrom: directive.effectiveFrom,
+            monthlyAmount: Number(directive.monthlyAmount),
+            reason: directive.reason,
+          }
+        : null,
       monthlyEntries: person.entries.map((entry) => ({
         id: entry.id,
         code: entry.component.code,
@@ -399,14 +409,17 @@ export async function buildPayslips(ctx: AppContext, plan: MonthPlan): Promise<r
 
   const results = await inBatches(plan.people, CONCURRENCY, async (person) => {
     const { lop, directive } = person
-    // Both are there whenever nothing blocked the run; checked rather than
-    // asserted, so a mistake above is a loud error and not a wrong payslip.
-    if (!lop || !directive) throw new Error(`Planned without loss of pay or TDS: ${person.employee.id}`)
+    // Both are there whenever nothing blocked the run (the directive only when
+    // TDS is on); checked rather than asserted, so a mistake above is a loud
+    // error and not a wrong payslip.
+    if (!lop || (person.tdsEnabled && !directive)) {
+      throw new Error(`Planned without loss of pay or TDS: ${person.employee.id}`)
+    }
 
     try {
       const calc = await calculate(ctx, person.employee.id, plan.year, plan.month, {
         lopDays: lop.lopDays,
-        tds: Number(directive.monthlyAmount),
+        tds: directive ? Number(directive.monthlyAmount) : 0,
         monthlyAmounts: Object.fromEntries(person.entries.map((entry) => [entry.component.code, Number(entry.amount)])),
         holidays: plan.holidays,
       })
@@ -605,6 +618,8 @@ export async function getPayslip(ctx: AppContext, runId: string, payslipId: stri
 export interface Readiness {
   year: number
   month: number
+  /** Whether the month's rules deduct TDS — and so ask for directives. */
+  tdsEnabled: boolean | null
   run: { id: string; status: string } | null
   blockers: Blocker[]
   warnings: string[]
@@ -631,6 +646,7 @@ export async function readiness(ctx: AppContext, year: number, month: number): P
   return {
     year,
     month,
+    tdsEnabled: plan.rules?.tdsEnabled ?? null,
     run: run ? { id: run.id, status: run.status } : null,
     blockers: plan.blockers,
     warnings: plan.warnings,

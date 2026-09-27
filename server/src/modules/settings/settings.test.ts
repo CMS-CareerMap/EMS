@@ -229,10 +229,12 @@ describe('statutory policy', () => {
     const res = await get('/payroll')
     expect(res.body.data.lop_basis).toBe('calendar_days')
     expect(res.body.data.sandwich_rule).toBe(false)
+    // The client deducts no income tax through payroll.
+    expect(res.body.data.tds_enabled).toBe(false)
   })
 
   it('saves the LOP basis and the sandwich rule, and carries them into the next period', async () => {
-    expect((await put('/payroll', { lopBasis: 'fixed_30', sandwichRule: true })).status).toBe(200)
+    expect((await put('/payroll', { lopBasis: 'fixed_30', sandwichRule: true, tdsEnabled: true })).status).toBe(200)
 
     // Backdate, so the next change opens a new period rather than correcting.
     const current = await prisma.organizationPolicy.findFirst({
@@ -245,7 +247,7 @@ describe('statutory policy', () => {
     await put('/payroll', { payDay: 3 })
 
     const reread = await get('/payroll')
-    expect(reread.body.data).toMatchObject({ lop_basis: 'fixed_30', sandwich_rule: true, pay_day: 3 })
+    expect(reread.body.data).toMatchObject({ lop_basis: 'fixed_30', sandwich_rule: true, tds_enabled: true, pay_day: 3 })
   })
 
   it('refuses a basis that is not one of the three', async () => {

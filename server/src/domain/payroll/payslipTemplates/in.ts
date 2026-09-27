@@ -17,7 +17,7 @@ export const INDIA: PayslipTemplate = {
     employeeCode: 'Employee code',
     designation: 'Designation',
     department: 'Department',
-    dateOfJoining: 'Date of joining',
+    dateOfJoining: 'Joining date',
     payPeriod: 'Pay period',
     payDate: 'Pay date',
     daysInMonth: 'Days in month',

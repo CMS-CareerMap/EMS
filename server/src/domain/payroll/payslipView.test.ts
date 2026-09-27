@@ -51,7 +51,7 @@ describe('an Indian payslip', () => {
     expect(value(view, 'Employee name')).toBe('Asha Kulkarni')
     expect(value(view, 'Employee code')).toBe('EMP/001')
     expect(value(view, 'Designation')).toBe('Engineer')
-    expect(value(view, 'Date of joining')).toBe('17/06/2024')
+    expect(value(view, 'Joining date')).toBe('17/06/2024')
   })
 
   it('carries UAN, PF member ID, ESIC number and PAN — a dash where none is on record, never a guess', () => {
@@ -122,6 +122,8 @@ describe('an Indian payslip', () => {
 describe('the other layouts', () => {
   it('prints a UK payslip in pounds, day first, with no Indian identifiers and no words', () => {
     const view = payslipView({ ...INPUT, country: 'GB', currency: 'GBP' })
+    // "Joining date" in every layout — the client's word, not "Start date".
+    expect(value(view, 'Joining date')).toBe('17/06/2024')
     expect(view.title).toBe('Payslip')
     expect(view.totals[0]).toEqual({ label: 'Total payments', value: '£123,387.10' })
     expect(value(view, 'Pay period')).toBe('01/08/2026 – 31/08/2026')
@@ -135,7 +137,7 @@ describe('the other layouts', () => {
     expect(view.heading).toBe('Earnings Statement for August 2026')
     expect(view.net.value).toBe('$120,981.10')
     expect(value(view, 'Pay period')).toBe('08/01/2026 – 08/31/2026')
-    expect(value(view, 'Hire date')).toBe('06/17/2024')
+    expect(value(view, 'Joining date')).toBe('06/17/2024')
   })
 
   it('finds the UK layout under GB or UK, and India’s for anything it does not know', () => {
