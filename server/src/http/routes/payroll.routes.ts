@@ -14,6 +14,13 @@ import {
   putMonthlyEntry,
   deleteMonthlyEntry,
 } from '../controllers/payrollInputs.controller'
+import {
+  getBankAccounts,
+  putBankAccount,
+  postVerifyBankAccount,
+  getBankFileTemplate,
+  putBankFileTemplate,
+} from '../controllers/bankAccount.controller'
 import { authenticate } from '../middleware/authenticate'
 import { authorize } from '../middleware/authorize'
 
@@ -32,7 +39,8 @@ export const payrollRouter = Router()
 
 payrollRouter.use(authenticate)
 
-payrollRouter.get('/components', authorize('payroll:structure:read'), getComponents)
+// The catalogue is no secret: HR needs it to enter an incentive.
+payrollRouter.get('/components', authorize(['payroll:structure:read', 'payroll:entry:manage']), getComponents)
 payrollRouter.post('/calculate', authorize('payroll:structure:read'), postCalculate)
 payrollRouter.post(
   '/esi-coverage/redecide',
@@ -55,3 +63,13 @@ payrollRouter.put('/tds-directives', authorize('payroll:structure:manage'), putT
 payrollRouter.get('/monthly-entries', authorize('payroll:entry:manage'), getMonthlyEntries)
 payrollRouter.put('/monthly-entries', authorize('payroll:entry:manage'), putMonthlyEntry)
 payrollRouter.delete('/monthly-entries/:id', authorize('payroll:entry:manage'), deleteMonthlyEntry)
+
+// Bank accounts for salary: read to pay, manage to enter and check (Day 18,
+// because the bank file needs them; the employee's own submission is Day 19).
+payrollRouter.get('/bank-accounts', authorize('employee:bank:read'), getBankAccounts)
+payrollRouter.put('/employees/:id/bank-account', authorize('employee:bank:manage'), putBankAccount)
+payrollRouter.post('/employees/:id/bank-account/verify', authorize('employee:bank:manage'), postVerifyBankAccount)
+
+// The bank file's layout, set once from the bank's sample.
+payrollRouter.get('/bank-file-template', authorize('payroll:structure:read'), getBankFileTemplate)
+payrollRouter.put('/bank-file-template', authorize('payroll:structure:manage'), putBankFileTemplate)

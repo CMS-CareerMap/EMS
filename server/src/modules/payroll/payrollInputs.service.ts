@@ -52,6 +52,12 @@ export async function listTdsDirectives(ctx: AppContext, financialYear: number) 
   return repo.listDirectives(ctx.db, financialYear)
 }
 
+/** Whether TDS is deducted under today's rules — for screens that cannot read Settings. */
+export async function tdsEnabledToday(ctx: AppContext): Promise<boolean> {
+  const rules = await findPolicyOn(ctx.db, toDateColumn(await companyToday(ctx)))
+  return rules?.tdsEnabled ?? false
+}
+
 /**
  * Records how much tax to deduct each month, from a month onwards.
  *

@@ -145,7 +145,7 @@ export default function EmployeeDrawer({ employee, onClose, onEdit }) {
                 {employee.ctc == null ? (
                   // Null is "not recorded". Zero would say they earn nothing.
                   <p className="text-sm text-gray-500 bg-slate-50 border border-slate-200 rounded-xl p-4">
-                    No salary is recorded for this employee yet. Accounts sets it under Payroll → Salary Structure.
+                    No salary is recorded for this employee yet. Accounts sets it under Payroll → Salary structure.
                   </p>
                 ) : (
                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">

@@ -212,7 +212,7 @@ describe('who may see payroll', () => {
     expect(res.status).toBe(403)
   })
 
-  it('lists the components in display order, for Accounts only', async () => {
+  it('lists the components in display order, for the people who enter pay', async () => {
     const ok = await request(app).get('/api/payroll/components').set('Authorization', as('accounts'))
     expect(ok.status).toBe(200)
     expect(ok.body.data.map((c: { code: string }) => c.code)).toEqual([
@@ -226,7 +226,8 @@ describe('who may see payroll', () => {
     expect(ok.body.data.find((c: { code: string }) => c.code === 'INCENTIVE').entry).toBe('monthly')
     expect(ok.body.data.find((c: { code: string }) => c.code === 'BASIC').entry).toBe('fixed')
 
-    const denied = await request(app).get('/api/payroll/components').set('Authorization', as('hr'))
+    // HR reads it too, to enter incentives (bankTransfer.test.ts); an employee does not.
+    const denied = await request(app).get('/api/payroll/components').set('Authorization', as('employee'))
     expect(denied.status).toBe(403)
   })
 })

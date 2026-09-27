@@ -245,7 +245,7 @@ export async function planMonth(ctx: AppContext, year: number, month: number): P
       blockers.push({
         code: 'no_salary',
         employee: who(employee),
-        message: `No salary is on record for ${employee.fullName} on ${window.from}. Enter it under Payroll → Salaries.`,
+        message: `No salary is on record for ${employee.fullName} on ${window.from}. Enter it under Payroll → Salary structure.`,
       })
     }
 
@@ -257,7 +257,7 @@ export async function planMonth(ctx: AppContext, year: number, month: number): P
       blockers.push({
         code: 'no_tds_directive',
         employee: who(employee),
-        message: `No TDS directive for ${employee.fullName} for ${monthName(year, month)} (financial year ${financialYearLabel(financialYear)}). Enter the monthly amount — ₹0 with a reason if no tax is due.`,
+        message: `No TDS directive for ${employee.fullName} for ${monthName(year, month)} (financial year ${financialYearLabel(financialYear)}). Enter the monthly amount under Payroll → Income tax (TDS) — ₹0 with a reason if no tax is due.`,
       })
     }
 

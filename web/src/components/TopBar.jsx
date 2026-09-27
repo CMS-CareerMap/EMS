@@ -4,11 +4,14 @@ import { useAuthStore } from '../stores/authStore'
 import { useNotifications } from '../hooks/useNotifications'
 import NotificationPanel from './NotificationPanel'
 
+// The server's role names — the same labels as the sidebar.
 const ROLE_LABELS = {
   super_admin: 'Super Admin',
-  hr_admin: 'HR Admin',
-  payroll_admin: 'Payroll Admin',
+  admin: 'Admin',
+  hr: 'HR',
   manager: 'Manager',
+  rm: 'Reporting Manager',
+  accounts: 'Accounts',
   employee: 'Employee',
 }
 

@@ -4,6 +4,7 @@ import {
   Clock,
   CalendarDays,
   Wallet,
+  Receipt,
   FileText,
   BarChart2,
   Settings,
@@ -29,7 +30,9 @@ export const NAV_GROUPS = [
       { to: '/employees', icon: Users, label: 'Employees', permission: 'employee:read' },
       { to: '/attendance', icon: Clock, label: 'Attendance', permission: 'attendance:read' },
       { to: '/leave', icon: CalendarDays, label: 'Leave', permission: 'leave:read' },
-      { to: '/payroll', icon: Wallet, label: 'Payroll', permission: 'payroll:structure:read' },
+      // Any of these: HR enters Incentive here without seeing anybody's pay.
+      { to: '/payroll', icon: Wallet, label: 'Payroll', permission: ['payroll:structure:read', 'payroll:entry:manage'] },
+      { to: '/payslips', icon: Receipt, label: 'My Payslips', permission: 'payslip:read' },
     ],
   },
   {

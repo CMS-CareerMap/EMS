@@ -1,6 +1,7 @@
 import type { RequestHandler } from 'express'
 import * as payslips from '../../modules/payroll/payslip.service'
-import { fromDateColumn } from '../../domain/shared/dates'
+import { myBankAccount } from '../../modules/payroll/bankAccount.service'
+import { fromDateColumn, isoInstant } from '../../domain/shared/dates'
 import { payslipIdParamSchema } from '../validators/payroll.validator'
 import { parseBody } from '../validators/parse'
 import { appContext } from '../context'
@@ -35,6 +36,35 @@ export const getMyPayslips: RequestHandler = async (_req, res) => {
       // session or be shareable.
       pdf_url: `/api/payslips/${slip.id}/pdf`,
     })),
+  )
+}
+
+/**
+ * GET /api/payslips/me/bank-account — where my salary is paid.
+ *
+ * The last four digits only: the person knows their own number, and a screen
+ * that shows it whole is one over-the-shoulder glance from being somebody
+ * else's. Changing it goes through Accounts, from a cancelled cheque.
+ */
+export const getMyBankAccount: RequestHandler = async (_req, res) => {
+  const ctx = appContext(res)
+  const a = await myBankAccount(ctx)
+  reply(
+    res,
+    200,
+    a
+      ? {
+          bank_name: a.bankName,
+          account_holder_name: a.accountHolderName,
+          account_ending: a.accountNumber.slice(-4),
+          ifsc: a.ifsc,
+          branch: a.branch,
+          account_type: a.accountType,
+          verification_status: a.verificationStatus,
+          verification_remarks: a.verificationRemarks,
+          verified_at: isoInstant(a.verifiedAt),
+        }
+      : null,
   )
 }
 

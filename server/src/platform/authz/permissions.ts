@@ -29,6 +29,9 @@ export const PERMISSIONS = [
   'employee:delete',
   'employee:compensation:read',
   'employee:bank:read',
+  // Entering a bank account and checking it against the cheque. Held by those
+  // who pay; nobody may verify their own (bankAccount.service).
+  'employee:bank:manage',
   'employee:identity:read',
 
   // Attendance. `punch` is what an employee does for themselves; `mark` is what

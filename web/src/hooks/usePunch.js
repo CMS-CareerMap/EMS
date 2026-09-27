@@ -54,7 +54,7 @@ export function getPosition() {
           ),
         )
       },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+      { enableHighAccuracy: true, timeout: 15 * 1000, maximumAge: 0 },
     )
   })
 }

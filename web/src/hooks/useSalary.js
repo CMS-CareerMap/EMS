@@ -16,10 +16,11 @@ const keys = {
   components: ['salary', 'components'],
 }
 
-export function useSalaryRoster() {
+export function useSalaryRoster({ enabled = true } = {}) {
   return useQuery({
     queryKey: keys.roster,
     queryFn: async () => (await api.get('/payroll/employees')).data,
+    enabled,
   })
 }
 

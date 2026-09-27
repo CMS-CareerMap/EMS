@@ -319,3 +319,15 @@ describe('payslips', () => {
     expect(roleCan('accounts', 'payroll:run:create')).toBe(true)
   })
 })
+
+describe('bank accounts for salary', () => {
+  it('are entered and checked only by those who pay — Accounts and Super Admin', () => {
+    expect(ROLES.filter((role) => roleCan(role, 'employee:bank:manage')).sort()).toEqual(['accounts', 'super_admin'])
+  })
+
+  it('are never managed by somebody who cannot read them', () => {
+    for (const role of ROLES) {
+      if (roleCan(role, 'employee:bank:manage')) expect(roleCan(role, 'employee:bank:read'), role).toBe(true)
+    }
+  })
+})

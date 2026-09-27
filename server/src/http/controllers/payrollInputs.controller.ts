@@ -58,7 +58,12 @@ function entryPayload(row: EntryRow) {
 export const getTdsDirectives: RequestHandler = async (req, res) => {
   const ctx = appContext(res)
   const { financialYear } = parseBody(financialYearQuerySchema, req.query)
-  reply(res, 200, (await inputs.listTdsDirectives(ctx, financialYear)).map(directivePayload))
+  const rows = await inputs.listTdsDirectives(ctx, financialYear)
+  // Whether TDS is deducted at all: Accounts cannot read Settings to find out.
+  res.status(200).json({
+    data: rows.map(directivePayload),
+    meta: { requestId: res.locals.requestId, tds_enabled: await inputs.tdsEnabledToday(ctx) },
+  })
 }
 
 /** PUT /api/payroll/tds-directives — from this month, deduct this much. */

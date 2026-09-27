@@ -11,6 +11,7 @@ const PAGE_TITLES = {
   '/attendance': 'Attendance',
   '/leave': 'Leave Management',
   '/payroll': 'Payroll',
+  '/payslips': 'My Payslips',
   '/documents': 'Documents',
   '/reports': 'Reports',
   '/settings': 'Settings',
