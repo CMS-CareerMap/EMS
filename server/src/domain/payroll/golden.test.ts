@@ -102,6 +102,7 @@ function run(input: CaseInput) {
       // The client's wish: PF kept at the ceiling, so ₹1,800 in the standard case.
       restrictToCeiling: true,
       wageCeiling: 15_000,
+      epsWageCeiling: 15_000,
       epsMember: input.epsMember ?? true,
     },
     esi: {

@@ -49,6 +49,9 @@ const HR: readonly Permission[] = [
   'leave:approve',
   'leave:type:manage',
   'holiday:manage',
+  // Incentive, entered per employee per month (§A1.5). The amount they enter,
+  // and nothing else of anybody's pay.
+  'payroll:entry:manage',
   'document:read',
   'document:upload',
   'document:verify',
@@ -93,6 +96,7 @@ const ACCOUNTS: readonly Permission[] = [
   'payroll:structure:read',
   'payroll:structure:manage',
   'payroll:run:create',
+  'payroll:entry:manage',
   'payslip:read',
 ]
 

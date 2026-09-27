@@ -145,7 +145,10 @@ describe('statutory policy', () => {
     expect(res.status).toBe(200)
     expect(res.body.data.pf_employee).toBe(12)
     expect(res.body.data.esi_threshold).toBe(21000)
-    expect(res.body.data.pf_wage_ceiling).toBe(15000)
+    // ₹25,000 from 17 September 2026; the pension ceiling waits for the
+    // accountant at ₹15,000.
+    expect(res.body.data.pf_wage_ceiling).toBe(25000)
+    expect(res.body.data.eps_wage_ceiling).toBe(15000)
   })
 
   it('saves a rate change and reads it back', async () => {
@@ -220,6 +223,33 @@ describe('statutory policy', () => {
     // exist, which is a bug that appears once a year.
     const res = await put('/payroll', { payDay: 30 })
     expect(res.status).toBe(422)
+  })
+
+  it('counts days by calendar, with no sandwich rule, until told otherwise', async () => {
+    const res = await get('/payroll')
+    expect(res.body.data.lop_basis).toBe('calendar_days')
+    expect(res.body.data.sandwich_rule).toBe(false)
+  })
+
+  it('saves the LOP basis and the sandwich rule, and carries them into the next period', async () => {
+    expect((await put('/payroll', { lopBasis: 'fixed_30', sandwichRule: true })).status).toBe(200)
+
+    // Backdate, so the next change opens a new period rather than correcting.
+    const current = await prisma.organizationPolicy.findFirst({
+      where: { organizationId: orgId, effectiveTo: null },
+    })
+    await prisma.organizationPolicy.update({
+      where: { id: current!.id },
+      data: { effectiveFrom: new Date(Date.UTC(2026, 1, 1)) },
+    })
+    await put('/payroll', { payDay: 3 })
+
+    const reread = await get('/payroll')
+    expect(reread.body.data).toMatchObject({ lop_basis: 'fixed_30', sandwich_rule: true, pay_day: 3 })
+  })
+
+  it('refuses a basis that is not one of the three', async () => {
+    expect((await put('/payroll', { lopBasis: 'fixed_26' })).status).toBe(422)
   })
 })
 

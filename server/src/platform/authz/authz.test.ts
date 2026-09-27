@@ -283,3 +283,18 @@ describe('the holiday calendar', () => {
     expect(roleCan('admin', 'holiday:manage')).toBe(false)
   })
 })
+
+describe('monthly entries — Incentive', () => {
+  it('are entered by super_admin, HR and Accounts, as the client asked (§A1.5)', () => {
+    const actual = ROLES.filter((role) => roleCan(role, 'payroll:entry:manage'))
+    expect(actual.sort()).toEqual(['accounts', 'hr', 'super_admin'])
+  })
+
+  it('give HR nothing else of payroll', () => {
+    // Entering an incentive is not reading a salary, running a payroll or
+    // opening the Payroll module.
+    expect(roleCan('hr', 'payroll:structure:read')).toBe(false)
+    expect(roleCan('hr', 'payroll:run:create')).toBe(false)
+    expect(roleCan('hr', 'employee:compensation:read')).toBe(false)
+  })
+})

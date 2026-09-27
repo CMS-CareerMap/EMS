@@ -7,6 +7,13 @@ import {
   getSalaryHistory,
   putSalary,
 } from '../controllers/payroll.controller'
+import {
+  getTdsDirectives,
+  putTdsDirective,
+  getMonthlyEntries,
+  putMonthlyEntry,
+  deleteMonthlyEntry,
+} from '../controllers/payrollInputs.controller'
 import { authenticate } from '../middleware/authenticate'
 import { authorize } from '../middleware/authorize'
 
@@ -37,3 +44,14 @@ payrollRouter.post(
 payrollRouter.get('/employees', authorize('payroll:structure:read'), getSalaryRoster)
 payrollRouter.get('/employees/:id/salary', authorize('payroll:structure:read'), getSalaryHistory)
 payrollRouter.put('/employees/:id/salary', authorize('payroll:structure:manage'), putSalary)
+
+// TDS, manual mode (Day 16): the accountant's call, so the same right as a salary.
+payrollRouter.get('/tds-directives', authorize('payroll:structure:read'), getTdsDirectives)
+payrollRouter.put('/tds-directives', authorize('payroll:structure:manage'), putTdsDirective)
+
+// Incentive and any other monthly component: "an authorised role (HR/Accounts)
+// sets the amount per employee per month" (§A1.5) — its own permission,
+// because HR holds it without holding anything else in payroll.
+payrollRouter.get('/monthly-entries', authorize('payroll:entry:manage'), getMonthlyEntries)
+payrollRouter.put('/monthly-entries', authorize('payroll:entry:manage'), putMonthlyEntry)
+payrollRouter.delete('/monthly-entries/:id', authorize('payroll:entry:manage'), deleteMonthlyEntry)

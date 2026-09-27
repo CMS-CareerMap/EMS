@@ -150,10 +150,12 @@ beforeAll(async () => {
   const other = await prisma.organization.create({ data: { name: `${PREFIX}-other` } })
   otherOrgId = other.id
 
-  // Statutory defaults: PF 12% / 12% restricted to ₹15,000, ESI 0.75% / 3.25%
-  // up to ₹21,000.
+  // Statutory defaults — PF 12% / 12%, ESI 0.75% / 3.25% up to ₹21,000 —
+  // except the PF ceiling, pinned at ₹15,000: every figure below was worked
+  // out before the September 2026 revision to ₹25,000, which has tests of its
+  // own in payrollRun.test.ts.
   await prisma.organizationPolicy.create({
-    data: { organizationId: orgId, effectiveFrom: new Date('2020-04-01T00:00:00Z') },
+    data: { organizationId: orgId, effectiveFrom: new Date('2020-04-01T00:00:00Z'), pfWageCeiling: 15_000 },
   })
 
   for (const c of [

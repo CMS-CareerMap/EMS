@@ -3,12 +3,15 @@ import { NotFound, BadRequest, Conflict } from '../../platform/errors/AppError'
 import {
   computeSalary,
   daysInMonth,
-  employmentDaysInMonth,
+  employmentWindow,
   type SalaryResult,
   type SalaryComponentValue,
 } from '../../domain/payroll/salary'
+import { monthCalendar, proration, type LopBasis } from '../../domain/payroll/payDays'
 import { isEpsMember, type Gender, type PtSlabRule } from '../../domain/payroll/statutory'
-import { toDateColumn, fromDateColumn } from '../../domain/shared/dates'
+import type { Weekday } from '../../domain/leave/leaveDays'
+import { toDateColumn, fromDateColumn, type CalendarDate } from '../../domain/shared/dates'
+import { listDaysOff } from '../holidays/holidays.repository'
 import { coverageFor, type Coverage } from './esiCoverage.service'
 import * as repo from './payroll.repository'
 
@@ -23,18 +26,20 @@ import * as repo from './payroll.repository'
  * domain, or it was wrong in the data; it is never wrong HERE, because nothing
  * here computes anything.
  *
- * WHAT IS DELIBERATELY NOT HERE YET (Day 16):
+ * WHAT ARRIVES AS AN INPUT, and why:
  *
- *   · Loss of pay. `lopDays` is an input, defaulting to zero, because deciding
- *     it needs attendance, approved leave and a sandwich-rule policy — none of
- *     which belong in the salary engine.
- *   · TDS. Entered by hand per employee per month in v1. An input, default 0.
- *   · Where monthly entries are STORED. Incentive is entered per employee per
- *     month (§A1.5); Day 16 records it in EmployeeIncentive. Until then it
- *     arrives here as `monthlyAmounts`, exactly as LOP and TDS do.
- *   · Persisting anything but the ESI decision. This calculates; the payroll
- *     RUN is what snapshots a payslip, and a preview must never masquerade as
- *     one.
+ *   · Loss of pay. `lopDays` is a number here. Deciding it needs attendance,
+ *     approved leave and the sandwich rule — the payroll run works it out
+ *     (payrollRun.service), and the preview takes whatever it is given.
+ *   · TDS. The accountant's directive for the month, looked up by the run.
+ *   · Monthly entries such as Incentive, recorded per employee per month and
+ *     handed over by the run as `monthlyAmounts`.
+ *
+ * The one thing it does decide is how a day is counted — the company's LOP
+ * basis — so the preview and the run can never prorate differently.
+ *
+ * It persists nothing but the ESI decision. The payroll RUN is what snapshots a
+ * payslip, and a preview must never masquerade as one.
  */
 
 export interface CalculationOptions {
@@ -44,10 +49,16 @@ export interface CalculationOptions {
   tds?: number
   /**
    * Amounts entered for this month against `monthly` components, keyed by
-   * component code — `{ INCENTIVE: 5000 }`. Day 16 supplies these from
-   * EmployeeIncentive. A component with nothing entered has no line at all.
+   * component code — `{ INCENTIVE: 5000 }`. The run supplies these from
+   * EmployeeMonthlyEntry. A component with nothing entered has no line at all.
    */
   monthlyAmounts?: Record<string, number>
+  /**
+   * The month's declared days off, when the caller already has them. A run
+   * reads them once for everybody instead of once a person. Only the
+   * working-days basis needs them.
+   */
+  holidays?: readonly CalendarDate[]
 }
 
 export interface Calculation {
@@ -71,6 +82,26 @@ export interface Calculation {
     salaryEffectiveFrom: string
     policyEffectiveFrom: string
     employmentDays: number
+    lopDays: number
+    /** employmentDays − lopDays: what the payslip says was paid for. */
+    paidDays: number
+    /** How the pay was prorated: payableDays out of payBasisDays. */
+    lopBasis: LopBasis
+    payBasisDays: number
+    payableDays: number
+    /** The rates in force, as they were — a payslip must say what it used. */
+    rates: {
+      pfEmployeeRate: number
+      pfEmployerRate: number
+      pfRestrictToCeiling: boolean
+      pfWageCeiling: number
+      epsWageCeiling: number
+      esiEmployeeRate: number
+      esiEmployerRate: number
+      esiThreshold: number
+    }
+    /** Each fixed component's full-month amount, by code — a payslip's "rate" column. */
+    fixedRates: Record<string, number>
     esi: Coverage
     epsMember: boolean
     ptState: string | null
@@ -128,9 +159,9 @@ export async function calculate(
   const lastWorkingDate = employee.lastWorkingDate ? fromDateColumn(employee.lastWorkingDate) : null
 
   const total = daysInMonth(year, month)
-  const employmentDays = employmentDaysInMonth({ year, month, dateOfJoining, lastWorkingDate })
+  const window = employmentWindow({ year, month, dateOfJoining, lastWorkingDate })
 
-  if (employmentDays === 0) {
+  if (!window) {
     // Joined after the month, or left before it. Not a zero payslip — there is
     // no payslip, and a figure of zero would look like one.
     throw BadRequest(`${employee.fullName} was not employed in ${label}`)
@@ -151,6 +182,7 @@ export async function calculate(
   // nobody has decided, and guessing at one would give a figure no accountant
   // could reproduce.
   const monthStart = `${label}-01`
+  const monthEnd = `${label}-${String(total).padStart(2, '0')}`
   const firstEmployedDay = toDateColumn(
     dateOfJoining && dateOfJoining > monthStart ? dateOfJoining : monthStart,
   )
@@ -191,6 +223,8 @@ export async function calculate(
     warnings.push('The salary record has no components, so every figure is zero.')
   }
 
+  const fixedRates = Object.fromEntries(components.map((c) => [c.code, c.amount]))
+
   const entered = Object.entries(options.monthlyAmounts ?? {})
   if (entered.length > 0) {
     const catalogue = new Map(
@@ -222,10 +256,33 @@ export async function calculate(
     }
   }
 
+  // The working-days basis needs the calendar's holidays; the other two only
+  // need to know how long the month is and which of it they were employed.
+  const holidays =
+    policy.lopBasis === 'working_days'
+      ? (options.holidays ??
+        (await listDaysOff(ctx.db, toDateColumn(monthStart), toDateColumn(monthEnd))).map((h) =>
+          fromDateColumn(h.date),
+        ))
+      : []
+  const calendar = monthCalendar({
+    year,
+    month,
+    weeklyOffDays: policy.weeklyOffDays as Weekday[],
+    holidays,
+  })
+
   const lopDays = options.lopDays ?? 0
+  const days = proration({ lopBasis: policy.lopBasis, calendar, window, lopDays })
+  const employmentDays = days.employmentDays
+
   if (lopDays < 0) throw BadRequest('Loss-of-pay days cannot be negative')
   if (lopDays > employmentDays) {
     throw BadRequest(`Loss-of-pay days (${lopDays}) exceed the ${employmentDays} days employed`)
+  }
+
+  if (days.fellBackToCalendar) {
+    warnings.push('The calendar has no working days this month, so pay was divided by calendar days instead.')
   }
 
   const identity = employee.statutoryIdentity
@@ -266,6 +323,7 @@ export async function calculate(
     dateOfJoining: employee.dateOfJoining ? fromDateColumn(employee.dateOfJoining) : null,
     pfWagesAtJoining: pfWagesOf(first),
     hasPriorMembership: identity?.hasPriorPfMembership ?? false,
+    epsWageCeiling: Number(policy.epsWageCeiling),
   })
 
   if (pfApplicable && identity?.hasPriorPfMembership == null && !epsMember) {
@@ -278,8 +336,9 @@ export async function calculate(
 
   const result = computeSalary({
     components,
-    paidDays: employmentDays - lopDays,
+    paidDays: days.paidDays,
     daysInMonth: total,
+    proration: { payable: days.payableDays, basis: days.payBasisDays },
     year,
     month,
     pf: {
@@ -288,6 +347,7 @@ export async function calculate(
       employerRate: Number(policy.pfEmployerRate),
       restrictToCeiling: policy.pfRestrictToCeiling,
       wageCeiling: Number(policy.pfWageCeiling),
+      epsWageCeiling: Number(policy.epsWageCeiling),
       epsMember,
     },
     esi: {
@@ -316,6 +376,22 @@ export async function calculate(
       salaryEffectiveFrom: fromDateColumn(financial.effectiveFrom),
       policyEffectiveFrom: fromDateColumn(policy.effectiveFrom),
       employmentDays,
+      lopDays,
+      paidDays: days.paidDays,
+      lopBasis: days.lopBasis,
+      payBasisDays: days.payBasisDays,
+      payableDays: days.payableDays,
+      rates: {
+        pfEmployeeRate: Number(policy.pfEmployeeRate),
+        pfEmployerRate: Number(policy.pfEmployerRate),
+        pfRestrictToCeiling: policy.pfRestrictToCeiling,
+        pfWageCeiling: Number(policy.pfWageCeiling),
+        epsWageCeiling: Number(policy.epsWageCeiling),
+        esiEmployeeRate: Number(policy.esiEmployeeRate),
+        esiEmployerRate: Number(policy.esiEmployerRate),
+        esiThreshold: Number(policy.esiThreshold),
+      },
+      fixedRates,
       esi,
       epsMember,
       ptState,

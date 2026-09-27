@@ -54,6 +54,7 @@ model SalaryComponent {
   /// a row goes, so deleting a whole organization could trip it mid-cascade;
   /// NoAction waits until the statement finishes and both rows are gone.
   employeeAmounts EmployeeSalaryComponent[]
+  monthlyEntries  EmployeeMonthlyEntry[]
 
   @@unique([organizationId, code])
   @@index([organizationId, archivedAt])
@@ -146,4 +147,245 @@ model EmployeeSalaryComponent {
   /// answered from another company's rows. It also serves as the index for
   /// "this salary record's components", so no separate index is needed.
   @@unique([organizationId, employeeFinancialId, salaryComponentId])
+}
+
+/// One month's payroll for the whole company.
+///
+/// A run is what turns calculations into payslips. Before it, every figure is
+/// a preview; after it, each payslip is a snapshot that no later change to a
+/// salary, a rate or an attendance row can reach.
+///
+/// One per month. A second run for the same month would be two sets of
+/// payslips for one period, and nobody could say which was paid. A draft that
+/// is wrong is recalculated or discarded — never run a second time beside it.
+model PayrollRun {
+  id             String @id @default(uuid())
+  organizationId String
+
+  year  Int
+  /// 1–12.
+  month Int
+
+  status PayrollRunStatus @default(draft)
+
+  /// The day-counting rules the run used, as they stood. Also on every
+  /// payslip; here so the run can be read without opening one.
+  lopBasis     LopBasis
+  sandwichRule Boolean
+
+  /// Totals over the payslips, written in the same transaction as they are.
+  employeeCount   Int
+  grossEarnings   Decimal @db.Decimal(14, 2)
+  totalDeductions Decimal @db.Decimal(14, 2)
+  netPayable      Decimal @db.Decimal(14, 2)
+  employerPf      Decimal @db.Decimal(14, 2)
+  employerEsi     Decimal @db.Decimal(14, 2)
+
+  /// About the run as a whole — who was left out of it, and why.
+  warnings String[] @default([])
+
+  createdByUserId String?
+  /// When the payslips were last worked out. A recalculated draft moves this;
+  /// createdAt stays the day the run was opened.
+  calculatedAt    DateTime @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  payslips     Payslip[]
+
+  @@unique([organizationId, year, month])
+}
+
+/// Where a run is in its life. Day 17 enforces the moves between them; until
+/// then every run is a draft.
+enum PayrollRunStatus {
+  /// Calculated, not yet signed off. Can be recalculated or discarded.
+  draft
+  /// Signed off. Nothing about the month changes any more.
+  approved
+  /// Money sent. The payslips are statutory records from here on.
+  paid
+}
+
+/// One employee's pay for one month, as it was calculated.
+///
+/// EVERYTHING IS COPIED, nothing is looked up. The name, the days, each line,
+/// every rate the figures rested on: a payslip that joined to the current
+/// salary or the current policy would silently start saying something else the
+/// first time either changed.
+model Payslip {
+  id             String @id @default(uuid())
+  organizationId String
+  payrollRunId   String
+  employeeId     String
+
+  year  Int
+  month Int
+
+  /// Who they were that month. A later rename or promotion must not rewrite a
+  /// payslip that has already been issued.
+  employeeCode String
+  employeeName String
+  designation  String?
+  department   String?
+
+  /// The calendar facts, in days.
+  daysInMonth    Int
+  /// Days of the month inside their employment — the whole month, unless they
+  /// joined or left during it.
+  employmentDays Int
+  /// Days of loss of pay, from attendance and unpaid leave. Half days are real.
+  lopDays        Decimal @db.Decimal(4, 1)
+  /// employmentDays − lopDays. What the payslip says was paid for.
+  paidDays       Decimal @db.Decimal(4, 1)
+  /// Non-contributing period days, for the EPFO return: days of their
+  /// employment this month for which no wages were paid.
+  ncpDays        Decimal @db.Decimal(4, 1)
+
+  /// How the pay was prorated: payableDays out of payBasisDays, on this basis.
+  /// On a calendar basis they are simply paidDays out of daysInMonth.
+  lopBasis     LopBasis
+  payBasisDays Int
+  payableDays  Decimal @db.Decimal(4, 1)
+
+  grossEarnings   Decimal @db.Decimal(12, 2)
+  pfWages         Decimal @db.Decimal(12, 2)
+  employeePf      Decimal @db.Decimal(12, 2)
+  employeeEsi     Decimal @db.Decimal(12, 2)
+  professionalTax Decimal @db.Decimal(12, 2)
+  tds             Decimal @db.Decimal(12, 2)
+  otherDeductions Decimal @db.Decimal(12, 2)
+  totalDeductions Decimal @db.Decimal(12, 2)
+  /// Can be negative, and is kept that way: a negative net is a problem for a
+  /// person to look at, and a zero would hide it.
+  netPayable      Decimal @db.Decimal(12, 2)
+
+  /// What the company paid on top, which never reaches the employee's net.
+  employerPf  Decimal @db.Decimal(12, 2)
+  employerEps Decimal @db.Decimal(12, 2)
+  employerEpf Decimal @db.Decimal(12, 2)
+  employerEsi Decimal @db.Decimal(12, 2)
+
+  /// Every fact the figures rested on — which salary record, which policy,
+  /// the rates, the ESI decision, EPS membership, the PT state, the TDS
+  /// directive — so "why is my PF ₹1,800?" has an answer years later.
+  basis    Json
+  /// What the calculation had to assume around. Read before approving.
+  warnings String[] @default([])
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// Cascade: discarding a draft run takes its payslips with it. A run that is
+  /// not a draft cannot be discarded, which the service enforces.
+  run          PayrollRun   @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  /// NoAction: a payslip is a statutory record, and deleting the employee must
+  /// not delete it. NoAction rather than Restrict so that deleting a whole
+  /// organization can still cascade through both.
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: NoAction)
+  lines        PayslipLine[]
+
+  @@unique([organizationId, payrollRunId, employeeId])
+  @@index([organizationId, employeeId, year, month])
+}
+
+/// One earning or deduction on a payslip, exactly as it was printed.
+model PayslipLine {
+  id             String @id @default(uuid())
+  organizationId String
+  payslipId      String
+
+  kind  ComponentType
+  code  String
+  label String
+
+  /// The full month's rate, for a line that was prorated from one. Null for an
+  /// amount that is not a rate — a monthly entry, a statutory deduction.
+  rate   Decimal? @db.Decimal(12, 2)
+  amount Decimal  @db.Decimal(12, 2)
+
+  displayOrder Int
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  payslip      Payslip      @relation(fields: [payslipId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, payslipId])
+}
+
+/// How much income tax to deduct from one employee each month — entered by
+/// the accountant, never computed.
+///
+/// Manual mode, for v1 (guide, Day 16). A computed TDS engine with
+/// declarations and Form 16 is explicitly out of scope; this is what lets the
+/// company pay people lawfully without one. A run cannot start until everybody
+/// in it has a directive for the month — including an explicit ₹0, with the
+/// reason written down, so that no tax is ever skipped by omission.
+///
+/// Per financial year. A directive never carries into the next year: the tax
+/// on a salary is an annual calculation, and last year's answer is not this
+/// year's.
+model EmployeeTdsDirective {
+  id             String @id @default(uuid())
+  organizationId String
+  employeeId     String
+
+  /// The financial year, by the calendar year it starts in: 2026 is 2026–27.
+  financialYear Int
+  /// The first day of the month it applies from, until a later one replaces it.
+  effectiveFrom DateTime @db.Date
+
+  monthlyAmount Decimal @db.Decimal(12, 2)
+  /// Required for ₹0 — "below the taxable limit under the new regime" — so a
+  /// zero is a decision on record rather than a blank.
+  reason        String?
+
+  enteredByUserId String?
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  /// One directive per employee per month it starts in. Entering another for
+  /// the same month corrects it; the audit log keeps what it said before.
+  @@unique([organizationId, employeeId, effectiveFrom])
+  @@index([organizationId, financialYear])
+}
+
+/// An amount entered for one employee for one month, against a component
+/// whose entry is `monthly`.
+///
+/// The guide calls this EmployeeIncentive, and Incentive is the only monthly
+/// component the client has. It takes any of them, because the catalogue
+/// already can: a second one added in Settings should need no new table.
+///
+/// Never computed, never guessed, never carried forward. No row means no line
+/// on the payslip — not a line reading zero.
+model EmployeeMonthlyEntry {
+  id                String @id @default(uuid())
+  organizationId    String
+  employeeId        String
+  salaryComponentId String
+
+  year  Int
+  month Int
+
+  /// Paid as entered: not prorated, whatever the attendance.
+  amount Decimal @db.Decimal(12, 2)
+  note   String?
+
+  enteredByUserId String?
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  /// NoAction, as for salary amounts: a component somebody was paid under
+  /// cannot be deleted out from under the record of it.
+  component    SalaryComponent @relation(fields: [salaryComponentId], references: [id], onDelete: NoAction)
+
+  @@unique([organizationId, employeeId, salaryComponentId, year, month])
+  @@index([organizationId, year, month])
 }

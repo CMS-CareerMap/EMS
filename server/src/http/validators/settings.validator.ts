@@ -73,6 +73,7 @@ export const policySchema = z
     pfEmployerRate: rate.optional(),
     pfRestrictToCeiling: z.boolean().optional(),
     pfWageCeiling: money.optional(),
+    epsWageCeiling: money.optional(),
 
     esiEmployeeRate: rate.optional(),
     esiEmployerRate: rate.optional(),
@@ -97,6 +98,11 @@ export const policySchema = z
 
     leaveYearStartMonth: z.number().int().min(1).max(12).optional(),
     fiscalYearStartMonth: z.number().int().min(1).max(12).optional(),
+
+    /** What one day's pay is: gross ÷ calendar days, ÷ 30, or ÷ working days. */
+    lopBasis: z.enum(['calendar_days', 'fixed_30', 'working_days']).optional(),
+    /** Whether an off day between two days of loss of pay is unpaid too. */
+    sandwichRule: z.boolean().optional(),
   })
   .strict()
 
