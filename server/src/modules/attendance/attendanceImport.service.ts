@@ -7,6 +7,7 @@ import { isCalendarDate, parseWallClock, toDateColumn, zonedToday } from '../../
 import { hoursBetweenWallClock, classifyDay } from '../../domain/attendance/hours'
 import * as repo from './attendance.repository'
 import { companyTimezone } from '../organization/organization.service'
+import { closedMonthKeys } from '../payroll/payrollLock.service'
 import { audit } from '../audit/audit.service'
 
 /**
@@ -140,6 +141,9 @@ export async function importAttendance(
 
   const zone = await companyTimezone(ctx)
   const today = zonedToday(new Date(), zone)
+  // Months whose payroll is signed off. Their days are reported line by line,
+  // so the rest of the file can still go in.
+  const closed = await closedMonthKeys(ctx)
 
   const employees = await repo.importableEmployees(ctx.db)
   const byCode = new Map(employees.map((e) => [e.employeeCode.toLowerCase(), e]))
@@ -187,6 +191,11 @@ export async function importAttendance(
       })
     } else if (date > today) {
       issues.push({ field: 'date', message: 'That day has not happened yet' })
+    } else if (closed.has(date.slice(0, 7))) {
+      issues.push({
+        field: 'date',
+        message: `Payroll for that month is already ${closed.get(date.slice(0, 7))}, so its attendance can no longer change`,
+      })
     }
 
     const start = rawIn ? parseTime(rawIn) : null

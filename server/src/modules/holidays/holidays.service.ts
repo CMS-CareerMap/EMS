@@ -5,6 +5,7 @@ import { toDateColumn, fromDateColumn, type CalendarDate } from '../../domain/sh
 import { logger } from '../../platform/logger'
 import * as repo from './holidays.repository'
 import { withAudit } from '../audit/audit.service'
+import { assertDaysOpen } from '../payroll/payrollLock.service'
 
 /**
  * The holiday calendar.
@@ -45,6 +46,9 @@ export async function add(ctx: AppContext, input: HolidayInput) {
   const same = await repo.findSame(ctx.db, date, name)
   if (same) throw Conflict(`"${same.name}" is already on ${input.date}`)
 
+  // A holiday decides which days are paid as days off.
+  await assertDaysOpen(ctx, [input.date], 'a holiday on that day')
+
   const holiday = await withAudit(
     ctx,
     (tx) => repo.create(tx, ctx.organizationId, { date, name, type: input.type as HolidayType }),
@@ -64,6 +68,9 @@ export async function edit(ctx: AppContext, id: string, input: Partial<HolidayIn
 
   const same = await repo.findSame(ctx.db, date, name)
   if (same && same.id !== id) throw Conflict(`"${same.name}" is already on that day`)
+
+  // Both days: the one it leaves and the one it moves to.
+  await assertDaysOpen(ctx, [fromDateColumn(existing.date), fromDateColumn(date)], 'moving this holiday')
 
   const holiday = await withAudit(
     ctx,
@@ -96,6 +103,8 @@ export async function edit(ctx: AppContext, id: string, input: Partial<HolidayIn
 export async function remove(ctx: AppContext, id: string) {
   const existing = await repo.findById(ctx.db, id)
   if (!existing) throw NotFound('That holiday does not exist')
+
+  await assertDaysOpen(ctx, [fromDateColumn(existing.date)], 'removing this holiday')
 
   await withAudit(
     ctx,

@@ -14,6 +14,7 @@ import * as repo from './attendance.repository'
 import { withTransaction } from '../../platform/db/transaction'
 import { audit } from '../audit/audit.service'
 import { companyTimezone } from '../organization/organization.service'
+import { assertDaysOpen } from '../payroll/payrollLock.service'
 
 /**
  * Attendance as HR sees it: other people's days.
@@ -164,6 +165,9 @@ export async function markAttendance(ctx: AppContext, input: MarkInput) {
   if (input.date > today) {
     throw BadRequest('You cannot mark attendance for a day in the future.')
   }
+
+  // A day inside an approved or paid payroll is part of a signed-off month.
+  await assertDaysOpen(ctx, [input.date], 'a change to attendance on that day')
 
   const employee = await repo.findEmployeeWithShift(ctx.db, input.employeeId)
   if (!employee) throw NotFound('Employee not found')

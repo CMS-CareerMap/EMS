@@ -298,3 +298,24 @@ describe('monthly entries — Incentive', () => {
     expect(roleCan('hr', 'employee:compensation:read')).toBe(false)
   })
 })
+
+describe('payslips', () => {
+  it('are readable by every role — each person their own', () => {
+    for (const role of ROLES) expect(roleCan(role, 'payslip:read'), role).toBe(true)
+  })
+
+  it('reach the whole company only for payroll staff; everybody else sees their own', () => {
+    const wide = ROLES.filter((role) => scopeFor(role, 'payslip') === 'ORGANIZATION')
+    expect(wide.sort()).toEqual(['accounts', 'super_admin'])
+    for (const role of ['admin', 'hr', 'manager', 'rm', 'employee'] as const) {
+      expect(scopeFor(role, 'payslip'), role).toBe('SELF')
+    }
+  })
+
+  it('are signed off by the approver, not by whoever prepared them', () => {
+    // Accounts prepares the run and records the payment; approving it is a
+    // separate right, so one person does not both prepare and sign.
+    expect(ROLES.filter((role) => roleCan(role, 'payroll:run:approve'))).toEqual(['super_admin'])
+    expect(roleCan('accounts', 'payroll:run:create')).toBe(true)
+  })
+})

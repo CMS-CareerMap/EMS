@@ -9,6 +9,7 @@ import * as attendanceRepo from '../attendance/attendance.repository'
 import { getCurrentPolicy } from '../settings/settings.repository'
 import { listDaysOff } from '../holidays/holidays.repository'
 import { audit } from '../audit/audit.service'
+import { assertMonthsOpen, monthsBetween } from '../payroll/payrollLock.service'
 
 /**
  * Deciding on leave.
@@ -65,6 +66,11 @@ export async function approveLeave(
 
   const from = fromDateColumn(request.fromDate)
   const to = fromDateColumn(request.toDate)
+
+  // Approving turns absent days into leave, and unpaid leave into loss of pay:
+  // either way it changes what a signed-off month should have paid.
+  await assertMonthsOpen(ctx, monthsBetween(from, to), 'approving this leave')
+
   const settings = await leaveSettings(ctx, from, to)
 
   await withTransaction(ctx.db, async (tx) => {
@@ -218,6 +224,12 @@ export async function reverseLeave(
   if (request.status !== 'approved') {
     throw Conflict(`Only approved leave can be reversed. That request is ${request.status}.`)
   }
+
+  await assertMonthsOpen(
+    ctx,
+    monthsBetween(fromDateColumn(request.fromDate), fromDateColumn(request.toDate)),
+    'reversing this leave',
+  )
 
   await withTransaction(ctx.db, async (tx) => {
     // Reversed only if still approved — one statement, so two reversals cannot

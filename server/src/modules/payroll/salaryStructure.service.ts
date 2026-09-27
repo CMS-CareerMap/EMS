@@ -11,6 +11,7 @@ import { withTransaction } from '../../platform/db/transaction'
 import { lockFor } from '../../platform/db/locks'
 import * as repo from './salaryStructure.repository'
 import { audit } from '../audit/audit.service'
+import { assertOpenFrom } from './payrollLock.service'
 
 /**
  * Setting what somebody is paid.
@@ -126,6 +127,10 @@ export async function setSalary(ctx: AppContext, employeeId: string, input: Sala
   if (earnings <= 0) {
     throw BadRequest('A salary needs at least one earning above zero')
   }
+
+  // A salary holds from its date until the next one, so every month from then
+  // on is what it changes.
+  await assertOpenFrom(ctx, input.effectiveFrom, 'a salary starting from that date')
 
   const kind = await withTransaction(ctx.db, async (tx) => {
     // One change to a person's salary at a time. Read outside a transaction,

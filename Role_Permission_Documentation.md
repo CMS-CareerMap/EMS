@@ -157,6 +157,7 @@ This document defines who can access what in the Employee Management System (EMS
 | **Attendance** | View own records only |
 | **Leave** | Apply for leave, view own requests, view holidays |
 | **Documents** | Upload own documents, view verification status |
+| **Payslips** | View and download own payslips, once the month is paid |
 
 **Cannot:** View other employees' data, approve anything, access payroll/reports/settings.
 **Can delete:** Only own pending leave requests.
@@ -175,7 +176,7 @@ The database enforces row-level security even if the frontend is bypassed.
 | leave_balances | All | ❌ | All | Own | ❌ | Own |
 | salary_structures | All | ❌ | ❌ | ❌ | All | Own |
 | payroll_runs | All | ❌ | ❌ | ❌ | All | ❌ |
-| payslips | All | ❌ | ❌ | ❌ | All | Own |
+| payslips | All | Own | Own | Own | All | Own |
 | documents | All | All | All | All | All | All |
 | employee_documents | All | All | All | ❌ | ❌ | Own |
 | holidays | All | All | All | All | All | All |
@@ -219,8 +220,14 @@ Employee uploads file → HR/Admin reviews → Verify or Reject (with remarks)
 
 ```
 Accounts creates salary structure → Creates payroll run (draft)
-  → Auto-generates payslips → Updates status: draft → approved → paid
+  → Auto-generates payslips → Super Admin approves → Accounts marks paid
 ```
+
+- **Approve** is Super Admin's (`payroll:run:approve`), so one person does not both prepare and sign. Before approving, the system recalculates the month and refuses if any payslip would come out differently. Days counted as paid with no attendance must be confirmed.
+- **Reopen** (approved → draft) is also Super Admin's, until the payslip lock day of the following month.
+- **Mark paid** is Accounts'. It stores every payslip as a PDF with a SHA-256 hash. A paid payroll cannot be changed.
+- Once a month is approved, its attendance, leave decisions, holidays, salaries, PT tables, ESI decisions, TDS and incentives can no longer be changed.
+- Everybody sees their own payslips (paid months only). Accounts and Super Admin see everyone's.
 
 ### Employee Onboarding
 

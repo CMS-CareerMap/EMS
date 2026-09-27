@@ -14,6 +14,7 @@ import { daysInMonth, employmentWindow, type EmploymentWindow } from '../../doma
 import { leaveDaysIn, lossOfPay, monthCalendar, type LossOfPay } from '../../domain/payroll/payDays'
 import { directiveFor, financialYearLabel, financialYearOf } from '../../domain/payroll/tds'
 import { runTotals } from '../../domain/payroll/run'
+import { transition, type RunAction, type RunStatus } from '../../domain/payroll/runStatus'
 import type { Weekday } from '../../domain/leave/leaveDays'
 import { fromDateColumn, toDateColumn, monthKey, monthName, type CalendarDate } from '../../domain/shared/dates'
 
@@ -53,7 +54,7 @@ export interface Blocker {
 
 type DatedDirective = Omit<DirectiveRow, 'effectiveFrom'> & { effectiveFrom: CalendarDate }
 
-interface Person {
+export interface Person {
   employee: repo.MonthEmployee
   window: EmploymentWindow
   /** Null when no policy was in force — the run is blocked, and there is nothing to count days by. */
@@ -64,7 +65,7 @@ interface Person {
   warnings: string[]
 }
 
-interface MonthPlan {
+export interface MonthPlan {
   year: number
   month: number
   /** The rules the run is labelled with — those in force on the earliest day anybody in it was employed. */
@@ -102,18 +103,18 @@ function dayList(days: readonly CalendarDate[], year: number, month: number): st
   return `${joined} ${monthName(year, month)}`
 }
 
-const who = (employee: repo.MonthEmployee) => ({
+export const who = (employee: repo.MonthEmployee) => ({
   id: employee.id,
   employeeCode: employee.employeeCode,
   fullName: employee.fullName,
 })
 
-const runLock = (ctx: AppContext, year: number, month: number) =>
+export const runLock = (ctx: AppContext, year: number, month: number) =>
   `payroll-run:${ctx.organizationId}:${monthKey(year, month)}`
 
 // ── 1. Plan ─────────────────────────────────────────────────────────────────
 
-async function planMonth(ctx: AppContext, year: number, month: number): Promise<MonthPlan> {
+export async function planMonth(ctx: AppContext, year: number, month: number): Promise<MonthPlan> {
   const key = monthKey(year, month)
   const monthStart = `${key}-01`
   const monthEnd = `${key}-${String(daysInMonth(year, month)).padStart(2, '0')}`
@@ -328,6 +329,9 @@ function toPayslip(person: Person, lop: LossOfPay, directive: DatedDirective, ca
     employeeName: person.employee.fullName,
     designation: person.employee.designation?.name ?? null,
     department: person.employee.department?.name ?? null,
+    dateOfJoining: person.employee.dateOfJoining,
+    country: person.employee.country,
+    currency: person.employee.currency,
 
     daysInMonth: r.daysInMonth,
     employmentDays: b.employmentDays,
@@ -380,14 +384,17 @@ function toPayslip(person: Person, lop: LossOfPay, directive: DatedDirective, ca
       })),
       // Only the days that cost something, each with why.
       lossOfPay: lop.days.filter((day) => day.lop > 0).map((day) => ({ ...day })),
+      // The days counted as paid on no record at all — what approval asks about.
       unmarkedDays: lop.unmarked,
+      daysNotYetHappened: lop.notYet,
+      markedLeaveWithoutRequest: lop.markedLeave,
     },
     warnings: [...b.warnings, ...person.warnings],
     lines,
   }
 }
 
-async function buildPayslips(ctx: AppContext, plan: MonthPlan): Promise<repo.NewPayslip[]> {
+export async function buildPayslips(ctx: AppContext, plan: MonthPlan): Promise<repo.NewPayslip[]> {
   if (plan.blockers.length > 0) throw blocked(plan.year, plan.month, plan.blockers)
 
   const results = await inBatches(plan.people, CONCURRENCY, async (person) => {
@@ -434,6 +441,12 @@ function runValues(plan: MonthPlan, payslips: readonly repo.NewPayslip[]): repo.
 }
 
 // ── 3. Write ────────────────────────────────────────────────────────────────
+
+/** Refuses an action the run's status does not allow, in the state machine's words. */
+export function assertCan(run: { year: number; month: number; status: RunStatus }, action: RunAction): void {
+  const t = transition(run.status, action)
+  if (!t.ok) throw Conflict(`The ${monthName(run.year, run.month)} payroll: ${t.reason}`)
+}
 
 function alreadyExists(run: { status: string }, year: number, month: number) {
   return Conflict(
@@ -498,9 +511,7 @@ export async function createRun(ctx: AppContext, year: number, month: number) {
 export async function recalculateRun(ctx: AppContext, id: string) {
   const run = await repo.findRun(ctx.db, id)
   if (!run) throw NotFound('Payroll run not found')
-  if (run.status !== 'draft') {
-    throw Conflict(`The ${monthName(run.year, run.month)} run is ${run.status}. Only a draft can be recalculated.`)
-  }
+  assertCan(run, 'recalculate')
 
   const plan = await planMonth(ctx, run.year, run.month)
   if (plan.people.length === 0) {
@@ -513,9 +524,7 @@ export async function recalculateRun(ctx: AppContext, id: string) {
     await lockFor(tx, runLock(ctx, run.year, run.month))
     const current = await repo.findRunForMonth(tx, run.year, run.month)
     if (!current || current.id !== id) throw NotFound('Payroll run not found')
-    if (current.status !== 'draft') {
-      throw Conflict(`The ${monthName(run.year, run.month)} run is ${current.status}. Only a draft can be recalculated.`)
-    }
+    assertCan(current, 'recalculate')
 
     await repo.deletePayslipsOf(tx, id)
     await repo.updateRun(tx, id, values)
@@ -553,8 +562,9 @@ export async function discardRun(ctx: AppContext, id: string): Promise<void> {
     await lockFor(tx, runLock(ctx, run.year, run.month))
     const current = await repo.findRunForMonth(tx, run.year, run.month)
     if (!current || current.id !== id) throw NotFound('Payroll run not found')
-    if (current.status !== 'draft' || (await repo.deleteDraftRun(tx, id)) === 0) {
-      throw Conflict(`The ${monthName(run.year, run.month)} run is ${current.status} and cannot be discarded.`)
+    assertCan(current, 'discard')
+    if ((await repo.deleteDraftRun(tx, id)) === 0) {
+      throw Conflict('Somebody changed this payroll a moment ago. Refresh to see where it stands.')
     }
 
     await audit(ctx, {

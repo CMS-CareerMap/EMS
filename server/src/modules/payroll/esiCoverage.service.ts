@@ -5,6 +5,7 @@ import { logger } from '../../platform/logger'
 import { NotFound } from '../../platform/errors/AppError'
 import * as repo from './payroll.repository'
 import { isUniqueViolation } from '../../platform/db/errors'
+import { assertMonthsOpen, monthsBetween } from './payrollLock.service'
 
 /**
  * Who is covered by ESI, decided ONCE per contribution period.
@@ -219,6 +220,9 @@ export async function redecide(
 
   const visible = await repo.findEmployee(ctx.db, employeeId)
   if (!visible) throw NotFound('Employee not found')
+
+  // The decision covers six months; if any of them is signed off, it stands.
+  await assertMonthsOpen(ctx, monthsBetween(period.start, period.end), 'deciding this ESI period again')
 
   const previous = await repo.findCoverage(ctx.db, employeeId, periodStart)
 
