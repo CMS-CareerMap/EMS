@@ -106,6 +106,7 @@ function policyPayload(policy: Policy) {
     fiscal_year_start_month: policy.fiscalYearStartMonth,
     lop_basis: policy.lopBasis,
     sandwich_rule: policy.sandwichRule,
+    tds_enabled: policy.tdsEnabled,
     effective_from: fromDateColumn(policy.effectiveFrom),
   }
 }

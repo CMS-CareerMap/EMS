@@ -33,27 +33,19 @@ const base: PayslipViewInput = {
   deductions: [
     { label: 'Provident Fund', amount: 2384 },
     { label: 'Professional Tax', amount: 200 },
-    { label: 'Income Tax (TDS)', amount: 1500 },
   ],
-  totals: { gross: 33903.23, deductions: 4084, net: 29819.23 },
+  // The client deducts no income tax through payroll (TDS off in Settings).
+  totals: { gross: 33903.23, deductions: 2584, net: 31319.23 },
   employerContributions: { eps: 1250, epf: 1134, esi: 0 },
-}
-
-/** Outside India there is no PF or PT; only what payroll recorded, such as income tax. */
-const abroad: PayslipViewInput = {
-  ...base,
-  identifiers: { uan: null, pfMemberId: null, esicNumber: null, pan: null },
-  deductions: [{ label: 'Income Tax', amount: 1500 }],
-  totals: { gross: 33903.23, deductions: 1500, net: 32403.23 },
-  employerContributions: { eps: 0, epf: 0, esi: 0 },
 }
 
 async function main() {
   const samples: [string, PayslipViewInput][] = [
     ['in-paid', base],
     ['in-draft', { ...base, status: 'draft', identifiers: { uan: null, pfMemberId: null, esicNumber: null, pan: null } }],
-    ['gb-paid', { ...abroad, country: 'GB', currency: 'GBP' }],
-    ['us-paid', { ...abroad, country: 'US', currency: 'USD' }],
+    // The same payroll in the other layouts: PF and PT are what was deducted.
+    ['gb-paid', { ...base, country: 'GB', currency: 'GBP' }],
+    ['us-paid', { ...base, country: 'US', currency: 'USD' }],
   ]
   for (const [name, input] of samples) {
     const view = payslipView(input)

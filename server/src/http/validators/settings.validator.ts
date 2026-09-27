@@ -103,6 +103,8 @@ export const policySchema = z
     lopBasis: z.enum(['calendar_days', 'fixed_30', 'working_days']).optional(),
     /** Whether an off day between two days of loss of pay is unpaid too. */
     sandwichRule: z.boolean().optional(),
+    /** Whether income tax (TDS) is deducted through payroll at all. */
+    tdsEnabled: z.boolean().optional(),
   })
   .strict()
 

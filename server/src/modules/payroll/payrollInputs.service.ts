@@ -8,6 +8,9 @@ import { employmentWindow } from '../../domain/payroll/salary'
 import { financialYearOf } from '../../domain/payroll/tds'
 import { fromDateColumn, toDateColumn, monthKey, monthName } from '../../domain/shared/dates'
 import { closedRunsFrom } from './payrollRun.repository'
+import { findPolicyOn } from './payroll.repository'
+import { companyToday } from '../organization/organization.service'
+import { BusinessRule } from '../../platform/errors/AppError'
 import * as repo from './payrollInputs.repository'
 
 /**
@@ -59,6 +62,14 @@ export async function listTdsDirectives(ctx: AppContext, financialYear: number) 
 export async function setTdsDirective(ctx: AppContext, input: DirectiveInput) {
   const employee = await repo.findEmployeeBrief(ctx.db, input.employeeId)
   if (!employee) throw NotFound('Employee not found')
+
+  // A directive a run would never read is worse than none: it looks recorded.
+  const rules = await findPolicyOn(ctx.db, toDateColumn(await companyToday(ctx)))
+  if (!rules?.tdsEnabled) {
+    throw BusinessRule(
+      'Income tax (TDS) is turned off in Settings → Payroll Config, so payroll deducts none. Turn it on first if the company deducts TDS.',
+    )
+  }
 
   const reason = input.reason?.trim() || null
   if (input.monthlyAmount === 0 && !reason) {

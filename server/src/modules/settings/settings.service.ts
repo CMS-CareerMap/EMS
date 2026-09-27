@@ -94,6 +94,7 @@ export interface PolicyInput {
   fiscalYearStartMonth?: number | undefined
   lopBasis?: 'calendar_days' | 'fixed_30' | 'working_days' | undefined
   sandwichRule?: boolean | undefined
+  tdsEnabled?: boolean | undefined
 }
 
 /**
@@ -212,6 +213,7 @@ export async function updatePolicy(ctx: AppContext, input: PolicyInput) {
       fiscalYearStartMonth: current.fiscalYearStartMonth,
       lopBasis: current.lopBasis,
       sandwichRule: current.sandwichRule,
+      tdsEnabled: current.tdsEnabled,
       ...data,
     })
 

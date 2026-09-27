@@ -70,6 +70,7 @@ export async function policiesForMonth(db: ScopedDb, monthStart: Date, monthEnd:
       weeklyOffDays: true,
       lopBasis: true,
       sandwichRule: true,
+      tdsEnabled: true,
     },
     orderBy: { effectiveFrom: 'asc' },
   })

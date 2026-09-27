@@ -73,6 +73,7 @@ async function makeOrg(
     sandwichRule?: boolean
     pfWageCeiling?: number | null
     epsWageCeiling?: number
+    tdsEnabled?: boolean
   } = {},
 ): Promise<Org> {
   const organization = await prisma.organization.create({
@@ -80,13 +81,15 @@ async function makeOrg(
   })
   const id = organization.id
 
-  // null means "leave it to the schema default".
-  const { pfWageCeiling = 15_000, ...rest } = policy
+  // null means "leave it to the schema default". TDS is on here: these tests
+  // are about the directives, and a company without TDS has its own block.
+  const { pfWageCeiling = 15_000, tdsEnabled = true, ...rest } = policy
   await prisma.organizationPolicy.create({
     data: {
       organizationId: id,
       effectiveFrom: day('2020-04-01'),
       ...(pfWageCeiling === null ? {} : { pfWageCeiling }),
+      tdsEnabled,
       ...rest,
     },
   })
@@ -692,6 +695,35 @@ describe('a company on a fixed 30-day month, with the sandwich rule', () => {
     // 30,000 − 3 × 1,000.
     expect(d.gross_earnings).toBe(27_000)
     expect(d.basis.lossOfPay.map((row: { reason: string }) => row.reason)).toEqual(['absent', 'sandwiched', 'absent'])
+  })
+})
+
+describe('a company that deducts no income tax through payroll — the client’s own setting', () => {
+  it('runs without a single TDS directive, and no payslip carries an Income Tax line', async () => {
+    const org = await makeOrg('notds', { tdsEnabled: false })
+    const id = await hire(org, { salary: { BASIC: 20_000, HRA: 10_000 } })
+
+    const ready = await api(org).get('/api/payroll-runs/readiness?year=2026&month=8')
+    expect(ready.body.data).toMatchObject({ tds_enabled: false, blocked: false, blockers: [] })
+
+    const res = await api(org).post('/api/payroll-runs', AUGUST)
+    expect(res.status).toBe(201)
+
+    const slip = res.body.data.payslips[0]
+    const d = (await api(org).get(`/api/payroll-runs/${res.body.data.id}/payslips/${slip.id}`)).body.data
+    // PF and Professional Tax, and nothing else.
+    expect(d.deductions.map((line: { code: string }) => line.code)).toEqual(['PF', 'PT'])
+    expect(d.tds).toBe(0)
+    expect(d.basis).toMatchObject({ tdsEnabled: false, tdsDirective: null })
+    expect(d.employee_id).toBe(id)
+  })
+
+  it('refuses a TDS amount rather than store one no run would read', async () => {
+    const org = await makeOrg('notds2', { tdsEnabled: false })
+    const id = await hire(org, { salary: { BASIC: 20_000 } })
+    const res = await api(org).put('/api/payroll/tds-directives', { employeeId: id, year: 2026, month: 4, monthlyAmount: 500 })
+    expect(res.status).toBe(422)
+    expect(res.body.error.message).toMatch(/turned off in Settings/)
   })
 })
 

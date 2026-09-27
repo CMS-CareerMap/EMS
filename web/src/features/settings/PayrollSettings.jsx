@@ -37,6 +37,7 @@ const FIELDS = [
   ['fiscal_year_start_month', 'fiscalYearStartMonth'],
   ['lop_basis', 'lopBasis'],
   ['sandwich_rule', 'sandwichRule'],
+  ['tds_enabled', 'tdsEnabled'],
 ]
 
 const DAYS = Array.from({ length: 28 }, (_, i) => i + 1)
@@ -62,7 +63,7 @@ const LOP_BASES = [
 
 /** A form value as the server wants it: numbers as numbers, blank as null. */
 function asValue(key, value) {
-  if (key === 'pf_restrict_to_ceiling' || key === 'sandwich_rule') return Boolean(value)
+  if (key === 'pf_restrict_to_ceiling' || key === 'sandwich_rule' || key === 'tds_enabled') return Boolean(value)
   if (key === 'lop_basis') return value || null
   if (value === '' || value == null) return null
   return Number(value)
@@ -189,6 +190,12 @@ export default function PayrollSettings() {
         </Field>
         <Field label="Sandwich Rule" hint="On: a weekly off or holiday between two days of loss of pay is unpaid too — absent Saturday and Monday costs the Sunday as well.">
           <Toggle checked={Boolean(form.sandwich_rule)} onChange={(v) => set('sandwich_rule', v)} disabled={!canEdit} label="Apply the sandwich rule" />
+        </Field>
+      </Section>
+
+      <Section title="Income Tax (TDS)" desc="Whether salary has income tax deducted through payroll.">
+        <Field label="Deduct TDS through payroll" hint="Off: no Income Tax line on payslips, and no TDS amounts are asked for before a run. Turn it on once anybody's taxable income crosses the limit — TDS on salary is then compulsory.">
+          <Toggle checked={Boolean(form.tds_enabled)} onChange={(v) => set('tds_enabled', v)} disabled={!canEdit} label="Deduct TDS through payroll" />
         </Field>
       </Section>
 

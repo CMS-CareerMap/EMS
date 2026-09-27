@@ -160,13 +160,8 @@ async function hire(
       },
     },
   })
-  await api(org).put('/api/payroll/tds-directives', {
-    employeeId: employee.id,
-    year: 2026,
-    month: 4,
-    monthlyAmount: 0,
-    reason: 'Below the taxable limit',
-  })
+  // No TDS directive: these companies are on the client's own setting, TDS
+  // off, so a run asks for none.
   return employee.id
 }
 

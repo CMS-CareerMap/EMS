@@ -16,7 +16,7 @@ export const UNITED_STATES: PayslipTemplate = {
     employeeCode: 'Employee ID',
     designation: 'Title',
     department: 'Department',
-    dateOfJoining: 'Hire date',
+    dateOfJoining: 'Joining date',
     payPeriod: 'Pay period',
     payDate: 'Pay date',
     daysInMonth: 'Days in period',
