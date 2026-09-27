@@ -24,7 +24,8 @@
     "field-contract": "tsx scripts/fieldContract.ts",
     "grant-leave": "tsx scripts/grantLeave.ts",
     "migration:new": "tsx scripts/newMigration.ts",
-    "lint": "tsx scripts/lint.ts"
+    "lint": "tsx scripts/lint.ts",
+    "reset-link": "tsx scripts/resetLink.ts"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",

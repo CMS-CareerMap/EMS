@@ -31,6 +31,14 @@ export async function appendUnscoped(row: AuditRow): Promise<void> {
   await unsafeDb.auditLog.create({ data: row })
 }
 
+/**
+ * On a transaction of the unscoped client — for a pre-sign-in change that must
+ * commit together with its row, like a recovery link issued from the terminal.
+ */
+export async function appendIn(tx: Prisma.TransactionClient, row: AuditRow): Promise<void> {
+  await tx.auditLog.create({ data: row })
+}
+
 /** Newest first. The screen that reads these comes on Day 20; tests read them now. */
 export async function listFor(db: ScopedDb, filter: { entityType?: string; entityId?: string; action?: string } = {}) {
   return db.auditLog.findMany({ where: filter, orderBy: { createdAt: 'desc' } })
