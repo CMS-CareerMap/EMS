@@ -1,5 +1,6 @@
 import type { AppContext } from '../../platform/context'
 import { NotFound, Conflict, BadRequest } from '../../platform/errors/AppError'
+import { zonedToday, toDateColumn, fromDateColumn, addCalendarDays } from '../../domain/shared/dates'
 import { withTransaction } from '../../platform/db/transaction'
 import { logger } from '../../platform/logger'
 import * as repo from './settings.repository'
@@ -98,7 +99,7 @@ export async function getPolicy(ctx: AppContext) {
   return ctx.db.organizationPolicy.create({
     data: {
       organizationId: ctx.organizationId,
-      effectiveFrom: today(),
+      effectiveFrom: await companyToday(ctx),
       createdByUserId: ctx.userId,
     },
   })
@@ -108,10 +109,16 @@ export async function listPolicyHistory(ctx: AppContext) {
   return repo.listPolicies(ctx.db)
 }
 
-/** Midnight UTC of today, as a calendar date with no time component. */
-function today(): Date {
-  const now = new Date()
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+/**
+ * Today in the COMPANY's time zone, as a date column.
+ *
+ * It used to be today in UTC — so a rate changed at 1 a.m. in India on the 1st
+ * of April took effect on the 31st of March, and the March payroll ran on the
+ * new rate. The day a rule starts is a date on the company's calendar.
+ */
+async function companyToday(ctx: AppContext): Promise<Date> {
+  const organization = await repo.getOrganization(ctx.db, ctx.organizationId)
+  return toDateColumn(zonedToday(new Date(), organization?.timezone ?? 'Asia/Kolkata'))
 }
 
 /**
@@ -131,7 +138,21 @@ export async function updatePolicy(ctx: AppContext, input: PolicyInput) {
 
   if (Object.keys(data).length === 0) throw BadRequest('Nothing to update')
 
-  const from = today()
+  const from = await companyToday(ctx)
+
+  // The leave year is fixed once any leave exists. Every balance is counted
+  // within a leave year, so moving its start after grants and approvals would
+  // split everybody's entitlement across two years that never existed.
+  if (input.leaveYearStartMonth !== undefined) {
+    const standing = await repo.getCurrentPolicy(ctx.db)
+    if (standing && standing.leaveYearStartMonth !== input.leaveYearStartMonth) {
+      if ((await repo.countLeaveLedgerEntries(ctx.db)) > 0) {
+        throw Conflict(
+          'The leave year cannot change once leave has been granted or taken — every balance is counted inside the current leave year. Change it before opening balances are granted.',
+        )
+      }
+    }
+  }
 
   const policyId = await withTransaction(ctx.db, async (tx) => {
     const current = await tx.organizationPolicy.findFirst({
@@ -160,7 +181,7 @@ export async function updatePolicy(ctx: AppContext, input: PolicyInput) {
     // a payslip from that period is still explainable.
     await tx.organizationPolicy.update({
       where: { id: current.id },
-      data: { effectiveTo: new Date(from.getTime() - 86_400_000) },
+      data: { effectiveTo: toDateColumn(addCalendarDays(fromDateColumn(from), -1)) },
     })
 
     const created = await tx.organizationPolicy.create({
@@ -255,25 +276,47 @@ export async function listLeaveTypes(ctx: AppContext) {
   return repo.listLeaveTypes(ctx.db)
 }
 
+/**
+ * Adds a leave type — or brings back an archived one of the same code.
+ *
+ * Archived types keep their ledger history, and the code is unique for ever.
+ * So "add Maternity Leave again" used to be a dead end: a 409 about a type
+ * nobody could see. It restores that type now, with the values given, and its
+ * history comes with it.
+ */
 export async function createLeaveType(ctx: AppContext, input: LeaveTypeInput) {
   if (!input.name || !input.code) throw BadRequest('A leave type needs a name and a code')
 
-  const existing = await ctx.db.leaveType.findFirst({
-    where: { OR: [{ code: input.code.toUpperCase() }, { name: input.name }] },
-  })
-  if (existing) throw Conflict('A leave type with that name or code already exists')
+  const name = input.name.trim()
+  const code = input.code.trim().toUpperCase()
+  const values = {
+    name,
+    code,
+    annualQuota: input.annualQuota ?? 0,
+    isPaid: input.isPaid ?? true,
+    carryForward: input.carryForward ?? false,
+    carryForwardCap: input.carryForwardCap ?? 0,
+  }
 
-  return ctx.db.leaveType.create({
-    data: {
-      organizationId: ctx.organizationId,
-      name: input.name.trim(),
-      code: input.code.trim().toUpperCase(),
-      annualQuota: input.annualQuota ?? 0,
-      isPaid: input.isPaid ?? true,
-      carryForward: input.carryForward ?? false,
-      carryForwardCap: input.carryForwardCap ?? 0,
-    },
-  })
+  const matches = await repo.findLeaveTypesLike(ctx.db, code, name)
+  const active = matches.find((t) => !t.archivedAt)
+  if (active) throw Conflict(`A leave type called ${active.name} (${active.code}) already exists`)
+
+  if (matches.length > 1) {
+    throw Conflict('An archived leave type already uses that name, and another that code. Add it back under its own name and code.')
+  }
+
+  if (matches.length === 1) {
+    const restored = await ctx.db.leaveType.update({
+      where: { id: matches[0]!.id },
+      data: { ...values, archivedAt: null },
+    })
+    logger.info('Leave type restored', { by: ctx.userId, id: restored.id })
+    return { row: restored, restored: true }
+  }
+
+  const row = await ctx.db.leaveType.create({ data: { organizationId: ctx.organizationId, ...values } })
+  return { row, restored: false }
 }
 
 export async function updateLeaveType(ctx: AppContext, id: string, input: LeaveTypeInput) {
@@ -289,6 +332,21 @@ export async function updateLeaveType(ctx: AppContext, id: string, input: LeaveT
   if (input.carryForwardCap !== undefined) data.carryForwardCap = input.carryForwardCap
 
   if (Object.keys(data).length === 0) throw BadRequest('Nothing to update')
+
+  // Checked here, not left to the unique index: a clash is somebody choosing a
+  // name that is taken, which deserves a sentence, not a 500.
+  const clash = (await repo.findLeaveTypesLike(
+    ctx.db,
+    data.code as string | undefined,
+    data.name as string | undefined,
+  )).find((t) => t.id !== id)
+  if (clash) {
+    throw Conflict(
+      clash.archivedAt
+        ? `An archived leave type already uses that name or code (${clash.name}, ${clash.code}).`
+        : `${clash.name} (${clash.code}) already uses that name or code.`,
+    )
+  }
 
   return ctx.db.leaveType.update({ where: { id }, data })
 }
@@ -312,6 +370,3 @@ export async function listPtSlabs(ctx: AppContext, state?: string) {
   return repo.listPtSlabs(ctx.db, state)
 }
 
-export async function listHolidays(ctx: AppContext, year?: number) {
-  return repo.listHolidays(ctx.db, year)
-}

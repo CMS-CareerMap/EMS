@@ -42,7 +42,9 @@ export const NAV_GROUPS = [
   {
     label: 'System',
     items: [
-      { to: '/settings', icon: Settings, label: 'Settings', permission: 'settings:read' },
+      // Any of these. HR keeps leave types and holidays here without holding
+      // company settings; the tabs inside are filtered the same way.
+      { to: '/settings', icon: Settings, label: 'Settings', permission: ['settings:read', 'leave:type:manage', 'holiday:manage'] },
     ],
   },
 ]

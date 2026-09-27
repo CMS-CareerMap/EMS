@@ -14,14 +14,14 @@ import { useAuthStore } from '../stores/authStore'
  * one fetch away. The server checks every request independently.
  */
 export default function ProtectedRoute({ permission }) {
-  const { can, loading } = useAuthStore()
+  const { canAny, loading } = useAuthStore()
 
   // Layout already holds the spinner while the session is being established.
   // Deciding here before the permissions have arrived would bounce a legitimate
   // user to the dashboard on every page refresh.
   if (loading) return null
 
-  if (!can(permission)) {
+  if (!canAny(permission)) {
     return <Navigate to="/dashboard" replace />
   }
 

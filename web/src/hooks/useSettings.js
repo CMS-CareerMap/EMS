@@ -16,7 +16,9 @@ const keys = {
   geofence: ['settings', 'geofence'],
   leaveTypes: ['settings', 'leave-types'],
   ptSlabs: ['settings', 'pt-slabs'],
-  holidays: ['settings', 'holidays'],
+  // Shared with the Leave page's holiday list, so a holiday added here shows
+  // there without a reload.
+  holidays: ['leave', 'holidays'],
 }
 
 function useSetting(key, path) {
@@ -73,8 +75,15 @@ export function useLeaveTypes() {
   return useSetting(keys.leaveTypes, '/settings/leave-types')
 }
 
+/**
+ * Adds a leave type — or, when an archived one has that code, brings it back
+ * with its history. `restored` says which, so the page can say so.
+ */
 export function useCreateLeaveType() {
-  return useSettingMutation(keys.leaveTypes, async (body) => (await api.post('/settings/leave-types', body)).data)
+  return useSettingMutation(keys.leaveTypes, async (body) => {
+    const payload = await api.post('/settings/leave-types', body)
+    return { row: payload.data, restored: Boolean(payload.meta?.restored) }
+  })
 }
 
 export function useUpdateLeaveType() {
@@ -96,9 +105,44 @@ export function usePtSlabs(state) {
   })
 }
 
+/**
+ * Replaces one state's PT table from a date. The server refuses a table that
+ * could take more than ₹2,500 a year or leaves a salary in no slab.
+ */
+export function useSetPtTable() {
+  return useSettingMutation(keys.ptSlabs, async (body) => (await api.put('/settings/pt-slabs', body)).data)
+}
+
+/** The holiday calendar — readable by everybody who applies for leave. */
 export function useHolidays(year) {
   return useQuery({
     queryKey: [...keys.holidays, year ?? 'all'],
-    queryFn: async () => (await api.get(year ? `/settings/holidays?year=${year}` : '/settings/holidays')).data,
+    queryFn: async () => (await api.get(year ? `/holidays?year=${year}` : '/holidays')).data,
+  })
+}
+
+/**
+ * Holiday changes. Each returns how many APPROVED leave requests cover that
+ * day — leave already charged is not recalculated, and the page says so.
+ */
+export function useAddHoliday() {
+  return useSettingMutation(keys.holidays, async (body) => {
+    const payload = await api.post('/holidays', body)
+    return { row: payload.data, approvedLeaveAffected: payload.meta?.approved_leave_affected ?? 0 }
+  })
+}
+
+/** Moves or renames one — Eid's date is often only certain the evening before. */
+export function useUpdateHoliday() {
+  return useSettingMutation(keys.holidays, async ({ id, ...body }) => {
+    const payload = await api.patch(`/holidays/${id}`, body)
+    return { row: payload.data, approvedLeaveAffected: payload.meta?.approved_leave_affected ?? 0 }
+  })
+}
+
+export function useDeleteHoliday() {
+  return useSettingMutation(keys.holidays, async ({ id }) => {
+    const payload = await api.del(`/holidays/${id}`)
+    return { approvedLeaveAffected: payload?.meta?.approved_leave_affected ?? 0 }
   })
 }

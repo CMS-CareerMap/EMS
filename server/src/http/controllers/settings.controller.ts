@@ -7,10 +7,11 @@ import {
   geofenceSchema,
   leaveTypeSchema,
   settingsIdSchema,
-  holidayQuerySchema,
   ptSlabQuerySchema,
+  ptTableSchema,
 } from '../validators/settings.validator'
 import { parseBody } from '../validators/parse'
+import { setPtTable } from '../../modules/settings/ptSlabs.service'
 import { appContext } from '../context'
 
 /**
@@ -224,11 +225,13 @@ export const getLeaveTypes: RequestHandler = async (_req, res) => {
 export const postLeaveType: RequestHandler = async (req, res) => {
   const ctx = appContext(res)
   const input = parseBody(leaveTypeSchema, req.body)
-  const created = await settings.createLeaveType(ctx, input)
+  const { row, restored } = await settings.createLeaveType(ctx, input)
 
-  res.status(201).json({
-    data: serializeLeaveType(created),
-    meta: { requestId: res.locals.requestId },
+  // 200 for a type brought back, and said, so the page can tell the person
+  // their old type — and its history — reappeared.
+  res.status(restored ? 200 : 201).json({
+    data: serializeLeaveType(row),
+    meta: { requestId: res.locals.requestId, restored },
   })
 }
 
@@ -256,34 +259,35 @@ export const getPtSlabs: RequestHandler = async (req, res) => {
   const { state } = parseBody(ptSlabQuerySchema, req.query)
   const rows = await settings.listPtSlabs(ctx, state)
 
-  ok(
-    res,
-    rows.map((row) => ({
-      id: row.id,
-      state: row.state,
-      min_gross: num(row.minGross),
-      max_gross: num(row.maxGross),
-      amount: num(row.amount),
-      gender: row.gender,
-      february_amount: row.februaryAmount == null ? null : num(row.februaryAmount),
-      effective_from: isoDate(row.effectiveFrom),
-    })),
-  )
+  ok(res, rows.map(ptSlabRow))
 }
 
-/** GET /api/settings/holidays */
-export const getHolidays: RequestHandler = async (req, res) => {
+type PtSlabRow = Awaited<ReturnType<typeof settings.listPtSlabs>>[number]
+
+function ptSlabRow(row: PtSlabRow) {
+  return {
+    id: row.id,
+    state: row.state,
+    min_gross: num(row.minGross),
+    max_gross: num(row.maxGross),
+    amount: num(row.amount),
+    gender: row.gender,
+    february_amount: row.februaryAmount == null ? null : num(row.februaryAmount),
+    effective_from: isoDate(row.effectiveFrom),
+  }
+}
+
+/**
+ * PUT /api/settings/pt-slabs
+ *
+ * Replaces one state's table from a date. Refuses a table that could take more
+ * than the ₹2,500 a year the Constitution allows, or that leaves a salary in no
+ * slab, with the reasons in words.
+ */
+export const putPtSlabs: RequestHandler = async (req, res) => {
   const ctx = appContext(res)
-  const { year } = parseBody(holidayQuerySchema, req.query)
-  const rows = await settings.listHolidays(ctx, year)
-
-  ok(
-    res,
-    rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      date: isoDate(row.date),
-      type: row.type,
-    })),
-  )
+  const input = parseBody(ptTableSchema, req.body)
+  const rows = await setPtTable(ctx, input)
+  ok(res, rows.map(ptSlabRow))
 }
+

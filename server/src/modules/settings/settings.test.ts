@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import request from 'supertest'
 import { createApp } from '../../app'
 import { prisma } from '../../platform/db/prisma'
@@ -28,6 +28,7 @@ async function cleanup(): Promise<void> {
   await prisma.holiday.deleteMany({ where: org })
   await prisma.geofenceLocation.deleteMany({ where: org })
   await prisma.organizationPolicy.deleteMany({ where: org })
+  await prisma.leaveLedgerEntry.deleteMany({ where: org })
   await prisma.leaveType.deleteMany({ where: org })
   await prisma.employee.deleteMany({ where: org })
   await prisma.membership.deleteMany({ where: org })
@@ -108,6 +109,20 @@ describe('the Company tab, which used to discard everything', () => {
     expect(reread.body.data.city).toBe('Mumbai')
     // Sending a partial form must not wipe what it did not include.
     expect(reread.body.data.gstin).toBe('27AABCU9603R1ZM')
+  })
+
+  it('refuses a time zone that is not one, which would break every "today"', async () => {
+    // The old Company tab sent its option LABELS — 'Asia/Kolkata (IST)'. Saved,
+    // every calculation of today's date would throw.
+    expect((await put('/company', { timezone: 'Asia/Kolkata (IST)' })).status).toBe(422)
+    expect((await put('/company', { timezone: 'Mars/Olympus' })).status).toBe(422)
+    expect((await put('/company', { timezone: 'Asia/Dubai' })).status).toBe(200)
+    expect((await put('/company', { timezone: 'Asia/Kolkata' })).status).toBe(200)
+  })
+
+  it('wants country and currency codes in capitals, as they are compared', async () => {
+    expect((await put('/company', { country: 'in' })).status).toBe(422)
+    expect((await put('/company', { country: 'IN', currency: 'INR' })).status).toBe(200)
   })
 
   it('rejects an unknown field instead of ignoring it', async () => {
@@ -395,5 +410,82 @@ describe('the client requirements added on Day 9', () => {
       .set('Authorization', as('hr'))
       .send({ pfEmployeeRate: 1 })
     expect(payroll.status).toBe(403)
+  })
+})
+
+describe('what the Day 9 audit found in these screens', () => {
+  it('brings back an archived leave type instead of refusing it', async () => {
+    // BL was archived above. Adding it again used to be a 409 about a type
+    // nobody could see — its code is unique for ever.
+    const res = await request(app)
+      .post('/api/settings/leave-types')
+      .set('Authorization', as('boss'))
+      .send({ name: 'Bereavement Leave', code: 'bl', annualQuota: 4 })
+
+    expect(res.status).toBe(200)
+    expect(res.body.meta.restored).toBe(true)
+    expect(res.body.data).toMatchObject({ code: 'BL', days: 4 })
+
+    const list = await get('/leave-types')
+    expect(list.body.data.map((t: { code: string }) => t.code)).toContain('BL')
+  })
+
+  it('answers a rename onto a taken code with a sentence, not a crash', async () => {
+    const created = await request(app)
+      .post('/api/settings/leave-types')
+      .set('Authorization', as('boss'))
+      .send({ name: 'Sabbatical', code: 'SAB', annualQuota: 2 })
+
+    const res = await request(app)
+      .patch(`/api/settings/leave-types/${created.body.data.id}`)
+      .set('Authorization', as('boss'))
+      .send({ code: 'BL' })
+
+    expect(res.status).toBe(409)
+    expect(res.body.error.message).toMatch(/already uses that name or code/)
+  })
+
+  it('lets the leave year move before any leave exists, and not after', async () => {
+    expect((await put('/payroll', { leaveYearStartMonth: 1 })).status).toBe(200)
+
+    // Somebody is granted their opening balance...
+    const employee = await prisma.employee.create({
+      data: { organizationId: orgId, employeeCode: 'settest-ly', fullName: 'Has Leave' },
+    })
+    const type = await prisma.leaveType.findFirst({ where: { organizationId: orgId, archivedAt: null } })
+    await prisma.leaveLedgerEntry.create({
+      data: { organizationId: orgId, employeeId: employee.id, leaveTypeId: type!.id, leaveYear: 2026, days: 12, reason: 'opening_grant' },
+    })
+
+    // ...and now the year is fixed: moving it would split that balance across
+    // two years that never existed.
+    const refused = await put('/payroll', { leaveYearStartMonth: 4 })
+    expect(refused.status).toBe(409)
+
+    // Sending the value it already has is not a change, and is fine.
+    expect((await put('/payroll', { leaveYearStartMonth: 1 })).status).toBe(200)
+  })
+
+  it("starts a changed rate on the company's date, not UTC's", async () => {
+    // One clean period from January, so the next change opens a new one and
+    // nothing earlier in this file shares its dates.
+    await prisma.organizationPolicy.deleteMany({ where: { organizationId: orgId } })
+    await prisma.organizationPolicy.create({ data: { organizationId: orgId, effectiveFrom: new Date(Date.UTC(2026, 0, 1)) } })
+
+    // 20:00 UTC on 30 June is 01:30 on 1 July in India. The old code started
+    // the new rate on 30 June — inside the previous month's payroll.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-06-30T20:00:00Z'))
+    try {
+      expect((await put('/payroll', { payDay: 3 })).status).toBe(200)
+    } finally {
+      vi.useRealTimers()
+    }
+
+    const history = await request(app).get('/api/settings/payroll/history').set('Authorization', as('boss'))
+    const newest = history.body.data.find((p: { effective_to: string | null }) => !p.effective_to)
+    expect(newest.effective_from).toBe('2026-07-01')
+    const closed = history.body.data.find((p: { effective_to: string | null }) => p.effective_to === '2026-06-30')
+    expect(closed).toBeDefined()
   })
 })

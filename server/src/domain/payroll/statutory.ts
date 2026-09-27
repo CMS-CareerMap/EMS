@@ -301,3 +301,89 @@ export function annualPt(input: Omit<PtInput, 'month'>): number {
   }
   return paise(total)
 }
+
+// ── Keeping a PT table ──────────────────────────────────────────────────────
+
+/**
+ * One slab as a person enters it: where it STARTS, and what it charges.
+ *
+ * No upper bound. The bound is where the next slab starts, and asking people
+ * for both is how a table gets a gap — 7,500 then 7,501 leaves 7,500.50 in no
+ * slab at all, and a prorated salary landing there pays no tax for no reason.
+ */
+export interface PtSlabDraft {
+  gender: Gender
+  from: number
+  amount: number
+  februaryAmount?: number | null
+}
+
+/**
+ * What is wrong with a state's table, in words a person can act on. Empty
+ * means it may be saved.
+ *
+ * Checked on the way IN, so a table that could take more than the
+ * constitutional ₹2,500 a year never reaches a payslip — the annual-cap test
+ * on the engine guards the arithmetic; this guards the data.
+ */
+export function ptTableProblems(slabs: readonly PtSlabDraft[]): string[] {
+  const problems: string[] = []
+  if (slabs.length === 0) return ['Add at least one slab. A state with no PT is one slab from ₹0 charging ₹0.']
+
+  const genders = new Set(slabs.map((s) => s.gender))
+  if ((genders.has('male') || genders.has('female')) && !(genders.has('male') && genders.has('female'))) {
+    // One gendered set alone leaves the other gender matching nothing, which
+    // charges them nothing — silently.
+    problems.push('Slabs for men and for women go together. Add the other set, or make the slabs apply to everyone.')
+  }
+
+  for (const gender of genders) {
+    const label = gender === 'any' ? 'everyone' : gender === 'male' ? 'men' : 'women'
+    const group = slabs.filter((s) => s.gender === gender).map((s) => s.from).sort((a, b) => a - b)
+
+    if (group[0] !== 0) problems.push(`The first slab for ${label} must start at ₹0, or low salaries match no slab.`)
+    for (let i = 1; i < group.length; i++) {
+      if (group[i] === group[i - 1]) problems.push(`Two slabs for ${label} start at the same amount (₹${group[i]}).`)
+    }
+  }
+
+  for (const slab of slabs) {
+    if (slab.amount < 0 || (slab.februaryAmount ?? 0) < 0) {
+      problems.push('A PT amount cannot be negative.')
+      continue
+    }
+    const year = slab.amount * 11 + (slab.februaryAmount ?? slab.amount)
+    if (year > PT_ANNUAL_CAP) {
+      problems.push(
+        `The slab from ₹${slab.from} would take ₹${year} a year. Professional tax is capped at ₹${PT_ANNUAL_CAP} a year (Article 276).`,
+      )
+    }
+  }
+
+  return [...new Set(problems)]
+}
+
+/**
+ * The stored shape of a table: each slab's upper bound is one paisa below
+ * where the next one starts, and the top slab is open-ended. Gaps and overlaps
+ * are impossible by construction.
+ */
+export function ptTableRows(slabs: readonly PtSlabDraft[]) {
+  const rows: { gender: Gender; wageFrom: number; wageTo: number | null; amount: number; februaryAmount: number | null }[] = []
+
+  for (const gender of new Set(slabs.map((s) => s.gender))) {
+    const group = slabs.filter((s) => s.gender === gender).sort((a, b) => a.from - b.from)
+    group.forEach((slab, i) => {
+      const next = group[i + 1]
+      rows.push({
+        gender,
+        wageFrom: slab.from,
+        wageTo: next ? paise(next.from - 0.01) : null,
+        amount: slab.amount,
+        februaryAmount: slab.februaryAmount ?? null,
+      })
+    })
+  }
+
+  return rows
+}

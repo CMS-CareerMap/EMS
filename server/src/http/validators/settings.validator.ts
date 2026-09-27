@@ -38,10 +38,26 @@ export const companySchema = z
     email: z.email().nullish(),
     website: optionalText(200),
 
-    timezone: z.string().trim().max(64).optional(),
+    // A real IANA zone, checked the way it will be used. Anything else saved here
+    // — a typo, or a label like "Asia/Kolkata (IST)" — makes every calculation of
+    // "today" throw, and attendance, leave and the dashboard all fail at once.
+    timezone: z
+      .string()
+      .trim()
+      .max(64)
+      .refine((zone) => {
+        try {
+          new Intl.DateTimeFormat('en-US', { timeZone: zone })
+          return true
+        } catch {
+          return false
+        }
+      }, 'Choose a time zone from the list, such as Asia/Kolkata')
+      .optional(),
     dateFormat: z.enum(['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD']).optional(),
-    country: z.string().trim().length(2).optional(),
-    currency: z.string().trim().length(3).optional(),
+    // Upper-case codes, as they are compared: ISO 3166 country, ISO 4217 currency.
+    country: z.string().trim().regex(/^[A-Z]{2}$/, 'A two-letter country code, such as IN').optional(),
+    currency: z.string().trim().regex(/^[A-Z]{3}$/, 'A three-letter currency code, such as INR').optional(),
   })
   .strict()
 
@@ -128,10 +144,32 @@ export const settingsIdSchema = z.object({
   id: z.uuid('That is not a valid id'),
 })
 
-export const holidayQuerySchema = z.object({
-  year: z.coerce.number().int().min(2000).max(2100).optional(),
-})
-
 export const ptSlabQuerySchema = z.object({
   state: z.string().trim().max(80).optional(),
 })
+
+/**
+ * A state's whole PT table, from a date. Each slab says where it starts; the
+ * upper bounds are derived, so the table cannot have a gap. The legal limits —
+ * the ₹2,500 annual cap above all — are checked by the domain, not here.
+ */
+export const ptTableSchema = z
+  .object({
+    state: z.string().trim().min(2, 'Name the state').max(50),
+    effectiveFrom: z.iso.date('Choose the date this table starts'),
+    slabs: z
+      .array(
+        z
+          .object({
+            gender: z.enum(['male', 'female', 'any']),
+            from: z.number().min(0).max(100_000_000),
+            // Typo guards; the real ceiling is the annual cap.
+            amount: z.number().min(0).max(100_000),
+            februaryAmount: z.number().min(0).max(100_000).nullish(),
+          })
+          .strict(),
+      )
+      .min(1, 'Add at least one slab')
+      .max(40),
+  })
+  .strict()
