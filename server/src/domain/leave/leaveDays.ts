@@ -9,7 +9,7 @@
  * their salary. Getting it wrong by one day is not a rounding error to anyone.
  */
 
-import { isCalendarDate, type CalendarDate } from '../shared/dates'
+import { isCalendarDate, fromDateColumn, type CalendarDate } from '../shared/dates'
 
 /** Sunday is 0, matching getUTCDay(). */
 export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6
@@ -81,7 +81,7 @@ export function workingDays(input: WorkingDaysInput): WorkingDaysResult {
       throw new InvalidRangeError('That range is longer than two years')
     }
 
-    const date = cursor.toISOString().slice(0, 10)
+    const date = fromDateColumn(cursor)
 
     // ORDER MATTERS. A holiday that falls on a Sunday is not charged twice, and
     // a half day on a public holiday is not charged at all — the day is already

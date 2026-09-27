@@ -3,6 +3,7 @@ import request from 'supertest'
 import { createApp } from '../../app'
 import { prisma } from '../../platform/db/prisma'
 import { hashPassword } from '../../platform/auth/password'
+import { fromDateColumn } from '../../domain/shared/dates'
 
 /**
  * Employee writes and user management, over real HTTP.
@@ -350,7 +351,7 @@ describe('the facts payroll needs about a person', () => {
       include: { statutoryIdentity: true },
     })
     expect(stored?.gender).toBe('female')
-    expect(stored?.lastWorkingDate?.toISOString().slice(0, 10)).toBe('2026-09-10')
+    expect(fromDateColumn(stored?.lastWorkingDate)).toBe('2026-09-10')
     expect(stored?.statutoryIdentity?.pfApplicable).toBe(false)
     expect(stored?.statutoryIdentity?.hasPriorPfMembership).toBe(true)
   })

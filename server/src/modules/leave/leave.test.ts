@@ -5,6 +5,7 @@ import { prisma } from '../../platform/db/prisma'
 import { hashPassword } from '../../platform/auth/password'
 import { leaveYearOf } from './leave.service'
 import { policySchema } from '../../http/validators/settings.validator'
+import { fromDateColumn } from '../../domain/shared/dates'
 
 /**
  * Applying for leave.
@@ -52,7 +53,7 @@ const MONDAY = nextMonday()
 function D(offset: number): string {
   const date = new Date(MONDAY)
   date.setUTCDate(date.getUTCDate() + offset)
-  return date.toISOString().slice(0, 10)
+  return fromDateColumn(date)
 }
 
 /** The leave year those dates fall in, with a year starting in April. */
@@ -332,6 +333,35 @@ describe('applying', () => {
 
     expect(second.status).toBe(400)
     expect(second.body.error.message).toMatch(/2 days short/)
+  })
+
+  it('lets only one of two applications sent together spend the same days', async () => {
+    await grant(aliceId, clId, 3)
+
+    // Different dates, three days each; the balance covers one. Both used to
+    // read "3 available" before either had written, and both went in.
+    const results = await Promise.all([
+      apply({ leaveTypeId: clId, fromDate: D(7), toDate: D(9), reason: 'First' }),
+      apply({ leaveTypeId: clId, fromDate: D(14), toDate: D(16), reason: 'Second' }),
+    ])
+
+    // The loser is refused either at the preview (400, days short) or inside
+    // the transaction (409) — which depends on timing. That only one wins does not.
+    expect(results.filter((r) => r.status === 201)).toHaveLength(1)
+    expect(results.map((r) => r.status).filter((s) => s !== 201)[0]).toBeOneOf([400, 409])
+    expect(await prisma.leaveRequest.count({ where: { employeeId: aliceId, status: 'pending' } })).toBe(1)
+  })
+
+  it('lets only one of two applications sent together have the same dates', async () => {
+    await grant(aliceId, clId, 12)
+
+    const results = await Promise.all([
+      apply({ leaveTypeId: clId, ...validRange, reason: 'First' }),
+      apply({ leaveTypeId: clId, ...validRange, reason: 'Again' }),
+    ])
+
+    expect(results.map((r) => r.status).sort()).toEqual([201, 409])
+    expect(await prisma.leaveRequest.count({ where: { employeeId: aliceId, status: 'pending' } })).toBe(1)
   })
 
   it('refuses leave that overlaps leave already applied for', async () => {

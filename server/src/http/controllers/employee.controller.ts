@@ -13,6 +13,7 @@ import {
 import { parseBody } from '../validators/parse'
 import { serializeEmployee, serializeEmployees } from '../serializers/employee.serializer'
 import { appContext } from '../context'
+import { isoInstant } from '../../domain/shared/dates'
 
 /**
  * GET /api/employees
@@ -88,7 +89,7 @@ export const postEmployee: RequestHandler = async (req, res) => {
       // Shown once. Nothing can retrieve it again, because only its hash is
       // stored — a second look means issuing a new invitation.
       ...(invite
-        ? { invite: { token: invite.token, expires_at: invite.expiresAt.toISOString() } }
+        ? { invite: { token: invite.token, expires_at: isoInstant(invite.expiresAt) } }
         : {}),
     },
   })

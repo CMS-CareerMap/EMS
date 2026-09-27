@@ -4,6 +4,7 @@ import { createApp } from '../../app'
 import { prisma } from '../../platform/db/prisma'
 import { hashPassword } from '../../platform/auth/password'
 import { hashInviteToken } from '../../platform/auth/tokenHash'
+import { fromDateColumn } from '../../domain/shared/dates'
 
 /**
  * CSV roster import.
@@ -214,7 +215,7 @@ describe('reading real spreadsheets', () => {
     const employee = await prisma.employee.findFirst({ where: { employeeCode: `${PREFIX}-E1` } })
     // A roster exported in India is day-first. Reading it month-first gives a
     // plausible, silent, wrong answer — the worst kind.
-    expect(employee?.dateOfJoining?.toISOString().slice(0, 10)).toBe('2026-11-05')
+    expect(fromDateColumn(employee?.dateOfJoining)).toBe('2026-11-05')
   })
 
   it('handles a comma inside a quoted name', async () => {
@@ -259,7 +260,7 @@ describe('the real import', () => {
     expect(asha?.department?.name).toBe('Sales')
     expect(asha?.designation?.name).toBe('Executive')
     expect(asha?.statutoryIdentity?.pan).toBe('ABCDE1234F')
-    expect(asha?.dateOfJoining?.toISOString().slice(0, 10)).toBe('2026-04-01')
+    expect(fromDateColumn(asha?.dateOfJoining)).toBe('2026-04-01')
   })
 
   it('refuses the whole file when any row is bad, leaving nothing behind', async () => {

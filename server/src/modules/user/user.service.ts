@@ -1,7 +1,7 @@
 import type { Role } from '@prisma/client'
 import type { AppContext } from '../../platform/context'
 import { BadRequest, Conflict, Forbidden, NotFound } from '../../platform/errors/AppError'
-import { withTransaction } from '../../platform/db/transaction'
+import { withTransaction, type TxDb } from '../../platform/db/transaction'
 import { generateToken, hashInviteToken } from '../../platform/auth/tokenHash'
 import { logger } from '../../platform/logger'
 import {
@@ -12,6 +12,7 @@ import {
   ACCOUNT_REFUSAL_MESSAGES,
 } from './user.policy'
 import * as repo from './user.repository'
+import * as employeeRepo from '../employee/employee.repository'
 
 /**
  * The four things the Supabase edge functions used to do, and nothing else
@@ -72,50 +73,27 @@ export async function inviteUser(ctx: AppContext, input: InviteInput): Promise<I
     throw Forbidden(REFUSAL_MESSAGES.broader_than_actor)
   }
 
-  const rawToken = generateToken()
-  const expiresAt = new Date(Date.now() + INVITE_VALID_FOR_HOURS * 60 * 60 * 1000)
-
-  const membershipId = await withTransaction(ctx.db, async (tx) => {
-    // A User may already exist globally — the same person can belong to two
-    // companies in the SaaS phase. Reuse the row rather than colliding on the
-    // unique email.
-    const existing = await tx.user.findUnique({ where: { email }, select: { id: true } })
-    const user = existing ?? (await tx.user.create({ data: { email, passwordHash: null } }))
-
-    const membership = await tx.membership.create({
-      data: {
-        userId: user.id,
-        organizationId: ctx.organizationId,
-        role: input.role,
-        status: 'invited',
-      },
+  const login = await withTransaction(ctx.db, async (tx) => {
+    const created = await createLoginInTransaction(tx, {
+      email,
+      role: input.role,
+      organizationId: ctx.organizationId,
+      invitedByUserId: ctx.userId,
     })
 
     if (input.employeeCode) {
-      await tx.employee.create({
-        data: {
-          organizationId: ctx.organizationId,
-          membershipId: membership.id,
-          employeeCode: input.employeeCode.trim(),
-          fullName: input.fullName?.trim() || email,
-        },
+      await employeeRepo.createEmployee(tx, {
+        organizationId: ctx.organizationId,
+        membershipId: created.membershipId,
+        employeeCode: input.employeeCode.trim(),
+        fullName: input.fullName?.trim() || email,
       })
     }
 
-    await tx.passwordResetToken.create({
-      data: {
-        userId: user.id,
-        tokenHash: hashInviteToken(rawToken),
-        expiresAt,
-        purpose: 'invite',
-        createdByUserId: ctx.userId,
-      },
-    })
-
-    return membership.id
+    return created
   })
 
-  const membership = await repo.findMembership(ctx.db, membershipId)
+  const membership = await repo.findMembership(ctx.db, login.membershipId)
   if (!membership) throw NotFound('Invitation was created but could not be read back')
 
   logger.info('User invited', {
@@ -124,7 +102,7 @@ export async function inviteUser(ctx: AppContext, input: InviteInput): Promise<I
     role: input.role,
   })
 
-  return { membership, inviteToken: rawToken, expiresAt }
+  return { membership, inviteToken: login.inviteToken, expiresAt: login.expiresAt }
 }
 
 /**
@@ -139,16 +117,10 @@ export async function changeRole(
   newRole: Role,
 ): Promise<repo.MembershipRow> {
   await withTransaction(ctx.db, async (tx) => {
-    const target = await tx.membership.findFirst({
-      where: { id: membershipId },
-      select: { id: true, role: true, status: true },
-    })
-
+    const target = await repo.findMembershipForChange(tx, membershipId)
     if (!target) throw NotFound('User not found')
 
-    const activeSuperAdminCount = await tx.membership.count({
-      where: { role: 'super_admin', status: 'active' },
-    })
+    const activeSuperAdminCount = await repo.countActiveSuperAdmins(tx)
 
     const refusal = refuseRoleChange({
       actorMembershipId: ctx.membershipId,
@@ -161,7 +133,7 @@ export async function changeRole(
 
     if (refusal) throw Forbidden(REFUSAL_MESSAGES[refusal])
 
-    await tx.membership.update({ where: { id: membershipId }, data: { role: newRole } })
+    await repo.setRole(tx, membershipId, newRole)
   })
 
   // A role change must take effect NOW, not in fifteen minutes. The middleware
@@ -243,17 +215,8 @@ export async function terminateUser(ctx: AppContext, membershipId: string): Prom
   if (refusal) throw Forbidden(ACCOUNT_REFUSAL_MESSAGES[refusal])
 
   await withTransaction(ctx.db, async (tx) => {
-    await tx.membership.update({
-      where: { id: membershipId },
-      data: { status: 'inactive' },
-    })
-
-    if (target.employeeId) {
-      await tx.employee.update({
-        where: { id: target.employeeId },
-        data: { archivedAt: new Date() },
-      })
-    }
+    await repo.setStatus(tx, membershipId, 'inactive')
+    if (target.employeeId) await employeeRepo.archiveEmployee(tx, target.employeeId, new Date())
   })
 
   await repo.revokeSessions(target.userId)
@@ -288,54 +251,28 @@ export interface CreatedLogin {
  * Creates a User, a Membership and an invitation token INSIDE a caller's
  * transaction.
  *
- * Extracted so that POST /employees and POST /users/invite share one
- * implementation. The alternative — having the employee endpoint call
- * inviteUser() — would open a second transaction nested inside the first, and
- * a failure after that point would leave the login created and the employee
- * rolled back. One transaction, one outcome.
+ * The one implementation behind POST /users/invite, POST /employees and the
+ * roster import — it used to be written out three times. Having the employee
+ * endpoint call inviteUser() instead would open a second transaction inside the
+ * first, and a failure after that point would leave the login created and the
+ * employee rolled back. One transaction, one outcome.
  *
- * `tx` is deliberately untyped beyond what is used: Prisma's transaction client
- * type is generated and naming it here would couple this file to the exact
- * shape of the extension.
+ * The raw token is made here and returned once; only its hash is stored.
  */
-export async function createLoginInTransaction(
-  tx: {
-    user: {
-      findUnique(args: unknown): Promise<{ id: string } | null>
-      create(args: unknown): Promise<{ id: string }>
-    }
-    membership: { create(args: unknown): Promise<{ id: string }> }
-    passwordResetToken: { create(args: unknown): Promise<unknown> }
-  },
-  seed: LoginSeed,
-): Promise<CreatedLogin> {
-  const email = seed.email.toLowerCase().trim()
+export async function createLoginInTransaction(tx: TxDb, seed: LoginSeed): Promise<CreatedLogin> {
   const rawToken = generateToken()
   const expiresAt = new Date(Date.now() + INVITE_VALID_FOR_HOURS * 60 * 60 * 1000)
 
-  const existing = await tx.user.findUnique({ where: { email }, select: { id: true } })
-  const user = existing ?? (await tx.user.create({ data: { email, passwordHash: null } }))
-
-  const membership = await tx.membership.create({
-    data: {
-      userId: user.id,
-      organizationId: seed.organizationId,
-      role: seed.role,
-      status: 'invited',
-    },
+  const { membershipId } = await repo.createInvitedLogin(tx, {
+    email: seed.email.toLowerCase().trim(),
+    organizationId: seed.organizationId,
+    role: seed.role,
+    tokenHash: hashInviteToken(rawToken),
+    expiresAt,
+    createdByUserId: seed.invitedByUserId,
   })
 
-  await tx.passwordResetToken.create({
-    data: {
-      userId: user.id,
-      tokenHash: hashInviteToken(rawToken),
-      expiresAt,
-      purpose: 'invite',
-      createdByUserId: seed.invitedByUserId,
-    },
-  })
-
-  return { membershipId: membership.id, inviteToken: rawToken, expiresAt }
+  return { membershipId, inviteToken: rawToken, expiresAt }
 }
 
 export interface PasswordLinkResult {

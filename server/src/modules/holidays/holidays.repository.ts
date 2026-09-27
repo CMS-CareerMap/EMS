@@ -49,3 +49,16 @@ export async function countApprovedLeaveCovering(db: ScopedDb, date: Date) {
     where: { status: 'approved', fromDate: { lte: date }, toDate: { gte: date } },
   })
 }
+
+/**
+ * Days nobody is expected to work between two dates, inclusive: public
+ * holidays, and weekly-off rows kept from before the working week was a
+ * setting. Optional holidays are each employee's own choice, so they do not
+ * free a day for everybody.
+ */
+export async function listDaysOff(db: ScopedDb, from: Date, to: Date) {
+  return db.holiday.findMany({
+    where: { date: { gte: from, lte: to }, type: { in: ['public', 'weekly_off'] } },
+    select: { date: true },
+  })
+}

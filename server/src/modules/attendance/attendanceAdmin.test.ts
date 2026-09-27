@@ -4,7 +4,7 @@ import { createApp } from '../../app'
 import { prisma } from '../../platform/db/prisma'
 import { hashPassword } from '../../platform/auth/password'
 import { monthRange } from './attendance.repository'
-import { toDateColumn, zonedToday } from '../../domain/shared/dates'
+import { toDateColumn, zonedToday, fromDateColumn } from '../../domain/shared/dates'
 
 /**
  * Attendance as HR and managers see it: lists, monthly hours, corrections and
@@ -138,7 +138,7 @@ describe('the month range — the bug that emptied five months a year', () => {
     ] as const) {
       const { from, until } = monthRange(2026, month)
 
-      expect(from.toISOString().slice(0, 10)).toBe(`2026-${String(month).padStart(2, '0')}-01`)
+      expect(fromDateColumn(from)).toBe(`2026-${String(month).padStart(2, '0')}-01`)
 
       // Half-open: the last day of the month is INSIDE, the first of the next
       // is not. Correct for every month without knowing how long any of them is.

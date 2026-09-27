@@ -13,6 +13,7 @@ import {
 import { parseBody } from '../validators/parse'
 import { setPtTable } from '../../modules/settings/ptSlabs.service'
 import { appContext } from '../context'
+import { fromDateColumn } from '../../domain/shared/dates'
 
 /**
  * Settings. Snake_case out, matching the rest of v1 and the form field names
@@ -33,10 +34,6 @@ const WEEKDAY_NAMES = [
   'Friday',
   'Saturday',
 ]
-
-function isoDate(value: Date | null): string | null {
-  return value ? value.toISOString().slice(0, 10) : null
-}
 
 const ok = (res: Parameters<RequestHandler>[1], data: unknown, extra: object = {}) =>
   res.status(200).json({ data, meta: { requestId: res.locals.requestId, ...extra } })
@@ -106,7 +103,7 @@ function policyPayload(policy: Policy) {
     weekly_off_day_names: policy.weeklyOffDays.map((d) => WEEKDAY_NAMES[d] ?? String(d)),
     leave_year_start_month: policy.leaveYearStartMonth,
     fiscal_year_start_month: policy.fiscalYearStartMonth,
-    effective_from: isoDate(policy.effectiveFrom),
+    effective_from: fromDateColumn(policy.effectiveFrom),
   }
 }
 
@@ -140,8 +137,8 @@ export const getPolicyHistory: RequestHandler = async (_req, res) => {
     res,
     rows.map((policy) => ({
       id: policy.id,
-      effective_from: isoDate(policy.effectiveFrom),
-      effective_to: isoDate(policy.effectiveTo),
+      effective_from: fromDateColumn(policy.effectiveFrom),
+      effective_to: fromDateColumn(policy.effectiveTo),
       pf_employee: num(policy.pfEmployeeRate),
       pf_employer: num(policy.pfEmployerRate),
       esi_employee: num(policy.esiEmployeeRate),
@@ -273,7 +270,7 @@ function ptSlabRow(row: PtSlabRow) {
     amount: num(row.amount),
     gender: row.gender,
     february_amount: row.februaryAmount == null ? null : num(row.februaryAmount),
-    effective_from: isoDate(row.effectiveFrom),
+    effective_from: fromDateColumn(row.effectiveFrom),
   }
 }
 

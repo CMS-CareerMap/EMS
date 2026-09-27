@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client'
 import type { EmployeeRow } from '../../modules/employee/employee.repository'
 import type { FieldAccess } from '../../modules/employee/employee.repository'
+import { fromDateColumn, isoInstant } from '../../domain/shared/dates'
 
 /**
  * What an employee looks like over the wire.
@@ -36,10 +37,6 @@ function money(value: Prisma.Decimal | null | undefined): number | null {
   return value == null ? null : Number(value)
 }
 
-function isoDate(value: Date | null | undefined): string | null {
-  return value ? value.toISOString().slice(0, 10) : null
-}
-
 /** The fields anyone who may read an employee at all can see. */
 function base(employee: EmployeeRow) {
   return {
@@ -59,9 +56,9 @@ function base(employee: EmployeeRow) {
     designation: employee.designation?.name ?? null,
     designation_id: employee.designationId,
 
-    date_of_joining: isoDate(employee.dateOfJoining),
+    date_of_joining: fromDateColumn(employee.dateOfJoining),
     // Null while they still work here.
-    last_working_date: isoDate(employee.lastWorkingDate),
+    last_working_date: fromDateColumn(employee.lastWorkingDate),
     // Null is "not recorded", which payroll reports rather than guesses around.
     gender: employee.gender,
     employment_type: employee.employmentType,
@@ -90,7 +87,7 @@ function base(employee: EmployeeRow) {
     role: employee.membership?.role ?? null,
     account_status: employee.membership?.status ?? null,
 
-    archived_at: employee.archivedAt?.toISOString() ?? null,
+    archived_at: isoInstant(employee.archivedAt),
   }
 }
 
@@ -145,7 +142,7 @@ function compensation(employee: EmployeeRow) {
       type: row.component.type,
       amount: money(row.amount),
     })),
-    salary_effective_from: isoDate(current.effectiveFrom),
+    salary_effective_from: fromDateColumn(current.effectiveFrom),
   }
 }
 
@@ -176,7 +173,7 @@ function bank(employee: EmployeeRow) {
     bank_account_type: account.accountType,
     bank_verification_status: account.verificationStatus,
     bank_verification_remarks: account.verificationRemarks,
-    verified_at: account.verifiedAt?.toISOString() ?? null,
+    verified_at: isoInstant(account.verifiedAt),
     bank_proof_name: account.proofFileName,
     // Note what is absent: proofKey. The storage key is never sent to a
     // browser — a download goes through an endpoint that checks permission and

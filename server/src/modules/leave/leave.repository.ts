@@ -1,5 +1,6 @@
 import type { Prisma, LeaveStatus } from '@prisma/client'
 import type { ScopedDb } from '../../platform/db/scoped'
+import type { TxDb } from '../../platform/db/transaction'
 import type { ScopeContext } from '../../platform/authz/scope'
 
 /**
@@ -97,7 +98,7 @@ export async function findRequest(
  * different people on the same afternoon.
  */
 export async function pendingDays(
-  db: ScopedDb,
+  db: TxDb,
   employeeId: string,
   leaveTypeId: string,
   leaveYear: number,
@@ -185,7 +186,7 @@ export async function balancesFor(
 
 /** Requests that overlap a date range — an employee cannot be on leave twice. */
 export async function overlapping(
-  db: ScopedDb,
+  db: TxDb,
   employeeId: string,
   from: Date,
   to: Date,
@@ -202,4 +203,31 @@ export async function overlapping(
     },
     include: requestInclude,
   }) as Promise<LeaveRequestRow[]>
+}
+
+export async function createRequest(db: TxDb, data: Prisma.LeaveRequestUncheckedCreateInput) {
+  return db.leaveRequest.create({ data })
+}
+
+/**
+ * Moves a request from one status to another — only if it is still in the
+ * first. Compared and changed in ONE statement, so of two decisions arriving
+ * together exactly one finds it still `from`; the other is told so.
+ *
+ * Reading the status first and updating after, as this used to, let two
+ * approvers — or one double click — both read `pending` and both take the days.
+ */
+export async function changeStatusIf(
+  db: TxDb,
+  id: string,
+  from: LeaveStatus,
+  change: { status: LeaveStatus; reviewedByUserId?: string; reviewedAt?: Date; reviewNote?: string | null },
+): Promise<boolean> {
+  const result = await db.leaveRequest.updateMany({ where: { id, status: from }, data: change })
+  return result.count === 1
+}
+
+/** A movement on the balance. Days are negative when taken, positive when given. */
+export async function addLedgerEntry(db: TxDb, data: Prisma.LeaveLedgerEntryUncheckedCreateInput) {
+  return db.leaveLedgerEntry.create({ data })
 }

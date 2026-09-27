@@ -3,8 +3,11 @@ import type { AppContext } from '../../platform/context'
 import { BadRequest } from '../../platform/errors/AppError'
 import { withTransaction } from '../../platform/db/transaction'
 import { logger } from '../../platform/logger'
-import { generateToken, hashInviteToken } from '../../platform/auth/tokenHash'
 import { importRowSchema } from '../../http/validators/employeeImport.validator'
+import { isCalendarDate, isoInstant, toDateColumn } from '../../domain/shared/dates'
+import { createLoginInTransaction } from '../user/user.service'
+import { listDepartments, listDesignations } from '../organization/masterData.repository'
+import * as repo from './employee.repository'
 
 /**
  * Bulk employee import from CSV.
@@ -64,8 +67,6 @@ export interface ImportResult {
   invites: { employeeCode: string; email: string; token: string; expiresAt: string }[]
 }
 
-const INVITE_VALID_FOR_HOURS = 72
-
 /**
  * Header names accepted for each field.
  *
@@ -124,7 +125,7 @@ function parseDate(value: string): string | null {
   const trimmed = value.trim()
   if (!trimmed) return null
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return isRealDate(trimmed) ? trimmed : null
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return isCalendarDate(trimmed) ? trimmed : null
 
   const dmy = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(trimmed)
   if (dmy) {
@@ -134,16 +135,10 @@ function parseDate(value: string): string | null {
     // date survives a round trip catches it here, where the message can name
     // the value the person actually typed — rather than in zod, which would
     // only say "Invalid ISO date" about a string they never wrote.
-    return isRealDate(iso) ? iso : null
+    return isCalendarDate(iso) ? iso : null
   }
 
   return null
-}
-
-/** True only if the calendar actually has this day. */
-function isRealDate(iso: string): boolean {
-  const parsed = new Date(`${iso}T00:00:00Z`)
-  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === iso
 }
 
 export interface ImportInput {
@@ -174,16 +169,13 @@ export async function importEmployees(
   }
 
   // Names, not ids. HR has a spreadsheet with "Sales" in it, not a uuid.
-  const [departments, designations] = await Promise.all([
-    ctx.db.department.findMany({ where: { archivedAt: null }, select: { id: true, name: true } }),
-    ctx.db.designation.findMany({ where: { archivedAt: null }, select: { id: true, name: true } }),
-  ])
+  const [departments, designations] = await Promise.all([listDepartments(ctx.db), listDesignations(ctx.db)])
 
   const departmentByName = new Map(departments.map((d) => [d.name.toLowerCase(), d.id]))
   const designationByName = new Map(designations.map((d) => [d.name.toLowerCase(), d.id]))
 
   const existingCodes = new Set(
-    (await ctx.db.employee.findMany({ select: { employeeCode: true } })).map((e) =>
+    (await repo.listEmployeeCodes(ctx.db)).map((e) =>
       e.employeeCode.toLowerCase(),
     ),
   )
@@ -327,7 +319,6 @@ export async function importEmployees(
   }
 
   const invites: ImportResult['invites'] = []
-  const expiresAt = new Date(Date.now() + INVITE_VALID_FOR_HOURS * 60 * 60 * 1000)
 
   await withTransaction(ctx.db, async (tx) => {
     for (const row of prepared) {
@@ -335,70 +326,46 @@ export async function importEmployees(
       let membershipId: string | null = null
 
       if (row.email) {
-        const existingUser = await tx.user.findUnique({
-          where: { email: row.email },
-          select: { id: true },
+        const login = await createLoginInTransaction(tx, {
+          email: row.email,
+          // Always `employee`. The CSV has no role column, and promoting
+          // anyone is a separate deliberate act through the role endpoint —
+          // not something that happens because of a spreadsheet.
+          role: 'employee',
+          organizationId: ctx.organizationId,
+          invitedByUserId: ctx.userId,
         })
-        const user =
-          existingUser ?? (await tx.user.create({ data: { email: row.email, passwordHash: null } }))
-
-        const membership = await tx.membership.create({
-          data: {
-            userId: user.id,
-            organizationId: ctx.organizationId,
-            // Always `employee`. The CSV has no role column, and promoting
-            // anyone is a separate deliberate act through the role endpoint —
-            // not something that happens because of a spreadsheet.
-            role: 'employee',
-            status: 'invited',
-          },
-        })
-        membershipId = membership.id
-
-        const rawToken = generateToken()
-        await tx.passwordResetToken.create({
-          data: {
-            userId: user.id,
-            tokenHash: hashInviteToken(rawToken),
-            expiresAt,
-            purpose: 'invite',
-            createdByUserId: ctx.userId,
-          },
-        })
+        membershipId = login.membershipId
 
         invites.push({
           employeeCode: data.employeeCode!,
           email: row.email,
-          token: rawToken,
-          expiresAt: expiresAt.toISOString(),
+          token: login.inviteToken,
+          expiresAt: isoInstant(login.expiresAt),
         })
       }
 
-      const employee = await tx.employee.create({
-        data: {
-          organizationId: ctx.organizationId,
-          membershipId,
-          employeeCode: data.employeeCode!,
-          fullName: data.fullName!,
-          personalEmail: data.personalEmail ?? null,
-          phone: data.phone ?? null,
-          dateOfJoining: data.dateOfJoining ? new Date(data.dateOfJoining) : null,
-          ...(data.employmentType
-            ? { employmentType: data.employmentType as 'full_time' }
-            : {}),
-          departmentId: data.departmentId ?? null,
-          designationId: data.designationId ?? null,
-          ...(data.gender ? { gender: data.gender as 'male' | 'female' | 'other' } : {}),
-        },
+      const employee = await repo.createEmployee(tx, {
+        organizationId: ctx.organizationId,
+        membershipId,
+        employeeCode: data.employeeCode!,
+        fullName: data.fullName!,
+        personalEmail: data.personalEmail ?? null,
+        phone: data.phone ?? null,
+        dateOfJoining: data.dateOfJoining ? toDateColumn(data.dateOfJoining) : null,
+        ...(data.employmentType
+          ? { employmentType: data.employmentType as 'full_time' }
+          : {}),
+        departmentId: data.departmentId ?? null,
+        designationId: data.designationId ?? null,
+        ...(data.gender ? { gender: data.gender as 'male' | 'female' | 'other' } : {}),
       })
 
       if (data.pan) {
-        await tx.employeeStatutoryIdentity.create({
-          data: {
-            organizationId: ctx.organizationId,
-            employeeId: employee.id,
-            pan: data.pan,
-          },
+        await repo.createStatutoryIdentity(tx, {
+          organizationId: ctx.organizationId,
+          employeeId: employee.id,
+          pan: data.pan,
         })
       }
     }

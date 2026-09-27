@@ -1,6 +1,7 @@
 import type { AppContext } from '../../platform/context'
 import { BadRequest, Conflict, Forbidden, NotFound } from '../../platform/errors/AppError'
 import { logger } from '../../platform/logger'
+import { isUniqueViolation } from '../../platform/db/errors'
 import { zonedToday, toDateColumn, type CalendarDate } from '../../domain/shared/dates'
 import { hoursBetween, classifyDay } from '../../domain/attendance/hours'
 import {
@@ -9,6 +10,9 @@ import {
   type Fence,
   type GeofenceVerdict,
 } from '../../domain/attendance/geofence'
+import * as repo from './attendance.repository'
+import { companyTimezone } from '../organization/organization.service'
+import { findActiveGeofence } from '../settings/settings.repository'
 
 /**
  * Punching in and out.
@@ -44,22 +48,9 @@ async function loadSelf(ctx: AppContext) {
     throw Forbidden('Your account has no employee record, so attendance does not apply to you.')
   }
 
-  const employee = await ctx.db.employee.findFirst({
-    where: { id: ctx.employeeId, archivedAt: null },
-    include: { shift: true },
-  })
-
+  const employee = await repo.findEmployeeWithShift(ctx.db, ctx.employeeId)
   if (!employee) throw NotFound('Employee record not found')
   return employee
-}
-
-async function loadOrganization(ctx: AppContext) {
-  const organization = await ctx.db.organization.findUnique({
-    where: { id: ctx.organizationId },
-    select: { timezone: true },
-  })
-  // Never the machine clock's idea of a day. See domain/shared/dates.
-  return { timezone: organization?.timezone ?? 'Asia/Kolkata' }
 }
 
 /**
@@ -75,7 +66,7 @@ async function verifyLocation(
 ): Promise<{ verdict: GeofenceVerdict; fence: Fence } | null> {
   if (attendanceMode !== 'app') return null
 
-  const location = await ctx.db.geofenceLocation.findFirst({ where: { isActive: true } })
+  const location = await findActiveGeofence(ctx.db)
 
   // No fence configured is not a reason to refuse everybody. It is a reason to
   // record that no check was made, which `geofenceVerified: null` says exactly.
@@ -112,14 +103,13 @@ async function verifyLocation(
 
 export async function punchIn(ctx: AppContext, input: PunchInput): Promise<PunchResult> {
   const employee = await loadSelf(ctx)
-  const { timezone } = await loadOrganization(ctx)
+  // Never the machine clock's idea of a day. See domain/shared/dates.
+  const timezone = await companyTimezone(ctx)
 
   const now = new Date()
   const today = zonedToday(now, timezone)
 
-  const existing = await ctx.db.attendance.findFirst({
-    where: { employeeId: employee.id, date: toDateColumn(today) },
-  })
+  const existing = await repo.findDay(ctx.db, employee.id, toDateColumn(today))
 
   // The client asked for ONE punch pair per day. A second check-in is a
   // double-tap or a confused user, not a new working day.
@@ -165,10 +155,15 @@ export async function punchIn(ctx: AppContext, input: PunchInput): Promise<Punch
   }
 
   const row = existing
-    ? await ctx.db.attendance.update({ where: { id: existing.id }, data })
-    : await ctx.db.attendance.create({
-        data: { organizationId: ctx.organizationId, employeeId: employee.id, date: toDateColumn(today), ...data },
-      })
+    ? await repo.updateDay(ctx.db, existing.id, data)
+    : await repo
+        .createDay(ctx.db, { organizationId: ctx.organizationId, employeeId: employee.id, date: toDateColumn(today), ...data })
+        .catch((err: unknown) => {
+          // Two taps at once: the other one created today's row a moment ago,
+          // and the unique index refused this one. That is a 409, not a 500.
+          if (isUniqueViolation(err)) throw Conflict('You have already checked in today.')
+          throw err
+        })
 
   logger.info('Punched in', { employeeId: employee.id, date: today })
 
@@ -191,15 +186,13 @@ export async function punchIn(ctx: AppContext, input: PunchInput): Promise<Punch
 
 export async function punchOut(ctx: AppContext): Promise<PunchResult> {
   const employee = await loadSelf(ctx)
-  const { timezone } = await loadOrganization(ctx)
+  // Never the machine clock's idea of a day. See domain/shared/dates.
+  const timezone = await companyTimezone(ctx)
 
   const now = new Date()
   const today = zonedToday(now, timezone)
 
-  const row = await ctx.db.attendance.findFirst({
-    where: { employeeId: employee.id, date: toDateColumn(today) },
-    include: { shift: true },
-  })
+  const row = await repo.findDayWithShift(ctx.db, employee.id, toDateColumn(today))
 
   if (!row?.checkIn) {
     throw BadRequest('You have not checked in today, so there is nothing to check out of.')
@@ -219,14 +212,11 @@ export async function punchOut(ctx: AppContext): Promise<PunchResult> {
   const expected = row.expectedHours ? Number(row.expectedHours) : 0
   const classification = expected > 0 ? classifyDay(hours, expected) : null
 
-  const updated = await ctx.db.attendance.update({
-    where: { id: row.id },
-    data: {
-      checkOut: now,
-      hoursWorked: hours,
-      ...(classification ? { status: classification.status } : {}),
-      ...(warning ? { note: [row.note, warning].filter(Boolean).join(' · ') } : {}),
-    },
+  const updated = await repo.updateDay(ctx.db, row.id, {
+    checkOut: now,
+    hoursWorked: hours,
+    ...(classification ? { status: classification.status } : {}),
+    ...(warning ? { note: [row.note, warning].filter(Boolean).join(' · ') } : {}),
   })
 
   logger.info('Punched out', { employeeId: employee.id, date: today, hours })
@@ -245,13 +235,11 @@ export async function punchOut(ctx: AppContext): Promise<PunchResult> {
 /** Today's row for the caller, so the UI knows which button to show. */
 export async function myToday(ctx: AppContext): Promise<PunchResult | null> {
   const employee = await loadSelf(ctx)
-  const { timezone } = await loadOrganization(ctx)
+  // Never the machine clock's idea of a day. See domain/shared/dates.
+  const timezone = await companyTimezone(ctx)
   const today = zonedToday(new Date(), timezone)
 
-  const row = await ctx.db.attendance.findFirst({
-    where: { employeeId: employee.id, date: toDateColumn(today) },
-  })
-
+  const row = await repo.findDay(ctx.db, employee.id, toDateColumn(today))
   if (!row) return null
 
   return {

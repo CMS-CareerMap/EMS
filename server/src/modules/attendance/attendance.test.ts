@@ -1,8 +1,10 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest'
 import request from 'supertest'
 import { createApp } from '../../app'
 import { prisma } from '../../platform/db/prisma'
 import { hashPassword } from '../../platform/auth/password'
+import { fromDateColumn } from '../../domain/shared/dates'
+import * as attendanceRepo from './attendance.repository'
 
 /**
  * The punch flow.
@@ -148,6 +150,21 @@ describe('punching in', () => {
     // double-tapped button cannot create two rows.
     expect(again.status).toBe(409)
     expect(again.body.error.message).toMatch(/already checked in/i)
+  })
+
+  it('answers a double tap with the same sentence, not a server error', async () => {
+    // The race, made certain rather than hoped for: the first tap has written
+    // today's row, and the second read before it did — so its check finds
+    // nothing and its insert meets the unique index. That used to be a 500.
+    await punchIn('app', goodReading)
+    const readBeforeTheOtherWrote = vi.spyOn(attendanceRepo, 'findDay').mockResolvedValueOnce(null)
+    try {
+      const second = await punchIn('app', goodReading)
+      expect(second.status).toBe(409)
+      expect(second.body.error.message).toMatch(/already checked in/i)
+    } finally {
+      readBeforeTheOtherWrote.mockRestore()
+    }
   })
 
   it('stores the evidence, not just the verdict', async () => {
@@ -338,6 +355,6 @@ describe('the date a punch is filed under', () => {
 
     // Between 18:30 and 23:59 UTC these two disagree, and a server-clock date
     // would file an evening punch under yesterday.
-    expect(row.date.toISOString().slice(0, 10)).toBe(expected)
+    expect(fromDateColumn(row.date)).toBe(expected)
   })
 })

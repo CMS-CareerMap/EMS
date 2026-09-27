@@ -53,6 +53,15 @@ export function wallClockIn(timeZone, iso) {
   }).format(new Date(iso))
 }
 
+/**
+ * A moment as the API exchanges it: ISO 8601 in UTC. Right for WHEN something
+ * happened — a verification, a payroll step — and wrong for WHICH DAY, which is
+ * calendarDayIn's job. The only other place toISOString() is allowed.
+ */
+export function isoInstant(instant = new Date()) {
+  return instant.toISOString()
+}
+
 /** "Monday, 14 September 2026" for a calendar day, whatever zone the browser is in. */
 export function formatCalendarDay(day) {
   return new Date(`${day}T00:00:00Z`).toLocaleDateString('en-IN', {

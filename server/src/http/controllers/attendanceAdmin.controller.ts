@@ -21,6 +21,7 @@ import {
 import { parseBody } from '../validators/parse'
 import { appContext } from '../context'
 import type { AttendanceRow } from '../../modules/attendance/attendance.repository'
+import { fromDateColumn, isoInstant } from '../../domain/shared/dates'
 
 /** Snake_case out, matching the names the Attendance page already reads. */
 /** The day itself, without who it belongs to. Shared by the list and the roster. */
@@ -29,10 +30,10 @@ function dayFields(record: Omit<AttendanceRow, 'employee'>) {
 
   return {
     id: record.id,
-    date: record.date.toISOString().slice(0, 10),
+    date: fromDateColumn(record.date),
 
-    check_in: record.checkIn?.toISOString() ?? null,
-    check_out: record.checkOut?.toISOString() ?? null,
+    check_in: isoInstant(record.checkIn),
+    check_out: isoInstant(record.checkOut),
     status: record.status,
     source: record.source,
 

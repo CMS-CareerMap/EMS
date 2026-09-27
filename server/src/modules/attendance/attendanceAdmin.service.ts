@@ -6,10 +6,12 @@ import {
   zonedToday,
   parseWallClock,
   isCalendarDate,
+  fromDateColumn,
   type CalendarDate,
 } from '../../domain/shared/dates'
 import { hoursBetweenWallClock, classifyDay } from '../../domain/attendance/hours'
 import * as repo from './attendance.repository'
+import { companyTimezone } from '../organization/organization.service'
 
 /**
  * Attendance as HR sees it: other people's days.
@@ -19,14 +21,6 @@ import * as repo from './attendance.repository'
  * one, and therefore needs a scope check on every call. Two different shapes of
  * risk, two files.
  */
-
-async function timezone(ctx: AppContext): Promise<string> {
-  const organization = await ctx.db.organization.findUnique({
-    where: { id: ctx.organizationId },
-    select: { timezone: true },
-  })
-  return organization?.timezone ?? 'Asia/Kolkata'
-}
 
 export interface ListInput {
   date?: string | undefined
@@ -83,15 +77,7 @@ export async function monthlySummary(
 
   // Names for the ids the aggregate returned. A separate query because the
   // aggregate groups on employeeId and cannot carry a joined name with it.
-  const employees = await ctx.db.employee.findMany({
-    where: { id: { in: totals.map((t) => t.employeeId) } },
-    select: {
-      id: true,
-      employeeCode: true,
-      fullName: true,
-      shift: { select: { expectedHours: true } },
-    },
-  })
+  const employees = await repo.namesForTotals(ctx.db, totals.map((t) => t.employeeId))
 
   const byId = new Map(employees.map((e) => [e.id, e]))
 
@@ -129,7 +115,7 @@ export async function monthlySummary(
 }
 
 export async function todaySummary(ctx: AppContext, date?: string) {
-  const day = date ?? zonedToday(new Date(), await timezone(ctx))
+  const day = date ?? zonedToday(new Date(), await companyTimezone(ctx))
   if (!isCalendarDate(day)) throw BadRequest(`"${day}" is not a date`)
 
   return repo.daySummary(ctx.db, ctx.scopeFor('attendance'), day)
@@ -140,7 +126,7 @@ export async function todaySummary(ctx: AppContext, date?: string) {
  * row or none. The company's today unless a date is given — never UTC's.
  */
 export async function dayRoster(ctx: AppContext, date?: string) {
-  const day = date ?? zonedToday(new Date(), await timezone(ctx))
+  const day = date ?? zonedToday(new Date(), await companyTimezone(ctx))
   if (!isCalendarDate(day)) throw BadRequest(`"${day}" is not a date`)
 
   const employees = await repo.dayRoster(ctx.db, ctx.scopeFor('attendance'), day)
@@ -168,7 +154,7 @@ export interface MarkInput {
 export async function markAttendance(ctx: AppContext, input: MarkInput) {
   if (!isCalendarDate(input.date)) throw BadRequest(`"${input.date}" is not a date`)
 
-  const zone = await timezone(ctx)
+  const zone = await companyTimezone(ctx)
   const today = zonedToday(new Date(), zone)
 
   // A day that has not happened cannot have been worked. Without this, a typo
@@ -177,10 +163,7 @@ export async function markAttendance(ctx: AppContext, input: MarkInput) {
     throw BadRequest('You cannot mark attendance for a day in the future.')
   }
 
-  const employee = await ctx.db.employee.findFirst({
-    where: { id: input.employeeId, archivedAt: null },
-    include: { shift: true },
-  })
+  const employee = await repo.findEmployeeWithShift(ctx.db, input.employeeId)
   if (!employee) throw NotFound('Employee not found')
 
   const expectedHours = employee.shift ? Number(employee.shift.expectedHours) : null
@@ -279,6 +262,6 @@ export async function amendAttendance(
   return markAttendance(ctx, {
     ...input,
     employeeId: existing.employeeId,
-    date: existing.date.toISOString().slice(0, 10),
+    date: fromDateColumn(existing.date),
   })
 }

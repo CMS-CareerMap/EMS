@@ -96,12 +96,10 @@ export async function getPolicy(ctx: AppContext) {
   const current = await repo.getCurrentPolicy(ctx.db)
   if (current) return current
 
-  return ctx.db.organizationPolicy.create({
-    data: {
-      organizationId: ctx.organizationId,
-      effectiveFrom: await companyToday(ctx),
-      createdByUserId: ctx.userId,
-    },
+  return repo.createPolicy(ctx.db, {
+    organizationId: ctx.organizationId,
+    effectiveFrom: await companyToday(ctx),
+    createdByUserId: ctx.userId,
   })
 }
 
@@ -154,57 +152,40 @@ export async function updatePolicy(ctx: AppContext, input: PolicyInput) {
     }
   }
 
+  const period = { organizationId: ctx.organizationId, effectiveFrom: from, createdByUserId: ctx.userId }
+
   const policyId = await withTransaction(ctx.db, async (tx) => {
-    const current = await tx.organizationPolicy.findFirst({
-      where: { effectiveTo: null },
-      orderBy: { effectiveFrom: 'desc' },
-    })
+    const current = await repo.getCurrentPolicy(tx)
 
     if (!current) {
-      const created = await tx.organizationPolicy.create({
-        data: {
-          organizationId: ctx.organizationId,
-          effectiveFrom: from,
-          createdByUserId: ctx.userId,
-          ...data,
-        },
-      })
-      return created.id
+      return (await repo.createPolicy(tx, period, data)).id
     }
 
     if (current.effectiveFrom.getTime() === from.getTime()) {
-      await tx.organizationPolicy.update({ where: { id: current.id }, data })
+      await repo.updatePolicy(tx, current.id, data)
       return current.id
     }
 
     // Close yesterday, open today. The old row keeps every number it had, so
     // a payslip from that period is still explainable.
-    await tx.organizationPolicy.update({
-      where: { id: current.id },
-      data: { effectiveTo: toDateColumn(addCalendarDays(fromDateColumn(from), -1)) },
-    })
+    await repo.closePolicy(tx, current.id, toDateColumn(addCalendarDays(fromDateColumn(from), -1)))
 
-    const created = await tx.organizationPolicy.create({
-      data: {
-        organizationId: ctx.organizationId,
-        effectiveFrom: from,
-        createdByUserId: ctx.userId,
-        // Carry forward everything that was not explicitly changed, or the new
-        // period would silently reset untouched rates to their defaults.
-        pfEmployeeRate: current.pfEmployeeRate,
-        pfEmployerRate: current.pfEmployerRate,
-        pfRestrictToCeiling: current.pfRestrictToCeiling,
-        pfWageCeiling: current.pfWageCeiling,
-        esiEmployeeRate: current.esiEmployeeRate,
-        esiEmployerRate: current.esiEmployerRate,
-        esiThreshold: current.esiThreshold,
-        payDay: current.payDay,
-        payslipLockDay: current.payslipLockDay,
-        weeklyOffDays: current.weeklyOffDays,
-        leaveYearStartMonth: current.leaveYearStartMonth,
-        fiscalYearStartMonth: current.fiscalYearStartMonth,
-        ...data,
-      },
+    const created = await repo.createPolicy(tx, period, {
+      // Carry forward everything that was not explicitly changed, or the new
+      // period would silently reset untouched rates to their defaults.
+      pfEmployeeRate: current.pfEmployeeRate,
+      pfEmployerRate: current.pfEmployerRate,
+      pfRestrictToCeiling: current.pfRestrictToCeiling,
+      pfWageCeiling: current.pfWageCeiling,
+      esiEmployeeRate: current.esiEmployeeRate,
+      esiEmployerRate: current.esiEmployerRate,
+      esiThreshold: current.esiThreshold,
+      payDay: current.payDay,
+      payslipLockDay: current.payslipLockDay,
+      weeklyOffDays: current.weeklyOffDays,
+      leaveYearStartMonth: current.leaveYearStartMonth,
+      fiscalYearStartMonth: current.fiscalYearStartMonth,
+      ...data,
     })
 
     return created.id
@@ -212,7 +193,7 @@ export async function updatePolicy(ctx: AppContext, input: PolicyInput) {
 
   logger.info('Statutory policy updated', { by: ctx.userId, fields: Object.keys(data) })
 
-  const policy = await ctx.db.organizationPolicy.findFirst({ where: { id: policyId } })
+  const policy = await repo.findPolicy(ctx.db, policyId)
   if (!policy) throw NotFound('Policy was saved but could not be read back')
   return policy
 }
@@ -237,9 +218,9 @@ export async function listGeofences(ctx: AppContext) {
  * one location and has never had an id to send — it kept this in localStorage.
  */
 export async function saveGeofence(ctx: AppContext, input: GeofenceInput) {
-  const existing = await ctx.db.geofenceLocation.findFirst({ where: { name: input.name } })
+  const existing = await repo.findGeofenceByName(ctx.db, input.name)
 
-  const data = {
+  const data: repo.GeofenceValues = {
     latitude: input.latitude,
     longitude: input.longitude,
     radiusMeters: input.radiusMeters,
@@ -248,19 +229,17 @@ export async function saveGeofence(ctx: AppContext, input: GeofenceInput) {
   }
 
   const saved = existing
-    ? await ctx.db.geofenceLocation.update({ where: { id: existing.id }, data })
-    : await ctx.db.geofenceLocation.create({
-        data: { organizationId: ctx.organizationId, name: input.name, ...data },
-      })
+    ? await repo.updateGeofence(ctx.db, existing.id, data)
+    : await repo.createGeofence(ctx.db, ctx.organizationId, input.name, data)
 
   logger.info('Geofence saved', { by: ctx.userId, name: input.name })
   return saved
 }
 
 export async function deleteGeofence(ctx: AppContext, id: string) {
-  const existing = await ctx.db.geofenceLocation.findFirst({ where: { id } })
+  const existing = await repo.findGeofence(ctx.db, id)
   if (!existing) throw NotFound('Location not found')
-  await ctx.db.geofenceLocation.delete({ where: { id } })
+  await repo.deleteGeofence(ctx.db, id)
 }
 
 export interface LeaveTypeInput {
@@ -289,7 +268,7 @@ export async function createLeaveType(ctx: AppContext, input: LeaveTypeInput) {
 
   const name = input.name.trim()
   const code = input.code.trim().toUpperCase()
-  const values = {
+  const values: repo.LeaveTypeValues = {
     name,
     code,
     annualQuota: input.annualQuota ?? 0,
@@ -307,15 +286,12 @@ export async function createLeaveType(ctx: AppContext, input: LeaveTypeInput) {
   }
 
   if (matches.length === 1) {
-    const restored = await ctx.db.leaveType.update({
-      where: { id: matches[0]!.id },
-      data: { ...values, archivedAt: null },
-    })
+    const restored = await repo.restoreLeaveType(ctx.db, matches[0]!.id, values)
     logger.info('Leave type restored', { by: ctx.userId, id: restored.id })
     return { row: restored, restored: true }
   }
 
-  const row = await ctx.db.leaveType.create({ data: { organizationId: ctx.organizationId, ...values } })
+  const row = await repo.createLeaveType(ctx.db, ctx.organizationId, values)
   return { row, restored: false }
 }
 
@@ -348,7 +324,7 @@ export async function updateLeaveType(ctx: AppContext, id: string, input: LeaveT
     )
   }
 
-  return ctx.db.leaveType.update({ where: { id }, data })
+  return repo.updateLeaveType(ctx.db, id, data)
 }
 
 /**
@@ -362,7 +338,7 @@ export async function archiveLeaveType(ctx: AppContext, id: string) {
   const existing = await repo.findLeaveType(ctx.db, id)
   if (!existing) throw NotFound('Leave type not found')
 
-  await ctx.db.leaveType.update({ where: { id }, data: { archivedAt: new Date() } })
+  await repo.archiveLeaveType(ctx.db, id, new Date())
   logger.info('Leave type archived', { by: ctx.userId, id })
 }
 

@@ -22,8 +22,11 @@ const POPULAR_BANKS = [
 ]
 
 export default function BankVerificationModal({ open, onClose, profile, mode = 'review' }) {
-  const { user, role } = useAuthStore()
-  const isHrOrFinance = ['hr', 'accounts', 'admin', 'super_admin'].includes(role)
+  const { user, can } = useAuthStore()
+  // Who may review bank details: the matrix gives them to Accounts (and Super
+  // Admin), as the server's employee:bank:read does. The role list here also
+  // named HR and Admin — so an HR edit verified itself, including HR's own.
+  const isHrOrFinance = can('employee:bank:read')
 
   const updateBank = useUpdateBankDetails()
   const verifyBank = useVerifyBankAccount()
