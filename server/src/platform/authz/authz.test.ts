@@ -269,3 +269,17 @@ describe('leave configuration, delegated by the client', () => {
     expect(roleCan('hr', 'user:invite')).toBe(false)
   })
 })
+
+describe('the holiday calendar', () => {
+  it('is kept by super_admin and HR, the people who run leave and attendance', () => {
+    const actual = ROLES.filter((role) => roleCan(role, 'holiday:manage'))
+    expect(actual.sort()).toEqual(['hr', 'super_admin'])
+  })
+
+  it('is not kept by a manager or an admin', () => {
+    // A team lead must not declare a day off for the whole company, and the
+    // matrix keeps admin out of leave and attendance records.
+    expect(roleCan('manager', 'holiday:manage')).toBe(false)
+    expect(roleCan('admin', 'holiday:manage')).toBe(false)
+  })
+})

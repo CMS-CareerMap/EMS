@@ -79,4 +79,13 @@ export const useAuthStore = create((set, get) => ({
    * Someone editing it in a console gets a button that returns 403.
    */
   can: (permission) => get().permissions.includes(permission),
+
+  /**
+   * Holds at least one of these — for a page with parts belonging to different
+   * permissions. Settings is one: HR manages leave types and holidays there
+   * without holding the company settings on the other tabs. An array or a
+   * single permission, so every nav item can be asked the same way.
+   */
+  canAny: (permissions) =>
+    (Array.isArray(permissions) ? permissions : [permissions]).some((p) => get().permissions.includes(p)),
 }))

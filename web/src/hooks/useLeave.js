@@ -152,6 +152,8 @@ export function useHolidays(year) {
   return useQuery({
     queryKey: [...keys.holidays, year ?? 'all'],
     queryFn: async () =>
-      (await api.get(year ? `/settings/holidays?year=${year}` : '/settings/holidays')).data,
+      // /holidays, not /settings/holidays: the settings route was Super Admin
+      // only, so this list was a permission error for every employee.
+      (await api.get(year ? `/holidays?year=${year}` : '/holidays')).data,
   })
 }

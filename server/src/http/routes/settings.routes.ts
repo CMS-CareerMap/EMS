@@ -13,7 +13,7 @@ import {
   patchLeaveType,
   deleteLeaveType,
   getPtSlabs,
-  getHolidays,
+  putPtSlabs,
 } from '../controllers/settings.controller'
 import { authenticate } from '../middleware/authenticate'
 import { authorize } from '../middleware/authorize'
@@ -26,9 +26,9 @@ import { authorize } from '../middleware/authorize'
  * them apart means a company that wants HR to SEE the leave configuration
  * without being able to change it can have that without a code change.
  *
- * Holidays and PT slabs are readable by anyone who can open Settings, because
- * they are the kind of reference data every other module needs — leave
- * balances, attendance, payroll. Writing them arrives with their own modules.
+ * PT slabs are statutory settings: read and set here, by Super Admin. Holidays
+ * moved to /api/holidays — everybody who applies for leave needs to read them,
+ * and behind settings:read only Super Admin could.
  */
 export const settingsRouter = Router()
 
@@ -53,4 +53,4 @@ settingsRouter.patch('/leave-types/:id', authorize('leave:type:manage'), patchLe
 settingsRouter.delete('/leave-types/:id', authorize('leave:type:manage'), deleteLeaveType)
 
 settingsRouter.get('/pt-slabs', authorize('settings:read'), getPtSlabs)
-settingsRouter.get('/holidays', authorize('settings:read'), getHolidays)
+settingsRouter.put('/pt-slabs', authorize('settings:update'), putPtSlabs)

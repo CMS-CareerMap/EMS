@@ -17,7 +17,7 @@ const ROLE_LABELS = {
 
 export default function Sidebar({ mobile = false, onClose }) {
   const navigate = useNavigate()
-  const { user, profile, role, clearAuth, can } = useAuthStore()
+  const { user, profile, role, clearAuth, canAny } = useAuthStore()
 
   async function handleLogout() {
     // Clear locally whichever way the request goes. A network error is not a
@@ -33,7 +33,7 @@ export default function Sidebar({ mobile = false, onClose }) {
 
   const visibleGroups = NAV_GROUPS.map((group) => ({
     ...group,
-    items: group.items.filter((item) => can(item.permission)),
+    items: group.items.filter((item) => canAny(item.permission)),
   })).filter((group) => group.items.length > 0)
 
   const displayName = profile?.full_name || user?.email?.split('@')[0] || 'User'

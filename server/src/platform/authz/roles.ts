@@ -48,6 +48,7 @@ const HR: readonly Permission[] = [
   'leave:apply',
   'leave:approve',
   'leave:type:manage',
+  'holiday:manage',
   'document:read',
   'document:upload',
   'document:verify',
@@ -166,6 +167,21 @@ export function roleCan(role: Role, permission: Permission): boolean {
  * It is a SEPARATE permission from settings:update on purpose. Folding it in
  * would have meant giving HR company identity, statutory rates and user
  * management in order to let them add one leave type.
+ */
+/**
+ * WHO KEEPS THE HOLIDAY CALENDAR — not in the client's matrix, so decided here.
+ *
+ * `holiday:manage` goes to super_admin and HR. HR runs leave and attendance,
+ * and a holiday is a decision about both: leave is not charged for it, and
+ * attendance does not expect anybody that day.
+ *
+ * Not admin, although admin holds leave:type:manage: the matrix keeps admin out
+ * of attendance and leave records entirely, and the holiday calendar reaches
+ * into both. Not a manager either — one team's lead should not declare a day
+ * off for the whole company.
+ *
+ * Reading holidays needs only `leave:read`: everybody who applies for leave
+ * needs to see which days are already off.
  */
 export const OPEN_QUESTIONS = [
   'Can an admin or accounts user apply for their own leave? §3.2 currently says no.',

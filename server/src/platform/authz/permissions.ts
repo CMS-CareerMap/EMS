@@ -47,6 +47,10 @@ export const PERMISSIONS = [
   // who run leave to manage it, without also handing them company identity,
   // statutory rates and user management.
   'leave:type:manage',
+  // Keeping the holiday calendar. Holidays decide which days leave does not
+  // charge and attendance does not expect, so this sits with the people who
+  // run leave and attendance day to day — not with company settings.
+  'holiday:manage',
 
   'payroll:structure:read',
   'payroll:structure:manage',

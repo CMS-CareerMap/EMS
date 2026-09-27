@@ -7,6 +7,8 @@ import {
   esiPeriodFor,
   computePt,
   annualPt,
+  ptTableProblems,
+  ptTableRows,
   PT_ANNUAL_CAP,
   EPS_MONTHLY_CAP,
   type PtSlabRule,
@@ -319,5 +321,51 @@ describe('professional tax', () => {
     expect(
       computePt({ state: null, gender: 'male', gross: 30_000, month: 6, slabs: MAHARASHTRA }),
     ).toBe(0)
+  })
+})
+
+describe('keeping a PT table', () => {
+  it('accepts Maharashtra as the state writes it', () => {
+    expect(ptTableProblems([
+      { gender: 'male', from: 0, amount: 0 },
+      { gender: 'male', from: 7500.01, amount: 175 },
+      { gender: 'male', from: 10000.01, amount: 200, februaryAmount: 300 },
+      { gender: 'female', from: 0, amount: 0 },
+      { gender: 'female', from: 25000.01, amount: 200, februaryAmount: 300 },
+    ])).toEqual([])
+  })
+
+  it('refuses a table that would take more than ₹2,500 a year', () => {
+    // ₹250 a month is ₹3,000 a year. A data-entry slip, not a new tax.
+    const problems = ptTableProblems([{ gender: 'any', from: 0, amount: 250 }])
+    expect(problems.join(' ')).toMatch(/capped at ₹2500/)
+    // And February counts: 11 × 200 + 400 is 2,600.
+    expect(ptTableProblems([{ gender: 'any', from: 0, amount: 200, februaryAmount: 400 }])).not.toEqual([])
+  })
+
+  it('insists every table starts at zero', () => {
+    expect(ptTableProblems([{ gender: 'any', from: 10000, amount: 200 }]).join(' ')).toMatch(/start at ₹0/)
+  })
+
+  it('refuses men without women, which would charge women nothing', () => {
+    expect(ptTableProblems([{ gender: 'male', from: 0, amount: 200 }]).join(' ')).toMatch(/go together/)
+  })
+
+  it('refuses two slabs starting at the same amount', () => {
+    expect(ptTableProblems([
+      { gender: 'any', from: 0, amount: 0 },
+      { gender: 'any', from: 0, amount: 200 },
+    ]).join(' ')).toMatch(/same amount/)
+  })
+
+  it('stores upper bounds one paisa below the next slab, so there is no gap', () => {
+    const rows = ptTableRows([
+      { gender: 'any', from: 25000, amount: 200 },
+      { gender: 'any', from: 0, amount: 0 },
+    ])
+    expect(rows).toEqual([
+      { gender: 'any', wageFrom: 0, wageTo: 24999.99, amount: 0, februaryAmount: null },
+      { gender: 'any', wageFrom: 25000, wageTo: null, amount: 200, februaryAmount: null },
+    ])
   })
 })

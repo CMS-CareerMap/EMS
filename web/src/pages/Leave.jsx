@@ -26,11 +26,11 @@ const STATUS_META = {
   rejected: { label: 'Rejected', cls: 'bg-red-100 text-red-600', icon: XCircle },
 }
 
+/** The types the server sends. weekly_off appears only on older rows. */
 const HOLIDAY_TYPE = {
-  national: { cls: 'bg-blue-100 text-blue-700', label: 'National' },
-  festival: { cls: 'bg-orange-100 text-orange-700', label: 'Festival' },
-  regional: { cls: 'bg-purple-100 text-purple-700', label: 'Regional' },
-  optional: { cls: 'bg-gray-100 text-gray-600', label: 'Optional' },
+  public: { cls: 'bg-green-100 text-green-700', label: 'Public' },
+  optional: { cls: 'bg-purple-100 text-purple-700', label: 'Optional' },
+  weekly_off: { cls: 'bg-gray-100 text-gray-600', label: 'Weekly off' },
 }
 
 function formatDate(str) {
@@ -313,87 +313,105 @@ function BalanceTab() {
 }
 
 
+/**
+ * The holiday calendar, for everybody who applies for leave.
+ *
+ * It used to look types up in a table of national / festival / regional —
+ * names the server has never sent. Every holiday is PUBLIC or OPTIONAL, so the
+ * lookup came back empty and reading `.cls` off it took the whole Leave page
+ * down the moment the tab opened. It also showed every year under a heading
+ * that said 2026, and read dates in the browser's zone, which moves them a day
+ * west of India.
+ */
 function HolidaysTab() {
-  const { data: holidays = [] } = useHolidays()
   const timezone = useAuthStore((state) => state.organization?.timezone)
   const today = calendarDayIn(timezone)
+  const thisYear = Number(today.slice(0, 4))
+  const [year, setYear] = useState(thisYear)
+  const { data: holidays = [], isLoading } = useHolidays(year)
+
   const upcoming = holidays.filter((h) => h.date >= today)
   const past = holidays.filter((h) => h.date < today)
+  const hasOptional = holidays.some((h) => h.type === 'optional')
 
   return (
     <div className="space-y-5">
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
           <div>
-            <p className="text-base font-semibold text-gray-900">Holiday Calendar — 2026</p>
-            <p className="text-xs text-gray-400 mt-0.5">{holidays.length} holidays this year</p>
+            <p className="text-base font-semibold text-gray-900">Holiday Calendar — {year}</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {isLoading ? 'Loading…' : `${holidays.length} holiday${holidays.length === 1 ? '' : 's'}`}
+            </p>
           </div>
-          <button className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors">
-            <Download className="w-4 h-4" />Export
-          </button>
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+            {[thisYear - 1, thisYear, thisYear + 1].map((y) => (
+              <button key={y} type="button" onClick={() => setYear(y)}
+                className={`px-3 py-1.5 text-sm font-medium ${y === year ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                {y}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Upcoming */}
-        <div className="px-5 py-3 bg-blue-50 border-b border-blue-100">
-          <p className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Upcoming</p>
-        </div>
-        <div className="divide-y divide-gray-50">
-          {upcoming.map((h) => {
-            const hMeta = HOLIDAY_TYPE[h.type]
-            const d = new Date(h.date)
-            const isNext = h.date === upcoming[0]?.date
-            return (
-              <div key={h.date} className={`flex items-center gap-4 px-5 py-4 ${isNext ? 'bg-blue-50/40' : 'hover:bg-gray-50'} transition-colors`}>
-                <div className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center shrink-0 ${isNext ? 'bg-blue-600' : 'bg-gray-100'}`}>
-                  <span className={`text-xs font-medium ${isNext ? 'text-blue-100' : 'text-gray-500'}`}>
-                    {d.toLocaleString('en-IN', { month: 'short' })}
-                  </span>
-                  <span className={`text-lg font-bold leading-none ${isNext ? 'text-white' : 'text-gray-900'}`}>
-                    {d.getDate()}
-                  </span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900">{h.name}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{d.toLocaleString('en-IN', { weekday: 'long' })}</p>
-                </div>
-                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${hMeta.cls}`}>
-                  {hMeta.label}
-                </span>
-              </div>
-            )
-          })}
-        </div>
+        {hasOptional && (
+          <p className="px-5 py-2.5 text-xs text-gray-500 border-b border-gray-100">
+            An optional holiday is not a day off by itself — apply for leave to take one.
+          </p>
+        )}
 
-        {/* Past */}
+        {!isLoading && holidays.length === 0 && (
+          <p className="px-5 py-8 text-sm text-gray-500 text-center">No holidays have been entered for {year}.</p>
+        )}
+
+        {upcoming.length > 0 && (
+          <>
+            <div className="px-5 py-3 bg-blue-50 border-b border-blue-100">
+              <p className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Upcoming</p>
+            </div>
+            <div className="divide-y divide-gray-50">
+              {upcoming.map((h, i) => <HolidayRow key={h.id} holiday={h} next={i === 0} />)}
+            </div>
+          </>
+        )}
+
         {past.length > 0 && (
           <>
             <div className="px-5 py-3 bg-gray-50 border-y border-gray-100">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Past Holidays</p>
             </div>
             <div className="divide-y divide-gray-50">
-              {past.map((h) => {
-                const hMeta = HOLIDAY_TYPE[h.type]
-                const d = new Date(h.date)
-                return (
-                  <div key={h.date} className="flex items-center gap-4 px-5 py-3.5 opacity-50 hover:opacity-70 transition-opacity">
-                    <div className="w-12 h-12 rounded-xl bg-gray-100 flex flex-col items-center justify-center shrink-0">
-                      <span className="text-xs text-gray-400">{d.toLocaleString('en-IN', { month: 'short' })}</span>
-                      <span className="text-lg font-bold text-gray-600 leading-none">{d.getDate()}</span>
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-gray-700">{h.name}</p>
-                      <p className="text-xs text-gray-400">{d.toLocaleString('en-IN', { weekday: 'long' })}</p>
-                    </div>
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${hMeta.cls}`}>
-                      {hMeta.label}
-                    </span>
-                  </div>
-                )
-              })}
+              {past.map((h) => <HolidayRow key={h.id} holiday={h} past />)}
             </div>
           </>
         )}
       </div>
+    </div>
+  )
+}
+
+/** A calendar day's parts, read in UTC so no browser zone can move the day. */
+function dayParts(day) {
+  const d = new Date(`${day}T00:00:00Z`)
+  const part = (options) => d.toLocaleString('en-IN', { ...options, timeZone: 'UTC' })
+  return { month: part({ month: 'short' }), date: d.getUTCDate(), weekday: part({ weekday: 'long' }) }
+}
+
+function HolidayRow({ holiday, next = false, past = false }) {
+  const meta = HOLIDAY_TYPE[holiday.type] ?? { cls: 'bg-gray-100 text-gray-600', label: holiday.type }
+  const { month, date, weekday } = dayParts(holiday.date)
+
+  return (
+    <div className={`flex items-center gap-4 px-5 ${past ? 'py-3.5 opacity-50 hover:opacity-70' : 'py-4 hover:bg-gray-50'} ${next ? 'bg-blue-50/40' : ''} transition-colors`}>
+      <div className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center shrink-0 ${next ? 'bg-blue-600' : 'bg-gray-100'}`}>
+        <span className={`text-xs font-medium ${next ? 'text-blue-100' : 'text-gray-500'}`}>{month}</span>
+        <span className={`text-lg font-bold leading-none ${next ? 'text-white' : 'text-gray-900'}`}>{date}</span>
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-gray-900">{holiday.name}</p>
+        <p className="text-xs text-gray-400 mt-0.5">{weekday}</p>
+      </div>
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${meta.cls}`}>{meta.label}</span>
     </div>
   )
 }
@@ -405,6 +423,13 @@ export default function Leave() {
   // list this replaced included admin, whom the client's matrix bars from leave
   // decisions — so admin got buttons that could only ever return 403.
   const isManagement = useAuthStore((state) => state.can('leave:approve'))
+  // Leave belongs to an employee record. An account without one — the Super
+  // Admin the installer creates is the usual case — has no balance and cannot
+  // apply, and asking the server anyway put an error on screen every time this
+  // page opened.
+  const hasEmployee = useAuthStore((state) => Boolean(state.profile))
+  const canApply = useAuthStore((state) => state.can('leave:apply')) && hasEmployee
+  const tabs = hasEmployee ? TABS : TABS.filter((t) => t !== 'balance')
   // Same: scoping moved to the server. HR sees the company, a manager their
   // direct reports, an employee their own.
   const { data: requests = [], isLoading } = useLeaveRequests()
@@ -450,16 +475,18 @@ export default function Leave() {
                 : 'All requests are up to date'}
             </p>
           </div>
-          <button onClick={() => setApplyOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors">
-            <Plus className="w-4 h-4" />
-            Apply for Leave
-          </button>
+          {canApply && (
+            <button onClick={() => setApplyOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors">
+              <Plus className="w-4 h-4" />
+              Apply for Leave
+            </button>
+          )}
         </div>
 
         {/* Tabs */}
         <div className="flex items-center gap-1 border-b border-gray-200">
-          {TABS.map((t) => (
+          {tabs.map((t) => (
             <button key={t} onClick={() => setTab(t)}
               className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px flex items-center gap-2
                 ${tab === t
@@ -479,13 +506,16 @@ export default function Leave() {
 
         {/* Tab content */}
         {tab === 'requests' && (
-          <RequestsTab requests={requests} isLoading={isLoading} onApprove={handleApprove} onReject={handleReject} onApply={handleApply} isManagement={isManagement} />
+          <RequestsTab requests={requests} isLoading={isLoading} onApprove={handleApprove} onReject={handleReject} isManagement={isManagement} />
         )}
-        {tab === 'balance' && <BalanceTab />}
+        {tab === 'balance' && hasEmployee && <BalanceTab />}
         {tab === 'holidays' && <HolidaysTab />}
       </div>
 
-      <ApplyLeaveModal open={applyOpen} onClose={() => setApplyOpen(false)} onSave={handleApply} saving={applyLeave.isPending} />
+      {/* Mounted only while open, so its balance lookup runs when somebody applies, not on every visit. */}
+      {applyOpen && (
+        <ApplyLeaveModal open onClose={() => setApplyOpen(false)} onSave={handleApply} saving={applyLeave.isPending} />
+      )}
     </>
   )
 }

@@ -56,16 +56,69 @@ export async function listPtSlabs(db: ScopedDb, state?: string) {
   })
 }
 
-export async function listHolidays(db: ScopedDb, year?: number) {
-  const where =
-    year === undefined
-      ? {}
-      : {
-          date: {
-            gte: new Date(Date.UTC(year, 0, 1)),
-            lt: new Date(Date.UTC(year + 1, 0, 1)),
-          },
-        }
+/** A state's table as it stands — the slabs nobody has closed. */
+export async function listOpenPtSlabsForState(db: ScopedDb, state: string) {
+  return db.ptSlab.findMany({
+    where: { state: { equals: state, mode: 'insensitive' }, effectiveTo: null },
+    orderBy: [{ gender: 'asc' }, { minGross: 'asc' }],
+  })
+}
 
-  return db.holiday.findMany({ where, orderBy: { date: 'asc' } })
+export interface PtRow {
+  gender: 'male' | 'female' | 'any'
+  minGross: number
+  maxGross: number | null
+  amount: number
+  februaryAmount: number | null
+}
+
+/**
+ * Puts a state's new table in place, in one transaction: the old slabs are
+ * either removed (a correction on the day they started) or closed the day
+ * before the new ones begin (a revision). Half of that happening would leave
+ * two tables in force at once, or none.
+ */
+export async function replacePtTable(
+  db: ScopedDb,
+  organizationId: string,
+  input: {
+    state: string
+    effectiveFrom: Date
+    deleteIds: string[]
+    closeIds: string[]
+    closeOn: Date | null
+    rows: PtRow[]
+  },
+) {
+  return db.$transaction(async (tx) => {
+    if (input.deleteIds.length > 0) {
+      await tx.ptSlab.deleteMany({ where: { id: { in: input.deleteIds } } })
+    }
+    if (input.closeIds.length > 0 && input.closeOn) {
+      await tx.ptSlab.updateMany({ where: { id: { in: input.closeIds } }, data: { effectiveTo: input.closeOn } })
+    }
+    await tx.ptSlab.createMany({
+      data: input.rows.map((row) => ({
+        organizationId,
+        state: input.state,
+        effectiveFrom: input.effectiveFrom,
+        ...row,
+      })),
+    })
+  })
+}
+
+/** Whether any leave has been granted or taken — the leave year is fixed after that. */
+export async function countLeaveLedgerEntries(db: ScopedDb) {
+  return db.leaveLedgerEntry.count()
+}
+
+/** Leave types matching a code or a name, archived or not, whatever the case. */
+export async function findLeaveTypesLike(db: ScopedDb, code: string | undefined, name: string | undefined) {
+  const or = [
+    ...(code ? [{ code: { equals: code, mode: 'insensitive' as const } }] : []),
+    ...(name ? [{ name: { equals: name, mode: 'insensitive' as const } }] : []),
+  ]
+  if (or.length === 0) return []
+  return db.leaveType.findMany({ where: { OR: or } })
 }
