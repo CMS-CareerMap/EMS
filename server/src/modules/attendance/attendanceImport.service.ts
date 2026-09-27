@@ -7,6 +7,7 @@ import { isCalendarDate, parseWallClock, toDateColumn, zonedToday } from '../../
 import { hoursBetweenWallClock, classifyDay } from '../../domain/attendance/hours'
 import * as repo from './attendance.repository'
 import { companyTimezone } from '../organization/organization.service'
+import { audit } from '../audit/audit.service'
 
 /**
  * Biometric attendance import.
@@ -284,6 +285,12 @@ export async function importAttendance(
 
       await repo.replaceDay(tx, ctx.organizationId, row.employee.id, toDateColumn(row.date), data)
     }
+
+    await audit(ctx, {
+      action: 'attendance.imported',
+      entityType: 'import',
+      details: { rows: prepared.length, replacedExisting: wouldOverwrite },
+    }, tx)
   })
 
   summary.imported = prepared.length

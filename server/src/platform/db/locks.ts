@@ -12,6 +12,10 @@ import type { TxDb } from './transaction'
  *
  * A Postgres advisory lock scoped to the transaction: released at commit or
  * rollback, never left behind. Raw SQL, so it lives here with the client.
+ *
+ * The key is shared by every company on this database, so it must name the
+ * company whenever the subject is not already unique on its own — an
+ * employee id is; a state name or "the policy" is not.
  */
 export async function lockFor(tx: TxDb, key: string): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`

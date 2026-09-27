@@ -1,4 +1,5 @@
 import type { ScopedDb } from '../../platform/db/scoped'
+import type { TxDb } from '../../platform/db/transaction'
 
 /**
  * Salary structures: who is paid what, and since when.
@@ -25,7 +26,7 @@ export async function listHistory(db: ScopedDb, employeeId: string) {
 }
 
 /** The record nobody has closed yet. */
-export async function findOpen(db: ScopedDb, employeeId: string) {
+export async function findOpen(db: TxDb, employeeId: string) {
   return db.employeeFinancial.findFirst({
     where: { employeeId, effectiveTo: null },
     orderBy: { effectiveFrom: 'desc' },
@@ -79,11 +80,11 @@ export interface ComponentAmount {
 
 /**
  * Opens a new salary record from `effectiveFrom`, closing the open one the day
- * before. One transaction: a crash between the two would leave either two open
- * records — and payroll reading whichever came first — or none at all.
+ * before. On the caller's transaction — the service holds it, with a lock, so
+ * a crash between the two leaves neither two open records nor none.
  */
 export async function openNew(
-  db: ScopedDb,
+  db: TxDb,
   organizationId: string,
   input: {
     employeeId: string
@@ -94,29 +95,27 @@ export async function openNew(
     components: ComponentAmount[]
   },
 ) {
-  return db.$transaction(async (tx) => {
-    if (input.previousId && input.closePreviousOn) {
-      await tx.employeeFinancial.update({
-        where: { id: input.previousId },
-        data: { effectiveTo: input.closePreviousOn },
-      })
-    }
-
-    return tx.employeeFinancial.create({
-      data: {
-        organizationId,
-        employeeId: input.employeeId,
-        ctc: input.ctc,
-        effectiveFrom: input.effectiveFrom,
-        components: {
-          create: input.components.map((c) => ({
-            organizationId,
-            salaryComponentId: c.salaryComponentId,
-            amount: c.amount,
-          })),
-        },
-      },
+  if (input.previousId && input.closePreviousOn) {
+    await db.employeeFinancial.update({
+      where: { id: input.previousId },
+      data: { effectiveTo: input.closePreviousOn },
     })
+  }
+
+  return db.employeeFinancial.create({
+    data: {
+      organizationId,
+      employeeId: input.employeeId,
+      ctc: input.ctc,
+      effectiveFrom: input.effectiveFrom,
+      components: {
+        create: input.components.map((c) => ({
+          organizationId,
+          salaryComponentId: c.salaryComponentId,
+          amount: c.amount,
+        })),
+      },
+    },
   })
 }
 
@@ -125,24 +124,22 @@ export async function openNew(
  * on it. Same record, same dates; only the figures change.
  */
 export async function correctOpen(
-  db: ScopedDb,
+  db: TxDb,
   organizationId: string,
   input: { financialId: string; ctc: number; components: ComponentAmount[] },
 ) {
-  return db.$transaction(async (tx) => {
-    await tx.employeeSalaryComponent.deleteMany({ where: { employeeFinancialId: input.financialId } })
-    return tx.employeeFinancial.update({
-      where: { id: input.financialId },
-      data: {
-        ctc: input.ctc,
-        components: {
-          create: input.components.map((c) => ({
-            organizationId,
-            salaryComponentId: c.salaryComponentId,
-            amount: c.amount,
-          })),
-        },
+  await db.employeeSalaryComponent.deleteMany({ where: { employeeFinancialId: input.financialId } })
+  return db.employeeFinancial.update({
+    where: { id: input.financialId },
+    data: {
+      ctc: input.ctc,
+      components: {
+        create: input.components.map((c) => ({
+          organizationId,
+          salaryComponentId: c.salaryComponentId,
+          amount: c.amount,
+        })),
       },
-    })
+    },
   })
 }

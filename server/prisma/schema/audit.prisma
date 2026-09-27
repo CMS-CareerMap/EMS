@@ -1,0 +1,34 @@
+/// Who did what, and when — appended, never changed.
+///
+/// The answer to "who raised this salary?" or "who approved that leave?" long
+/// after the people involved have forgotten. A business change writes its row
+/// in the same transaction as the change, so there is no change without one.
+/// Security events — sign-ins, refused requests — are written as they happen.
+model AuditLog {
+  id             String @id @default(uuid())
+  organizationId String
+
+  /// Who did it. Null when nobody signed in did — a failed sign-in.
+  actorUserId String?
+
+  /// What happened, as a dotted name: leave.approved, salary.set, auth.login_failed.
+  action String
+
+  /// The kind of thing it happened to, and which one.
+  entityType String?
+  entityId   String?
+
+  /// The facts that matter for this action. Never a password, a token or an
+  /// account number.
+  details Json?
+
+  /// The request it happened in — the key to the matching log lines.
+  requestId String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, entityType, entityId])
+}

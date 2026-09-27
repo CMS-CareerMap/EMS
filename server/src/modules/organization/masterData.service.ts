@@ -2,6 +2,7 @@ import type { AppContext } from '../../platform/context'
 import { NotFound, Conflict } from '../../platform/errors/AppError'
 import { logger } from '../../platform/logger'
 import * as repo from './masterData.repository'
+import { withAudit } from '../audit/audit.service'
 
 /**
  * Everything an employee form needs to offer as a choice, in one round trip.
@@ -44,12 +45,20 @@ export async function addNamed(ctx: AppContext, kind: repo.NamedKind, rawName: s
     // Brought back rather than duplicated. The old one still carries the
     // history of everyone who was in it; a second row with the same name would
     // split that history in two.
-    const restored = await repo.updateNamed(ctx.db, kind, existing.id, { archivedAt: null, name })
+    const restored = await withAudit(
+      ctx,
+      (tx) => repo.updateNamed(tx, kind, existing.id, { archivedAt: null, name }),
+      () => ({ action: 'master_data.restored', entityType: kind, entityId: existing.id, details: { kind, name } }),
+    )
     logger.info('Master data restored', { by: ctx.userId, kind, id: existing.id })
     return { row: restored, restored: true }
   }
 
-  const row = await repo.createNamed(ctx.db, kind, ctx.organizationId, name)
+  const row = await withAudit(
+    ctx,
+    (tx) => repo.createNamed(tx, kind, ctx.organizationId, name),
+    (created) => ({ action: 'master_data.added', entityType: kind, entityId: created.id, details: { kind, name } }),
+  )
   logger.info('Master data added', { by: ctx.userId, kind, id: row.id })
   return { row, restored: false }
 }
@@ -68,7 +77,11 @@ export async function renameNamed(ctx: AppContext, kind: repo.NamedKind, id: str
     )
   }
 
-  return repo.updateNamed(ctx.db, kind, id, { name })
+  return withAudit(
+    ctx,
+    (tx) => repo.updateNamed(tx, kind, id, { name }),
+    () => ({ action: 'master_data.renamed', entityType: kind, entityId: id, details: { kind, from: row.name, to: name } }),
+  )
 }
 
 export async function archiveNamed(ctx: AppContext, kind: repo.NamedKind, id: string) {
@@ -78,7 +91,11 @@ export async function archiveNamed(ctx: AppContext, kind: repo.NamedKind, id: st
 
   // People already in it stay in it. Archiving only stops it being offered to
   // the next hire.
-  const archived = await repo.updateNamed(ctx.db, kind, id, { archivedAt: new Date() })
+  const archived = await withAudit(
+    ctx,
+    (tx) => repo.updateNamed(tx, kind, id, { archivedAt: new Date() }),
+    () => ({ action: 'master_data.archived', entityType: kind, entityId: id, details: { kind, name: row.name } }),
+  )
   logger.info('Master data archived', { by: ctx.userId, kind, id })
   return archived
 }
@@ -88,11 +105,19 @@ export async function addShift(ctx: AppContext, input: Required<repo.ShiftFields
   if (existing && !existing.archivedAt) throw Conflict(`A shift called "${existing.name}" already exists`)
 
   if (existing) {
-    const restored = await repo.updateShift(ctx.db, existing.id, { ...input, name: input.name.trim(), archivedAt: null })
+    const restored = await withAudit(
+      ctx,
+      (tx) => repo.updateShift(tx, existing.id, { ...input, name: input.name.trim(), archivedAt: null }),
+      () => ({ action: 'master_data.restored', entityType: 'shift', entityId: existing.id, details: { kind: 'shift', ...input } }),
+    )
     return { row: restored, restored: true }
   }
 
-  const row = await repo.createShift(ctx.db, ctx.organizationId, { ...input, name: input.name.trim() })
+  const row = await withAudit(
+    ctx,
+    (tx) => repo.createShift(tx, ctx.organizationId, { ...input, name: input.name.trim() }),
+    (created) => ({ action: 'master_data.added', entityType: 'shift', entityId: created.id, details: { kind: 'shift', ...input } }),
+  )
   logger.info('Shift added', { by: ctx.userId, id: row.id })
   return { row, restored: false }
 }
@@ -111,12 +136,20 @@ export async function editShift(ctx: AppContext, id: string, input: repo.ShiftFi
     if (clash && clash.id !== id) throw Conflict(`A shift called "${clash.name}" already exists`)
   }
 
-  return repo.updateShift(ctx.db, id, { ...input, ...(input.name !== undefined ? { name: input.name.trim() } : {}) })
+  return withAudit(
+    ctx,
+    (tx) => repo.updateShift(tx, id, { ...input, ...(input.name !== undefined ? { name: input.name.trim() } : {}) }),
+    () => ({ action: 'master_data.changed', entityType: 'shift', entityId: id, details: { kind: 'shift', name: row.name, changes: input } }),
+  )
 }
 
 export async function archiveShift(ctx: AppContext, id: string) {
   const row = await repo.findShiftById(ctx.db, id)
   if (!row) throw NotFound('That shift does not exist')
   if (row.archivedAt) return row
-  return repo.updateShift(ctx.db, id, { archivedAt: new Date() })
+  return withAudit(
+    ctx,
+    (tx) => repo.updateShift(tx, id, { archivedAt: new Date() }),
+    () => ({ action: 'master_data.archived', entityType: 'shift', entityId: id, details: { kind: 'shift', name: row.name } }),
+  )
 }

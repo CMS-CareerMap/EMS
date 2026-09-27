@@ -2,6 +2,7 @@ import { Unauthorized } from '../../platform/errors/AppError'
 import { verifyPassword } from '../../platform/auth/password'
 import { logger } from '../../platform/logger'
 import { issueSession, type IssuedSession, type SessionMeta } from './session.service'
+import { recordSecurityEvent } from '../audit/audit.service'
 import {
   findIdentityByEmail,
   findIdentityByEmployeeCode,
@@ -36,6 +37,20 @@ export async function login(input: LoginInput, meta: SessionMeta): Promise<Issue
 
   if (!identity || !passwordOk) {
     logger.warn('Login failed', { identifier: input.identifier, reason: 'bad_credentials' })
+    // Recorded against the company only when the account is real: a wrong
+    // password on somebody's account is theirs to know about. An address that
+    // matches nobody has no company to belong to, and stays in the log.
+    if (identity) {
+      await recordSecurityEvent({
+        organizationId: identity.organizationId,
+        actorUserId: null,
+        action: 'auth.login_failed',
+        entityType: 'user',
+        entityId: identity.userId,
+        details: { reason: 'wrong_password', ip: meta.ip ?? null, userAgent: meta.userAgent ?? null },
+        requestId: meta.requestId,
+      })
+    }
     throw Unauthorized('Incorrect email or password')
   }
 
@@ -48,6 +63,19 @@ export async function login(input: LoginInput, meta: SessionMeta): Promise<Issue
       userId: identity.userId,
       reason: identity.status === 'invited' ? 'not_activated' : 'inactive',
     })
+    await recordSecurityEvent({
+      organizationId: identity.organizationId,
+      actorUserId: null,
+      action: 'auth.login_failed',
+      entityType: 'user',
+      entityId: identity.userId,
+      details: {
+        reason: identity.status === 'invited' ? 'not_activated' : 'inactive',
+        ip: meta.ip ?? null,
+        userAgent: meta.userAgent ?? null,
+      },
+      requestId: meta.requestId,
+    })
     throw Unauthorized(
       identity.status === 'invited'
         ? 'This account has not been activated yet. Use the invitation link sent to you.'
@@ -59,6 +87,15 @@ export async function login(input: LoginInput, meta: SessionMeta): Promise<Issue
     userId: identity.userId,
     organizationId: identity.organizationId,
     role: identity.role,
+  })
+  await recordSecurityEvent({
+    organizationId: identity.organizationId,
+    actorUserId: identity.userId,
+    action: 'auth.login_succeeded',
+    entityType: 'user',
+    entityId: identity.userId,
+    details: { ip: meta.ip ?? null, userAgent: meta.userAgent ?? null },
+    requestId: meta.requestId,
   })
 
   // No familyId: a login always starts a fresh chain, which is what makes a

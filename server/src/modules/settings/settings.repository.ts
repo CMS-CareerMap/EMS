@@ -15,7 +15,7 @@ export async function getOrganization(db: ScopedDb, organizationId: string) {
 }
 
 export async function updateOrganization(
-  db: ScopedDb,
+  db: TxDb,
   organizationId: string,
   data: Record<string, unknown>,
 ) {
@@ -85,15 +85,15 @@ export async function findGeofenceByName(db: ScopedDb, name: string) {
   return db.geofenceLocation.findFirst({ where: { name } })
 }
 
-export async function createGeofence(db: ScopedDb, organizationId: string, name: string, values: GeofenceValues) {
+export async function createGeofence(db: TxDb, organizationId: string, name: string, values: GeofenceValues) {
   return db.geofenceLocation.create({ data: { organizationId, name, ...values } })
 }
 
-export async function updateGeofence(db: ScopedDb, id: string, values: GeofenceValues) {
+export async function updateGeofence(db: TxDb, id: string, values: GeofenceValues) {
   return db.geofenceLocation.update({ where: { id }, data: values })
 }
 
-export async function deleteGeofence(db: ScopedDb, id: string) {
+export async function deleteGeofence(db: TxDb, id: string) {
   return db.geofenceLocation.delete({ where: { id } })
 }
 
@@ -118,20 +118,20 @@ export interface LeaveTypeValues {
   carryForwardCap: number
 }
 
-export async function createLeaveType(db: ScopedDb, organizationId: string, values: LeaveTypeValues) {
+export async function createLeaveType(db: TxDb, organizationId: string, values: LeaveTypeValues) {
   return db.leaveType.create({ data: { organizationId, ...values } })
 }
 
 /** Brings an archived type back with new values; its ledger history comes with it. */
-export async function restoreLeaveType(db: ScopedDb, id: string, values: LeaveTypeValues) {
+export async function restoreLeaveType(db: TxDb, id: string, values: LeaveTypeValues) {
   return db.leaveType.update({ where: { id }, data: { ...values, archivedAt: null } })
 }
 
-export async function updateLeaveType(db: ScopedDb, id: string, values: Record<string, unknown>) {
+export async function updateLeaveType(db: TxDb, id: string, values: Record<string, unknown>) {
   return db.leaveType.update({ where: { id }, data: values })
 }
 
-export async function archiveLeaveType(db: ScopedDb, id: string, at: Date) {
+export async function archiveLeaveType(db: TxDb, id: string, at: Date) {
   return db.leaveType.update({ where: { id }, data: { archivedAt: at } })
 }
 
@@ -143,7 +143,7 @@ export async function listPtSlabs(db: ScopedDb, state?: string) {
 }
 
 /** A state's table as it stands — the slabs nobody has closed. */
-export async function listOpenPtSlabsForState(db: ScopedDb, state: string) {
+export async function listOpenPtSlabsForState(db: TxDb, state: string) {
   return db.ptSlab.findMany({
     where: { state: { equals: state, mode: 'insensitive' }, effectiveTo: null },
     orderBy: [{ gender: 'asc' }, { minGross: 'asc' }],
@@ -159,13 +159,13 @@ export interface PtRow {
 }
 
 /**
- * Puts a state's new table in place, in one transaction: the old slabs are
- * either removed (a correction on the day they started) or closed the day
- * before the new ones begin (a revision). Half of that happening would leave
- * two tables in force at once, or none.
+ * Puts a state's new table in place: the old slabs are either removed (a
+ * correction on the day they started) or closed the day before the new ones
+ * begin (a revision). On the caller's transaction — half of that happening
+ * would leave two tables in force at once, or none.
  */
 export async function replacePtTable(
-  db: ScopedDb,
+  db: TxDb,
   organizationId: string,
   input: {
     state: string
@@ -176,21 +176,19 @@ export async function replacePtTable(
     rows: PtRow[]
   },
 ) {
-  return db.$transaction(async (tx) => {
-    if (input.deleteIds.length > 0) {
-      await tx.ptSlab.deleteMany({ where: { id: { in: input.deleteIds } } })
-    }
-    if (input.closeIds.length > 0 && input.closeOn) {
-      await tx.ptSlab.updateMany({ where: { id: { in: input.closeIds } }, data: { effectiveTo: input.closeOn } })
-    }
-    await tx.ptSlab.createMany({
-      data: input.rows.map((row) => ({
-        organizationId,
-        state: input.state,
-        effectiveFrom: input.effectiveFrom,
-        ...row,
-      })),
-    })
+  if (input.deleteIds.length > 0) {
+    await db.ptSlab.deleteMany({ where: { id: { in: input.deleteIds } } })
+  }
+  if (input.closeIds.length > 0 && input.closeOn) {
+    await db.ptSlab.updateMany({ where: { id: { in: input.closeIds } }, data: { effectiveTo: input.closeOn } })
+  }
+  await db.ptSlab.createMany({
+    data: input.rows.map((row) => ({
+      organizationId,
+      state: input.state,
+      effectiveFrom: input.effectiveFrom,
+      ...row,
+    })),
   })
 }
 

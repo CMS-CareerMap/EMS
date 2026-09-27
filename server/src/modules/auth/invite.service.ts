@@ -4,6 +4,8 @@ import { hashPassword, passwordProblem } from '../../platform/auth/password'
 import { hashInviteToken } from '../../platform/auth/tokenHash'
 import { logger } from '../../platform/logger'
 import * as repo from './invite.repository'
+import { findIdentityByUserId } from './auth.repository'
+import { recordSecurityEvent } from '../audit/audit.service'
 
 /**
  * The other half of an invitation: using it.
@@ -67,6 +69,7 @@ export async function inspectLink(token: string, now = new Date()): Promise<Link
 export async function redeemLink(
   token: string,
   password: string,
+  meta: { requestId?: string | undefined } = {},
   now = new Date(),
 ): Promise<{ email: string; purpose: PasswordTokenPurpose }> {
   const found = await liveLink(token, now)
@@ -95,6 +98,19 @@ export async function redeemLink(
     purpose: found.purpose,
     membershipsActivated: result.activated,
   })
+
+  const owner = await findIdentityByUserId(found.userId)
+  if (owner) {
+    await recordSecurityEvent({
+      organizationId: owner.organizationId,
+      actorUserId: found.userId,
+      action: 'auth.password_link_used',
+      entityType: 'user',
+      entityId: found.userId,
+      details: { purpose: found.purpose, membershipsActivated: result.activated },
+      requestId: meta.requestId,
+    })
+  }
 
   return { email: found.user.email, purpose: found.purpose }
 }

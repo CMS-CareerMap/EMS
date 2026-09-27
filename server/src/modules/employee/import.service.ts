@@ -8,6 +8,7 @@ import { isCalendarDate, isoInstant, toDateColumn } from '../../domain/shared/da
 import { createLoginInTransaction } from '../user/user.service'
 import { listDepartments, listDesignations } from '../organization/masterData.repository'
 import * as repo from './employee.repository'
+import { audit } from '../audit/audit.service'
 
 /**
  * Bulk employee import from CSV.
@@ -369,6 +370,12 @@ export async function importEmployees(
         })
       }
     }
+
+    await audit(ctx, {
+      action: 'employee.imported',
+      entityType: 'import',
+      details: { employees: prepared.length, withLogin },
+    }, tx)
   })
 
   summary.imported = prepared.length

@@ -1,5 +1,6 @@
 import type { HolidayType } from '@prisma/client'
 import type { ScopedDb } from '../../platform/db/scoped'
+import type { TxDb } from '../../platform/db/transaction'
 
 /** The company's holiday calendar. */
 
@@ -21,7 +22,7 @@ export async function findSame(db: ScopedDb, date: Date, name: string) {
 }
 
 export async function create(
-  db: ScopedDb,
+  db: TxDb,
   organizationId: string,
   data: { date: Date; name: string; type: HolidayType },
 ) {
@@ -29,14 +30,14 @@ export async function create(
 }
 
 export async function update(
-  db: ScopedDb,
+  db: TxDb,
   id: string,
   data: { date?: Date; name?: string; type?: HolidayType },
 ) {
   return db.holiday.update({ where: { id }, data })
 }
 
-export async function remove(db: ScopedDb, id: string) {
+export async function remove(db: TxDb, id: string) {
   return db.holiday.delete({ where: { id } })
 }
 

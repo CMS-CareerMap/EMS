@@ -1,9 +1,10 @@
 import type { HolidayType } from '@prisma/client'
 import type { AppContext } from '../../platform/context'
 import { NotFound, Conflict } from '../../platform/errors/AppError'
-import { toDateColumn, type CalendarDate } from '../../domain/shared/dates'
+import { toDateColumn, fromDateColumn, type CalendarDate } from '../../domain/shared/dates'
 import { logger } from '../../platform/logger'
 import * as repo from './holidays.repository'
+import { withAudit } from '../audit/audit.service'
 
 /**
  * The holiday calendar.
@@ -44,7 +45,11 @@ export async function add(ctx: AppContext, input: HolidayInput) {
   const same = await repo.findSame(ctx.db, date, name)
   if (same) throw Conflict(`"${same.name}" is already on ${input.date}`)
 
-  const holiday = await repo.create(ctx.db, ctx.organizationId, { date, name, type: input.type as HolidayType })
+  const holiday = await withAudit(
+    ctx,
+    (tx) => repo.create(tx, ctx.organizationId, { date, name, type: input.type as HolidayType }),
+    (row) => ({ action: 'holiday.added', entityType: 'holiday', entityId: row.id, details: { date: input.date, name, type: input.type } }),
+  )
   logger.info('Holiday added', { by: ctx.userId, date: input.date, type: input.type })
 
   return { holiday, approvedLeaveAffected: await approvedLeaveOn(ctx, date) }
@@ -60,11 +65,24 @@ export async function edit(ctx: AppContext, id: string, input: Partial<HolidayIn
   const same = await repo.findSame(ctx.db, date, name)
   if (same && same.id !== id) throw Conflict(`"${same.name}" is already on that day`)
 
-  const holiday = await repo.update(ctx.db, id, {
-    ...(input.date ? { date } : {}),
-    ...(input.name !== undefined ? { name } : {}),
-    ...(input.type ? { type: input.type as HolidayType } : {}),
-  })
+  const holiday = await withAudit(
+    ctx,
+    (tx) =>
+      repo.update(tx, id, {
+        ...(input.date ? { date } : {}),
+        ...(input.name !== undefined ? { name } : {}),
+        ...(input.type ? { type: input.type as HolidayType } : {}),
+      }),
+    (row) => ({
+      action: 'holiday.changed',
+      entityType: 'holiday',
+      entityId: id,
+      details: {
+        from: { date: fromDateColumn(existing.date), name: existing.name, type: existing.type },
+        to: { date: fromDateColumn(row.date), name: row.name, type: row.type },
+      },
+    }),
+  )
   logger.info('Holiday changed', { by: ctx.userId, id })
 
   return { holiday, approvedLeaveAffected: await approvedLeaveOn(ctx, date) }
@@ -79,7 +97,11 @@ export async function remove(ctx: AppContext, id: string) {
   const existing = await repo.findById(ctx.db, id)
   if (!existing) throw NotFound('That holiday does not exist')
 
-  await repo.remove(ctx.db, id)
+  await withAudit(
+    ctx,
+    (tx) => repo.remove(tx, id),
+    () => ({ action: 'holiday.removed', entityType: 'holiday', entityId: id, details: { date: fromDateColumn(existing.date), name: existing.name, type: existing.type } }),
+  )
   logger.info('Holiday removed', { by: ctx.userId, id })
 
   return { approvedLeaveAffected: await approvedLeaveOn(ctx, existing.date) }

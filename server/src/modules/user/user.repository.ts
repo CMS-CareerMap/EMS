@@ -184,7 +184,7 @@ export async function findUserByEmail(email: string): Promise<{ id: string } | n
  * somebody else's inbox.
  */
 export async function replacePasswordLink(
-  db: ScopedDb,
+  db: TxDb,
   input: {
     userId: string
     tokenHash: string
@@ -193,12 +193,11 @@ export async function replacePasswordLink(
     createdByUserId: string
   },
 ): Promise<void> {
-  const now = new Date()
-  await db.$transaction([
-    db.passwordResetToken.updateMany({
-      where: { userId: input.userId, usedAt: null },
-      data: { usedAt: now },
-    }),
-    db.passwordResetToken.create({ data: input }),
-  ])
+  // On the caller's transaction: the old links die, the new one is born and
+  // the audit row is written together, or none of it happens.
+  await db.passwordResetToken.updateMany({
+    where: { userId: input.userId, usedAt: null },
+    data: { usedAt: new Date() },
+  })
+  await db.passwordResetToken.create({ data: input })
 }

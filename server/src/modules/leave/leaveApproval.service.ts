@@ -8,6 +8,7 @@ import * as repo from './leave.repository'
 import * as attendanceRepo from '../attendance/attendance.repository'
 import { getCurrentPolicy } from '../settings/settings.repository'
 import { listDaysOff } from '../holidays/holidays.repository'
+import { audit } from '../audit/audit.service'
 
 /**
  * Deciding on leave.
@@ -133,6 +134,15 @@ export async function approveLeave(
         markedByUserId: ctx.userId,
       })
     }
+
+    // In the same transaction as the decision (guide, the request lifecycle:
+    // "write audit row").
+    await audit(ctx, {
+      action: 'leave.approved',
+      entityType: 'leave_request',
+      entityId: id,
+      details: { employeeId: request.employeeId, days: Number(request.days), fromDate: from, toDate: to },
+    }, tx)
   })
 
   logger.info('Leave approved', {
@@ -167,13 +177,21 @@ export async function rejectLeave(
   // Only if still pending, in the same statement as the change. Checked
   // separately, an approval landing at the same moment was overwritten —
   // leaving a request marked rejected whose days had been taken.
-  const decided = await repo.changeStatusIf(ctx.db, id, 'pending', {
-    status: 'rejected',
-    reviewedByUserId: ctx.userId,
-    reviewedAt: new Date(),
-    reviewNote: note?.trim() || null,
+  await withTransaction(ctx.db, async (tx) => {
+    const decided = await repo.changeStatusIf(tx, id, 'pending', {
+      status: 'rejected',
+      reviewedByUserId: ctx.userId,
+      reviewedAt: new Date(),
+      reviewNote: note?.trim() || null,
+    })
+    if (!decided) throw Conflict('Somebody else has already decided on that request.')
+    await audit(ctx, {
+      action: 'leave.rejected',
+      entityType: 'leave_request',
+      entityId: id,
+      details: { employeeId: request.employeeId, days: Number(request.days) },
+    }, tx)
   })
-  if (!decided) throw Conflict('Somebody else has already decided on that request.')
 
   logger.info('Leave rejected', { by: ctx.userId, requestId: id })
 
@@ -227,6 +245,13 @@ export async function reverseLeave(
     // Only the rows this approval created. A punch on one of those days was
     // never ours to remove.
     await attendanceRepo.deleteLeaveDays(tx, request.employeeId, request.fromDate, request.toDate)
+
+    await audit(ctx, {
+      action: 'leave.reversed',
+      entityType: 'leave_request',
+      entityId: id,
+      details: { employeeId: request.employeeId, daysReturned: Number(request.days) },
+    }, tx)
   })
 
   logger.info('Leave reversed', { by: ctx.userId, requestId: id })

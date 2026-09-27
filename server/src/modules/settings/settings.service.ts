@@ -2,6 +2,8 @@ import type { AppContext } from '../../platform/context'
 import { NotFound, Conflict, BadRequest } from '../../platform/errors/AppError'
 import { zonedToday, toDateColumn, fromDateColumn, addCalendarDays } from '../../domain/shared/dates'
 import { withTransaction } from '../../platform/db/transaction'
+import { lockFor } from '../../platform/db/locks'
+import { audit, withAudit } from '../audit/audit.service'
 import { logger } from '../../platform/logger'
 import * as repo from './settings.repository'
 
@@ -60,7 +62,13 @@ export async function updateCompany(ctx: AppContext, input: CompanyIdentityInput
   if (typeof data.country === 'string') data.country = data.country.toUpperCase()
   if (typeof data.currency === 'string') data.currency = data.currency.toUpperCase()
 
-  const updated = await repo.updateOrganization(ctx.db, ctx.organizationId, data)
+  // With the values: a company's own details are not personal data, and "who
+  // changed the time zone" is exactly the question this answers.
+  const updated = await withAudit(
+    ctx,
+    (tx) => repo.updateOrganization(tx, ctx.organizationId, data),
+    () => ({ action: 'company.updated', entityType: 'organization', entityId: ctx.organizationId, details: { changes: data } }),
+  )
 
   logger.info('Company settings updated', {
     by: ctx.userId,
@@ -155,15 +163,28 @@ export async function updatePolicy(ctx: AppContext, input: PolicyInput) {
   const period = { organizationId: ctx.organizationId, effectiveFrom: from, createdByUserId: ctx.userId }
 
   const policyId = await withTransaction(ctx.db, async (tx) => {
+    // One change to the rules at a time: two saves together both read the same
+    // current period and both tried to open the next one.
+    await lockFor(tx, `policy:${ctx.organizationId}`)
     const current = await repo.getCurrentPolicy(tx)
 
+    const recorded = async (id: string, kind: 'first' | 'correction' | 'new_period') => {
+      await audit(ctx, {
+        action: 'policy.updated',
+        entityType: 'organization_policy',
+        entityId: id,
+        details: { kind, effectiveFrom: fromDateColumn(from), changes: data },
+      }, tx)
+      return id
+    }
+
     if (!current) {
-      return (await repo.createPolicy(tx, period, data)).id
+      return recorded((await repo.createPolicy(tx, period, data)).id, 'first')
     }
 
     if (current.effectiveFrom.getTime() === from.getTime()) {
       await repo.updatePolicy(tx, current.id, data)
-      return current.id
+      return recorded(current.id, 'correction')
     }
 
     // Close yesterday, open today. The old row keeps every number it had, so
@@ -188,7 +209,7 @@ export async function updatePolicy(ctx: AppContext, input: PolicyInput) {
       ...data,
     })
 
-    return created.id
+    return recorded(created.id, 'new_period')
   })
 
   logger.info('Statutory policy updated', { by: ctx.userId, fields: Object.keys(data) })
@@ -228,9 +249,13 @@ export async function saveGeofence(ctx: AppContext, input: GeofenceInput) {
     ...(input.isActive === undefined ? {} : { isActive: input.isActive }),
   }
 
-  const saved = existing
-    ? await repo.updateGeofence(ctx.db, existing.id, data)
-    : await repo.createGeofence(ctx.db, ctx.organizationId, input.name, data)
+  // Where the office is decides whose punch counts. A fence moved to somebody's
+  // house is the thing to be able to see.
+  const saved = await withAudit(
+    ctx,
+    (tx) => (existing ? repo.updateGeofence(tx, existing.id, data) : repo.createGeofence(tx, ctx.organizationId, input.name, data)),
+    (row) => ({ action: 'geofence.saved', entityType: 'geofence', entityId: row.id, details: { name: input.name, ...data, created: !existing } }),
+  )
 
   logger.info('Geofence saved', { by: ctx.userId, name: input.name })
   return saved
@@ -239,7 +264,11 @@ export async function saveGeofence(ctx: AppContext, input: GeofenceInput) {
 export async function deleteGeofence(ctx: AppContext, id: string) {
   const existing = await repo.findGeofence(ctx.db, id)
   if (!existing) throw NotFound('Location not found')
-  await repo.deleteGeofence(ctx.db, id)
+  await withAudit(
+    ctx,
+    (tx) => repo.deleteGeofence(tx, id),
+    () => ({ action: 'geofence.deleted', entityType: 'geofence', entityId: id, details: { name: existing.name } }),
+  )
 }
 
 export interface LeaveTypeInput {
@@ -286,12 +315,20 @@ export async function createLeaveType(ctx: AppContext, input: LeaveTypeInput) {
   }
 
   if (matches.length === 1) {
-    const restored = await repo.restoreLeaveType(ctx.db, matches[0]!.id, values)
+    const restored = await withAudit(
+      ctx,
+      (tx) => repo.restoreLeaveType(tx, matches[0]!.id, values),
+      (row) => ({ action: 'leave_type.restored', entityType: 'leave_type', entityId: row.id, details: { ...values } }),
+    )
     logger.info('Leave type restored', { by: ctx.userId, id: restored.id })
     return { row: restored, restored: true }
   }
 
-  const row = await repo.createLeaveType(ctx.db, ctx.organizationId, values)
+  const row = await withAudit(
+    ctx,
+    (tx) => repo.createLeaveType(tx, ctx.organizationId, values),
+    (created) => ({ action: 'leave_type.created', entityType: 'leave_type', entityId: created.id, details: { ...values } }),
+  )
   return { row, restored: false }
 }
 
@@ -324,7 +361,11 @@ export async function updateLeaveType(ctx: AppContext, id: string, input: LeaveT
     )
   }
 
-  return repo.updateLeaveType(ctx.db, id, data)
+  return withAudit(
+    ctx,
+    (tx) => repo.updateLeaveType(tx, id, data),
+    () => ({ action: 'leave_type.updated', entityType: 'leave_type', entityId: id, details: { code: existing.code, changes: data } }),
+  )
 }
 
 /**
@@ -338,7 +379,11 @@ export async function archiveLeaveType(ctx: AppContext, id: string) {
   const existing = await repo.findLeaveType(ctx.db, id)
   if (!existing) throw NotFound('Leave type not found')
 
-  await repo.archiveLeaveType(ctx.db, id, new Date())
+  await withAudit(
+    ctx,
+    (tx) => repo.archiveLeaveType(tx, id, new Date()),
+    () => ({ action: 'leave_type.archived', entityType: 'leave_type', entityId: id, details: { code: existing.code, name: existing.name } }),
+  )
   logger.info('Leave type archived', { by: ctx.userId, id })
 }
 

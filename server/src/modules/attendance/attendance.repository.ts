@@ -115,7 +115,7 @@ export async function list(
 }
 
 export async function findById(
-  db: ScopedDb,
+  db: TxDb,
   scope: ScopeContext,
   id: string,
 ): Promise<AttendanceRow | null> {
@@ -262,7 +262,7 @@ export interface UpsertInput {
 }
 
 export async function upsertDay(
-  db: ScopedDb,
+  db: TxDb,
   organizationId: string,
   input: UpsertInput,
 ): Promise<AttendanceRow> {

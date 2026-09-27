@@ -1,4 +1,5 @@
 import type { ScopedDb } from '../../platform/db/scoped'
+import type { TxDb } from '../../platform/db/transaction'
 
 /**
  * The company's own lists: departments, designations, shifts.
@@ -60,7 +61,7 @@ interface NamedDelegate {
   update(args: { where: { id: string }; data: Record<string, unknown> }): Promise<NamedRow>
 }
 
-function named(db: ScopedDb, kind: NamedKind): NamedDelegate {
+function named(db: TxDb, kind: NamedKind): NamedDelegate {
   return (kind === 'department' ? db.department : db.designation) as unknown as NamedDelegate
 }
 
@@ -73,11 +74,11 @@ export async function findNamedByName(db: ScopedDb, kind: NamedKind, name: strin
   return named(db, kind).findFirst({ where: { name: { equals: name, mode: 'insensitive' } } })
 }
 
-export async function createNamed(db: ScopedDb, kind: NamedKind, organizationId: string, name: string) {
+export async function createNamed(db: TxDb, kind: NamedKind, organizationId: string, name: string) {
   return named(db, kind).create({ data: { organizationId, name } })
 }
 
-export async function updateNamed(db: ScopedDb, kind: NamedKind, id: string, data: { name?: string; archivedAt?: Date | null }) {
+export async function updateNamed(db: TxDb, kind: NamedKind, id: string, data: { name?: string; archivedAt?: Date | null }) {
   return named(db, kind).update({ where: { id }, data })
 }
 
@@ -98,13 +99,13 @@ export async function findShiftByName(db: ScopedDb, name: string) {
 }
 
 export async function createShift(
-  db: ScopedDb,
+  db: TxDb,
   organizationId: string,
   data: Required<ShiftFields>,
 ) {
   return db.shift.create({ data: { organizationId, ...data } })
 }
 
-export async function updateShift(db: ScopedDb, id: string, data: ShiftFields & { archivedAt?: Date | null }) {
+export async function updateShift(db: TxDb, id: string, data: ShiftFields & { archivedAt?: Date | null }) {
   return db.shift.update({ where: { id }, data })
 }

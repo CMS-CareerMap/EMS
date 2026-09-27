@@ -1,4 +1,4 @@
-import type { Request, RequestHandler } from 'express'
+import type { Request, RequestHandler, Response } from 'express'
 import { login } from '../../modules/auth/auth.service'
 import {
   refreshSession,
@@ -31,14 +31,14 @@ import { isoInstant } from '../../domain/shared/dates'
  * errorHandler is the only place a status code is set.
  */
 
-function metaFrom(req: Request): SessionMeta {
-  return { userAgent: req.get('user-agent'), ip: req.ip }
+function metaFrom(req: Request, res: Response): SessionMeta {
+  return { userAgent: req.get('user-agent'), ip: req.ip, requestId: res.locals.requestId as string | undefined }
 }
 
 /** POST /api/auth/login */
 export const postLogin: RequestHandler = async (req, res) => {
   const input = parseBody(loginSchema, req.body)
-  const session = await login(input, metaFrom(req))
+  const session = await login(input, metaFrom(req, res))
 
   setRefreshCookie(res, session.refreshToken)
 
@@ -64,7 +64,7 @@ export const postRefresh: RequestHandler = async (req, res) => {
   }
 
   try {
-    const session = await refreshSession(raw, metaFrom(req))
+    const session = await refreshSession(raw, metaFrom(req, res))
 
     setRefreshCookie(res, session.refreshToken)
 
@@ -140,7 +140,7 @@ export const postChangePassword: RequestHandler = async (req, res) => {
     ctx.userId,
     input.currentPassword,
     input.newPassword,
-    metaFrom(req),
+    metaFrom(req, res),
   )
 
   setRefreshCookie(res, session.refreshToken)
@@ -183,7 +183,7 @@ export const postInspectLink: RequestHandler = async (req, res) => {
  */
 export const postRedeemLink: RequestHandler = async (req, res) => {
   const { token, password } = parseBody(redeemLinkSchema, req.body)
-  const result = await redeemLink(token, password)
+  const result = await redeemLink(token, password, metaFrom(req, res))
 
   res.status(200).json({
     data: { email: result.email, purpose: result.purpose },

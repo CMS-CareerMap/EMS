@@ -3,6 +3,7 @@ import { Forbidden } from '../../platform/errors/AppError'
 import { logger } from '../../platform/logger'
 import type { Permission } from '../../platform/authz/permissions'
 import { authContext } from '../context'
+import { recordSecurityEvent } from '../../modules/audit/audit.service'
 
 /**
  * Gate a route on one permission.
@@ -22,7 +23,7 @@ import { authContext } from '../context'
  * neither is visible without a record.
  */
 export function authorize(permission: Permission): RequestHandler {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     const ctx = authContext(res)
 
     if (!ctx.can(permission)) {
@@ -31,6 +32,15 @@ export function authorize(permission: Permission): RequestHandler {
         role: ctx.role,
         permission,
         path: req.originalUrl,
+      })
+      // Kept by the company as well as the log (guide, Day 20): who tried to
+      // reach what they may not.
+      await recordSecurityEvent({
+        organizationId: ctx.organizationId,
+        actorUserId: ctx.userId,
+        action: 'permission.denied',
+        details: { permission, method: req.method, path: req.originalUrl, role: ctx.role },
+        requestId: ctx.requestId,
       })
       throw Forbidden('You do not have permission to do that')
     }

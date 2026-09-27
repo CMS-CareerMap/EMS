@@ -13,6 +13,7 @@ import {
 } from './user.policy'
 import * as repo from './user.repository'
 import * as employeeRepo from '../employee/employee.repository'
+import { audit } from '../audit/audit.service'
 
 /**
  * The four things the Supabase edge functions used to do, and nothing else
@@ -90,6 +91,13 @@ export async function inviteUser(ctx: AppContext, input: InviteInput): Promise<I
       })
     }
 
+    await audit(ctx, {
+      action: 'user.invited',
+      entityType: 'membership',
+      entityId: created.membershipId,
+      details: { email, role: input.role, withEmployeeRecord: Boolean(input.employeeCode) },
+    }, tx)
+
     return created
   })
 
@@ -134,6 +142,12 @@ export async function changeRole(
     if (refusal) throw Forbidden(REFUSAL_MESSAGES[refusal])
 
     await repo.setRole(tx, membershipId, newRole)
+    await audit(ctx, {
+      action: 'user.role_changed',
+      entityType: 'membership',
+      entityId: membershipId,
+      details: { from: target.role, to: newRole },
+    }, tx)
   })
 
   // A role change must take effect NOW, not in fifteen minutes. The middleware
@@ -172,7 +186,15 @@ export async function changeStatus(
     if (refusal) throw Forbidden(ACCOUNT_REFUSAL_MESSAGES[refusal])
   }
 
-  await repo.setStatus(ctx.db, membershipId, status)
+  await withTransaction(ctx.db, async (tx) => {
+    await repo.setStatus(tx, membershipId, status)
+    await audit(ctx, {
+      action: 'user.status_changed',
+      entityType: 'membership',
+      entityId: membershipId,
+      details: { from: target.status, to: status },
+    }, tx)
+  })
 
   // Deactivating must end the session immediately. Without this the person
   // stays signed in until their access token expires, which is exactly the
@@ -217,6 +239,12 @@ export async function terminateUser(ctx: AppContext, membershipId: string): Prom
   await withTransaction(ctx.db, async (tx) => {
     await repo.setStatus(tx, membershipId, 'inactive')
     if (target.employeeId) await employeeRepo.archiveEmployee(tx, target.employeeId, new Date())
+    await audit(ctx, {
+      action: 'user.terminated',
+      entityType: 'membership',
+      entityId: membershipId,
+      details: { role: target.role, employeeArchived: Boolean(target.employeeId) },
+    }, tx)
   })
 
   await repo.revokeSessions(target.userId)
@@ -320,12 +348,21 @@ export async function issuePasswordLink(
   const token = generateToken()
   const expiresAt = new Date(Date.now() + INVITE_VALID_FOR_HOURS * 60 * 60 * 1000)
 
-  await repo.replacePasswordLink(ctx.db, {
-    userId: target.userId,
-    tokenHash: hashInviteToken(token),
-    expiresAt,
-    purpose,
-    createdByUserId: ctx.userId,
+  // A reset link is a key to somebody's account; who handed one out is on record.
+  await withTransaction(ctx.db, async (tx) => {
+    await repo.replacePasswordLink(tx, {
+      userId: target.userId,
+      tokenHash: hashInviteToken(token),
+      expiresAt,
+      purpose,
+      createdByUserId: ctx.userId,
+    })
+    await audit(ctx, {
+      action: 'user.password_link_issued',
+      entityType: 'membership',
+      entityId: target.id,
+      details: { purpose, email: target.email },
+    }, tx)
   })
 
   logger.warn('Password link issued', {

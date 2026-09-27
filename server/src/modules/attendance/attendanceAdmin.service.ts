@@ -11,6 +11,8 @@ import {
 } from '../../domain/shared/dates'
 import { hoursBetweenWallClock, classifyDay } from '../../domain/attendance/hours'
 import * as repo from './attendance.repository'
+import { withTransaction } from '../../platform/db/transaction'
+import { audit } from '../audit/audit.service'
 import { companyTimezone } from '../organization/organization.service'
 
 /**
@@ -192,18 +194,29 @@ export async function markAttendance(ctx: AppContext, input: MarkInput) {
     }
   }
 
-  const row = await repo.upsertDay(ctx.db, ctx.organizationId, {
-    employeeId: input.employeeId,
-    date: input.date,
-    checkIn: start !== null ? wallClockToInstant(input.date, start, zone) : null,
-    checkOut: end !== null ? wallClockToInstant(input.date, end, zone, end <= (start ?? 0)) : null,
-    status,
-    source: 'manual',
-    hoursWorked,
-    expectedHours,
-    shiftId: employee.shiftId,
-    note,
-    markedByUserId: ctx.userId,
+  const row = await withTransaction(ctx.db, async (tx) => {
+    const saved = await repo.upsertDay(tx, ctx.organizationId, {
+      employeeId: input.employeeId,
+      date: input.date,
+      checkIn: start !== null ? wallClockToInstant(input.date, start, zone) : null,
+      checkOut: end !== null ? wallClockToInstant(input.date, end, zone, end <= (start ?? 0)) : null,
+      status,
+      source: 'manual',
+      hoursWorked,
+      expectedHours,
+      shiftId: employee.shiftId,
+      note,
+      markedByUserId: ctx.userId,
+    })
+    // A day entered or corrected by hand changes somebody's pay; who did it,
+    // and to what, is kept.
+    await audit(ctx, {
+      action: 'attendance.marked',
+      entityType: 'attendance',
+      entityId: saved.id,
+      details: { employeeId: input.employeeId, date: input.date, status, hoursWorked },
+    }, tx)
+    return saved
   })
 
   logger.info('Attendance marked manually', {
