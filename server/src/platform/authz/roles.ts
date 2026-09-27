@@ -30,6 +30,8 @@ const ADMIN: readonly Permission[] = [
   'document:read',
   'document:upload',
   'document:verify',
+  // Their own payslips — the data scope keeps it to themselves.
+  'payslip:read',
 ]
 
 /** Runs the people side day to day. No payroll, no settings. */
@@ -55,6 +57,8 @@ const HR: readonly Permission[] = [
   'document:read',
   'document:upload',
   'document:verify',
+  // Their own payslips, and nobody else's: payslip scope is SELF for HR.
+  'payslip:read',
 ]
 
 /**
@@ -70,6 +74,8 @@ const MANAGER: readonly Permission[] = [
   'leave:read',
   'leave:apply',
   'leave:approve',
+  // Their own payslips. Scope SELF: a manager does not see their team's pay.
+  'payslip:read',
   // No document access at all: §3.1 marks Documents ❌ for Manager and RM, and
   // §4.4 repeats it. That leaves a manager with LESS document access than an
   // ordinary employee, which is unusual enough to be worth asking about —

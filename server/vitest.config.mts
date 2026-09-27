@@ -1,3 +1,5 @@
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
@@ -18,5 +20,9 @@ export default defineConfig({
     // Integration tests share one database. Running files in parallel would let
     // one file's cleanup delete another's fixtures mid-run.
     fileParallelism: false,
+
+    // Files the suite writes — payslip PDFs — go to a scratch folder, not into
+    // the developer's own uploads/.
+    env: { STORAGE_PATH: join(tmpdir(), 'ems-test-uploads') },
   },
 })

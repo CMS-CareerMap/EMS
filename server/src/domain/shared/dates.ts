@@ -137,3 +137,24 @@ export function monthKey(year: number, month: number): string {
 export function monthName(year: number, month: number): string {
   return `${MONTH_NAMES[month - 1] ?? month} ${year}`
 }
+
+/** The month a calendar day falls in. */
+export function monthOfDay(day: CalendarDate): { year: number; month: number } {
+  return { year: Number(day.slice(0, 4)), month: Number(day.slice(5, 7)) }
+}
+
+/** Every month from one day's to another's, inclusive, in order. */
+export function monthsBetween(from: CalendarDate, to: CalendarDate): { year: number; month: number }[] {
+  const out: { year: number; month: number }[] = []
+  let { year, month } = monthOfDay(from)
+  const end = monthOfDay(to)
+  while (year < end.year || (year === end.year && month <= end.month)) {
+    out.push({ year, month })
+    month += 1
+    if (month > 12) {
+      month = 1
+      year += 1
+    }
+  }
+  return out
+}

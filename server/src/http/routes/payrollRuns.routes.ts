@@ -7,6 +7,10 @@ import {
   postRecalculate,
   deleteRun,
   getPayslip,
+  postApprove,
+  postReopen,
+  postMarkPaid,
+  getRunPayslipPdf,
 } from '../controllers/payrollRun.controller'
 import { authenticate } from '../middleware/authenticate'
 import { authorize } from '../middleware/authorize'
@@ -31,3 +35,11 @@ payrollRunsRouter.get('/:id', authorize('payroll:structure:read'), getRun)
 payrollRunsRouter.post('/:id/recalculate', authorize('payroll:run:create'), postRecalculate)
 payrollRunsRouter.delete('/:id', authorize('payroll:run:create'), deleteRun)
 payrollRunsRouter.get('/:id/payslips/:payslipId', authorize('payroll:structure:read'), getPayslip)
+payrollRunsRouter.get('/:id/payslips/:payslipId/pdf', authorize('payroll:structure:read'), getRunPayslipPdf)
+
+// Signing off is a different right from preparing: Accounts prepares, and the
+// approver — Super Admin by default — signs. Recording the payment goes back to
+// whoever moved the money.
+payrollRunsRouter.post('/:id/approve', authorize('payroll:run:approve'), postApprove)
+payrollRunsRouter.post('/:id/reopen', authorize('payroll:run:approve'), postReopen)
+payrollRunsRouter.post('/:id/mark-paid', authorize('payroll:run:create'), postMarkPaid)

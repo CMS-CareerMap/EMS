@@ -1,15 +1,20 @@
 import type { Prisma } from '@prisma/client'
 import type { RequestHandler } from 'express'
 import * as runs from '../../modules/payroll/payrollRun.service'
+import * as approval from '../../modules/payroll/payrollApproval.service'
+import { runPayslipPdf } from '../../modules/payroll/payslip.service'
 import type { RunRow, PayslipRow } from '../../modules/payroll/payrollRun.repository'
-import { isoInstant } from '../../domain/shared/dates'
+import { fromDateColumn, isoInstant } from '../../domain/shared/dates'
 import {
+  approveRunSchema,
+  markPaidSchema,
   payrollMonthSchema,
   payrollRunParamSchema,
   payslipParamSchema,
 } from '../validators/payroll.validator'
 import { parseBody } from '../validators/parse'
 import { appContext } from '../context'
+import { sendPdf } from '../pdf'
 
 /**
  * Payroll runs. Snake_case out, matching the rest of v1; money in rupees.
@@ -38,6 +43,15 @@ function runPayload(run: RunRow) {
     created_by_user_id: run.createdByUserId,
     calculated_at: isoInstant(run.calculatedAt),
     created_at: isoInstant(run.createdAt),
+    approved_by_user_id: run.approvedByUserId,
+    approved_at: isoInstant(run.approvedAt),
+    // How many days the approver accepted as paid with nothing recorded.
+    assumed_days: run.assumedDays,
+    employer_name: run.employerName,
+    employer_address: run.employerAddress,
+    paid_on: fromDateColumn(run.paidOn),
+    paid_by_user_id: run.paidByUserId,
+    paid_at: isoInstant(run.paidAt),
   }
 }
 
@@ -79,8 +93,17 @@ function payslipPayload(slip: PayslipRow) {
     full_name: slip.employeeName,
     designation: slip.designation,
     department: slip.department,
+    date_of_joining: fromDateColumn(slip.dateOfJoining),
+    country: slip.country,
+    currency: slip.currency,
     year: slip.year,
     month: slip.month,
+
+    // Copied at approval; null before it, and null when none is on record.
+    uan: slip.uan,
+    pf_member_id: slip.pfMemberId,
+    esic_number: slip.esicNumber,
+    pan: slip.pan,
 
     days_in_month: slip.daysInMonth,
     employment_days: slip.employmentDays,
@@ -116,6 +139,11 @@ function payslipPayload(slip: PayslipRow) {
     basis: slip.basis,
     warnings: slip.warnings,
     created_at: isoInstant(slip.createdAt),
+
+    // The stored document, once the run is paid.
+    pdf: slip.pdfKey
+      ? { sha256: slip.pdfSha256, bytes: slip.pdfBytes, generated_at: isoInstant(slip.pdfGeneratedAt) }
+      : null,
   }
 }
 
@@ -203,4 +231,45 @@ export const getPayslip: RequestHandler = async (req, res) => {
   const ctx = appContext(res)
   const { id, payslipId } = parseBody(payslipParamSchema, req.params)
   reply(res, 200, payslipPayload(await runs.getPayslip(ctx, id, payslipId)))
+}
+
+/**
+ * POST /api/payroll-runs/:id/approve  { confirmAssumedDays? }
+ *
+ * 422 BUSINESS_RULE with `details.changed` when the records moved since the
+ * draft was calculated, or `details.employees` when days were counted as paid
+ * on no record and nobody has yet said they accept that.
+ */
+export const postApprove: RequestHandler = async (req, res) => {
+  const ctx = appContext(res)
+  const { id } = parseBody(payrollRunParamSchema, req.params)
+  const input = parseBody(approveRunSchema, req.body ?? {})
+  reply(res, 200, runDetailPayload(await approval.approveRun(ctx, id, input)))
+}
+
+/** POST /api/payroll-runs/:id/reopen — approved back to draft, until the lock day. */
+export const postReopen: RequestHandler = async (req, res) => {
+  const ctx = appContext(res)
+  const { id } = parseBody(payrollRunParamSchema, req.params)
+  reply(res, 200, runDetailPayload(await approval.reopenRun(ctx, id)))
+}
+
+/** POST /api/payroll-runs/:id/mark-paid  { paidOn } — writes every payslip's PDF. */
+export const postMarkPaid: RequestHandler = async (req, res) => {
+  const ctx = appContext(res)
+  const { id } = parseBody(payrollRunParamSchema, req.params)
+  const input = parseBody(markPaidSchema, req.body)
+  reply(res, 200, runDetailPayload(await approval.markRunPaid(ctx, id, input)))
+}
+
+/**
+ * GET /api/payroll-runs/:id/payslips/:payslipId/pdf
+ *
+ * The stored file once paid; before that, drawn fresh and stamped as not being
+ * a payslip.
+ */
+export const getRunPayslipPdf: RequestHandler = async (req, res) => {
+  const ctx = appContext(res)
+  const { id, payslipId } = parseBody(payslipParamSchema, req.params)
+  sendPdf(res, await runPayslipPdf(ctx, id, payslipId))
 }

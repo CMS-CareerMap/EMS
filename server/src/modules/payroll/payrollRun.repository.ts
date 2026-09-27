@@ -33,6 +33,8 @@ export async function employeesForMonth(db: ScopedDb, monthStart: Date, monthEnd
       status: true,
       dateOfJoining: true,
       lastWorkingDate: true,
+      country: true,
+      currency: true,
       department: { select: { name: true } },
       designation: { select: { name: true } },
     },
@@ -180,6 +182,9 @@ export interface NewPayslip {
   employeeName: string
   designation: string | null
   department: string | null
+  dateOfJoining: Date | null
+  country: string
+  currency: string
   daysInMonth: number
   employmentDays: number
   lopDays: number
@@ -269,3 +274,117 @@ export async function findPayslip(db: ScopedDb, payrollRunId: string, payslipId:
 }
 
 export type PayslipRow = NonNullable<Awaited<ReturnType<typeof findPayslip>>>
+
+// ── Approval, payment and the payslip documents ─────────────────────────────
+
+/** Every payslip of a run, lines included — what approval compares and payment prints. */
+export async function payslipsWithLines(db: TxDb, payrollRunId: string) {
+  return db.payslip.findMany({
+    where: { payrollRunId },
+    include: { lines: { orderBy: [{ kind: 'asc' }, { displayOrder: 'asc' }] } },
+    orderBy: { employeeCode: 'asc' },
+  })
+}
+
+export type PayslipWithLines = Awaited<ReturnType<typeof payslipsWithLines>>[number]
+
+/**
+ * Moves a run from one status to another only if it is still in the first —
+ * one statement, so two people acting at once cannot both succeed. The count
+ * says whether this one did.
+ */
+export async function moveRunIf(
+  tx: TxDb,
+  id: string,
+  from: 'draft' | 'approved',
+  data: Prisma.PayrollRunUncheckedUpdateManyInput,
+): Promise<number> {
+  return (await tx.payrollRun.updateMany({ where: { id, status: from }, data })).count
+}
+
+export async function updatePayslip(tx: TxDb, id: string, data: Prisma.PayslipUncheckedUpdateInput) {
+  return tx.payslip.update({ where: { id }, data })
+}
+
+/** Forgets what approval copied, for a run going back to draft. */
+export async function clearApprovalCopies(tx: TxDb, payrollRunId: string): Promise<void> {
+  await tx.payslip.updateMany({
+    where: { payrollRunId },
+    data: { uan: null, pfMemberId: null, esicNumber: null, pan: null },
+  })
+}
+
+/** The employer as a payslip names it. Organization is global, so its id is passed. */
+export async function findEmployer(db: ScopedDb, organizationId: string) {
+  return db.organization.findUnique({
+    where: { id: organizationId },
+    select: { name: true, legalName: true, addressLine: true, city: true, state: true, pincode: true },
+  })
+}
+
+/** The statutory numbers of everybody in a run, in one query. */
+export async function identitiesOf(db: ScopedDb, employeeIds: string[]) {
+  return db.employeeStatutoryIdentity.findMany({
+    where: { employeeId: { in: employeeIds } },
+    select: { employeeId: true, uan: true, pfAccountNumber: true, esiNumber: true, pan: true },
+  })
+}
+
+/** Whether a payroll lock day applies, from the rules in force on a day. */
+export async function lockDayOn(db: ScopedDb, on: Date) {
+  return db.organizationPolicy.findFirst({
+    where: { effectiveFrom: { lte: on }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: on } }] },
+    orderBy: { effectiveFrom: 'desc' },
+    select: { payslipLockDay: true },
+  })
+}
+
+/** Runs that are past draft — a small table, read whole. */
+export async function closedRuns(db: ScopedDb) {
+  return db.payrollRun.findMany({
+    where: { status: { not: 'draft' } },
+    select: { year: true, month: true, status: true },
+  })
+}
+
+// ── Payslips for the people they belong to ──────────────────────────────────
+
+const payslipSummarySelect = {
+  id: true,
+  employeeId: true,
+  employeeCode: true,
+  employeeName: true,
+  year: true,
+  month: true,
+  grossEarnings: true,
+  totalDeductions: true,
+  netPayable: true,
+  currency: true,
+  pdfKey: true,
+  run: { select: { status: true, paidOn: true } },
+} as const
+
+/** One person's paid payslips, newest first. Drafts and approvals are not theirs to see yet. */
+export async function paidPayslipsOf(db: ScopedDb, employeeId: string) {
+  return db.payslip.findMany({
+    where: { employeeId, run: { status: 'paid' } },
+    select: payslipSummarySelect,
+    orderBy: [{ year: 'desc' }, { month: 'desc' }],
+  })
+}
+
+/**
+ * A paid payslip, if it is within the caller's scope. SELF finds only their
+ * own; ORGANIZATION finds any in the company. Anything else is not found.
+ */
+export async function findPaidPayslip(db: ScopedDb, scope: { scope: string; employeeId: string | null }, id: string) {
+  if (scope.scope !== 'ORGANIZATION' && !scope.employeeId) return null
+  return db.payslip.findFirst({
+    where: {
+      id,
+      run: { status: 'paid' },
+      ...(scope.scope === 'ORGANIZATION' ? {} : { employeeId: scope.employeeId ?? '' }),
+    },
+    select: { ...payslipSummarySelect, pdfSha256: true, pdfBytes: true },
+  })
+}

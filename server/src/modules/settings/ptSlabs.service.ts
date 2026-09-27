@@ -7,6 +7,7 @@ import { lockFor } from '../../platform/db/locks'
 import { logger } from '../../platform/logger'
 import * as repo from './settings.repository'
 import { audit } from '../audit/audit.service'
+import { assertOpenFrom } from '../payroll/payrollLock.service'
 
 /**
  * Setting a state's professional-tax table.
@@ -30,6 +31,8 @@ export interface PtTableInput {
 export async function setPtTable(ctx: AppContext, input: PtTableInput) {
   const problems = ptTableProblems(input.slabs)
   if (problems.length > 0) throw BadRequest(problems.join(' '), problems)
+
+  await assertOpenFrom(ctx, input.effectiveFrom, 'a PT table starting from that date')
 
   const typed = input.state.trim()
   const rows = ptTableRows(input.slabs).map((row) => ({

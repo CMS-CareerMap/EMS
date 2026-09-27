@@ -129,3 +129,22 @@ export const monthlyEntrySchema = z
 export const monthlyEntryParamSchema = z.object({
   id: z.uuid('That is not a valid entry id'),
 })
+
+// ── Sign-off and payment ────────────────────────────────────────────────────
+
+export const approveRunSchema = z
+  .object({
+    // Set only after reading which days were counted as paid on no record.
+    confirmAssumedDays: z.boolean().optional(),
+  })
+  .strict()
+
+export const markPaidSchema = z
+  .object({
+    paidOn: z.iso.date('The day the salaries were credited, as YYYY-MM-DD'),
+  })
+  .strict()
+
+export const payslipIdParamSchema = z.object({
+  id: z.uuid('That is not a valid payslip id'),
+})

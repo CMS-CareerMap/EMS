@@ -189,6 +189,23 @@ model PayrollRun {
   /// createdAt stays the day the run was opened.
   calculatedAt    DateTime @db.Timestamptz(3)
 
+  /// Signed off: by whom and when. Cleared if the run is reopened.
+  approvedByUserId String?
+  approvedAt       DateTime? @db.Timestamptz(3)
+  /// The approver was told of days nobody recorded (and days still to come)
+  /// and approved anyway — how many, so the decision can be read later.
+  assumedDays      Int?
+
+  /// The employer as the payslips name it, copied at approval — a later change
+  /// of address must not reach a payslip already issued.
+  employerName    String?
+  employerAddress String?
+
+  /// Money sent: the day the salaries were credited, who recorded it, when.
+  paidOn       DateTime? @db.Date
+  paidByUserId String?
+  paidAt       DateTime? @db.Timestamptz(3)
+
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
@@ -196,10 +213,15 @@ model PayrollRun {
   payslips     Payslip[]
 
   @@unique([organizationId, year, month])
+  @@index([organizationId, status])
 }
 
-/// Where a run is in its life. Day 17 enforces the moves between them; until
-/// then every run is a draft.
+/// Where a run is in its life. The moves between them live in
+/// domain/payroll/runStatus.ts and nowhere else:
+///
+///   draft ──approve──▶ approved ──mark paid──▶ paid
+///     ▲                    │
+///     └──────reopen────────┘
 enum PayrollRunStatus {
   /// Calculated, not yet signed off. Can be recalculated or discarded.
   draft
@@ -230,6 +252,27 @@ model Payslip {
   employeeName String
   designation  String?
   department   String?
+  dateOfJoining DateTime? @db.Date
+
+  /// Which country's layout the payslip is printed in, and its currency —
+  /// copied from the employee when it was calculated. Presentation only: the
+  /// statutory arithmetic is India's whatever these say.
+  country  String @default("IN")
+  currency String @default("INR")
+
+  /// The identifiers an Indian payslip must carry, copied at approval. Null
+  /// means none was on record — never a placeholder, never derived.
+  uan        String?
+  pfMemberId String?
+  esicNumber String?
+  pan        String?
+
+  /// The stored PDF, written once when the run is paid and never again: where
+  /// it is, its SHA-256, and its size. Checked against the hash on every read.
+  pdfKey         String?
+  pdfSha256      String?
+  pdfBytes       Int?
+  pdfGeneratedAt DateTime? @db.Timestamptz(3)
 
   /// The calendar facts, in days.
   daysInMonth    Int
