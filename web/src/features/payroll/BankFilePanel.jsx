@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { X, Download, Loader2, AlertTriangle, Landmark } from 'lucide-react'
 import { useBankFilePreview, downloadBankFile } from '../../hooks/usePayroll'
 import { useDownload } from './useDownload'
+import { useEscape } from './useEscape'
 import { money, monthLabel } from './format'
 
 /**
@@ -23,6 +24,7 @@ export default function BankFilePanel({ run, onClose }) {
   const [payDate, setPayDate] = useState('')
   const { data, isLoading, error } = useBankFilePreview(run.id, payDate || undefined)
   const { busy, start } = useDownload()
+  useEscape(onClose)
   const label = monthLabel(run.year, run.month)
 
   const date = payDate || data?.pay_date || ''

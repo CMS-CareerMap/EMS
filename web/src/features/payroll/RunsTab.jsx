@@ -8,13 +8,14 @@ import {
   usePayrollRuns, usePayrollRun, useRunReadiness, useCreateRun, useRecalculateRun,
   useDiscardRun, useApproveRun, useReopenRun, useMarkRunPaid, downloadRunPayslip,
 } from '../../hooks/usePayroll'
+import { usePayrollComponents } from '../../hooks/useSalary'
 import { useAuthStore } from '../../stores/authStore'
 import { calendarDayIn } from '../../lib/dates'
 import { ApiError } from '../../api/http'
 import PayslipModal from './PayslipModal'
 import Dialog from './Dialog'
 import BankFilePanel from './BankFilePanel'
-import { money, days, formatDay, monthLabel, recentMonths, RUN_STATUS, LOP_BASIS } from './format'
+import { money, days, formatDay, monthLabel, recentMonths, monthValue, RUN_STATUS, LOP_BASIS } from './format'
 import { useDownload } from './useDownload'
 
 /**
@@ -27,8 +28,18 @@ import { useDownload } from './useDownload'
 export default function RunsTab() {
   const timezone = useAuthStore((s) => s.organization?.timezone)
   const today = calendarDayIn(timezone)
-  const months = useMemo(() => recentMonths(today, 13), [today])
   const { data: runs = [] } = usePayrollRuns()
+  // The last thirteen months, and every older month that has a run — a run
+  // from two years ago must still be one click away.
+  const months = useMemo(() => {
+    const recent = recentMonths(today, 13)
+    const shown = new Set(recent.map(monthValue))
+    const older = runs
+      .filter((r) => !shown.has(monthValue(r)))
+      .map((r) => ({ year: r.year, month: r.month }))
+      .sort((a, b) => b.year - a.year || b.month - a.month)
+    return [...recent, ...older]
+  }, [today, runs])
   // Until somebody picks a month: the latest one still to be paid, which is
   // the one there is work to do on — else this month.
   const [picked, setPicked] = useState(null)
@@ -66,7 +77,7 @@ export default function RunsTab() {
 
 function Readiness({ year, month }) {
   const can = useAuthStore((s) => s.can)
-  const { data, isLoading, error } = useRunReadiness(year, month)
+  const { data, isLoading, isFetching, error } = useRunReadiness(year, month)
   const createRun = useCreateRun()
 
   if (isLoading) return <p className="text-sm text-gray-400 py-10 text-center">Checking {monthLabel(year, month)}…</p>
@@ -81,14 +92,17 @@ function Readiness({ year, month }) {
     <div className="space-y-4">
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <p className="text-base font-semibold text-gray-900">{monthLabel(year, month)} — no payroll run yet</p>
+          <p className="text-base font-semibold text-gray-900">
+            {monthLabel(year, month)} — no payroll run yet
+            {isFetching && <span className="ml-2 text-xs font-normal text-gray-400">Checking again…</span>}
+          </p>
           <p className="text-sm text-gray-500 mt-0.5">
             {data.employees.length} {data.employees.length === 1 ? 'person' : 'people'} in this month
             {data.tds_enabled === false ? ' · income tax (TDS) is not deducted' : ''}
           </p>
         </div>
         {can('payroll:run:create') && (
-          <button onClick={handleCreate} disabled={data.blocked || createRun.isPending}
+          <button onClick={handleCreate} disabled={data.blocked || createRun.isPending || isFetching}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium">
             {createRun.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
             Run payroll
@@ -357,6 +371,16 @@ const FIELD_LABELS = {
   lopDays: 'loss of pay days',
   paidDays: 'paid days',
   payableDays: 'payable days',
+  // Deduction lines, by their codes.
+  PF: 'PF',
+  ESI: 'ESI',
+  PT: 'professional tax',
+  TDS: 'TDS',
+}
+
+/** A figure in words; an earning line by its component's own name, as the payslip prints it. */
+function fieldLabel(field, components) {
+  return FIELD_LABELS[field] ?? components.find((c) => c.code === field)?.label.toLowerCase() ?? field
 }
 
 const CHANGE_LABELS = {
@@ -372,6 +396,7 @@ const CHANGE_LABELS = {
 function ApproveDialog({ run, onClose }) {
   const approve = useApproveRun()
   const recalculate = useRecalculateRun()
+  const { data: components = [] } = usePayrollComponents()
   const [reply, setReply] = useState(null)
   const label = monthLabel(run.year, run.month)
 
@@ -443,7 +468,7 @@ function ApproveDialog({ run, onClose }) {
           <ul className="text-sm text-gray-700 list-disc pl-5 space-y-0.5">
             {changed.map((c) => (
               <li key={c.employee_id}>
-                {c.full_name}: {c.change === 'changed' ? c.fields.map((f) => FIELD_LABELS[f] ?? f).join(', ') : CHANGE_LABELS[c.change] ?? c.change}
+                {c.full_name}: {c.change === 'changed' ? c.fields.map((f) => fieldLabel(f, components)).join(', ') : CHANGE_LABELS[c.change] ?? c.change}
               </li>
             ))}
           </ul>

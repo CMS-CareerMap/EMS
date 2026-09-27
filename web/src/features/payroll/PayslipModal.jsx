@@ -2,6 +2,7 @@ import { X, Download, Loader2, AlertTriangle } from 'lucide-react'
 import { usePayslipDetail, downloadRunPayslip } from '../../hooks/usePayroll'
 import { money, days, formatDay, monthLabel, LOP_BASIS } from './format'
 import { useDownload } from './useDownload'
+import { useEscape } from './useEscape'
 
 /**
  * One payslip, as the server stored it.
@@ -14,6 +15,7 @@ import { useDownload } from './useDownload'
  */
 export default function PayslipModal({ runId, payslipId, runStatus, onClose }) {
   const { data: slip, isLoading } = usePayslipDetail(runId, payslipId)
+  useEscape(onClose)
   const { busy, start } = useDownload()
   const downloading = busy === payslipId
   const handleDownload = () => start(payslipId, () => downloadRunPayslip(runId, payslipId))
