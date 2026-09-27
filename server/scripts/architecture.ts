@@ -189,7 +189,12 @@ export function checkSource(file: string, code: string, options: CheckOptions): 
       // Rule 1 — the raw client reaches the rest of the code only through
       // scoped.ts (company-filtered) and unsafe.ts (the conspicuous exception).
       const rawClientFiles = ['platform/db/prisma.ts', 'platform/db/scoped.ts', 'platform/db/unsafe.ts']
-      if (!isTest && !rawClientFiles.includes(file) && !typeOnly) {
+      // main.ts owns the process, and closes the client on the way out — the
+      // one thing it takes from there (guide, Day 1: graceful shutdown).
+      const closesOnly =
+        file === 'main.ts' &&
+        ((node.specifiers as Node[] | undefined) ?? []).every((s) => (s.imported as Node | undefined)?.name === 'disconnect')
+      if (!isTest && !rawClientFiles.includes(file) && !typeOnly && !closesOnly) {
         if (to === 'platform/db/prisma') {
           report(node, 'R1', 'imports the raw Prisma client; use ctx.db (scoped) or unsafeDb (pre-organization flows only)')
         }

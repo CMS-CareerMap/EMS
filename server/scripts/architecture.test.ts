@@ -22,6 +22,11 @@ describe('rule 1 — the raw Prisma client', () => {
     expect(rules('modules/leave/leave.service.ts', `import type { Prisma } from '@prisma/client'`)).toEqual([])
     expect(rules('modules/leave/leave.test.ts', `import { prisma } from '../../platform/db/prisma'`)).toEqual([])
   })
+
+  it('lets main.ts close the client, and nothing more', () => {
+    expect(rules('main.ts', `import { disconnect } from './platform/db/prisma'`)).toEqual([])
+    expect(rules('main.ts', `import { prisma } from './platform/db/prisma'`)).toEqual(['R1'])
+  })
 })
 
 describe('rule 2 — queries in repositories', () => {

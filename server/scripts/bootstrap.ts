@@ -2,9 +2,11 @@ import { z } from 'zod'
 import { prisma, disconnect } from '../src/platform/db/prisma'
 import { hashPassword, passwordProblem } from '../src/platform/auth/password'
 import { logger } from '../src/platform/logger'
+import { seedForOrganization } from '../prisma/seed/referenceData'
 
 /**
- * Creates the organization and its first administrator, from nothing.
+ * Creates the organization, its first administrator and the reference data it
+ * needs on day one, from nothing.
  *
  * The audit found that this system could not be started at all: every path to
  * an account required an account that already existed. There is no signup page,
@@ -42,8 +44,14 @@ export async function bootstrapOrganization(input: {
   const problem = passwordProblem(input.adminPassword)
   if (problem) throw new Error(problem)
 
-  // One transaction: either the company exists with a usable administrator, or
-  // nothing was created. A half-bootstrapped database is worse than an empty one.
+  // Hashed before the transaction opens: it is deliberately slow, and nothing
+  // is gained by holding a transaction open while it runs.
+  const passwordHash = await hashPassword(input.adminPassword)
+
+  // One transaction: either the company exists with a usable administrator and
+  // everything it needs on day one — its rates, leave types, holidays — or
+  // nothing was created. A half-bootstrapped database is worse than an empty
+  // one. The reference data used to be a second command to remember.
   return prisma.$transaction(async (tx) => {
     const existing = await tx.organization.count()
     if (existing > 0) {
@@ -56,10 +64,12 @@ export async function bootstrapOrganization(input: {
       data: { name: input.organizationName },
     })
 
+    await seedForOrganization(tx, organization)
+
     const user = await tx.user.create({
       data: {
         email: input.adminEmail.toLowerCase(),
-        passwordHash: await hashPassword(input.adminPassword),
+        passwordHash,
       },
     })
 
@@ -81,7 +91,9 @@ export async function bootstrapOrganization(input: {
       userId: user.id,
       membershipId: membership.id,
     }
-  })
+    // About forty writes; well past Prisma's five-second default on a remote
+    // database that has to wake up first.
+  }, { timeout: 60_000, maxWait: 10_000 })
 }
 
 async function main(): Promise<void> {

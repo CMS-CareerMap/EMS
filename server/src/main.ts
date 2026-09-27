@@ -1,19 +1,20 @@
 import { createApp } from './app'
 import { env } from './config/env'
+import { disconnect } from './platform/db/prisma'
+import { shutdownGracefully } from './shutdown'
 
 const server = createApp().listen(env.PORT, () => {
   console.log(`  EMS server  http://localhost:${env.PORT}  [${env.NODE_ENV}]`)
 })
 
-/**
- * Close the listener before exiting so in-flight requests finish. Day 2 adds
- * prisma.$disconnect() here.
- */
-function shutdown(signal: string) {
-  console.log(`\n  ${signal} received — shutting down`)
-  server.close(() => process.exit(0))
-  setTimeout(() => process.exit(1), 10_000).unref()
+function stop(signal: string) {
+  shutdownGracefully(signal, {
+    closeServer: (done) => server.close(done),
+    disconnect,
+    exit: (code) => process.exit(code),
+    log: (message) => console.log(`\n  ${message}`),
+  })
 }
 
-process.on('SIGINT', () => shutdown('SIGINT'))
-process.on('SIGTERM', () => shutdown('SIGTERM'))
+process.on('SIGINT', () => stop('SIGINT'))
+process.on('SIGTERM', () => stop('SIGTERM'))
