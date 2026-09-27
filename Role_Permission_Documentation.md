@@ -14,17 +14,17 @@ This document defines who can access what in the Employee Management System (EMS
 
 ## 2. Roles at a Glance
 
-| Role | Key | Login Email | Who Is This? |
-|------|-----|-------------|--------------|
-| **Super Admin** | `super_admin` | admin@careermap.in | System owner — full access |
-| **Admin** | `admin` | *(created by Super Admin)* | Department admin — employees & docs |
-| **HR** | `hr` | hr@careermap.in | People ops — employees, attendance, leave, docs |
-| **Manager** | `manager` | manager@careermap.in | Team lead — approve leave for direct reports |
-| **Reporting Manager** | `rm` | rm@careermap.in | Same as Manager (different org title) |
-| **Accounts** | `accounts` | payroll@careermap.in | Finance — salary & payroll only |
-| **Employee** | `employee` | employee@careermap.in | Self-service — own data only |
+| Role | Key | Who Is This? |
+|------|-----|--------------|
+| **Super Admin** | `super_admin` | System owner — full access |
+| **Admin** | `admin` | Department admin — employees & docs |
+| **HR** | `hr` | People ops — employees, attendance, leave, docs |
+| **Manager** | `manager` | Team lead — approve leave for direct reports |
+| **Reporting Manager** | `rm` | Same as Manager (different org title) |
+| **Accounts** | `accounts` | Finance — salary & payroll only |
+| **Employee** | `employee` | Self-service — own data only |
 
-> **Password for all accounts:** `EMS@2026`
+> **Accounts and passwords:** there is no shared or default password. The first Super Admin is created on the server with `npm run bootstrap`. Everybody else is invited from **Settings → Users & Roles**, or added as an employee, and sets their own password from a single-use link that expires after 72 hours. The six demo logins this table used to list belonged to the old prototype, all on one password published here; they do not exist in this system.
 
 ---
 

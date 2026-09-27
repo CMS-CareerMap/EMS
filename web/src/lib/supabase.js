@@ -1,14 +1,58 @@
 import { createClient } from '@supabase/supabase-js'
-import { estimateWithOverrides } from './salaryEstimate'
+
+/**
+ * The Supabase client, for the parts not yet on our own API: payroll history,
+ * reports, documents, notifications and bank details. Day 19 moves the last of
+ * them and deletes this file.
+ *
+ * Without Supabase settings this used to turn into a whole pretend HR system —
+ * six seeded accounts, one of them Super Admin, all signing in with a single
+ * password written in this file. A production build made without the settings
+ * shipped that password to every visitor's browser. Sign-in has moved to our
+ * API, so the pretend sign-in is gone, and the password with it.
+ *
+ * What is left of the pretend version (demo rows kept in this browser's
+ * localStorage) runs only under `npm run dev`. A production build without the
+ * settings gets a client that fails every call with a sentence saying why: a
+ * page that says it cannot load is honest; a page of demo payroll is not.
+ */
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+const configured = Boolean(supabaseUrl && supabaseAnonKey && supabaseAnonKey !== 'placeholder-anon-key')
+
+/**
+ * Answers `{ data: null, error }` however it is chained — the shape every hook
+ * here already checks. `from().select().eq()`, `storage.from().upload()` and
+ * `channel().on().subscribe()` each return this same object, and awaiting it
+ * gives the error.
+ */
+function unconfiguredClient() {
+  const error = {
+    message: 'This build has no Supabase settings (VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY), so this part of the app cannot load.',
+  }
+  const result = Promise.resolve({ data: null, error })
+  const chain = new Proxy(() => chain, {
+    get(_target, prop) {
+      if (prop === 'then') return result.then.bind(result)
+      if (prop === 'data') return null
+      if (prop === 'error') return error
+      // Symbols are the runtime asking what this is (printing, iterating) —
+      // answering those with another chain would never end.
+      if (typeof prop === 'symbol') return undefined
+      return chain
+    },
+  })
+  return chain
+}
 
 let supabaseClient
 
-if (!supabaseUrl || !supabaseAnonKey || supabaseAnonKey === 'placeholder-anon-key') {
+if (!configured && import.meta.env.DEV) {
+  console.warn(
+    '[EMS] No Supabase settings in web/.env — payroll history, reports, documents, notifications and bank details are demo rows kept in this browser, not a database.',
+  )
   const STORAGE_DB_KEY = 'ems_mock_database'
-  const STORAGE_SESSION_KEY = 'ems_mock_session'
 
   const loadMockDatabase = () => {
     try {
@@ -313,88 +357,7 @@ if (!supabaseUrl || !supabaseAnonKey || supabaseAnonKey === 'placeholder-anon-ke
     return builder
   }
 
-  const mockAuth = {
-    session: (() => {
-      try {
-        const stored = localStorage.getItem(STORAGE_SESSION_KEY)
-        return stored ? JSON.parse(stored) : null
-      } catch {
-        return null
-      }
-    })(),
-    listeners: new Set(),
-    async getSession() {
-      return { data: { session: this.session }, error: null }
-    },
-    async getUser() {
-      return { data: { user: this.session?.user || null }, error: null }
-    },
-    onAuthStateChange(callback) {
-      this.listeners.add(callback)
-      callback('INITIAL_SESSION', this.session)
-      return {
-        data: {
-          subscription: {
-            unsubscribe: () => {
-              this.listeners.delete(callback)
-            }
-          }
-        }
-      }
-    },
-    async signInWithPassword({ email, password }) {
-      let targetEmail = email
-      if (email && !email.includes('@')) {
-        const matched = mockDatabase.profiles.find(p => p.employee_id?.toLowerCase() === email.toLowerCase())
-        if (matched) {
-          targetEmail = matched.email
-        }
-      }
-      const matchedProfile = mockDatabase.profiles.find(p => p.email === targetEmail)
-      const storedPassword = (mockDatabase.user_passwords && mockDatabase.user_passwords[matchedProfile?.id]) || 'EMS@2026'
-      if (matchedProfile && password === storedPassword) {
-        const user = { id: matchedProfile.id, email: targetEmail }
-        this.session = { user, expires_at: 9999999999 }
-        localStorage.setItem(STORAGE_SESSION_KEY, JSON.stringify(this.session))
-        this.listeners.forEach(cb => cb('SIGNED_IN', this.session))
-        return { data: { user, session: this.session }, error: null }
-      }
-      return { data: null, error: { message: 'Invalid login credentials' } }
-    },
-    async updateUserPassword({ currentPassword, newPassword }) {
-      const user = this.session?.user
-      if (!user) return { error: { message: 'User not authenticated' } }
-
-      if (!mockDatabase.user_passwords) mockDatabase.user_passwords = {}
-      const currentStored = mockDatabase.user_passwords[user.id] || 'EMS@2026'
-
-      if (currentPassword && currentPassword !== currentStored) {
-        return { error: { message: 'Current password is incorrect.' } }
-      }
-
-      mockDatabase.user_passwords[user.id] = newPassword
-      saveMockDatabase(mockDatabase)
-      return { data: { user }, error: null }
-    },
-    async updateUser(attributes) {
-      if (attributes.password) {
-        return this.updateUserPassword({ newPassword: attributes.password })
-      }
-      return { data: { user: this.session?.user }, error: null }
-    },
-    async signOut() {
-      this.session = null
-      localStorage.removeItem(STORAGE_SESSION_KEY)
-      this.listeners.forEach(cb => cb('SIGNED_OUT', null))
-      return { error: null }
-    },
-    async resetPasswordForEmail() {
-      return { data: {}, error: null }
-    }
-  }
-
   supabaseClient = {
-    auth: mockAuth,
     from(table) {
       return makeQueryBuilder(table)
     },
@@ -424,73 +387,6 @@ if (!supabaseUrl || !supabaseAnonKey || supabaseAnonKey === 'placeholder-anon-ke
       }
       return channelObj
     },
-    async rpc(funcName, args) {
-      if (funcName === 'create_employee_account') {
-        const newUserId = 'user-' + Math.random().toString(36).substr(2, 9)
-        const newProfile = {
-          id: newUserId,
-          full_name: args.p_full_name,
-          email: args.p_email,
-          role: args.p_role,
-          status: args.p_status || 'active',
-          employee_id: args.p_employee_id,
-          department: args.p_department,
-          designation: args.p_designation,
-          phone: args.p_phone,
-          employment_type: args.p_employment_type,
-          date_of_joining: args.p_date_of_joining,
-          ctc: args.p_ctc || 0,
-          reporting_manager_id: args.p_reporting_manager_id || null,
-          reporting_manager_name: args.p_reporting_manager_name || null,
-          reporting_manager_designation: args.p_reporting_manager_designation || null
-        }
-        mockDatabase.profiles.push(newProfile)
-
-        if (args.p_ctc || args.p_basic) {
-          const { gross, basic, hra, da, special: special_allowance, pf, esi, pt, net } =
-            estimateWithOverrides(args.p_ctc, {
-              basic: args.p_basic,
-              hra: args.p_hra,
-              da: args.p_da,
-              special: args.p_special_allowance,
-              pf: args.p_pf,
-              esi: args.p_esi,
-              pt: args.p_pt,
-            })
-
-          mockDatabase.salary_structures.push({
-            id: 'ss-' + Math.random().toString(36).substr(2, 9),
-            employee_id: newUserId,
-            ctc: args.p_ctc || 0,
-            gross,
-            basic,
-            hra,
-            da,
-            special_allowance,
-            pf,
-            esi,
-            pt,
-            net_salary: net,
-            created_at: new Date().toISOString()
-          })
-        }
-
-        mockDatabase.leave_balances.push({
-          id: 'lb-' + Math.random().toString(36).substr(2, 9),
-          employee_id: newUserId,
-          year: new Date().getFullYear(),
-          casual: 12,
-          sick: 12,
-          earned: 18,
-          wfh: 24,
-          comp_off: 5
-        })
-
-        saveMockDatabase(mockDatabase)
-        return { data: newUserId, error: null }
-      }
-      return { data: null, error: { message: `Mock function ${funcName} not implemented` } }
-    },
     storage: {
       from: () => ({
         upload: async () => {
@@ -504,49 +400,9 @@ if (!supabaseUrl || !supabaseAnonKey || supabaseAnonKey === 'placeholder-anon-ke
         }
       })
     },
-    functions: {
-      async invoke(funcName, options) {
-        if (funcName === 'manage-user') {
-          const { action, user_id, role, status } = options?.body || {}
-          if (action === 'update_role') {
-            const prof = mockDatabase.profiles.find(p => p.id === user_id)
-            if (prof) {
-              prof.role = role
-              saveMockDatabase(mockDatabase)
-            }
-          } else if (action === 'toggle_status') {
-            const prof = mockDatabase.profiles.find(p => p.id === user_id)
-            if (prof) {
-              prof.status = status
-              saveMockDatabase(mockDatabase)
-            }
-          } else if (action === 'delete_user') {
-            mockDatabase.profiles = mockDatabase.profiles.filter(p => p.id !== user_id)
-            saveMockDatabase(mockDatabase)
-          }
-          return { data: { success: true }, error: null }
-        }
-
-        if (funcName === 'invite-user') {
-          const { email, full_name, role } = options?.body || {}
-          const newUserId = 'user-' + Math.random().toString(36).substr(2, 9)
-          const newProfile = {
-            id: newUserId,
-            full_name,
-            email,
-            role,
-            status: 'invited',
-            created_at: new Date().toISOString()
-          }
-          mockDatabase.profiles.push(newProfile)
-          saveMockDatabase(mockDatabase)
-          return { data: { success: true }, error: null }
-        }
-
-        return { data: { success: true }, error: null }
-      }
-    }
   }
+} else if (!configured) {
+  supabaseClient = unconfiguredClient()
 } else {
   supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
