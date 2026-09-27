@@ -17,7 +17,7 @@ export default function MyPayslips() {
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="text-2xl font-bold text-gray-900">My payslips</h2>
+        <h2 className="text-2xl font-bold text-gray-900">My Payslips</h2>
         <p className="text-sm text-gray-500 mt-0.5">Each month's payslip, once the salary has been paid</p>
       </div>
 
@@ -35,7 +35,23 @@ export default function MyPayslips() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          {/* On a phone, one card a month: the net pay and the download first. */}
+          <ul className="sm:hidden divide-y divide-gray-100">
+            {slips.map((slip) => (
+              <li key={slip.id} className="p-4 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-semibold text-gray-900">{monthLabel(slip.year, slip.month)}</p>
+                  <p className="text-lg font-bold text-gray-900">{money(slip.net_payable, slip.currency)}</p>
+                  <p className="text-xs text-gray-500">
+                    Paid {formatDay(slip.paid_on)} · gross {money(slip.gross_earnings, slip.currency)}
+                  </p>
+                </div>
+                <PdfButton busy={busy === slip.id} onClick={() => start(slip.id, () => downloadMyPayslip(slip.id))} />
+              </li>
+            ))}
+          </ul>
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full min-w-160 text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
@@ -56,18 +72,25 @@ export default function MyPayslips() {
                     <td className="px-4 py-3 text-right text-gray-700">{money(slip.total_deductions, slip.currency)}</td>
                     <td className="px-4 py-3 text-right font-semibold text-gray-900">{money(slip.net_payable, slip.currency)}</td>
                     <td className="px-4 py-3 text-right">
-                      <button onClick={() => start(slip.id, () => downloadMyPayslip(slip.id))} disabled={busy === slip.id}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold disabled:opacity-60">
-                        {busy === slip.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />} PDF
-                      </button>
+                      <PdfButton busy={busy === slip.id} onClick={() => start(slip.id, () => downloadMyPayslip(slip.id))} />
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
     </div>
+  )
+}
+
+function PdfButton({ busy, onClick }) {
+  return (
+    <button onClick={onClick} disabled={busy}
+      className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold disabled:opacity-60">
+      {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />} PDF
+    </button>
   )
 }

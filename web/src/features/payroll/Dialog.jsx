@@ -1,7 +1,9 @@
 import { X } from 'lucide-react'
+import { useEscape } from './useEscape'
 
 /** The payroll screens' modal: a title, a close button, and whatever it asks. */
 export default function Dialog({ title, children, onClose, wide = false }) {
+  useEscape(onClose)
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-label={title}>
       <div className={`bg-white rounded-2xl shadow-xl w-full ${wide ? 'max-w-3xl' : 'max-w-xl'} my-8 overflow-hidden`}>
