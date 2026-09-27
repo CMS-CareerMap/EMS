@@ -15,6 +15,7 @@ import * as repo from './leave.repository'
 import { companyTimezone } from '../organization/organization.service'
 import { getCurrentPolicy, findLeaveType } from '../settings/settings.repository'
 import { listDaysOff } from '../holidays/holidays.repository'
+import { audit } from '../audit/audit.service'
 
 /**
  * Applying for leave.
@@ -241,7 +242,7 @@ export async function applyForLeave(ctx: AppContext, input: ApplyInput): Promise
       )
     }
 
-    return repo.createRequest(tx, {
+    const request = await repo.createRequest(tx, {
       organizationId: ctx.organizationId,
       employeeId,
       leaveTypeId: input.leaveTypeId,
@@ -253,6 +254,20 @@ export async function applyForLeave(ctx: AppContext, input: ApplyInput): Promise
       reason: input.reason.trim(),
       status: 'pending',
     })
+
+    // Somebody's own application is the request itself. One made FOR them —
+    // HR applying on their behalf — is a decision about their leave by
+    // somebody else, and is recorded as one.
+    if (employeeId !== ctx.employeeId) {
+      await audit(ctx, {
+        action: 'leave.applied_for',
+        entityType: 'leave_request',
+        entityId: request.id,
+        details: { employeeId, fromDate: input.fromDate, toDate: input.toDate, days: preview.days },
+      }, tx)
+    }
+
+    return request
   })
 
   logger.info('Leave applied', {
@@ -307,8 +322,16 @@ export async function cancelLeave(ctx: AppContext, id: string): Promise<repo.Lea
 
   // Changed only if still pending, in the same statement — an approval
   // landing at the same moment wins cleanly instead of being overwritten.
-  const withdrawn = await repo.changeStatusIf(ctx.db, id, 'pending', { status: 'cancelled' })
-  if (!withdrawn) throw Conflict('That request was decided a moment ago. Refresh to see how.')
+  await withTransaction(ctx.db, async (tx) => {
+    const withdrawn = await repo.changeStatusIf(tx, id, 'pending', { status: 'cancelled' })
+    if (!withdrawn) throw Conflict('That request was decided a moment ago. Refresh to see how.')
+    await audit(ctx, {
+      action: 'leave.withdrawn',
+      entityType: 'leave_request',
+      entityId: id,
+      details: { employeeId: request.employeeId, days: Number(request.days) },
+    }, tx)
+  })
 
   logger.info('Leave withdrawn', { by: ctx.userId, requestId: id })
 

@@ -32,6 +32,7 @@ export const TENANT_MODELS = [
   'SalaryComponent',
   'EsiCoverage',
   'EmployeeSalaryComponent',
+  'AuditLog',
 ] as const
 
 export const TENANT_MODEL_SET: ReadonlySet<string> = new Set(TENANT_MODELS)

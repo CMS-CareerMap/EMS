@@ -63,4 +63,6 @@ model Organization {
   salaryComponents         SalaryComponent[]
   employeeSalaryComponents EmployeeSalaryComponent[]
   esiCoverage              EsiCoverage[]
+
+  auditLogs AuditLog[]
 }

@@ -7,7 +7,10 @@ import {
   type CalendarDate,
 } from '../../domain/shared/dates'
 import { logger } from '../../platform/logger'
+import { withTransaction } from '../../platform/db/transaction'
+import { lockFor } from '../../platform/db/locks'
 import * as repo from './salaryStructure.repository'
+import { audit } from '../audit/audit.service'
 
 /**
  * Setting what somebody is paid.
@@ -124,45 +127,65 @@ export async function setSalary(ctx: AppContext, employeeId: string, input: Sala
     throw BadRequest('A salary needs at least one earning above zero')
   }
 
-  const open = await repo.findOpen(ctx.db, employeeId)
-  const openFrom = open ? fromDateColumn(open.effectiveFrom) : null
-  let kind: 'first' | 'raise' | 'correction'
+  const kind = await withTransaction(ctx.db, async (tx) => {
+    // One change to a person's salary at a time. Read outside a transaction,
+    // two saves together both found "no salary yet" and both opened one — two
+    // open records, and payroll reading whichever it met first.
+    await lockFor(tx, `salary:${employeeId}`)
 
-  if (!open) {
-    kind = 'first'
-    await repo.openNew(ctx.db, ctx.organizationId, {
-      employeeId,
-      effectiveFrom: toDateColumn(input.effectiveFrom),
-      closePreviousOn: null,
-      previousId: null,
-      ctc: input.ctc,
-      components: amounts,
-    })
-  } else if (input.effectiveFrom === openFrom) {
-    kind = 'correction'
-    await repo.correctOpen(ctx.db, ctx.organizationId, {
-      financialId: open.id,
-      ctc: input.ctc,
-      components: amounts,
-    })
-  } else if (openFrom && input.effectiveFrom > openFrom) {
-    kind = 'raise'
-    await repo.openNew(ctx.db, ctx.organizationId, {
-      employeeId,
-      effectiveFrom: toDateColumn(input.effectiveFrom),
-      closePreviousOn: toDateColumn(addCalendarDays(input.effectiveFrom, -1)),
-      previousId: open.id,
-      ctc: input.ctc,
-      components: amounts,
-    })
-  } else {
-    throw Conflict(
-      `${employee.fullName}'s current salary started on ${openFrom}. A new one cannot start before it — correct the current salary (same date), or start the new one after it.`,
-    )
-  }
+    const open = await repo.findOpen(tx, employeeId)
+    const openFrom = open ? fromDateColumn(open.effectiveFrom) : null
+    let kind: 'first' | 'raise' | 'correction'
 
-  // Salary changes are on the list of things the audit log must cover (Day
-  // 20). Until that table exists, the log line is the record of who did it.
+    if (!open) {
+      kind = 'first'
+      await repo.openNew(tx, ctx.organizationId, {
+        employeeId,
+        effectiveFrom: toDateColumn(input.effectiveFrom),
+        closePreviousOn: null,
+        previousId: null,
+        ctc: input.ctc,
+        components: amounts,
+      })
+    } else if (input.effectiveFrom === openFrom) {
+      kind = 'correction'
+      await repo.correctOpen(tx, ctx.organizationId, {
+        financialId: open.id,
+        ctc: input.ctc,
+        components: amounts,
+      })
+    } else if (openFrom && input.effectiveFrom > openFrom) {
+      kind = 'raise'
+      await repo.openNew(tx, ctx.organizationId, {
+        employeeId,
+        effectiveFrom: toDateColumn(input.effectiveFrom),
+        closePreviousOn: toDateColumn(addCalendarDays(input.effectiveFrom, -1)),
+        previousId: open.id,
+        ctc: input.ctc,
+        components: amounts,
+      })
+    } else {
+      throw Conflict(
+        `${employee.fullName}'s current salary started on ${openFrom}. A new one cannot start before it — correct the current salary (same date), or start the new one after it.`,
+      )
+    }
+
+    // Salary changes are on the list the audit log must cover (guide, Day 20).
+    await audit(ctx, {
+      action: 'salary.set',
+      entityType: 'employee',
+      entityId: employeeId,
+      details: {
+        kind,
+        effectiveFrom: input.effectiveFrom,
+        ctc: input.ctc,
+        previousCtc: open ? Number(open.ctc) : null,
+      },
+    }, tx)
+
+    return kind
+  })
+
   logger.warn('Salary structure changed', {
     by: ctx.userId,
     employeeId,

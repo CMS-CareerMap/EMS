@@ -36,6 +36,7 @@ export function setAuthContext(res: Response, input: AuthContextInput): void {
       employeeId: input.employeeId,
     }),
     db: forOrg(input.organizationId),
+    requestId: res.locals.requestId as string | undefined,
   }
   res.locals.auth = ctx
 }

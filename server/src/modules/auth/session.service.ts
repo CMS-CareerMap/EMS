@@ -10,10 +10,13 @@ import { hashPassword, verifyPassword, passwordProblem } from '../../platform/au
 import { logger } from '../../platform/logger'
 import { findIdentityByUserId, type AuthIdentity } from './auth.repository'
 import * as sessions from './session.repository'
+import { recordSecurityEvent } from '../audit/audit.service'
 
 export interface SessionMeta {
   userAgent?: string | undefined
   ip?: string | undefined
+  /** For the audit row: which request, to find its log lines. */
+  requestId?: string | undefined
 }
 
 export interface IssuedSession {
@@ -101,6 +104,21 @@ export async function refreshSession(
       userAgent: meta.userAgent,
       ip: meta.ip,
     })
+
+    // In the company's own record too: somebody there should know an
+    // account's session was copied, and when.
+    const owner = await findIdentityByUserId(stored.userId)
+    if (owner) {
+      await recordSecurityEvent({
+        organizationId: owner.organizationId,
+        actorUserId: null,
+        action: 'auth.refresh_token_reused',
+        entityType: 'user',
+        entityId: stored.userId,
+        details: { tokensRevoked: killed, ip: meta.ip ?? null, userAgent: meta.userAgent ?? null },
+        requestId: meta.requestId,
+      })
+    }
 
     throw Unauthorized('Your session has expired. Please sign in again.')
   }
@@ -208,6 +226,16 @@ export async function changePassword(
 
   const identity = await findIdentityByUserId(userId)
   if (!identity) throw Unauthorized('Not authenticated')
+
+  await recordSecurityEvent({
+    organizationId: identity.organizationId,
+    actorUserId: userId,
+    action: 'auth.password_changed',
+    entityType: 'user',
+    entityId: userId,
+    details: { sessionsEnded: revoked },
+    requestId: meta.requestId,
+  })
 
   return issueSession(identity, meta)
 }

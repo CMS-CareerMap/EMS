@@ -31,4 +31,7 @@ export interface AppContext {
 
   /** Prisma, already confined to this organization. */
   db: ScopedDb
+
+  /** The request this is happening in — what ties an audit row to its log lines. */
+  requestId?: string | undefined
 }

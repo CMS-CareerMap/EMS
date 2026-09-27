@@ -8,6 +8,7 @@ import { logger } from '../../platform/logger'
 import { grantsMoreThan } from '../user/user.policy'
 import { createLoginInTransaction } from '../user/user.service'
 import * as repo from './employee.repository'
+import { audit } from '../audit/audit.service'
 
 /**
  * Employee reads and writes.
@@ -216,6 +217,13 @@ export async function createEmployee(
       })
     }
 
+    await audit(ctx, {
+      action: 'employee.created',
+      entityType: 'employee',
+      entityId: employee.id,
+      details: { employeeCode: employee.employeeCode, withLogin: Boolean(input.login), role: input.login?.role ?? null },
+    }, tx)
+
     return employee.id
   }).catch(asConflict)
 
@@ -313,6 +321,18 @@ export async function updateEmployee(
           hasPriorPfMembership: s.hasPriorPfMembership ?? null,
         },
       )
+    }
+
+    // Which fields, not their values: a PAN or a phone number has no business
+    // in a log that more people will one day read than hold the permission.
+    const statutoryFields = input.statutory ? Object.keys(input.statutory) : []
+    if (Object.keys(data).length > 0 || statutoryFields.length > 0) {
+      await audit(ctx, {
+        action: 'employee.updated',
+        entityType: 'employee',
+        entityId: id,
+        details: { fields: Object.keys(data), statutoryFields },
+      }, tx)
     }
   }).catch(asConflict)
 
