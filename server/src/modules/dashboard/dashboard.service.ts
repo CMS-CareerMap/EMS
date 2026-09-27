@@ -1,8 +1,12 @@
 import type { AppContext } from '../../platform/context'
 import { Forbidden } from '../../platform/errors/AppError'
-import { zonedToday, toDateColumn, type CalendarDate } from '../../domain/shared/dates'
+import { zonedToday, toDateColumn, fromDateColumn, isoInstant, addCalendarDays, mondayOf, type CalendarDate } from '../../domain/shared/dates'
 import * as leaveRepo from '../leave/leave.repository'
+import * as attendanceRepo from '../attendance/attendance.repository'
+import * as employeeRepo from '../employee/employee.repository'
 import { leaveYearOf } from '../leave/leave.service'
+import { companyTimezone } from '../organization/organization.service'
+import { getCurrentPolicy } from '../settings/settings.repository'
 
 /**
  * The first screen every role sees.
@@ -16,28 +20,6 @@ import { leaveYearOf } from '../leave/leave.service'
  * Nothing here invents a number. A figure that is not known comes back as null
  * or zero with a name that says which.
  */
-
-async function companyTimezone(ctx: AppContext): Promise<string> {
-  const organization = await ctx.db.organization.findUnique({
-    where: { id: ctx.organizationId },
-    select: { timezone: true },
-  })
-  return organization?.timezone ?? 'Asia/Kolkata'
-}
-
-/** The Monday of the week `date` falls in. */
-function mondayOf(date: CalendarDate): CalendarDate {
-  const d = new Date(`${date}T00:00:00Z`)
-  const shift = (d.getUTCDay() + 6) % 7
-  d.setUTCDate(d.getUTCDate() - shift)
-  return d.toISOString().slice(0, 10)
-}
-
-function addDays(date: CalendarDate, days: number): CalendarDate {
-  const d = new Date(`${date}T00:00:00Z`)
-  d.setUTCDate(d.getUTCDate() + days)
-  return d.toISOString().slice(0, 10)
-}
 
 export interface CompanySummary {
   date: CalendarDate
@@ -85,51 +67,31 @@ export async function companySummary(ctx: AppContext): Promise<CompanySummary> {
   const today = zonedToday(new Date(), await companyTimezone(ctx))
   const weekStart = mondayOf(today)
 
-  // The ATTENDANCE scope, deliberately — not the employee one.
+  // The ATTENDANCE scope, deliberately — not the employee one — and for every
+  // figure: the headcount, today, and the week.
   //
   // A manager may browse the whole staff directory (§4.4) but may only see
   // their own team attendance. Counting headcount from the directory would
   // produce "2 present out of 40" on a dashboard that can see two people
-  // attendance — arithmetically true and completely misleading.
+  // attendance — arithmetically true and completely misleading. The week's
+  // figures used to be counted across the whole company whatever the scope,
+  // and anybody who could open this — Admin, whom the matrix keeps out of
+  // attendance altogether — saw today's for the whole company too.
   const scope = ctx.scopeFor('attendance')
 
-  const employeeWhere =
-    scope.scope === 'DIRECT_REPORTS' && scope.employeeId
-      ? {
-          archivedAt: null,
-          OR: [{ reportingManagerId: scope.employeeId }, { id: scope.employeeId }],
-        }
-      : { archivedAt: null }
-
-  const policy = await ctx.db.organizationPolicy.findFirst({ where: { effectiveTo: null } })
+  const policy = await getCurrentPolicy(ctx.db)
   const weeklyOffDays = policy?.weeklyOffDays ?? [0]
   const isWeeklyOffToday = weeklyOffDays.includes(new Date(`${today}T00:00:00Z`).getUTCDay())
 
-  const [employees, todayRows, weekRows, pending] = await Promise.all([
-    ctx.db.employee.findMany({
-      where: employeeWhere,
-      select: {
-        id: true,
-        fullName: true,
-        employeeCode: true,
-        dateOfJoining: true,
-        department: { select: { name: true } },
-      },
-      orderBy: { dateOfJoining: 'desc' },
-    }),
-    ctx.db.attendance.findMany({
-      where: { date: toDateColumn(today) },
-      select: { employeeId: true, status: true },
-    }),
-    ctx.db.attendance.findMany({
-      where: { date: { gte: toDateColumn(weekStart), lte: toDateColumn(today) } },
-      select: { date: true, status: true },
-    }),
+  const [employees, weekRows, pending] = await Promise.all([
+    attendanceRepo.peopleInScope(ctx.db, scope),
+    attendanceRepo.statusesBetween(ctx.db, scope, toDateColumn(weekStart), toDateColumn(today)),
     leaveRepo.listRequests(ctx.db, ctx.scopeFor('leave'), { status: 'pending' }),
   ])
 
+  // Today's counts are of the people on the headcount, so the two agree.
   const visible = new Set(employees.map((e) => e.id))
-  const mine = todayRows.filter((r) => visible.has(r.employeeId))
+  const mine = weekRows.filter((r) => fromDateColumn(r.date) === today && visible.has(r.employeeId))
 
   const countOf = (status: string) => mine.filter((r) => r.status === status).length
 
@@ -150,10 +112,10 @@ export async function companySummary(ctx: AppContext): Promise<CompanySummary> {
 
   const thisWeek: CompanySummary['thisWeek'] = []
   for (let offset = 0; offset < 7; offset++) {
-    const date = addDays(weekStart, offset)
+    const date = addCalendarDays(weekStart, offset)
     if (date > today) break
 
-    const rows = weekRows.filter((r) => r.date.toISOString().slice(0, 10) === date)
+    const rows = weekRows.filter((r) => fromDateColumn(r.date) === date)
     thisWeek.push({
       date,
       present: rows.filter((r) => r.status === 'present').length,
@@ -181,11 +143,11 @@ export async function companySummary(ctx: AppContext): Promise<CompanySummary> {
       employeeCode: request.employee.employeeCode,
       fullName: request.employee.fullName,
       leaveType: request.leaveType.code,
-      fromDate: request.fromDate.toISOString().slice(0, 10),
-      toDate: request.toDate.toISOString().slice(0, 10),
+      fromDate: fromDateColumn(request.fromDate),
+      toDate: fromDateColumn(request.toDate),
       days: Number(request.days),
       reason: request.reason,
-      appliedAt: request.appliedAt.toISOString(),
+      appliedAt: isoInstant(request.appliedAt),
     })),
     byDepartment: [...byDepartment.entries()].map(([department, counts]) => ({
       department,
@@ -200,7 +162,7 @@ export async function companySummary(ctx: AppContext): Promise<CompanySummary> {
         fullName: e.fullName,
         employeeCode: e.employeeCode,
         department: e.department?.name ?? null,
-        dateOfJoining: e.dateOfJoining?.toISOString().slice(0, 10) ?? null,
+        dateOfJoining: fromDateColumn(e.dateOfJoining),
       })),
   }
 }
@@ -245,34 +207,18 @@ export async function mySummary(ctx: AppContext): Promise<MySummary> {
   const today = zonedToday(new Date(), timezone)
   const monthStart = `${today.slice(0, 7)}-01`
 
-  const policy = await ctx.db.organizationPolicy.findFirst({ where: { effectiveTo: null } })
+  const policy = await getCurrentPolicy(ctx.db)
   const leaveYear = leaveYearOf(today, policy?.leaveYearStartMonth ?? 4)
 
   const [employee, monthRows, balances, leaves] = await Promise.all([
-    ctx.db.employee.findFirst({
-      where: { id: ctx.employeeId },
-      select: {
-        fullName: true,
-        employeeCode: true,
-        dateOfJoining: true,
-        attendanceMode: true,
-        department: { select: { name: true } },
-        designation: { select: { name: true } },
-      },
-    }),
-    ctx.db.attendance.findMany({
-      where: {
-        employeeId: ctx.employeeId,
-        date: { gte: toDateColumn(monthStart), lte: toDateColumn(today) },
-      },
-      select: { date: true, status: true, checkIn: true, checkOut: true, hoursWorked: true },
-    }),
+    employeeRepo.findCard(ctx.db, ctx.employeeId),
+    attendanceRepo.daysFor(ctx.db, ctx.employeeId, toDateColumn(monthStart), toDateColumn(today)),
     leaveRepo.balancesFor(ctx.db, ctx.employeeId, leaveYear),
     leaveRepo.listRequests(ctx.db, { scope: 'SELF', employeeId: ctx.employeeId }, {}),
   ])
 
   const countOf = (status: string) => monthRows.filter((r) => r.status === status).length
-  const todayRow = monthRows.find((r) => r.date.toISOString().slice(0, 10) === today)
+  const todayRow = monthRows.find((r) => fromDateColumn(r.date) === today)
 
   return {
     date: today,
@@ -281,7 +227,7 @@ export async function mySummary(ctx: AppContext): Promise<MySummary> {
       employeeCode: employee?.employeeCode ?? '',
       department: employee?.department?.name ?? null,
       designation: employee?.designation?.name ?? null,
-      dateOfJoining: employee?.dateOfJoining?.toISOString().slice(0, 10) ?? null,
+      dateOfJoining: fromDateColumn(employee?.dateOfJoining),
       attendanceMode: employee?.attendanceMode ?? 'app',
     },
     thisMonth: {
@@ -298,8 +244,8 @@ export async function mySummary(ctx: AppContext): Promise<MySummary> {
     },
     today: {
       status: todayRow?.status ?? null,
-      checkIn: todayRow?.checkIn?.toISOString() ?? null,
-      checkOut: todayRow?.checkOut?.toISOString() ?? null,
+      checkIn: isoInstant(todayRow?.checkIn),
+      checkOut: isoInstant(todayRow?.checkOut),
       hoursWorked: todayRow?.hoursWorked ? Number(todayRow.hoursWorked) : null,
     },
     // Straight from the ledger. NO FALLBACK — somebody with no entitlement sees
@@ -316,11 +262,11 @@ export async function mySummary(ctx: AppContext): Promise<MySummary> {
     recentLeaves: leaves.slice(0, 5).map((request) => ({
       id: request.id,
       leaveType: request.leaveType.code,
-      fromDate: request.fromDate.toISOString().slice(0, 10),
-      toDate: request.toDate.toISOString().slice(0, 10),
+      fromDate: fromDateColumn(request.fromDate),
+      toDate: fromDateColumn(request.toDate),
       days: Number(request.days),
       status: request.status,
-      appliedAt: request.appliedAt.toISOString(),
+      appliedAt: isoInstant(request.appliedAt),
     })),
   }
 }

@@ -1,5 +1,6 @@
 import type { Prisma, EmployeeStatus } from '@prisma/client'
 import type { ScopedDb } from '../../platform/db/scoped'
+import type { TxDb } from '../../platform/db/transaction'
 import type { ScopeContext } from '../../platform/authz/scope'
 
 /**
@@ -193,4 +194,56 @@ export async function findById(
     where: { AND: [{ id }, scopeWhere(scope)] },
     include: includeFor(access),
   }) as Promise<EmployeeRow | null>
+}
+
+// ─── Writes ─────────────────────────────────────────────────────────────────
+//
+// Scope is for reading. A write acts on a row the service has already found
+// through a scoped read, or on a new row it is creating — and the company
+// filter still applies to every one of these, through the client.
+
+export async function createEmployee(db: TxDb, data: Prisma.EmployeeUncheckedCreateInput) {
+  return db.employee.create({ data })
+}
+
+export async function updateEmployee(db: TxDb, id: string, data: Record<string, unknown>) {
+  return db.employee.update({ where: { id }, data })
+}
+
+/** Out of the active list; attendance, leave and payslips stay attached. */
+export async function archiveEmployee(db: TxDb, id: string, at: Date) {
+  return db.employee.update({ where: { id }, data: { archivedAt: at } })
+}
+
+export async function createStatutoryIdentity(db: TxDb, data: Prisma.EmployeeStatutoryIdentityUncheckedCreateInput) {
+  return db.employeeStatutoryIdentity.create({ data })
+}
+
+export async function upsertStatutoryIdentity(
+  db: TxDb,
+  employeeId: string,
+  update: Record<string, unknown>,
+  create: Prisma.EmployeeStatutoryIdentityUncheckedCreateInput,
+) {
+  return db.employeeStatutoryIdentity.upsert({ where: { employeeId }, update, create })
+}
+
+/** Every code in use, archived people included: a code is never reissued. */
+export async function listEmployeeCodes(db: ScopedDb) {
+  return db.employee.findMany({ select: { employeeCode: true } })
+}
+
+/** Name, code and placement — the top of somebody's own dashboard. */
+export async function findCard(db: ScopedDb, id: string) {
+  return db.employee.findFirst({
+    where: { id },
+    select: {
+      fullName: true,
+      employeeCode: true,
+      dateOfJoining: true,
+      attendanceMode: true,
+      department: { select: { name: true } },
+      designation: { select: { name: true } },
+    },
+  })
 }

@@ -23,7 +23,8 @@
     "db:test": "tsx scripts/testDb.ts",
     "field-contract": "tsx scripts/fieldContract.ts",
     "grant-leave": "tsx scripts/grantLeave.ts",
-    "migration:new": "tsx scripts/newMigration.ts"
+    "migration:new": "tsx scripts/newMigration.ts",
+    "lint": "tsx scripts/lint.ts"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",
@@ -39,6 +40,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@babel/parser": "^7.29.9",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",

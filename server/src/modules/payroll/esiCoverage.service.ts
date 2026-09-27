@@ -4,6 +4,7 @@ import { toDateColumn, fromDateColumn, type CalendarDate } from '../../domain/sh
 import { logger } from '../../platform/logger'
 import { NotFound } from '../../platform/errors/AppError'
 import * as repo from './payroll.repository'
+import { isUniqueViolation } from '../../platform/db/errors'
 
 /**
  * Who is covered by ESI, decided ONCE per contribution period.
@@ -41,13 +42,6 @@ export interface Coverage {
   /** The wage the decision was made against, kept so it can be defended. */
   lockedWageRate: number
   reason: CoverageReason
-}
-
-/** Prisma's code for "a unique constraint was violated". */
-const UNIQUE_VIOLATION = 'P2002'
-
-function isUniqueViolation(err: unknown): boolean {
-  return typeof err === 'object' && err !== null && 'code' in err && err.code === UNIQUE_VIOLATION
 }
 
 function toCoverage(

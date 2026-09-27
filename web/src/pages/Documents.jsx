@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../stores/authStore'
+import { isoInstant } from '../lib/dates'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -54,7 +55,7 @@ function getInitials(name) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function Documents() {
-  const { role, user } = useAuthStore()
+  const { user, can } = useAuthStore()
   const [tab, setTab] = useState('company')
   
   // Data lists
@@ -191,7 +192,7 @@ export default function Documents() {
         .update({
           document_verification_status: remarksStatus,
           verified_by: user.id,
-          verified_at: new Date().toISOString(),
+          verified_at: isoInstant(),
           verification_remarks: remarksText.trim() || null
         })
         .eq('id', remarksTargetDoc.id)
@@ -438,7 +439,9 @@ export default function Documents() {
     )
   }
 
-  const isManagement = ['super_admin', 'admin', 'hr'].includes(role)
+  // Whoever may verify documents — the same three roles the list named, held
+  // as a permission so the server and this page cannot disagree.
+  const isManagement = can('document:verify')
 
   return (
     <div className="space-y-6">

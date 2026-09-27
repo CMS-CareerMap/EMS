@@ -19,9 +19,9 @@ import { approveLeave, rejectLeave, reverseLeave } from '../../modules/leave/lea
 import { parseBody } from '../validators/parse'
 import { appContext } from '../context'
 import type { LeaveRequestRow } from '../../modules/leave/leave.repository'
+import { fromDateColumn, isoInstant } from '../../domain/shared/dates'
 
 const num = (value: Prisma.Decimal | null) => (value == null ? null : Number(value))
-const day = (value: Date) => value.toISOString().slice(0, 10)
 
 /** Snake_case out, matching the names the Leave page already reads. */
 function request(row: LeaveRequestRow) {
@@ -37,8 +37,8 @@ function request(row: LeaveRequestRow) {
     leave_type_name: row.leaveType.name,
     is_paid: row.leaveType.isPaid,
 
-    from_date: day(row.fromDate),
-    to_date: day(row.toDate),
+    from_date: fromDateColumn(row.fromDate),
+    to_date: fromDateColumn(row.toDate),
     half_day_dates: row.halfDayDates,
     days: num(row.days),
     leave_year: row.leaveYear,
@@ -46,8 +46,8 @@ function request(row: LeaveRequestRow) {
     reason: row.reason,
     status: row.status,
 
-    applied_on: row.appliedAt.toISOString(),
-    reviewed_at: row.reviewedAt?.toISOString() ?? null,
+    applied_on: isoInstant(row.appliedAt),
+    reviewed_at: isoInstant(row.reviewedAt),
     review_note: row.reviewNote,
   }
 }

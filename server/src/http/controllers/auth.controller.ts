@@ -19,6 +19,7 @@ import { parseBody } from '../validators/parse'
 import { setRefreshCookie, clearRefreshCookie, REFRESH_COOKIE } from '../cookies'
 import { serializeSessionUser } from '../serializers/session.serializer'
 import { authContext } from '../context'
+import { isoInstant } from '../../domain/shared/dates'
 
 /**
  * The rule that governs every handler in this file: the refresh token goes into
@@ -167,7 +168,7 @@ export const postInspectLink: RequestHandler = async (req, res) => {
     data: {
       email: link.email,
       purpose: link.purpose,
-      expires_at: link.expiresAt.toISOString(),
+      expires_at: isoInstant(link.expiresAt),
     },
     meta: { requestId: res.locals.requestId },
   })

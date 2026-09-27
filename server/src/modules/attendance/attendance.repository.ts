@@ -1,5 +1,6 @@
 import type { Prisma, AttendanceStatus, AttendanceSource } from '@prisma/client'
 import type { ScopedDb } from '../../platform/db/scoped'
+import type { TxDb } from '../../platform/db/transaction'
 import type { ScopeContext } from '../../platform/authz/scope'
 import { toDateColumn, type CalendarDate } from '../../domain/shared/dates'
 
@@ -357,3 +358,104 @@ export async function dayRoster(db: ScopedDb, scope: ScopeContext, day: Calendar
 }
 
 export type RosterRow = Awaited<ReturnType<typeof dayRoster>>[number]
+
+/** One person's row for one day, whatever wrote it. */
+export async function findDay(db: TxDb, employeeId: string, date: Date) {
+  return db.attendance.findFirst({ where: { employeeId, date } })
+}
+
+export async function createDay(db: TxDb, data: Prisma.AttendanceUncheckedCreateInput) {
+  return db.attendance.create({ data })
+}
+
+/** The rows approved leave wrote between two dates — never a punch. */
+export async function deleteLeaveDays(db: TxDb, employeeId: string, from: Date, to: Date) {
+  return db.attendance.deleteMany({ where: { employeeId, source: 'leave', date: { gte: from, lte: to } } })
+}
+
+/** The values of one day's row, apart from whose and which day it is. */
+export type DayValues = Omit<Prisma.AttendanceUncheckedCreateInput, 'organizationId' | 'employeeId' | 'date'>
+
+export async function updateDay(db: TxDb, id: string, data: Prisma.AttendanceUncheckedUpdateInput) {
+  return db.attendance.update({ where: { id }, data })
+}
+
+/** Writes one person's day: the row there is, changed — or a new one. */
+export async function replaceDay(db: TxDb, organizationId: string, employeeId: string, date: Date, data: DayValues) {
+  const existing = await findDay(db, employeeId, date)
+  return existing
+    ? db.attendance.update({ where: { id: existing.id }, data })
+    : db.attendance.create({ data: { ...data, organizationId, employeeId, date } })
+}
+
+/** An active employee with the shift their day is measured against. */
+export async function findEmployeeWithShift(db: ScopedDb, employeeId: string) {
+  return db.employee.findFirst({ where: { id: employeeId, archivedAt: null }, include: { shift: true } })
+}
+
+/** Today's row, with the shift that decides the break. */
+export async function findDayWithShift(db: ScopedDb, employeeId: string, date: Date) {
+  return db.attendance.findFirst({ where: { employeeId, date }, include: { shift: true } })
+}
+
+/** Names for the ids a monthly aggregate returned — the aggregate cannot carry them. */
+export async function namesForTotals(db: ScopedDb, employeeIds: string[]) {
+  return db.employee.findMany({
+    where: { id: { in: employeeIds } },
+    select: { id: true, employeeCode: true, fullName: true, shift: { select: { expectedHours: true } } },
+  })
+}
+
+/** Everybody an import can match a code to, with the shift that measures their day. */
+export async function importableEmployees(db: ScopedDb) {
+  return db.employee.findMany({
+    where: { archivedAt: null },
+    select: {
+      id: true,
+      employeeCode: true,
+      attendanceMode: true,
+      shiftId: true,
+      shift: { select: { breakMinutes: true, expectedHours: true } },
+    },
+  })
+}
+
+/** How many of these person-days already have a row — what an import would replace. */
+export async function countExistingDays(db: ScopedDb, days: { employeeId: string; date: Date }[]) {
+  if (days.length === 0) return 0
+  return db.attendance.count({ where: { OR: days } })
+}
+
+/**
+ * Everybody active whose attendance the caller may see: the whole company for
+ * HR, a manager's team and the manager, or only oneself.
+ */
+export async function peopleInScope(db: ScopedDb, scope: ScopeContext) {
+  return db.employee.findMany({
+    where: { AND: [employeeScopeWhere(scope), { archivedAt: null }] },
+    select: {
+      id: true,
+      fullName: true,
+      employeeCode: true,
+      dateOfJoining: true,
+      department: { select: { name: true } },
+    },
+    orderBy: { dateOfJoining: 'desc' },
+  })
+}
+
+/** Who had which status on each day between two dates, for the rows the caller may see. */
+export async function statusesBetween(db: ScopedDb, scope: ScopeContext, from: Date, to: Date) {
+  return db.attendance.findMany({
+    where: { AND: [scopeWhere(scope), { date: { gte: from, lte: to } }] },
+    select: { employeeId: true, date: true, status: true },
+  })
+}
+
+/** One person's rows between two dates — their own month. */
+export async function daysFor(db: ScopedDb, employeeId: string, from: Date, to: Date) {
+  return db.attendance.findMany({
+    where: { employeeId, date: { gte: from, lte: to } },
+    select: { date: true, status: true, checkIn: true, checkOut: true, hoursWorked: true },
+  })
+}

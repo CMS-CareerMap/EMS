@@ -11,6 +11,7 @@ import { usePayrollRuns, useCreatePayrollRun, useUpdatePayrollRun, usePayslips, 
 import { useAuthStore } from '../stores/authStore'
 import { estimateSalary } from '../lib/salaryEstimate'
 import SalaryStructures from '../features/payroll/SalaryStructures'
+import { isoInstant } from '../lib/dates'
 
 // ─── Salary computation ───────────────────────────────────────────────────────
 
@@ -61,7 +62,7 @@ function RunsTab({ employees }) {
       await createRun.mutateAsync({
         month: CUR_MONTH, year: CUR_YEAR, status: next,
         total_gross: totalGross, total_net: totalNet, processed_by: user?.id,
-        processed_at: new Date().toISOString(),
+        processed_at: isoInstant(),
         payslips: employees.map((employee) => ({
           employee_id: employee.id,
           gross: employee.salary.gross,
@@ -77,7 +78,7 @@ function RunsTab({ employees }) {
         })),
       })
     } else {
-      await updateRun.mutateAsync({ id: currentRun.id, status: next, processed_by: user?.id, processed_at: new Date().toISOString() })
+      await updateRun.mutateAsync({ id: currentRun.id, status: next, processed_by: user?.id, processed_at: isoInstant() })
     }
   }
 

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { calendarDayIn, isoInstant } from './dates'
 
 /**
  * The Supabase client, for the parts not yet on our own API: payroll history,
@@ -101,8 +102,8 @@ if (!configured && import.meta.env.DEV) {
       { id: 'demo-employee-id', full_name: 'John Doe', email: 'employee@careermap.in', role: 'employee', status: 'active', employee_id: 'EMP005', department: 'Engineering', designation: 'Software Engineer', phone: '9876543214', employment_type: 'Full-time', date_of_joining: '2025-05-01', ctc: 1200000, bank_name: 'HDFC Bank', bank_account: '5678901234', bank_account_holder_name: 'John Doe', ifsc: 'HDFC0000123', bank_branch: 'Powai Branch, Mumbai', bank_account_type: 'Savings', bank_verification_status: 'pending', bank_verification_remarks: 'Bank account added by employee for salary credit.', bank_verified_by: null, bank_verified_at: null, bank_proof_name: 'cheque_john_doe.pdf', reporting_manager_id: 'demo-rm-id', reporting_manager_name: 'Reporting Manager One', reporting_manager_designation: 'Technical Lead' },
     ],
     attendance: [
-      { id: 'att-1', employee_id: 'demo-employee-id', date: new Date().toISOString().split('T')[0], status: 'present', check_in: '09:00', check_out: '18:00' },
-      { id: 'att-2', employee_id: 'demo-manager-id', date: new Date().toISOString().split('T')[0], status: 'weekly_off', check_in: null, check_out: null }
+      { id: 'att-1', employee_id: 'demo-employee-id', date: calendarDayIn(), status: 'present', check_in: '09:00', check_out: '18:00' },
+      { id: 'att-2', employee_id: 'demo-manager-id', date: calendarDayIn(), status: 'weekly_off', check_in: null, check_out: null }
     ],
     leave_requests: [
       { id: 'lr-1', employee_id: 'demo-employee-id', leave_type: 'sick', from_date: '2026-06-15', to_date: '2026-06-16', days: 2, reason: 'Fever', status: 'pending', applied_on: '2026-06-14', profiles: { full_name: 'John Doe', department: 'Engineering' } },
@@ -160,16 +161,16 @@ if (!configured && import.meta.env.DEV) {
       }
     ],
     notifications: [
-      { id: 'n-1', user_id: 'demo-employee-id', type: 'leave', title: 'Leave Approved', message: 'Your Sick Leave request for 2 days has been approved.', read: false, link: '/leave', created_at: new Date(Date.now() - 1000 * 60 * 30).toISOString() },
-      { id: 'n-2', user_id: 'demo-employee-id', type: 'attendance', title: 'Attendance Marked', message: 'Attendance for today recorded as Present (09:00 - 18:00).', read: false, link: '/attendance', created_at: new Date(Date.now() - 1000 * 60 * 120).toISOString() },
-      { id: 'n-3', user_id: 'demo-employee-id', type: 'announcement', title: 'Company Policy Update', message: 'New HR policy document is now available in Documents.', read: false, link: '/documents', created_at: new Date(Date.now() - 1000 * 60 * 360).toISOString() },
-      { id: 'n-4', user_id: 'demo-employee-id', type: 'payroll', title: 'Payslip Released', message: 'Your payslip for May 2026 is ready to download.', read: true, link: '/payroll', created_at: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString() },
-      { id: 'n-5', user_id: 'demo-manager-id', type: 'leave', title: 'New Leave Request', message: 'John Doe submitted a sick leave request (2 days).', read: false, link: '/leave', created_at: new Date(Date.now() - 1000 * 60 * 45).toISOString() },
-      { id: 'n-6', user_id: 'demo-manager-id', type: 'attendance', title: 'Attendance Exception', message: 'Team attendance report requires approval for 1 team member.', read: false, link: '/attendance', created_at: new Date(Date.now() - 1000 * 60 * 180).toISOString() },
-      { id: 'n-7', user_id: 'demo-hr-admin-id', type: 'employee', title: 'New Registration', message: 'New employee John Doe profile registered.', read: false, link: '/employees', created_at: new Date(Date.now() - 1000 * 60 * 60).toISOString() },
-      { id: 'n-8', user_id: 'demo-hr-admin-id', type: 'leave', title: 'Leave Request Pending', message: '1 leave request pending final HR approval.', read: false, link: '/leave', created_at: new Date(Date.now() - 1000 * 60 * 240).toISOString() },
-      { id: 'n-9', user_id: 'demo-super-admin-id', type: 'system', title: 'System Backup Complete', message: 'Automated database backup executed successfully.', read: false, link: '/settings', created_at: new Date(Date.now() - 1000 * 60 * 15).toISOString() },
-      { id: 'n-10', user_id: 'demo-super-admin-id', type: 'payroll', title: 'Payroll Run Approved', message: 'May 2026 payroll run finalized.', read: true, link: '/payroll', created_at: new Date(Date.now() - 1000 * 60 * 60 * 12).toISOString() }
+      { id: 'n-1', user_id: 'demo-employee-id', type: 'leave', title: 'Leave Approved', message: 'Your Sick Leave request for 2 days has been approved.', read: false, link: '/leave', created_at: isoInstant(new Date(Date.now() - 1000 * 60 * 30)) },
+      { id: 'n-2', user_id: 'demo-employee-id', type: 'attendance', title: 'Attendance Marked', message: 'Attendance for today recorded as Present (09:00 - 18:00).', read: false, link: '/attendance', created_at: isoInstant(new Date(Date.now() - 1000 * 60 * 120)) },
+      { id: 'n-3', user_id: 'demo-employee-id', type: 'announcement', title: 'Company Policy Update', message: 'New HR policy document is now available in Documents.', read: false, link: '/documents', created_at: isoInstant(new Date(Date.now() - 1000 * 60 * 360)) },
+      { id: 'n-4', user_id: 'demo-employee-id', type: 'payroll', title: 'Payslip Released', message: 'Your payslip for May 2026 is ready to download.', read: true, link: '/payroll', created_at: isoInstant(new Date(Date.now() - 1000 * 60 * 60 * 24)) },
+      { id: 'n-5', user_id: 'demo-manager-id', type: 'leave', title: 'New Leave Request', message: 'John Doe submitted a sick leave request (2 days).', read: false, link: '/leave', created_at: isoInstant(new Date(Date.now() - 1000 * 60 * 45)) },
+      { id: 'n-6', user_id: 'demo-manager-id', type: 'attendance', title: 'Attendance Exception', message: 'Team attendance report requires approval for 1 team member.', read: false, link: '/attendance', created_at: isoInstant(new Date(Date.now() - 1000 * 60 * 180)) },
+      { id: 'n-7', user_id: 'demo-hr-admin-id', type: 'employee', title: 'New Registration', message: 'New employee John Doe profile registered.', read: false, link: '/employees', created_at: isoInstant(new Date(Date.now() - 1000 * 60 * 60)) },
+      { id: 'n-8', user_id: 'demo-hr-admin-id', type: 'leave', title: 'Leave Request Pending', message: '1 leave request pending final HR approval.', read: false, link: '/leave', created_at: isoInstant(new Date(Date.now() - 1000 * 60 * 240)) },
+      { id: 'n-9', user_id: 'demo-super-admin-id', type: 'system', title: 'System Backup Complete', message: 'Automated database backup executed successfully.', read: false, link: '/settings', created_at: isoInstant(new Date(Date.now() - 1000 * 60 * 15)) },
+      { id: 'n-10', user_id: 'demo-super-admin-id', type: 'payroll', title: 'Payroll Run Approved', message: 'May 2026 payroll run finalized.', read: true, link: '/payroll', created_at: isoInstant(new Date(Date.now() - 1000 * 60 * 60 * 12)) }
     ],
     salary_structures: [
       { id: 'ss-1', employee_id: 'demo-super-admin-id', ctc: 1500000, gross: 125000, basic: 50000, hra: 25000, da: 5000, special_allowance: 45000, pf: 6000, esi: 0, pt: 200, net_salary: 118800 },
@@ -283,7 +284,7 @@ if (!configured && import.meta.env.DEV) {
           } else if (operation.type === 'insert') {
             const arr = Array.isArray(operation.records) ? operation.records : [operation.records]
             const inserted = arr.map(r => {
-              const newItem = { id: r.id || Math.random().toString(36).substr(2, 9), created_at: new Date().toISOString(), ...r }
+              const newItem = { id: r.id || Math.random().toString(36).substr(2, 9), created_at: isoInstant(), ...r }
               mockDatabase[table].push(newItem)
               return newItem
             })
@@ -303,7 +304,7 @@ if (!configured && import.meta.env.DEV) {
                 mockDatabase[table][existingIndex] = { ...mockDatabase[table][existingIndex], ...r }
                 return mockDatabase[table][existingIndex]
               } else {
-                const newItem = { id: r.id || Math.random().toString(36).substr(2, 9), created_at: new Date().toISOString(), ...r }
+                const newItem = { id: r.id || Math.random().toString(36).substr(2, 9), created_at: isoInstant(), ...r }
                 mockDatabase[table].push(newItem)
                 return newItem
               }

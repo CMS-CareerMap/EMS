@@ -75,9 +75,27 @@ export function toDateColumn(day: CalendarDate): Date {
   return new Date(`${day}T00:00:00.000Z`)
 }
 
-/** The inverse. A @db.Date comes back as UTC midnight; this reads the label off it. */
-export function fromDateColumn(value: Date): CalendarDate {
-  return value.toISOString().slice(0, 10)
+/**
+ * The inverse. A @db.Date comes back as UTC midnight; this reads the label off
+ * it. A column with no date gives null, so a serializer never needs its own.
+ */
+export function fromDateColumn(value: Date): CalendarDate
+export function fromDateColumn(value: Date | null | undefined): CalendarDate | null
+export function fromDateColumn(value: Date | null | undefined): CalendarDate | null {
+  return value ? value.toISOString().slice(0, 10) : null
+}
+
+/**
+ * A moment as the API sends it: ISO 8601 in UTC, "2026-09-14T04:01:00.000Z".
+ *
+ * Right for an instant — a punch, an approval, when a link expires — and wrong
+ * for a calendar day, which is what fromDateColumn and zonedToday are for. The
+ * browser turns it back into the company's clock time. Null stays null.
+ */
+export function isoInstant(value: Date): string
+export function isoInstant(value: Date | null | undefined): string | null
+export function isoInstant(value: Date | null | undefined): string | null {
+  return value ? value.toISOString() : null
 }
 
 /** True only if the calendar actually has this day. */
@@ -95,5 +113,12 @@ export function isCalendarDate(value: string): boolean {
 export function addCalendarDays(day: CalendarDate, days: number): CalendarDate {
   const d = new Date(`${day}T00:00:00.000Z`)
   d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+/** The Monday of the week `day` falls in — a week here runs Monday to Sunday. */
+export function mondayOf(day: CalendarDate): CalendarDate {
+  const d = new Date(`${day}T00:00:00.000Z`)
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7))
   return d.toISOString().slice(0, 10)
 }

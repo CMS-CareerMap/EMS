@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { sendNotification } from './useNotifications'
+import { isoInstant } from '../lib/dates'
 
 /**
  * Bank details and their verification — STILL ON SUPABASE.
@@ -41,7 +42,7 @@ export function useUpdateBankDetails() {
         bank_verification_remarks: isHrUpdate
           ? 'Updated and verified by HR/Finance.'
           : 'Bank details submitted by employee for salary credit. Pending verification.',
-        ...(isHrUpdate ? { bank_verified_at: new Date().toISOString() } : { bank_verified_by: null, bank_verified_at: null })
+        ...(isHrUpdate ? { bank_verified_at: isoInstant() } : { bank_verified_by: null, bank_verified_at: null })
       }
 
       const { error } = await supabase.from('profiles').update(updates).eq('id', employeeId)
@@ -82,7 +83,7 @@ export function useVerifyBankAccount() {
         bank_verification_status: status,
         bank_verification_remarks: remarks || (isApproved ? 'Verified for salary credit by HR/Finance.' : 'Rejected. Please review and update account details.'),
         bank_verified_by: verifiedBy || 'HR/Finance',
-        bank_verified_at: new Date().toISOString()
+        bank_verified_at: isoInstant()
       }
 
       const { error } = await supabase.from('profiles').update(updates).eq('id', employeeId)

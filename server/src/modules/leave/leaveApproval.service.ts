@@ -2,9 +2,12 @@ import type { AppContext } from '../../platform/context'
 import { Conflict, Forbidden, NotFound } from '../../platform/errors/AppError'
 import { withTransaction } from '../../platform/db/transaction'
 import { logger } from '../../platform/logger'
-import { toDateColumn, type CalendarDate } from '../../domain/shared/dates'
+import { toDateColumn, fromDateColumn, type CalendarDate } from '../../domain/shared/dates'
 import { workingDays, type Weekday } from '../../domain/leave/leaveDays'
 import * as repo from './leave.repository'
+import * as attendanceRepo from '../attendance/attendance.repository'
+import { getCurrentPolicy } from '../settings/settings.repository'
+import { listDaysOff } from '../holidays/holidays.repository'
 
 /**
  * Deciding on leave.
@@ -32,19 +35,13 @@ function refuseSelfApproval(ctx: AppContext, employeeId: string): void {
 
 async function leaveSettings(ctx: AppContext, from: CalendarDate, to: CalendarDate) {
   const [policy, holidays] = await Promise.all([
-    ctx.db.organizationPolicy.findFirst({ where: { effectiveTo: null } }),
-    ctx.db.holiday.findMany({
-      where: {
-        date: { gte: toDateColumn(from), lte: toDateColumn(to) },
-        type: { in: ['public', 'weekly_off'] },
-      },
-      select: { date: true },
-    }),
+    getCurrentPolicy(ctx.db),
+    listDaysOff(ctx.db, toDateColumn(from), toDateColumn(to)),
   ])
 
   return {
     weeklyOffDays: (policy?.weeklyOffDays ?? [0]) as Weekday[],
-    holidays: holidays.map((h) => h.date.toISOString().slice(0, 10)),
+    holidays: holidays.map((h) => fromDateColumn(h.date)),
   }
 }
 
@@ -65,43 +62,34 @@ export async function approveLeave(
     throw Conflict(`That request is already ${request.status}.`)
   }
 
-  const from = request.fromDate.toISOString().slice(0, 10)
-  const to = request.toDate.toISOString().slice(0, 10)
+  const from = fromDateColumn(request.fromDate)
+  const to = fromDateColumn(request.toDate)
   const settings = await leaveSettings(ctx, from, to)
 
   await withTransaction(ctx.db, async (tx) => {
-    // Re-read inside the transaction. Two approvers clicking at the same moment
-    // would otherwise both see `pending` and both write a ledger entry, taking
-    // the days twice.
-    const current = await tx.leaveRequest.findFirst({
-      where: { id, status: 'pending' },
-      select: { id: true },
+    // Approved only if still pending, compared and changed in one statement.
+    // Two approvers clicking at the same moment — or one double click — would
+    // otherwise both see `pending` and both write a ledger entry, taking the
+    // days twice.
+    const decided = await repo.changeStatusIf(tx, id, 'pending', {
+      status: 'approved',
+      reviewedByUserId: ctx.userId,
+      reviewedAt: new Date(),
+      reviewNote: note?.trim() || null,
     })
-    if (!current) throw Conflict('Somebody else has already decided on that request.')
-
-    await tx.leaveRequest.update({
-      where: { id },
-      data: {
-        status: 'approved',
-        reviewedByUserId: ctx.userId,
-        reviewedAt: new Date(),
-        reviewNote: note?.trim() || null,
-      },
-    })
+    if (!decided) throw Conflict('Somebody else has already decided on that request.')
 
     // NEGATIVE days. The balance is the sum of these rows, so consuming leave
     // is an entry that subtracts — never an edit to a number somewhere.
-    await tx.leaveLedgerEntry.create({
-      data: {
-        organizationId: ctx.organizationId,
-        employeeId: request.employeeId,
-        leaveTypeId: request.leaveTypeId,
-        leaveYear: request.leaveYear,
-        days: -Number(request.days),
-        reason: 'consumed',
-        leaveRequestId: id,
-        createdByUserId: ctx.userId,
-      },
+    await repo.addLedgerEntry(tx, {
+      organizationId: ctx.organizationId,
+      employeeId: request.employeeId,
+      leaveTypeId: request.leaveTypeId,
+      leaveYear: request.leaveYear,
+      days: -Number(request.days),
+      reason: 'consumed',
+      leaveRequestId: id,
+      createdByUserId: ctx.userId,
     })
 
     // Attendance for the days taken, so leave is a row rather than a gap.
@@ -116,9 +104,7 @@ export async function approveLeave(
     for (const day of counted.breakdown) {
       if (day.counted === 0) continue
 
-      const existing = await tx.attendance.findFirst({
-        where: { employeeId: request.employeeId, date: toDateColumn(day.date) },
-      })
+      const existing = await attendanceRepo.findDay(tx, request.employeeId, toDateColumn(day.date))
 
       // An existing row is NOT overwritten. Somebody who punched in and then
       // had leave approved for the same day has a real punch on record, and
@@ -133,20 +119,18 @@ export async function approveLeave(
         continue
       }
 
-      await tx.attendance.create({
-        data: {
-          organizationId: ctx.organizationId,
-          employeeId: request.employeeId,
-          date: toDateColumn(day.date),
-          status: 'on_leave',
-          source: 'leave',
-          // Half a day of leave is half a day of work, and the hours for that
-          // half are whatever they actually punched — not something this can
-          // invent. Null says "not recorded", which is true.
-          hoursWorked: null,
-          note: day.counted === 0.5 ? 'Half day leave' : null,
-          markedByUserId: ctx.userId,
-        },
+      await attendanceRepo.createDay(tx, {
+        organizationId: ctx.organizationId,
+        employeeId: request.employeeId,
+        date: toDateColumn(day.date),
+        status: 'on_leave',
+        source: 'leave',
+        // Half a day of leave is half a day of work, and the hours for that
+        // half are whatever they actually punched — not something this can
+        // invent. Null says "not recorded", which is true.
+        hoursWorked: null,
+        note: day.counted === 0.5 ? 'Half day leave' : null,
+        markedByUserId: ctx.userId,
       })
     }
   })
@@ -180,15 +164,16 @@ export async function rejectLeave(
   // No ledger entry. A rejected request never took any days, so there is
   // nothing to record against the balance — the held days are released simply
   // by no longer being pending.
-  await ctx.db.leaveRequest.update({
-    where: { id },
-    data: {
-      status: 'rejected',
-      reviewedByUserId: ctx.userId,
-      reviewedAt: new Date(),
-      reviewNote: note?.trim() || null,
-    },
+  // Only if still pending, in the same statement as the change. Checked
+  // separately, an approval landing at the same moment was overwritten —
+  // leaving a request marked rejected whose days had been taken.
+  const decided = await repo.changeStatusIf(ctx.db, id, 'pending', {
+    status: 'rejected',
+    reviewedByUserId: ctx.userId,
+    reviewedAt: new Date(),
+    reviewNote: note?.trim() || null,
   })
+  if (!decided) throw Conflict('Somebody else has already decided on that request.')
 
   logger.info('Leave rejected', { by: ctx.userId, requestId: id })
 
@@ -217,45 +202,31 @@ export async function reverseLeave(
   }
 
   await withTransaction(ctx.db, async (tx) => {
-    const current = await tx.leaveRequest.findFirst({
-      where: { id, status: 'approved' },
-      select: { id: true },
+    // Reversed only if still approved — one statement, so two reversals cannot
+    // both give the days back.
+    const reversed = await repo.changeStatusIf(tx, id, 'approved', {
+      status: 'cancelled',
+      reviewedByUserId: ctx.userId,
+      reviewedAt: new Date(),
+      reviewNote: note?.trim() || 'Reversed after approval',
     })
-    if (!current) throw Conflict('That request has already been changed.')
+    if (!reversed) throw Conflict('That request has already been changed.')
 
-    await tx.leaveRequest.update({
-      where: { id },
-      data: {
-        status: 'cancelled',
-        reviewedByUserId: ctx.userId,
-        reviewedAt: new Date(),
-        reviewNote: note?.trim() || 'Reversed after approval',
-      },
-    })
-
-    await tx.leaveLedgerEntry.create({
-      data: {
-        organizationId: ctx.organizationId,
-        employeeId: request.employeeId,
-        leaveTypeId: request.leaveTypeId,
-        leaveYear: request.leaveYear,
-        days: Number(request.days),
-        reason: 'reversal',
-        leaveRequestId: id,
-        note: 'Approved leave reversed',
-        createdByUserId: ctx.userId,
-      },
+    await repo.addLedgerEntry(tx, {
+      organizationId: ctx.organizationId,
+      employeeId: request.employeeId,
+      leaveTypeId: request.leaveTypeId,
+      leaveYear: request.leaveYear,
+      days: Number(request.days),
+      reason: 'reversal',
+      leaveRequestId: id,
+      note: 'Approved leave reversed',
+      createdByUserId: ctx.userId,
     })
 
     // Only the rows this approval created. A punch on one of those days was
     // never ours to remove.
-    await tx.attendance.deleteMany({
-      where: {
-        employeeId: request.employeeId,
-        source: 'leave',
-        date: { gte: request.fromDate, lte: request.toDate },
-      },
-    })
+    await attendanceRepo.deleteLeaveDays(tx, request.employeeId, request.fromDate, request.toDate)
   })
 
   logger.info('Leave reversed', { by: ctx.userId, requestId: id })

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { hoursBetween, hoursBetweenWallClock, classifyDay, totalHours } from './hours'
 import { distanceMeters, checkGeofence, type Fence } from './geofence'
-import { zonedToday, zonedMinutes, parseWallClock, isCalendarDate } from '../shared/dates'
+import { zonedToday, zonedMinutes, parseWallClock, isCalendarDate, fromDateColumn } from '../shared/dates'
 
 /**
  * The domain layer, tested without a database, a request or a clock.
@@ -29,7 +29,8 @@ describe('what day is it, in the company timezone', () => {
     // this under the 15th, and one employee's hours would never add up.
     const instant = new Date('2026-04-15T19:00:00Z')
 
-    expect(instant.toISOString().slice(0, 10)).toBe('2026-04-15')
+    // Read as a UTC calendar, the instant is still the 15th.
+    expect(fromDateColumn(instant)).toBe('2026-04-15')
     expect(zonedToday(instant, 'Asia/Kolkata')).toBe('2026-04-16')
   })
 

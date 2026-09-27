@@ -1,4 +1,5 @@
 import type { ScopedDb } from '../../platform/db/scoped'
+import type { TxDb } from '../../platform/db/transaction'
 
 /**
  * Company configuration.
@@ -22,7 +23,7 @@ export async function updateOrganization(
 }
 
 /** The policy in force now: the one row whose period has not been closed. */
-export async function getCurrentPolicy(db: ScopedDb) {
+export async function getCurrentPolicy(db: TxDb) {
   return db.organizationPolicy.findFirst({
     where: { effectiveTo: null },
     orderBy: { effectiveFrom: 'desc' },
@@ -33,8 +34,67 @@ export async function listPolicies(db: ScopedDb) {
   return db.organizationPolicy.findMany({ orderBy: { effectiveFrom: 'desc' } })
 }
 
+export async function findPolicy(db: ScopedDb, id: string) {
+  return db.organizationPolicy.findFirst({ where: { id } })
+}
+
+/**
+ * Opens a policy period. `values` are the rates it starts with; anything not
+ * given takes the schema's statutory default.
+ */
+export async function createPolicy(
+  db: TxDb,
+  period: { organizationId: string; effectiveFrom: Date; createdByUserId: string },
+  values: Record<string, unknown> = {},
+) {
+  return db.organizationPolicy.create({ data: { ...period, ...values } })
+}
+
+/** Changes a period in place — a same-day correction. */
+export async function updatePolicy(db: TxDb, id: string, values: Record<string, unknown>) {
+  return db.organizationPolicy.update({ where: { id }, data: values })
+}
+
+/** Ends a period on `effectiveTo`, the day before its successor starts. */
+export async function closePolicy(db: TxDb, id: string, effectiveTo: Date) {
+  return db.organizationPolicy.update({ where: { id }, data: { effectiveTo } })
+}
+
 export async function listGeofences(db: ScopedDb) {
   return db.geofenceLocation.findMany({ orderBy: { name: 'asc' } })
+}
+
+export interface GeofenceValues {
+  latitude: number
+  longitude: number
+  radiusMeters: number
+  maxAccuracyMeters?: number
+  isActive?: boolean
+}
+
+export async function findGeofence(db: ScopedDb, id: string) {
+  return db.geofenceLocation.findFirst({ where: { id } })
+}
+
+/** The fence a punch-in is checked against. */
+export async function findActiveGeofence(db: ScopedDb) {
+  return db.geofenceLocation.findFirst({ where: { isActive: true } })
+}
+
+export async function findGeofenceByName(db: ScopedDb, name: string) {
+  return db.geofenceLocation.findFirst({ where: { name } })
+}
+
+export async function createGeofence(db: ScopedDb, organizationId: string, name: string, values: GeofenceValues) {
+  return db.geofenceLocation.create({ data: { organizationId, name, ...values } })
+}
+
+export async function updateGeofence(db: ScopedDb, id: string, values: GeofenceValues) {
+  return db.geofenceLocation.update({ where: { id }, data: values })
+}
+
+export async function deleteGeofence(db: ScopedDb, id: string) {
+  return db.geofenceLocation.delete({ where: { id } })
 }
 
 export async function listLeaveTypes(db: ScopedDb) {
@@ -47,6 +107,32 @@ export async function listLeaveTypes(db: ScopedDb) {
 export async function findLeaveType(db: ScopedDb, id: string) {
   // findFirst, not findUnique — the company filter has to apply.
   return db.leaveType.findFirst({ where: { id, archivedAt: null } })
+}
+
+export interface LeaveTypeValues {
+  name: string
+  code: string
+  annualQuota: number
+  isPaid: boolean
+  carryForward: boolean
+  carryForwardCap: number
+}
+
+export async function createLeaveType(db: ScopedDb, organizationId: string, values: LeaveTypeValues) {
+  return db.leaveType.create({ data: { organizationId, ...values } })
+}
+
+/** Brings an archived type back with new values; its ledger history comes with it. */
+export async function restoreLeaveType(db: ScopedDb, id: string, values: LeaveTypeValues) {
+  return db.leaveType.update({ where: { id }, data: { ...values, archivedAt: null } })
+}
+
+export async function updateLeaveType(db: ScopedDb, id: string, values: Record<string, unknown>) {
+  return db.leaveType.update({ where: { id }, data: values })
+}
+
+export async function archiveLeaveType(db: ScopedDb, id: string, at: Date) {
+  return db.leaveType.update({ where: { id }, data: { archivedAt: at } })
 }
 
 export async function listPtSlabs(db: ScopedDb, state?: string) {

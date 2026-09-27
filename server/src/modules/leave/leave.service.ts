@@ -1,8 +1,9 @@
 import type { AppContext } from '../../platform/context'
 import { BadRequest, Conflict, Forbidden, NotFound } from '../../platform/errors/AppError'
 import { withTransaction } from '../../platform/db/transaction'
+import { lockFor } from '../../platform/db/locks'
 import { logger } from '../../platform/logger'
-import { zonedToday, toDateColumn, type CalendarDate } from '../../domain/shared/dates'
+import { zonedToday, toDateColumn, fromDateColumn, type CalendarDate } from '../../domain/shared/dates'
 import {
   workingDays,
   checkBalance,
@@ -11,6 +12,9 @@ import {
   type WorkingDaysResult,
 } from '../../domain/leave/leaveDays'
 import * as repo from './leave.repository'
+import { companyTimezone } from '../organization/organization.service'
+import { getCurrentPolicy, findLeaveType } from '../settings/settings.repository'
+import { listDaysOff } from '../holidays/holidays.repository'
 
 /**
  * Applying for leave.
@@ -33,28 +37,17 @@ interface LeaveContext {
 
 /** Everything the day count depends on, read once per request. */
 async function leaveContext(ctx: AppContext, from: CalendarDate, to: CalendarDate): Promise<LeaveContext> {
-  const [organization, policy, holidays] = await Promise.all([
-    ctx.db.organization.findUnique({
-      where: { id: ctx.organizationId },
-      select: { timezone: true },
-    }),
-    ctx.db.organizationPolicy.findFirst({ where: { effectiveTo: null } }),
-    ctx.db.holiday.findMany({
-      where: {
-        date: { gte: toDateColumn(from), lte: toDateColumn(to) },
-        // Optional holidays are each employee's own choice, so they do not
-        // automatically make a day free for everybody.
-        type: { in: ['public', 'weekly_off'] },
-      },
-      select: { date: true },
-    }),
+  const [timezone, policy, holidays] = await Promise.all([
+    companyTimezone(ctx),
+    getCurrentPolicy(ctx.db),
+    listDaysOff(ctx.db, toDateColumn(from), toDateColumn(to)),
   ])
 
   return {
-    timezone: organization?.timezone ?? 'Asia/Kolkata',
+    timezone,
     leaveYearStartMonth: policy?.leaveYearStartMonth ?? 4,
     weeklyOffDays: (policy?.weeklyOffDays ?? [0]) as Weekday[],
-    holidays: holidays.map((h) => h.date.toISOString().slice(0, 10)),
+    holidays: holidays.map((h) => fromDateColumn(h.date)),
   }
 }
 
@@ -133,9 +126,7 @@ export async function previewLeave(ctx: AppContext, input: PreviewInput): Promis
 
   const leaveYear = leaveYearOf(input.fromDate, context.leaveYearStartMonth)
 
-  const leaveType = await ctx.db.leaveType.findFirst({
-    where: { id: input.leaveTypeId, archivedAt: null },
-  })
+  const leaveType = await findLeaveType(ctx.db, input.leaveTypeId)
   if (!leaveType) throw NotFound('That leave type does not exist')
 
   const [balance, pending] = await Promise.all([
@@ -184,7 +175,7 @@ export async function previewLeave(ctx: AppContext, input: PreviewInput): Promis
       const clash = clashes[0]!
       problem = {
         reason: 'overlap',
-        message: `That overlaps leave you already have from ${clash.fromDate.toISOString().slice(0, 10)} to ${clash.toDate.toISOString().slice(0, 10)}.`,
+        message: `That overlaps leave you already have from ${fromDateColumn(clash.fromDate)} to ${fromDateColumn(clash.toDate)}.`,
       }
     }
   }
@@ -232,36 +223,35 @@ export async function applyForLeave(ctx: AppContext, input: ApplyInput): Promise
   }
 
   const created = await withTransaction(ctx.db, async (tx) => {
-    // Re-checked INSIDE the transaction. Two requests submitted together would
-    // otherwise both read the same available balance and both be accepted.
-    const pending = await tx.leaveRequest.aggregate({
-      where: {
-        employeeId,
-        leaveTypeId: input.leaveTypeId,
-        leaveYear: preview.leaveYear,
-        status: 'pending',
-      },
-      _sum: { days: true },
-    })
+    // One application per person at a time. Re-checking inside a transaction
+    // was not enough on its own: two requests sent together each read the
+    // balance before the other had written, and both went in. Holding this
+    // lock, the second waits and then reads what the first left behind.
+    await lockFor(tx, `leave-apply:${employeeId}`)
 
-    const held = pending._sum.days ? Number(pending._sum.days) : 0
+    const held = await repo.pendingDays(tx, employeeId, input.leaveTypeId, preview.leaveYear)
     if (preview.balance.balance - held < preview.days) {
       throw Conflict('Your balance changed while you were applying. Check it and try again.')
     }
 
-    return tx.leaveRequest.create({
-      data: {
-        organizationId: ctx.organizationId,
-        employeeId,
-        leaveTypeId: input.leaveTypeId,
-        fromDate: toDateColumn(input.fromDate),
-        toDate: toDateColumn(input.toDate),
-        halfDayDates: input.halfDayDates ?? [],
-        days: preview.days,
-        leaveYear: preview.leaveYear,
-        reason: input.reason.trim(),
-        status: 'pending',
-      },
+    const clash = (await repo.overlapping(tx, employeeId, toDateColumn(input.fromDate), toDateColumn(input.toDate)))[0]
+    if (clash) {
+      throw Conflict(
+        `That overlaps leave you already have from ${fromDateColumn(clash.fromDate)} to ${fromDateColumn(clash.toDate)}.`,
+      )
+    }
+
+    return repo.createRequest(tx, {
+      organizationId: ctx.organizationId,
+      employeeId,
+      leaveTypeId: input.leaveTypeId,
+      fromDate: toDateColumn(input.fromDate),
+      toDate: toDateColumn(input.toDate),
+      halfDayDates: input.halfDayDates ?? [],
+      days: preview.days,
+      leaveYear: preview.leaveYear,
+      reason: input.reason.trim(),
+      status: 'pending',
     })
   })
 
@@ -284,13 +274,9 @@ export async function listLeave(ctx: AppContext, filters: repo.LeaveFilters = {}
 export async function myBalances(ctx: AppContext, employeeId?: string) {
   const target = resolveEmployee(ctx, employeeId)
 
-  const policy = await ctx.db.organizationPolicy.findFirst({ where: { effectiveTo: null } })
-  const organization = await ctx.db.organization.findUnique({
-    where: { id: ctx.organizationId },
-    select: { timezone: true },
-  })
+  const [policy, timezone] = await Promise.all([getCurrentPolicy(ctx.db), companyTimezone(ctx)])
 
-  const today = zonedToday(new Date(), organization?.timezone ?? 'Asia/Kolkata')
+  const today = zonedToday(new Date(), timezone)
   const leaveYear = leaveYearOf(today, policy?.leaveYearStartMonth ?? 4)
 
   return { leaveYear, balances: await repo.balancesFor(ctx.db, target, leaveYear) }
@@ -319,7 +305,10 @@ export async function cancelLeave(ctx: AppContext, id: string): Promise<repo.Lea
     )
   }
 
-  await ctx.db.leaveRequest.update({ where: { id }, data: { status: 'cancelled' } })
+  // Changed only if still pending, in the same statement — an approval
+  // landing at the same moment wins cleanly instead of being overwritten.
+  const withdrawn = await repo.changeStatusIf(ctx.db, id, 'pending', { status: 'cancelled' })
+  if (!withdrawn) throw Conflict('That request was decided a moment ago. Refresh to see how.')
 
   logger.info('Leave withdrawn', { by: ctx.userId, requestId: id })
 

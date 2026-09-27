@@ -31,6 +31,9 @@ export default function EmployeeDashboard() {
   const { data, isLoading, error } = useMyDashboardStats()
   // Read before the early returns below — a hook cannot be called conditionally.
   const attendanceMode = useAuthStore((state) => state.profile?.attendance_mode)
+  // Accounts, in the client's matrix, has no attendance at all — the card's
+  // first request would be refused on every visit.
+  const canPunch = useAuthStore((state) => state.can('attendance:punch'))
 
   const today = new Date().toLocaleDateString('en-IN', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
@@ -83,7 +86,7 @@ export default function EmployeeDashboard() {
         happens; the card invalidates the dashboard query on success, so the
         figures below refresh without a reload.
       */}
-      {attendanceMode === 'app' && <PunchCard />}
+      {attendanceMode === 'app' && canPunch && <PunchCard />}
 
       {/* Profile banner */}
       <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl p-5 text-white flex items-center gap-4">

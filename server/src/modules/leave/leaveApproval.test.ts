@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest'
 import request from 'supertest'
 import { createApp } from '../../app'
 import { prisma } from '../../platform/db/prisma'
 import { hashPassword } from '../../platform/auth/password'
-import { zonedToday } from '../../domain/shared/dates'
+import { zonedToday, fromDateColumn, toDateColumn } from '../../domain/shared/dates'
 
 /**
  * Deciding on leave, and the dashboard that shows the result.
@@ -40,7 +40,7 @@ const MONDAY = nextMonday()
 function D(offset: number): string {
   const date = new Date(MONDAY)
   date.setUTCDate(date.getUTCDate() + offset)
-  return date.toISOString().slice(0, 10)
+  return fromDateColumn(date)
 }
 
 const YEAR = Number(D(0).slice(0, 4)) - (Number(D(0).slice(5, 7)) >= 4 ? 0 : 1)
@@ -405,6 +405,49 @@ describe('reversing an approval', () => {
   })
 })
 
+/**
+ * Two decisions on one request, arriving together — two approvers, or one
+ * double click. Each used to read the status first and write after, so both
+ * could pass the check and both take the days.
+ */
+describe('decisions arriving together', () => {
+  const consumed = () => prisma.leaveLedgerEntry.count({ where: { employeeId: aliceId, reason: 'consumed' } })
+
+  it('takes the days once when two approvals race', async () => {
+    await grant(aliceId, 12)
+    const id = await applyAs('alice')
+
+    const results = await Promise.all([decide('approve', id, 'mgr'), decide('approve', id, 'hr')])
+
+    expect(results.map((r) => r.status).sort()).toEqual([200, 409])
+    expect(await consumed()).toBe(1)
+  })
+
+  it('keeps the status and the ledger in agreement when an approval and a rejection race', async () => {
+    await grant(aliceId, 12)
+    const id = await applyAs('alice')
+
+    const results = await Promise.all([decide('approve', id, 'mgr'), decide('reject', id, 'hr')])
+    expect(results.map((r) => r.status).sort()).toEqual([200, 409])
+
+    // Whichever won, the record tells one story: approved with the days taken,
+    // or rejected with none — never "rejected" with the days gone.
+    const request = await prisma.leaveRequest.findUniqueOrThrow({ where: { id } })
+    expect(await consumed()).toBe(request.status === 'approved' ? 1 : 0)
+  })
+
+  it('gives the days back once when two reversals race', async () => {
+    await grant(aliceId, 12)
+    const id = await applyAs('alice')
+    expect((await decide('approve', id, 'mgr')).status).toBe(200)
+
+    const results = await Promise.all([decide('reverse', id, 'mgr'), decide('reverse', id, 'hr')])
+
+    expect(results.map((r) => r.status).sort()).toEqual([200, 409])
+    expect(await prisma.leaveLedgerEntry.count({ where: { employeeId: aliceId, reason: 'reversal' } })).toBe(1)
+  })
+})
+
 describe('the dashboard, and the numbers it used to invent', () => {
   it('reports a real zero balance rather than a comfortable twelve', async () => {
     // Alice has NO ledger entries at all — exactly the state every employee
@@ -463,15 +506,88 @@ describe('the dashboard, and the numbers it used to invent', () => {
   })
 
   it('keeps not-marked separate from absent on the company view', async () => {
-    const res = await request(app)
-      .get('/api/dashboard/summary')
-      .set('Authorization', as('hr'))
+    // A fixed working day. On a Sunday — this company's weekly off — nobody is
+    // expected in, so "not marked" is rightly zero, and this test used to fail
+    // every Sunday for that reason alone.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-09-23T05:00:00Z')) // Wednesday, 10:30 in India
+    let res
+    try {
+      res = await request(app).get('/api/dashboard/summary').set('Authorization', as('hr'))
+    } finally {
+      vi.useRealTimers()
+    }
 
     expect(res.status).toBe(200)
     expect(res.body.data.absent_today).toBe(0)
     // Four employees, nobody marked. The old dashboard called that four
     // absences every morning.
     expect(res.body.data.not_marked_today).toBe(4)
+  })
+
+  it('expects nobody on the weekly off', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-09-27T05:00:00Z')) // Sunday
+    let res
+    try {
+      res = await request(app).get('/api/dashboard/summary').set('Authorization', as('hr'))
+    } finally {
+      vi.useRealTimers()
+    }
+
+    expect(res.body.data.is_weekly_off_today).toBe(true)
+    expect(res.body.data.not_marked_today).toBe(0)
+    expect(res.body.data.absent_today).toBe(0)
+  })
+
+  it("counts a manager's week for the team only", async () => {
+    // Monday of a fixed week: one present row inside the team, one outside it.
+    const monday = new Date(Date.UTC(2026, 8, 21))
+    await prisma.attendance.createMany({
+      data: [
+        { organizationId: orgId, employeeId: aliceId, date: monday, status: 'present', source: 'manual' },
+        { organizationId: orgId, employeeId: strangerId, date: monday, status: 'present', source: 'manual' },
+      ],
+    })
+
+    const summaryAs = async (key: string) => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date('2026-09-23T05:00:00Z')) // the Wednesday of that week
+      try {
+        return (await request(app).get('/api/dashboard/summary').set('Authorization', as(key))).body.data
+      } finally {
+        vi.useRealTimers()
+      }
+    }
+    const presentOnMonday = (data: { this_week: { date: string; present: number }[] }) =>
+      data.this_week.find((d) => d.date === '2026-09-21')?.present
+
+    // The stranger is not in the manager's team. The week used to count them anyway.
+    expect(presentOnMonday(await summaryAs('mgr'))).toBe(1)
+    expect(presentOnMonday(await summaryAs('hr'))).toBe(2)
+  })
+
+  it('shows Admin none of the company attendance', async () => {
+    // The matrix keeps Admin out of attendance: their scope is their own, and
+    // this Admin has no employee record at all. They used to see the company's.
+    const email = `${PREFIX}-admin@example.com`
+    const user = await prisma.user.create({ data: { email, passwordHash: await hashPassword(PASSWORD) } })
+    await prisma.membership.create({ data: { userId: user.id, organizationId: orgId, role: 'admin', status: 'active' } })
+    const login = await request(app).post('/api/auth/login').send({ identifier: email, password: PASSWORD })
+
+    const today = toDateColumn(zonedToday(new Date(), 'Asia/Kolkata'))
+    await prisma.attendance.create({
+      data: { organizationId: orgId, employeeId: aliceId, date: today, status: 'present', source: 'manual' },
+    })
+
+    const res = await request(app)
+      .get('/api/dashboard/summary')
+      .set('Authorization', `Bearer ${login.body.data.accessToken}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.data.total_employees).toBe(0)
+    expect(res.body.data.present_today).toBe(0)
+    expect(res.body.data.this_week.every((d: { present: number }) => d.present === 0)).toBe(true)
   })
 
   it('narrows the company view to a manager team', async () => {

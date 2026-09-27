@@ -3,7 +3,7 @@ import request from 'supertest'
 import { createApp } from '../../app'
 import { prisma } from '../../platform/db/prisma'
 import { hashPassword } from '../../platform/auth/password'
-import { toDateColumn } from '../../domain/shared/dates'
+import { toDateColumn, fromDateColumn } from '../../domain/shared/dates'
 
 /**
  * Setting a state's professional-tax table — and payroll then charging it.
@@ -92,7 +92,7 @@ describe("setting a state's PT table", () => {
     expect(res.body.data.map((s: { amount: number }) => s.amount)).toEqual([150])
 
     const closed = await prisma.ptSlab.findFirst({ where: { organizationId: orgId, state: 'Kerala', amount: 100 } })
-    expect(closed?.effectiveTo?.toISOString().slice(0, 10)).toBe('2026-09-30')
+    expect(fromDateColumn(closed?.effectiveTo)).toBe('2026-09-30')
   })
 
   it('treats the same date as a correction, and keeps the spelling on record', async () => {

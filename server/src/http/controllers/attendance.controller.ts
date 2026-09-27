@@ -3,13 +3,14 @@ import { punchIn, punchOut, myToday, type PunchResult } from '../../modules/atte
 import { punchInSchema } from '../validators/attendance.validator'
 import { parseBody } from '../validators/parse'
 import { appContext } from '../context'
+import { isoInstant } from '../../domain/shared/dates'
 
 function payload(result: PunchResult) {
   return {
     id: result.attendanceId,
     date: result.date,
-    check_in: result.checkIn?.toISOString() ?? null,
-    check_out: result.checkOut?.toISOString() ?? null,
+    check_in: isoInstant(result.checkIn),
+    check_out: isoInstant(result.checkOut),
     hours_worked: result.hoursWorked,
     status: result.status,
     geofence: result.geofence

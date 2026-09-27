@@ -1,4 +1,5 @@
 import { env } from '../../config/env'
+import { isoInstant } from '../../domain/shared/dates'
 
 /**
  * Structured logging.
@@ -48,7 +49,7 @@ function emit(level: Level, message: string, fields: Fields = {}): void {
 
   if (env.NODE_ENV === 'production') {
     console[level === 'debug' ? 'log' : level](
-      JSON.stringify({ level, time: new Date().toISOString(), message, ...safe }),
+      JSON.stringify({ level, time: isoInstant(new Date()), message, ...safe }),
     )
     return
   }

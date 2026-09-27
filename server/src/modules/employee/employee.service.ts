@@ -3,6 +3,7 @@ import type { AppContext } from '../../platform/context'
 import { NotFound, Conflict, Forbidden, BadRequest } from '../../platform/errors/AppError'
 import { fromDateColumn, toDateColumn } from '../../domain/shared/dates'
 import { withTransaction } from '../../platform/db/transaction'
+import { isUniqueViolation } from '../../platform/db/errors'
 import { logger } from '../../platform/logger'
 import { grantsMoreThan } from '../user/user.policy'
 import { createLoginInTransaction } from '../user/user.service'
@@ -141,13 +142,10 @@ function assertLeavesAfterJoining(dateOfJoining: string | null, lastWorkingDate:
   }
 }
 
-/** Prisma's code for "a unique constraint was violated". */
-const UNIQUE_VIOLATION = 'P2002'
-
 function asConflict(err: unknown): never {
   // A duplicate employee code is an ordinary thing for a person to do, not a
   // server fault. 409 with a readable message rather than a 500.
-  if (typeof err === 'object' && err !== null && 'code' in err && err.code === UNIQUE_VIOLATION) {
+  if (isUniqueViolation(err)) {
     throw Conflict('An employee with that code already exists')
   }
   throw err
@@ -171,7 +169,7 @@ export async function createEmployee(
         throw Forbidden('You cannot grant a role with more access than your own.')
       }
 
-      const created = await createLoginInTransaction(tx as never, {
+      const created = await createLoginInTransaction(tx, {
         email: input.login.email,
         role: input.login.role,
         organizationId: ctx.organizationId,
@@ -182,43 +180,39 @@ export async function createEmployee(
       invite = { token: created.inviteToken, expiresAt: created.expiresAt }
     }
 
-    const employee = await tx.employee.create({
-      data: {
-        organizationId: ctx.organizationId,
-        membershipId,
-        employeeCode: input.employeeCode.trim(),
-        fullName: input.fullName.trim(),
-        personalEmail: input.personalEmail ?? null,
-        phone: input.phone ?? null,
-        dateOfJoining: input.dateOfJoining ? toDateColumn(input.dateOfJoining) : null,
-        lastWorkingDate: input.lastWorkingDate ? toDateColumn(input.lastWorkingDate) : null,
-        gender: input.gender ?? null,
-        ...(input.employmentType ? { employmentType: input.employmentType } : {}),
-        departmentId: input.departmentId ?? null,
-        designationId: input.designationId ?? null,
-        shiftId: input.shiftId ?? null,
-        reportingManagerId: input.reportingManagerId ?? null,
-        ...(input.attendanceMode ? { attendanceMode: input.attendanceMode } : {}),
-        ...(input.country ? { country: input.country.toUpperCase() } : {}),
-        ...(input.currency ? { currency: input.currency.toUpperCase() } : {}),
-      },
+    const employee = await repo.createEmployee(tx, {
+      organizationId: ctx.organizationId,
+      membershipId,
+      employeeCode: input.employeeCode.trim(),
+      fullName: input.fullName.trim(),
+      personalEmail: input.personalEmail ?? null,
+      phone: input.phone ?? null,
+      dateOfJoining: input.dateOfJoining ? toDateColumn(input.dateOfJoining) : null,
+      lastWorkingDate: input.lastWorkingDate ? toDateColumn(input.lastWorkingDate) : null,
+      gender: input.gender ?? null,
+      ...(input.employmentType ? { employmentType: input.employmentType } : {}),
+      departmentId: input.departmentId ?? null,
+      designationId: input.designationId ?? null,
+      shiftId: input.shiftId ?? null,
+      reportingManagerId: input.reportingManagerId ?? null,
+      ...(input.attendanceMode ? { attendanceMode: input.attendanceMode } : {}),
+      ...(input.country ? { country: input.country.toUpperCase() } : {}),
+      ...(input.currency ? { currency: input.currency.toUpperCase() } : {}),
     })
 
     if (input.statutory) {
-      await tx.employeeStatutoryIdentity.create({
-        data: {
-          organizationId: ctx.organizationId,
-          employeeId: employee.id,
-          pan: input.statutory.pan ?? null,
-          uan: input.statutory.uan ?? null,
-          pfAccountNumber: input.statutory.pfAccountNumber ?? null,
-          esiNumber: input.statutory.esiNumber ?? null,
-          ptState: input.statutory.ptState ?? null,
-          ...(input.statutory.pfApplicable !== undefined
-            ? { pfApplicable: input.statutory.pfApplicable }
-            : {}),
-          hasPriorPfMembership: input.statutory.hasPriorPfMembership ?? null,
-        },
+      await repo.createStatutoryIdentity(tx, {
+        organizationId: ctx.organizationId,
+        employeeId: employee.id,
+        pan: input.statutory.pan ?? null,
+        uan: input.statutory.uan ?? null,
+        pfAccountNumber: input.statutory.pfAccountNumber ?? null,
+        esiNumber: input.statutory.esiNumber ?? null,
+        ptState: input.statutory.ptState ?? null,
+        ...(input.statutory.pfApplicable !== undefined
+          ? { pfApplicable: input.statutory.pfApplicable }
+          : {}),
+        hasPriorPfMembership: input.statutory.hasPriorPfMembership ?? null,
       })
     }
 
@@ -288,14 +282,15 @@ export async function updateEmployee(
     if (input.currency !== undefined) data.currency = input.currency?.toUpperCase()
 
     if (Object.keys(data).length > 0) {
-      await tx.employee.update({ where: { id }, data })
+      await repo.updateEmployee(tx, id, data)
     }
 
     if (input.statutory) {
       const s = input.statutory
-      await tx.employeeStatutoryIdentity.upsert({
-        where: { employeeId: id },
-        update: {
+      await repo.upsertStatutoryIdentity(
+        tx,
+        id,
+        {
           ...(s.pan !== undefined ? { pan: s.pan } : {}),
           ...(s.uan !== undefined ? { uan: s.uan } : {}),
           ...(s.pfAccountNumber !== undefined ? { pfAccountNumber: s.pfAccountNumber } : {}),
@@ -306,7 +301,7 @@ export async function updateEmployee(
             ? { hasPriorPfMembership: s.hasPriorPfMembership }
             : {}),
         },
-        create: {
+        {
           organizationId: ctx.organizationId,
           employeeId: id,
           pan: s.pan ?? null,
@@ -317,7 +312,7 @@ export async function updateEmployee(
           ...(s.pfApplicable !== undefined ? { pfApplicable: s.pfApplicable } : {}),
           hasPriorPfMembership: s.hasPriorPfMembership ?? null,
         },
-      })
+      )
     }
   }).catch(asConflict)
 

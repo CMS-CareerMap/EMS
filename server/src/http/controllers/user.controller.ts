@@ -15,6 +15,7 @@ import {
 import { parseBody } from '../validators/parse'
 import { appContext } from '../context'
 import type { MembershipRow } from '../../modules/user/user.repository'
+import { isoInstant } from '../../domain/shared/dates'
 
 /**
  * User management: the four capabilities the Supabase edge functions provided.
@@ -31,7 +32,7 @@ function serializeMembership(row: MembershipRow) {
     employee_id: row.employeeCode,
     role: row.role,
     status: row.status,
-    created_at: row.createdAt.toISOString(),
+    created_at: isoInstant(row.createdAt),
   }
 }
 
@@ -64,7 +65,7 @@ export const postInvite: RequestHandler = async (req, res) => {
       user: serializeMembership(membership),
       invite: {
         token: inviteToken,
-        expires_at: expiresAt.toISOString(),
+        expires_at: isoInstant(expiresAt),
         // There is no email sending yet. Saying so plainly beats a UI that
         // claims an email went out when nothing did.
         delivery: 'manual',
@@ -135,7 +136,7 @@ export const postPasswordLink: RequestHandler = async (req, res) => {
       user: serializeMembership(link.membership),
       invite: {
         token: link.token,
-        expires_at: link.expiresAt.toISOString(),
+        expires_at: isoInstant(link.expiresAt),
         purpose: link.purpose,
         delivery: 'manual',
       },

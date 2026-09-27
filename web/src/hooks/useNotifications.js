@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
+import { isoInstant } from '../lib/dates'
 
 export function useNotifications(userId) {
   const queryClient = useQueryClient()
@@ -153,7 +154,7 @@ export async function sendNotification({ userIds, userId, title, message, type =
     link,
     related_entity_id: relatedEntityId,
     read: false,
-    created_at: new Date().toISOString(),
+    created_at: isoInstant(),
   }))
 
   const { error } = await supabase.from('notifications').insert(records)

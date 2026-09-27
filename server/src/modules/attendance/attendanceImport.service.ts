@@ -5,6 +5,8 @@ import { withTransaction } from '../../platform/db/transaction'
 import { logger } from '../../platform/logger'
 import { isCalendarDate, parseWallClock, toDateColumn, zonedToday } from '../../domain/shared/dates'
 import { hoursBetweenWallClock, classifyDay } from '../../domain/attendance/hours'
+import * as repo from './attendance.repository'
+import { companyTimezone } from '../organization/organization.service'
 
 /**
  * Biometric attendance import.
@@ -135,23 +137,10 @@ export async function importAttendance(
     throw BadRequest(`That file has ${parsed.data.length} rows. The limit is ${MAX_ROWS}.`)
   }
 
-  const organization = await ctx.db.organization.findUnique({
-    where: { id: ctx.organizationId },
-    select: { timezone: true },
-  })
-  const zone = organization?.timezone ?? 'Asia/Kolkata'
+  const zone = await companyTimezone(ctx)
   const today = zonedToday(new Date(), zone)
 
-  const employees = await ctx.db.employee.findMany({
-    where: { archivedAt: null },
-    select: {
-      id: true,
-      employeeCode: true,
-      attendanceMode: true,
-      shiftId: true,
-      shift: { select: { breakMinutes: true, expectedHours: true } },
-    },
-  })
+  const employees = await repo.importableEmployees(ctx.db)
   const byCode = new Map(employees.map((e) => [e.employeeCode.toLowerCase(), e]))
 
   const seen = new Map<string, number>()
@@ -248,16 +237,10 @@ export async function importAttendance(
   // overwriting a day HR already corrected by hand is the thing somebody
   // would want to know BEFORE pressing import, not after.
   if (prepared.length > 0) {
-    const existing = await ctx.db.attendance.findMany({
-      where: {
-        OR: prepared.map((p) => ({
-          employeeId: p.employee.id,
-          date: toDateColumn(p.date),
-        })),
-      },
-      select: { id: true },
-    })
-    wouldOverwrite = existing.length
+    wouldOverwrite = await repo.countExistingDays(
+      ctx.db,
+      prepared.map((p) => ({ employeeId: p.employee.id, date: toDateColumn(p.date) })),
+    )
   }
 
   const invalid = rows.filter((r) => r.issues.length > 0).length
@@ -299,22 +282,7 @@ export async function importAttendance(
         // than inventing one.
       }
 
-      const existing = await tx.attendance.findFirst({
-        where: { employeeId: row.employee.id, date: toDateColumn(row.date) },
-      })
-
-      if (existing) {
-        await tx.attendance.update({ where: { id: existing.id }, data })
-      } else {
-        await tx.attendance.create({
-          data: {
-            organizationId: ctx.organizationId,
-            employeeId: row.employee.id,
-            date: toDateColumn(row.date),
-            ...data,
-          },
-        })
-      }
+      await repo.replaceDay(tx, ctx.organizationId, row.employee.id, toDateColumn(row.date), data)
     }
   })
 
