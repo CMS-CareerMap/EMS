@@ -22,11 +22,15 @@ import { recordSecurityEvent } from '../../modules/audit/audit.service'
  * the same employee hitting it forty times in a minute is something else, and
  * neither is visible without a record.
  */
-export function authorize(permission: Permission): RequestHandler {
+export function authorize(permission: Permission | readonly Permission[]): RequestHandler {
+  // Several: any one of them is enough — the catalogue of salary components is
+  // needed both by payroll staff and by HR entering an incentive.
+  const wanted: readonly Permission[] = Array.isArray(permission) ? permission : [permission as Permission]
+
   return async (req, res, next) => {
     const ctx = authContext(res)
 
-    if (!ctx.can(permission)) {
+    if (!wanted.some((p) => ctx.can(p))) {
       logger.warn('Permission denied', {
         userId: ctx.userId,
         role: ctx.role,

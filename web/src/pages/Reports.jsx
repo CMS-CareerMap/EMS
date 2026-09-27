@@ -88,7 +88,9 @@ const CATEGORY_META = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function fmt(n) { return '₹' + Number(n).toLocaleString('en-IN') }
+// Null is "not on record", shown as a dash rather than ₹0.
+function fmt(n) { return n === null || n === undefined ? '—' : '₹' + Number(n).toLocaleString('en-IN') }
+const sum = (rows, key) => rows.reduce((s, r) => s + (r[key] ?? 0), 0)
 
 function exportCSV(filename, headers, rows) {
   const lines = [headers.join(','), ...rows.map((r) => r.map((v) => `"${v}"`).join(','))]
@@ -412,8 +414,8 @@ function ReportPanel({ report, onClose }) {
 
       case 'payroll_monthly': {
         const rows = filterBySearch(data.payrollSummary || [])
-        const totGross = rows.reduce((s, r) => s + r.gross, 0)
-        const totNet   = rows.reduce((s, r) => s + r.net, 0)
+        const totGross = sum(rows, 'gross')
+        const totNet   = sum(rows, 'net')
 
         if (rows.length === 0) {
           return (
@@ -434,7 +436,7 @@ function ReportPanel({ report, onClose }) {
                   <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
                   <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} unit="L" />
-                  <Tooltip formatter={(v) => [`₹${v}L`, 'Payout']} contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #E2E8F0' }} />
+                  <Tooltip formatter={(v) => [v === null || v === undefined ? 'No payroll run' : `₹${v}L`, 'Payout']} contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #E2E8F0' }} />
                   <Bar dataKey="amount" fill="#16A34A" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -457,9 +459,9 @@ function ReportPanel({ report, onClose }) {
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600">{r.dept}</td>
                       <td className="px-4 py-3 text-sm text-gray-700">{fmt(r.gross)}</td>
-                      <td className="px-4 py-3 text-sm text-red-500">−{fmt(r.pf)}</td>
+                      <td className="px-4 py-3 text-sm text-red-500">{r.pf ? `−${fmt(r.pf)}` : <span className="text-gray-300">—</span>}</td>
                       <td className="px-4 py-3 text-sm text-red-500">{r.esi > 0 ? `−${fmt(r.esi)}` : <span className="text-gray-300">—</span>}</td>
-                      <td className="px-4 py-3 text-sm text-red-500">−{fmt(r.pt)}</td>
+                      <td className="px-4 py-3 text-sm text-red-500">{r.pt ? `−${fmt(r.pt)}` : <span className="text-gray-300">—</span>}</td>
                       <td className="px-4 py-3 text-sm font-bold text-green-600">{fmt(r.net)}</td>
                     </tr>
                   ))}
@@ -480,7 +482,7 @@ function ReportPanel({ report, onClose }) {
                 </button>
                 <button onClick={() => exportCSV(`payroll_${month.toLowerCase().replace(' ', '_')}.csv`,
                   ['Name', 'ID', 'Department', 'Gross', 'PF', 'ESI', 'PT', 'Net'],
-                  rows.map((r) => [r.name, r.id, r.dept, r.gross, r.pf, r.esi, r.pt, r.net])
+                  rows.map((r) => [r.name, r.id, r.dept, r.gross ?? '', r.pf ?? '', r.esi ?? '', r.pt ?? '', r.net ?? ''])
                 )} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition-colors">
                   <Download className="w-3.5 h-3.5" /> Export CSV
                 </button>
@@ -492,8 +494,8 @@ function ReportPanel({ report, onClose }) {
 
       case 'payroll_pf': {
         const rows = filterBySearch(data.payrollSummary || [])
-        const totPF  = rows.reduce((s, r) => s + r.pf, 0)
-        const totESI = rows.reduce((s, r) => s + r.esi, 0)
+        const totPF  = sum(rows, 'pf')
+        const totESI = sum(rows, 'esi')
 
         if (rows.length === 0) {
           return (
@@ -506,11 +508,12 @@ function ReportPanel({ report, onClose }) {
 
         return (
           <>
-            <div className="grid grid-cols-3 gap-4 mb-4">
+            <div className="grid grid-cols-2 gap-4 mb-4">
               {[
-                { label: 'Total Employee PF',  value: fmt(totPF),            sub: '12% of Basic' },
-                { label: 'Total Employer PF',  value: fmt(Math.round(totPF)), sub: '12% (Employer share)' },
-                { label: 'Total ESI',          value: fmt(totESI),           sub: '0.75% of Gross' },
+                // Rates and the employer's share are on each payslip, from the
+                // company's own settings — not restated here as fixed numbers.
+                { label: 'Total Employee PF', value: fmt(totPF),  sub: 'As recorded' },
+                { label: 'Total Employee ESI', value: fmt(totESI), sub: 'As recorded' },
               ].map((c) => (
                 <div key={c.label} className="bg-gray-50 rounded-xl p-4 border border-gray-200">
                   <p className="text-xl font-bold text-gray-900">{c.value}</p>
@@ -523,7 +526,7 @@ function ReportPanel({ report, onClose }) {
               <table className="w-full">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200">
-                    {['Employee', 'UAN / PF A/C', 'Basic Salary', 'Emp PF (12%)', 'Employer PF (12%)', 'ESI (0.75%)'].map((h) => (
+                    {['Employee', 'UAN', 'Basic Salary', 'Employee PF', 'Employee ESI'].map((h) => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{h}</th>
                     ))}
                   </tr>
@@ -535,9 +538,8 @@ function ReportPanel({ report, onClose }) {
                         <p className="text-sm font-medium text-gray-900">{r.name}</p>
                         <p className="text-xs text-gray-400 font-mono">{r.id}</p>
                       </td>
-                      <td className="px-4 py-3 text-xs text-gray-500 font-mono">{r.pf_acc_no}</td>
+                      <td className="px-4 py-3 text-xs text-gray-500 font-mono">{r.uan ?? '—'}</td>
                       <td className="px-4 py-3 text-sm text-gray-700">{fmt(r.basic)}</td>
-                      <td className="px-4 py-3 text-sm font-medium text-blue-600">{fmt(r.pf)}</td>
                       <td className="px-4 py-3 text-sm font-medium text-blue-600">{fmt(r.pf)}</td>
                       <td className="px-4 py-3 text-sm font-medium text-purple-600">{r.esi > 0 ? fmt(r.esi) : <span className="text-gray-300">—</span>}</td>
                     </tr>
@@ -552,8 +554,8 @@ function ReportPanel({ report, onClose }) {
                   <FileText className="w-3.5 h-3.5" /> Print / PDF
                 </button>
                 <button onClick={() => exportCSV(`pf_esi_${month.toLowerCase().replace(' ', '_')}.csv`,
-                  ['Name', 'ID', 'PF Account No', 'Basic', 'Emp PF', 'Employer PF', 'ESI'],
-                  rows.map((r) => [r.name, r.id, r.pf_acc_no, r.basic, r.pf, r.pf, r.esi])
+                  ['Name', 'ID', 'UAN', 'Basic', 'Employee PF', 'Employee ESI'],
+                  rows.map((r) => [r.name, r.id, r.uan ?? '', r.basic ?? '', r.pf ?? '', r.esi ?? ''])
                 )} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition-colors">
                   <Download className="w-3.5 h-3.5" /> Export CSV
                 </button>

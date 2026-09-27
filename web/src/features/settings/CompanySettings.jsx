@@ -104,7 +104,7 @@ export default function CompanySettings() {
         setGeoMsg(`Could not read your location: ${err.message}`)
         setLocating(false)
       },
-      { enableHighAccuracy: true, timeout: 15000 },
+      { enableHighAccuracy: true, timeout: 15 * 1000 },
     )
   }
 

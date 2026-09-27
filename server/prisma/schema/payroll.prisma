@@ -432,3 +432,39 @@ model EmployeeMonthlyEntry {
   @@unique([organizationId, employeeId, salaryComponentId, year, month])
   @@index([organizationId, year, month])
 }
+
+/// How this company's bank wants its bulk salary file laid out.
+///
+/// Every Indian bank's corporate portal has its own upload format — its own
+/// column order, headers, date style and fixed codes such as NEFT. So the file
+/// is described here rather than written in code: when the bank's sample
+/// arrives, Accounts sets it up once, and a second bank is a second setup, not
+/// a release.
+///
+/// One per company. No row means the built-in default.
+model BankFileTemplate {
+  id             String @id @default(uuid())
+  organizationId String
+
+  /// The columns, in order: each a header and what it holds — a field of the
+  /// payment (name, account, IFSC, amount…) or a fixed text such as "NEFT".
+  /// Checked against domain/payroll/bankFile.ts before it is saved.
+  columns       Json
+  includeHeader Boolean @default(true)
+  /// DD/MM/YYYY, YYYY-MM-DD, DD-MM-YYYY or MM/DD/YYYY — for date columns.
+  dateFormat    String  @default("DD/MM/YYYY")
+  /// The remark each transfer carries, with {month}, {year} and {code} filled
+  /// in: "Salary {month} {year}" → "Salary August 2026".
+  narration     String  @default("Salary {month} {year}")
+  /// Pay only into accounts somebody has checked. On by default: a salary
+  /// sent to an unchecked account is money that may be gone.
+  onlyVerified  Boolean @default(true)
+
+  updatedByUserId String?
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId])
+}

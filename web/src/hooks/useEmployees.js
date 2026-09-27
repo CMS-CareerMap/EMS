@@ -30,10 +30,11 @@ function invalidateAll(queryClient) {
   queryClient.invalidateQueries({ queryKey: ['users'] })
 }
 
-export function useEmployees() {
+export function useEmployees({ enabled = true } = {}) {
   return useQuery({
     queryKey: KEY,
     queryFn: async () => (await api.get('/employees')).data,
+    enabled,
   })
 }
 

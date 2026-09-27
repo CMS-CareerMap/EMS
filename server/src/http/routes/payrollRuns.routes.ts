@@ -12,6 +12,7 @@ import {
   postMarkPaid,
   getRunPayslipPdf,
 } from '../controllers/payrollRun.controller'
+import { getBankFile, getBankFilePreview } from '../controllers/bankAccount.controller'
 import { authenticate } from '../middleware/authenticate'
 import { authorize } from '../middleware/authorize'
 
@@ -43,3 +44,7 @@ payrollRunsRouter.get('/:id/payslips/:payslipId/pdf', authorize('payroll:structu
 payrollRunsRouter.post('/:id/approve', authorize('payroll:run:approve'), postApprove)
 payrollRunsRouter.post('/:id/reopen', authorize('payroll:run:approve'), postReopen)
 payrollRunsRouter.post('/:id/mark-paid', authorize('payroll:run:create'), postMarkPaid)
+
+// The bank transfer file: from an approved or paid run, for whoever pays.
+payrollRunsRouter.get('/:id/bank-file/preview', authorize('payroll:run:create'), getBankFilePreview)
+payrollRunsRouter.get('/:id/bank-file', authorize('payroll:run:create'), getBankFile)

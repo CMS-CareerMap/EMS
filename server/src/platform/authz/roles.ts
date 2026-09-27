@@ -99,6 +99,7 @@ const ACCOUNTS: readonly Permission[] = [
   // the staff directory — which is what keeps finance isolated from people ops.
   'employee:compensation:read',
   'employee:bank:read',
+  'employee:bank:manage',
   'payroll:structure:read',
   'payroll:structure:manage',
   'payroll:run:create',

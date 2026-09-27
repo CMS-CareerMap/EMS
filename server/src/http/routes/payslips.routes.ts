@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getMyPayslips, getPayslipPdf } from '../controllers/payslip.controller'
+import { getMyBankAccount, getMyPayslips, getPayslipPdf } from '../controllers/payslip.controller'
 import { authenticate } from '../middleware/authenticate'
 import { authorize } from '../middleware/authorize'
 
@@ -15,4 +15,6 @@ export const payslipsRouter = Router()
 payslipsRouter.use(authenticate)
 
 payslipsRouter.get('/me', authorize('payslip:read'), getMyPayslips)
+// Where those payslips are paid — the person's own account, and only theirs.
+payslipsRouter.get('/me/bank-account', authorize('payslip:read'), getMyBankAccount)
 payslipsRouter.get('/:id/pdf', authorize('payslip:read'), getPayslipPdf)

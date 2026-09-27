@@ -164,10 +164,54 @@ export async function request(method, path, body, options = {}) {
   return toResult(await send(method, path, body, { ...options, retrying: true }))
 }
 
+/**
+ * A file the server sends — a payslip PDF, the bank transfer CSV — with the
+ * same sign-in and the same one refresh as every other request. An error still
+ * arrives as JSON and is thrown as an ApiError, so a refused download reads
+ * like any other refusal.
+ */
+async function download(path) {
+  let response = await send('GET', path)
+  if (response.status === 401 && !path.startsWith('/auth/')) {
+    try {
+      await refreshSession()
+    } catch {
+      announceSessionEnded()
+      throw new ApiError({ status: 401, code: 'SESSION_EXPIRED', message: 'Your session has expired. Please sign in again.' })
+    }
+    response = await send('GET', path)
+  }
+
+  if (!response.ok) {
+    await toResult(response)
+    throw new ApiError({ status: response.status, code: 'UNKNOWN', message: 'That file could not be downloaded.' })
+  }
+
+  const disposition = response.headers.get('Content-Disposition') ?? ''
+  const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? 'download'
+  return { blob: await response.blob(), filename }
+}
+
 export const api = {
   get: (path) => request('GET', path),
   post: (path, body) => request('POST', path, body),
   patch: (path, body) => request('PATCH', path, body),
   put: (path, body) => request('PUT', path, body),
   del: (path) => request('DELETE', path),
+  download,
+}
+
+/** Downloads a file from the API and hands it to the browser to save. */
+export async function saveFromApi(path) {
+  const { blob, filename } = await download(path)
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  // Revoked after the click has been handled, not before.
+  setTimeout(() => URL.revokeObjectURL(url), 0)
+  return filename
 }

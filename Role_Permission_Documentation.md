@@ -38,7 +38,8 @@ This document defines who can access what in the Employee Management System (EMS
 | Employees | ✅ | ✅ | ✅ | 👁 View | 👁 View | ❌ | ❌ |
 | Attendance | ✅ | ❌ | ✅ | 🟡 Team | 🟡 Team | ❌ | 🟡 Own |
 | Leave | ✅ | ❌ | ✅ | 🟡 Team | 🟡 Team | ❌ | 🟡 Own |
-| Payroll | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
+| Payroll | ✅ | ❌ | 🟡 Incentives | ❌ | ❌ | ✅ | ❌ |
+| My Payslips | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Documents | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | 🟡 Own |
 | Reports | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Settings | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
@@ -58,6 +59,12 @@ This document defines who can access what in the Employee Management System (EMS
 | Approve/reject leave | ✅ | ❌ | ✅ | 🟡 Team | ❌ | ❌ |
 | Manage salary structures | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ |
 | Run payroll | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ |
+| Approve / reopen payroll | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Mark payroll paid | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ |
+| Enter monthly incentives | ✅ | ❌ | ✅ | ❌ | ✅ | ❌ |
+| Record / verify bank accounts | ✅ | ❌ | ❌ | ❌ | ✅ (not own) | ❌ |
+| Download bank transfer file | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ |
+| Download own payslips | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Upload documents | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ Own |
 | Verify/reject documents | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | View reports | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
@@ -112,7 +119,7 @@ This document defines who can access what in the Employee Management System (EMS
 | **Attendance** | View all, mark/edit/delete for anyone |
 | **Leave** | View all, approve/reject any request, manage balances |
 | **Documents** | Upload, verify, reject employee documents |
-| **Incentive** | Enter each employee's monthly incentive amount (as Accounts can). Nothing else of payroll — no salaries, runs or payslips |
+| **Incentive** | Enter each employee's monthly incentive amount (as Accounts can), under Payroll → Incentives. Nothing else of payroll — no salaries, runs, other people's payslips or bank details |
 
 **No access to:** Payroll (beyond entering incentives), Reports, Settings. Cannot delete employees.
 
@@ -139,11 +146,13 @@ This document defines who can access what in the Employee Management System (EMS
 
 | Area | What They Can Do |
 |------|------------------|
-| **Payroll** | Create/edit salary structures, create payroll runs, generate payslips, change run status (draft → approved → paid) |
+| **Payroll** | Create/edit salary structures; create a month's payroll run as a draft, recalculate or discard it; mark an approved run paid. Approving is Super Admin's |
 | **Payroll inputs** | Enter monthly incentive amounts; and, only if the company deducts TDS through payroll (Settings → Payroll Config, off by default), each employee's monthly TDS amount (₹0 needs a reason) |
+| **Bank accounts** | Record each employee's salary bank account from a cancelled cheque or passbook page, and verify or reject it (a rejection needs a reason). Never their own — somebody else in Accounts, or the Super Admin, checks that |
+| **Bank transfer file** | Download the month's bank file (CSV) from an approved or paid run, and set its layout once to match the bank's bulk-payment format |
 
 **No access to:** Employees page, Attendance, Leave, Documents, Reports, Settings.
-**Can view:** Employee financial data (PAN, bank details) within payslip context.
+**Can view:** Employee financial data (PAN, bank details) within payroll screens.
 
 ---
 
@@ -157,7 +166,8 @@ This document defines who can access what in the Employee Management System (EMS
 | **Attendance** | View own records only |
 | **Leave** | Apply for leave, view own requests, view holidays |
 | **Documents** | Upload own documents, view verification status |
-| **Payslips** | View and download own payslips, once the month is paid |
+| **Payslips** | View and download own payslips (My Payslips), once the month is paid |
+| **Bank account** | See where their salary is paid (last four digits and status) in their profile. To add or change it, they give Accounts a cancelled cheque or passbook page |
 
 **Cannot:** View other employees' data, approve anything, access payroll/reports/settings.
 **Can delete:** Only own pending leave requests.
@@ -228,6 +238,18 @@ Accounts creates salary structure → Creates payroll run (draft)
 - **Mark paid** is Accounts'. It stores every payslip as a PDF with a SHA-256 hash. A paid payroll cannot be changed.
 - Once a month is approved, its attendance, leave decisions, holidays, salaries, PT tables, ESI decisions, TDS and incentives can no longer be changed.
 - Everybody sees their own payslips (paid months only). Accounts and Super Admin see everyone's.
+
+### Bank accounts and the bank transfer file
+
+```
+Accounts records the account from a cancelled cheque → ticks "checked" (verified)
+  → payroll approved → Accounts downloads the bank file → uploads it to the bank → marks the run paid
+```
+
+- Nobody verifies their own bank account (`employee:bank:manage`, held by Accounts and Super Admin). Changing an account's number or IFSC makes it unverified again.
+- The bank file is made only from an approved or paid run, and pays exactly each payslip's net pay.
+- It includes verified accounts only (a setting in Payroll → Bank file format, on by default). A rejected account is never paid. Everybody left out is listed with the reason before the file is downloaded.
+- Every download of the file is recorded, with who took it and when. The screens show only the last four digits of an account number; the file has them in full.
 
 ### Employee Onboarding
 

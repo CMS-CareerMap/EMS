@@ -42,7 +42,15 @@ function reportError(error) {
 
 const queryClient = new QueryClient({
   queryCache: new QueryCache({ onError: reportError }),
-  mutationCache: new MutationCache({ onError: reportError }),
+  mutationCache: new MutationCache({
+    // A mutation may answer some errors itself — approving a payroll turns the
+    // "confirm these days" reply into a dialog — by naming their codes in
+    // meta.quietCodes. Every other error still gets the toast.
+    onError: (error, _variables, _context, mutation) => {
+      if (error instanceof ApiError && mutation?.options?.meta?.quietCodes?.includes(error.code)) return
+      reportError(error)
+    },
+  }),
   defaultOptions: {
     queries: {
       /**

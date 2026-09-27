@@ -1,160 +1,149 @@
-import { X, Download, Building2, User } from 'lucide-react'
+import { X, Download, Loader2, AlertTriangle } from 'lucide-react'
+import { usePayslipDetail, downloadRunPayslip } from '../../hooks/usePayroll'
+import { money, days, formatDay, monthLabel, LOP_BASIS } from './format'
+import { useDownload } from './useDownload'
 
-function fmt(n) {
-  return '₹' + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2 })
-}
+/**
+ * One payslip, as the server stored it.
+ *
+ * The version this replaces drew a payslip in the browser from an estimate,
+ * and printed things nobody had recorded: a GSTIN, a PF account number, a pay
+ * date of 31 March for every month, a logo. Every value here is the payslip's
+ * own — a statutory number that is not on record shows as a dash, never a
+ * guess — and the PDF is the server's.
+ */
+export default function PayslipModal({ runId, payslipId, runStatus, onClose }) {
+  const { data: slip, isLoading } = usePayslipDetail(runId, payslipId)
+  const { busy, start } = useDownload()
+  const downloading = busy === payslipId
+  const handleDownload = () => start(payslipId, () => downloadRunPayslip(runId, payslipId))
 
-export default function PayslipModal({ open, onClose, employee, month }) {
-  if (!open || !employee) return null
-
-  const { full_name, name: legacyName, employee_id, department, designation, pan, bank_name, bank_account, ifsc, bank: legacyBank, salary } = employee
-  const { basic, hra, da, special, gross, pf, esi, pt, net } = salary
-
-  const name = full_name || legacyName || ''
-  const bankNameVal = bank_name || legacyBank || 'Bank Transfer'
-  const bank = bank_account ? `${bankNameVal} (${bank_account}${ifsc ? ` · IFSC: ${ifsc}` : ''})` : bankNameVal
-  const initials = name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
-
-  function handlePrint() { window.print() }
+  const currency = slip?.currency ?? 'INR'
+  const m = (v) => money(v, currency)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl my-8" id="payslip-print">
-
-        {/* Action bar — hidden on print */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 print:hidden">
-          <p className="text-base font-semibold text-gray-900">Payslip</p>
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-label="Payslip">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl my-8 overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <p className="text-base font-semibold text-gray-900">
+              {slip ? `${slip.full_name} — ${monthLabel(slip.year, slip.month)}` : 'Payslip'}
+            </p>
+            {slip && <p className="text-xs text-gray-400 font-mono">{slip.employee_code}</p>}
+          </div>
           <div className="flex items-center gap-2">
-            <button onClick={handlePrint}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors">
-              <Download className="w-4 h-4" /> Download / Print
+            <button onClick={handleDownload} disabled={!slip || downloading}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm font-medium text-gray-700 disabled:opacity-50">
+              {downloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              PDF
             </button>
-            <button onClick={onClose}
-              className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
+            <button onClick={onClose} aria-label="Close" className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600">
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* Payslip body */}
-        <div className="p-8 space-y-6">
+        {isLoading || !slip ? (
+          <p className="p-10 text-center text-sm text-gray-400">Loading payslip…</p>
+        ) : (
+          <div className="p-6 space-y-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1.5 text-sm">
+              <Line label="Designation" value={slip.designation} />
+              <Line label="UAN" value={slip.uan} />
+              <Line label="Department" value={slip.department} />
+              <Line label="PF member ID" value={slip.pf_member_id} />
+              <Line label="Joining date" value={formatDay(slip.date_of_joining)} />
+              <Line label="ESIC number" value={slip.esic_number} />
+              <Line label="Layout" value={`${slip.country} · ${slip.currency}`} />
+              <Line label="PAN" value={slip.pan} />
+            </div>
+            {!slip.pdf && (
+              <p className="text-xs text-gray-400">
+                {runStatus === 'draft'
+                  ? 'UAN, PF, ESIC and PAN are copied onto the payslip when the payroll is approved; the PDF is stored once it is paid.'
+                  : 'The PDF is stored once the payroll is paid; until then it is a preview.'}
+              </p>
+            )}
 
-          {/* Company header */}
-          <div className="flex items-start justify-between border-b border-gray-200 pb-5">
-            <div className="flex items-center gap-3">
-              <img src="/logo.png" alt="CareerMap Solutions" className="h-24 w-auto object-contain shrink-0" />
-              <div>
-                <p className="font-bold text-gray-900 text-lg leading-tight">CareerMap Solutions</p>
-                <p className="text-xs text-gray-500">Mumbai, Maharashtra — GSTIN: 27AABCC1234F1Z5</p>
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <Stat label="Days in month" value={days(slip.days_in_month)} />
+              <Stat label="Paid days" value={days(slip.paid_days)} />
+              <Stat label="Loss of pay" value={days(slip.lop_days)} />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Lines title="Earnings" rows={slip.earnings} total={['Gross earnings', slip.gross_earnings]} m={m} showRate />
+              <Lines title="Deductions" rows={slip.deductions} total={['Total deductions', slip.total_deductions]} m={m} />
+            </div>
+
+            <div className="rounded-xl bg-gray-900 px-5 py-4 flex items-center justify-between">
+              <p className="text-gray-300 text-sm font-medium">Net pay</p>
+              <p className="text-white text-xl font-bold">{m(slip.net_payable)}</p>
+            </div>
+
+            <div className="text-xs text-gray-500 space-y-0.5">
+              <p className="font-semibold text-gray-600">Employer contributions (not deducted from pay)</p>
+              <p>PF pension (EPS) {m(slip.employer.eps)} · PF (EPF) {m(slip.employer.epf)} · ESI {m(slip.employer.esi)}</p>
+              <p>
+                Paid on {days(slip.payable_days)} of {slip.pay_basis_days} days ({LOP_BASIS[slip.lop_basis] ?? slip.lop_basis})
+                {slip.basis?.tdsEnabled === false ? ' · no income tax deducted through payroll' : ''}
+              </p>
+            </div>
+
+            {slip.warnings.length > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-1">
+                {slip.warnings.map((w) => (
+                  <p key={w} className="flex gap-2 text-xs text-amber-800">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> {w}
+                  </p>
+                ))}
               </div>
-            </div>
-            <div className="text-right">
-              <p className="text-sm font-semibold text-gray-700">Payslip for</p>
-              <p className="text-base font-bold text-blue-600">{month}</p>
-            </div>
+            )}
           </div>
-
-          {/* Employee info */}
-          <div className="grid grid-cols-2 gap-6">
-            <div className="space-y-2">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
-                  <span className="text-blue-700 text-sm font-bold">{initials}</span>
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-900">{name}</p>
-                  <p className="text-xs text-gray-500">{designation}</p>
-                </div>
-              </div>
-              <InfoLine label="Employee ID" value={employee_id} />
-              <InfoLine label="Department" value={department} />
-              <InfoLine label="PAN" value={pan} />
-            </div>
-            <div className="space-y-2 pt-12">
-              <InfoLine label="Bank" value={bank} />
-              <InfoLine label="Pay Period" value={month} />
-              <InfoLine label="Pay Date" value="31 Mar 2026" />
-              <InfoLine label="PF Account" value="MH/BOM/12345/001" />
-            </div>
-          </div>
-
-          {/* Earnings & Deductions */}
-          <div className="grid grid-cols-2 gap-6">
-
-            {/* Earnings */}
-            <div>
-              <div className="bg-green-50 rounded-t-lg px-4 py-2.5 border border-green-200">
-                <p className="text-sm font-semibold text-green-800">Earnings</p>
-              </div>
-              <div className="border border-t-0 border-green-200 rounded-b-lg overflow-hidden divide-y divide-gray-100">
-                <SalaryRow label="Basic Salary" amount={basic} />
-                <SalaryRow label="House Rent Allowance (HRA)" amount={hra} />
-                <SalaryRow label="Dearness Allowance (DA)" amount={da} />
-                <SalaryRow label="Special Allowance" amount={special} />
-                <div className="flex justify-between items-center px-4 py-2.5 bg-green-50">
-                  <p className="text-sm font-bold text-green-900">Gross Earnings</p>
-                  <p className="text-sm font-bold text-green-700">{fmt(gross)}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Deductions */}
-            <div>
-              <div className="bg-red-50 rounded-t-lg px-4 py-2.5 border border-red-200">
-                <p className="text-sm font-semibold text-red-800">Deductions</p>
-              </div>
-              <div className="border border-t-0 border-red-200 rounded-b-lg overflow-hidden divide-y divide-gray-100">
-                <SalaryRow label="Provident Fund (12%)" amount={pf} />
-                <SalaryRow label={`ESI (0.75%)${esi === 0 ? ' — N/A' : ''}`} amount={esi} dimmed={esi === 0} />
-                <SalaryRow label="Professional Tax (PT)" amount={pt} />
-                <SalaryRow label="TDS" amount={0} dimmed />
-                <div className="flex justify-between items-center px-4 py-2.5 bg-red-50">
-                  <p className="text-sm font-bold text-red-900">Total Deductions</p>
-                  <p className="text-sm font-bold text-red-700">{fmt(pf + esi + pt)}</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Net pay */}
-          <div className="bg-blue-600 rounded-xl px-6 py-4 flex items-center justify-between">
-            <div>
-              <p className="text-blue-100 text-sm">Net Take-Home Pay</p>
-              <p className="text-white text-xs mt-0.5">After all deductions</p>
-            </div>
-            <p className="text-white text-2xl font-bold">{fmt(net)}</p>
-          </div>
-
-          {/* Footer */}
-          <div className="border-t border-gray-100 pt-4 flex items-center justify-between">
-            <p className="text-xs text-gray-400">This is a computer-generated payslip and does not require a signature.</p>
-            <div className="flex items-center gap-1 text-xs text-gray-400">
-              <Building2 className="w-3 h-3" />
-              CareerMap Solutions Pvt. Ltd.
-            </div>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   )
 }
 
-function InfoLine({ label, value }) {
+function Line({ label, value }) {
   return (
-    <div className="flex gap-2">
-      <span className="text-xs text-gray-400 w-24 shrink-0">{label}</span>
-      <span className="text-xs font-medium text-gray-700">{value}</span>
+    <div className="flex gap-3">
+      <span className="w-28 shrink-0 text-gray-400">{label}</span>
+      <span className="font-medium text-gray-800">{value || '—'}</span>
     </div>
   )
 }
 
-function SalaryRow({ label, amount, dimmed = false }) {
+function Stat({ label, value }) {
   return (
-    <div className={`flex justify-between items-center px-4 py-2.5 ${dimmed ? 'opacity-40' : ''}`}>
-      <p className="text-sm text-gray-600">{label}</p>
-      <p className="text-sm font-medium text-gray-900">
-        {amount === 0 ? '—' : '₹' + Number(amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-      </p>
+    <div className="rounded-lg bg-gray-50 border border-gray-100 py-2">
+      <p className="text-lg font-bold text-gray-900">{value}</p>
+      <p className="text-xs text-gray-500">{label}</p>
+    </div>
+  )
+}
+
+function Lines({ title, rows, total, m, showRate = false }) {
+  return (
+    <div className="rounded-xl border border-gray-200 overflow-hidden">
+      <p className="px-4 py-2 bg-gray-50 border-b border-gray-200 text-sm font-semibold text-gray-700">{title}</p>
+      <div className="divide-y divide-gray-100">
+        {rows.length === 0 && <p className="px-4 py-2.5 text-sm text-gray-400">None</p>}
+        {rows.map((row) => (
+          <div key={row.code} className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
+            <span className="text-gray-700">{row.label}</span>
+            <span className="text-right shrink-0">
+              {showRate && row.rate !== null && <span className="text-xs text-gray-400 mr-2 whitespace-nowrap">of {m(row.rate)}</span>}
+              <span className="font-medium text-gray-900">{m(row.amount)}</span>
+            </span>
+          </div>
+        ))}
+        <div className="flex items-center justify-between px-4 py-2 bg-gray-50 text-sm font-semibold">
+          <span>{total[0]}</span>
+          <span>{m(total[1])}</span>
+        </div>
+      </div>
     </div>
   )
 }

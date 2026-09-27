@@ -148,3 +148,55 @@ export const markPaidSchema = z
 export const payslipIdParamSchema = z.object({
   id: z.uuid('That is not a valid payslip id'),
 })
+
+// ── Bank accounts and the bank transfer file ────────────────────────────────
+
+export const bankAccountSchema = z
+  .object({
+    bankName: z.string().trim().min(2, 'Name the bank').max(80),
+    accountHolderName: z.string().trim().min(2, 'The name on the account').max(100),
+    // Kept as text: leading zeros are part of an account number.
+    accountNumber: z.string().trim().regex(/^\d{9,18}$/, 'An account number is 9 to 18 digits'),
+    ifsc: z.string().trim().regex(/^[A-Za-z]{4}0[A-Za-z0-9]{6}$/, 'An IFSC looks like HDFC0001234'),
+    branch: z.string().trim().max(100).nullish(),
+    accountType: z.enum(['Savings', 'Current', 'Salary']).nullish(),
+    markVerified: z.boolean().optional(),
+  })
+  .strict()
+
+export const bankVerifySchema = z
+  .object({
+    decision: z.enum(['verified', 'rejected']),
+    remarks: z.string().trim().max(300).nullish(),
+  })
+  .strict()
+
+export const bankFileTemplateSchema = z
+  .object({
+    columns: z
+      .array(
+        z
+          .object({
+            header: z.string().max(60),
+            field: z.enum([
+              'beneficiary_name', 'employee_name', 'employee_code', 'account_number', 'ifsc',
+              'bank_name', 'amount', 'narration', 'pay_date', 'fixed',
+            ]),
+            text: z.string().max(60).nullish(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(25),
+    includeHeader: z.boolean(),
+    dateFormat: z.enum(['DD/MM/YYYY', 'YYYY-MM-DD', 'DD-MM-YYYY', 'MM/DD/YYYY']),
+    narration: z.string().max(60),
+    onlyVerified: z.boolean(),
+  })
+  .strict()
+
+export const bankFileQuerySchema = z
+  .object({
+    payDate: z.iso.date('The payment date, as YYYY-MM-DD').optional(),
+  })
+  .strict()

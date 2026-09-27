@@ -68,6 +68,7 @@ model Organization {
   payslipLines             PayslipLine[]
   tdsDirectives            EmployeeTdsDirective[]
   monthlyEntries           EmployeeMonthlyEntry[]
+  bankFileTemplates        BankFileTemplate[]
 
   auditLogs AuditLog[]
 }

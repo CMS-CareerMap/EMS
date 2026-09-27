@@ -13,6 +13,7 @@ import Employees from './pages/Employees'
 import Attendance from './pages/Attendance'
 import Leave from './pages/Leave'
 import Payroll from './pages/Payroll'
+import MyPayslips from './pages/MyPayslips'
 import Reports from './pages/Reports'
 import Documents from './pages/Documents'
 import Settings from './pages/Settings'
@@ -85,6 +86,10 @@ export default function App() {
 
         <Route element={<ProtectedRoute permission={ROUTE_PERMISSIONS['/payroll']} />}>
           <Route path="/payroll" element={<Payroll />} />
+        </Route>
+
+        <Route element={<ProtectedRoute permission={ROUTE_PERMISSIONS['/payslips']} />}>
+          <Route path="/payslips" element={<MyPayslips />} />
         </Route>
 
         <Route element={<ProtectedRoute permission={ROUTE_PERMISSIONS['/documents']} />}>

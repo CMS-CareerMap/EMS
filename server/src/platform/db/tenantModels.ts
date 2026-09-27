@@ -38,6 +38,7 @@ export const TENANT_MODELS = [
   'PayslipLine',
   'EmployeeTdsDirective',
   'EmployeeMonthlyEntry',
+  'BankFileTemplate',
 ] as const
 
 export const TENANT_MODEL_SET: ReadonlySet<string> = new Set(TENANT_MODELS)

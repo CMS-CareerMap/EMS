@@ -117,12 +117,11 @@ if (!configured && import.meta.env.DEV) {
       { id: 'lb-4', employee_id: 'demo-manager-id', year: 2026, casual: 12, sick: 12, earned: 15, wfh: 24, comp_off: 5 },
       { id: 'lb-5', employee_id: 'demo-employee-id', year: 2026, casual: 10, sick: 11, earned: 17, wfh: 20, comp_off: 4 },
     ],
-    payroll_runs: [
-      { id: 'pr-1', month: 5, year: 2026, status: 'approved', total_gross: 450000, total_net: 410000 }
-    ],
-    payslips: [
-      { id: 'ps-1', employee_id: 'demo-employee-id', payroll_run_id: 'pr-1', gross: 100000, basic: 40000, hra: 20000, da: 4000, special_allowance: 36000, pf: 12000, esi: 0, pt: 200, tds: 5000, net: 82800 }
-    ],
+    // Payroll lives on the server since Day 18. A pretend run, payslips and
+    // salary structures here would put figures no payroll produced on the
+    // Reports page, so there are none.
+    payroll_runs: [],
+    payslips: [],
     holidays: [
       { id: 'h-1', name: 'New Year Day', date: '2026-01-01', type: 'national' },
       { id: 'h-2', name: 'Republic Day', date: '2026-01-26', type: 'national' },
@@ -172,14 +171,7 @@ if (!configured && import.meta.env.DEV) {
       { id: 'n-9', user_id: 'demo-super-admin-id', type: 'system', title: 'System Backup Complete', message: 'Automated database backup executed successfully.', read: false, link: '/settings', created_at: isoInstant(new Date(Date.now() - 1000 * 60 * 15)) },
       { id: 'n-10', user_id: 'demo-super-admin-id', type: 'payroll', title: 'Payroll Run Approved', message: 'May 2026 payroll run finalized.', read: true, link: '/payroll', created_at: isoInstant(new Date(Date.now() - 1000 * 60 * 60 * 12)) }
     ],
-    salary_structures: [
-      { id: 'ss-1', employee_id: 'demo-super-admin-id', ctc: 1500000, gross: 125000, basic: 50000, hra: 25000, da: 5000, special_allowance: 45000, pf: 6000, esi: 0, pt: 200, net_salary: 118800 },
-      { id: 'ss-2', employee_id: 'demo-hr-admin-id', ctc: 1000000, gross: 83333, basic: 33333, hra: 16667, da: 3333, special_allowance: 30000, pf: 4000, esi: 0, pt: 200, net_salary: 79133 },
-      { id: 'ss-3', employee_id: 'demo-payroll-admin-id', ctc: 900000, gross: 75000, basic: 30000, hra: 15000, da: 3000, special_allowance: 27000, pf: 3600, esi: 0, pt: 200, net_salary: 71200 },
-      { id: 'ss-4', employee_id: 'demo-manager-id', ctc: 1800000, gross: 150000, basic: 60000, hra: 30000, da: 6000, special_allowance: 54000, pf: 7200, esi: 0, pt: 200, net_salary: 142600 },
-      { id: 'ss-5', employee_id: 'demo-rm-id', ctc: 1400000, gross: 116667, basic: 46667, hra: 23333, da: 4667, special_allowance: 42000, pf: 5600, esi: 0, pt: 200, net_salary: 110867 },
-      { id: 'ss-6', employee_id: 'demo-employee-id', ctc: 1200000, gross: 100000, basic: 40000, hra: 20000, da: 4000, special_allowance: 36000, pf: 4800, esi: 0, pt: 200, net_salary: 95000 }
-    ]
+    salary_structures: [],
   }
 
   const mockDatabase = loadMockDatabase() || defaultDatabase

@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
-import { estimateSalary } from '../lib/salaryEstimate'
 
 const MONTH_MAP = {
   January: 1, February: 2, March: 3, April: 4, May: 5, June: 6,
@@ -136,18 +135,20 @@ export function useReportsData(monthLabel, selectedDept = 'all', selectedEmpId =
         const slip = monthlyPayslips.find(p => p.employee_id === emp.id) || (payslips || []).find(p => p.employee_id === emp.id)
         const struct = (salaryStructures || []).find(s => s.employee_id === emp.id)
 
-        // Recorded figures win. The estimate is only a fallback for an employee
-        // with no payslip and no saved structure, and it is the same estimate
-        // the rest of the app shows rather than a fifth variant of it.
-        const fallback = estimateSalary(emp.ctc)
+        // Recorded figures only. This used to fall back to an estimate worked
+        // out from CTC, and printed a "PF account number" made up from the PAN
+        // (MH/BOM/<PAN>/001) — a statutory identifier nobody had issued. What
+        // is not on record is null, and the page shows a dash.
+        // These reports move to the server's payroll records on Day 19.
+        const recorded = (value) => (value === null || value === undefined ? null : Number(value))
 
-        const gross = Number(slip?.gross ?? struct?.gross ?? fallback.gross)
-        const basic = Number(slip?.basic ?? struct?.basic ?? fallback.basic)
-        const pf = Number(slip?.pf ?? struct?.pf ?? fallback.pf)
-        const esi = Number(slip?.esi ?? struct?.esi ?? fallback.esi)
-        const pt = Number(slip?.pt ?? struct?.pt ?? fallback.pt)
-        const net = Number(slip?.net ?? struct?.net_salary ?? (gross - pf - esi - pt))
-        const pf_acc_no = emp.pan ? `MH/BOM/${emp.pan}/001` : `MH/BOM/${(emp.employee_id || emp.id.slice(0, 5)).toUpperCase()}/001`
+        const gross = recorded(slip?.gross ?? struct?.gross)
+        const basic = recorded(slip?.basic ?? struct?.basic)
+        const pf = recorded(slip?.pf ?? struct?.pf)
+        const esi = recorded(slip?.esi ?? struct?.esi)
+        const pt = recorded(slip?.pt ?? struct?.pt)
+        const net = recorded(slip?.net ?? struct?.net_salary)
+        const uan = emp.uan || null
 
         return {
           id: emp.employee_id || emp.id.slice(0, 8),
@@ -160,7 +161,7 @@ export function useReportsData(monthLabel, selectedDept = 'all', selectedEmpId =
           esi,
           pt,
           net,
-          pf_acc_no,
+          uan,
         }
       })
 
@@ -185,17 +186,11 @@ export function useReportsData(monthLabel, selectedDept = 'all', selectedEmpId =
         const yVal = d.getFullYear()
         const mLabel = d.toLocaleString('en-US', { month: 'short' })
         
+        // A month with no payroll run has no payout — not a guess of one.
         const run = (payrollRuns || []).find(r => r.month === mVal && r.year === yVal)
-        let amount = 0
-        if (run) {
-          amount = Number(run.total_net) / 100000
-        } else {
-          const estMonthlyNet = (salaryStructures || []).reduce((s, st) => s + Number(st.net_salary || 0), 0)
-          amount = (estMonthlyNet || 410000) / 100000
-        }
         trendData.push({
           month: mLabel,
-          amount: Number(amount.toFixed(2))
+          amount: run ? Number((Number(run.total_net) / 100000).toFixed(2)) : null
         })
       }
 
