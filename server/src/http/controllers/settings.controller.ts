@@ -92,6 +92,7 @@ function policyPayload(policy: Policy) {
     pf_employer: num(policy.pfEmployerRate),
     pf_restrict_to_ceiling: policy.pfRestrictToCeiling,
     pf_wage_ceiling: num(policy.pfWageCeiling),
+    eps_wage_ceiling: num(policy.epsWageCeiling),
     esi_employee: num(policy.esiEmployeeRate),
     esi_employer: num(policy.esiEmployerRate),
     esi_threshold: num(policy.esiThreshold),
@@ -103,6 +104,8 @@ function policyPayload(policy: Policy) {
     weekly_off_day_names: policy.weeklyOffDays.map((d) => WEEKDAY_NAMES[d] ?? String(d)),
     leave_year_start_month: policy.leaveYearStartMonth,
     fiscal_year_start_month: policy.fiscalYearStartMonth,
+    lop_basis: policy.lopBasis,
+    sandwich_rule: policy.sandwichRule,
     effective_from: fromDateColumn(policy.effectiveFrom),
   }
 }

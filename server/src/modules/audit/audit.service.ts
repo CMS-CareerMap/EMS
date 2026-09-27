@@ -44,6 +44,13 @@ export type AuditAction =
   | 'employee.updated'
   | 'employee.imported'
   | 'salary.set'
+  // Payroll
+  | 'payroll.run_created'
+  | 'payroll.run_recalculated'
+  | 'payroll.run_discarded'
+  | 'payroll.tds_directive_set'
+  | 'payroll.entry_set'
+  | 'payroll.entry_removed'
   // Leave and attendance
   | 'leave.applied_for'
   | 'leave.withdrawn'

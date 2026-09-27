@@ -56,6 +56,10 @@ export const PERMISSIONS = [
   'payroll:structure:manage',
   'payroll:run:create',
   'payroll:run:approve',
+  // This month's amount of a monthly component — Incentive. Separate because
+  // the client gives it to HR as well as Accounts (§A1.5), and HR holds
+  // nothing else in payroll: no salaries, no runs, no payslips.
+  'payroll:entry:manage',
   'payslip:read',
 
   'document:read',

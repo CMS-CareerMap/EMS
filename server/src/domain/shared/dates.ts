@@ -122,3 +122,18 @@ export function mondayOf(day: CalendarDate): CalendarDate {
   d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7))
   return d.toISOString().slice(0, 10)
 }
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+] as const
+
+/** A month as a key: 2026, 9 → "2026-09". Sorts as a string. */
+export function monthKey(year: number, month: number): string {
+  return `${year}-${String(month).padStart(2, '0')}`
+}
+
+/** A month as people say it: 2026, 9 → "September 2026". */
+export function monthName(year: number, month: number): string {
+  return `${MONTH_NAMES[month - 1] ?? month} ${year}`
+}

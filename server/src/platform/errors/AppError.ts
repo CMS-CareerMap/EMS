@@ -34,3 +34,11 @@ export const Conflict = (message = 'Conflict', details?: unknown) =>
 
 export const ValidationFailed = (message = 'Validation failed', details?: unknown) =>
   new AppError(422, 'VALIDATION_FAILED', message, details)
+
+/**
+ * The request was well formed and the answer is still no, because of the
+ * state of things — a payroll run with employees who have no TDS directive.
+ * `details` says what has to change for it to succeed.
+ */
+export const BusinessRule = (message: string, details?: unknown) =>
+  new AppError(422, 'BUSINESS_RULE', message, details)

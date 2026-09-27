@@ -14,6 +14,7 @@ import { attendanceRouter } from './http/routes/attendance.routes'
 import { leaveRouter } from './http/routes/leave.routes'
 import { dashboardRouter } from './http/routes/dashboard.routes'
 import { payrollRouter } from './http/routes/payroll.routes'
+import { payrollRunsRouter } from './http/routes/payrollRuns.routes'
 import { masterDataRouter } from './http/routes/masterData.routes'
 import { holidaysRouter } from './http/routes/holidays.routes'
 
@@ -64,6 +65,7 @@ export function createApp() {
   app.use('/api/leave-requests', leaveRouter)
   app.use('/api/dashboard', dashboardRouter)
   app.use('/api/payroll', payrollRouter)
+  app.use('/api/payroll-runs', payrollRunsRouter)
   app.use('/api/master-data', masterDataRouter)
   app.use('/api/holidays', holidaysRouter)
 

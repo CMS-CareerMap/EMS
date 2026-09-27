@@ -11,6 +11,8 @@ import {
   ptTableRows,
   PT_ANNUAL_CAP,
   EPS_MONTHLY_CAP,
+  PF_WAGE_CEILING,
+  epsMonthlyCap,
   type PtSlabRule,
 } from './statutory'
 
@@ -100,6 +102,54 @@ describe('provident fund', () => {
   it('honours an edited rate, because the client asked for that', () => {
     const result = computePf({ ...POLICY, employeeRate: 10, pfWages: 15_000, epsMember: true })
     expect(result.employee).toBe(1_500)
+  })
+
+  it('never puts more into the pension than the employer paid in', () => {
+    // An employer rate edited below 8.33% would otherwise leave EPF negative.
+    const result = computePf({ ...POLICY, employerRate: 8, pfWages: 15_000, epsMember: true })
+    expect(result.employerTotal).toBe(1_200)
+    expect(result.employerEps).toBe(1_200)
+    expect(result.employerEpf).toBe(0)
+  })
+})
+
+describe('the September 2026 ceilings', () => {
+  const TODAY = { employeeRate: 12, employerRate: 12, restrictToCeiling: true, wageCeiling: 25_000 }
+
+  it('caps PF at ₹3,000 on the ₹25,000 ceiling', () => {
+    const result = computePf({ ...TODAY, epsWageCeiling: 15_000, pfWages: 50_000, epsMember: true })
+    expect(result.pfWages).toBe(25_000)
+    expect(result.employee).toBe(3_000)
+    // The pension share still stops at 8.33% of ₹15,000; EPF takes the rest.
+    expect(result.employerEps).toBe(1_250)
+    expect(result.employerEpf).toBe(1_750)
+  })
+
+  it('moves the pension cap to ₹2,083 when its ceiling moves to ₹25,000', () => {
+    const result = computePf({ ...TODAY, epsWageCeiling: 25_000, pfWages: 50_000, epsMember: true })
+    // 25,000 × 8.33% = 2,082.50, to the nearest rupee.
+    expect(result.employerEps).toBe(2_083)
+    expect(result.employerEpf).toBe(917)
+  })
+
+  it('derives the monthly pension cap from the ceiling rather than remembering it', () => {
+    expect(epsMonthlyCap(15_000)).toBe(1_250)
+    expect(epsMonthlyCap(25_000)).toBe(2_083)
+    expect(EPS_MONTHLY_CAP).toBe(1_250)
+  })
+
+  it('falls back to today’s EPF ceiling when a caller passes none', () => {
+    const result = computePf({ employeeRate: 12, employerRate: 12, restrictToCeiling: true, pfWages: 50_000, epsMember: true })
+    expect(result.pfWages).toBe(PF_WAGE_CEILING)
+    expect(result.employee).toBe(3_000)
+  })
+
+  it('opens the pension to a new joiner within the pension ceiling in force', () => {
+    const joiner = { dateOfJoining: '2026-10-01', pfWagesAtJoining: 20_000, hasPriorMembership: false }
+    // At ₹15,000 they are a high earner, and excluded; at ₹25,000 they are not.
+    expect(isEpsMember({ ...joiner, epsWageCeiling: 15_000 })).toBe(false)
+    expect(isEpsMember({ ...joiner, epsWageCeiling: 25_000 })).toBe(true)
+    expect(isEpsMember({ ...joiner, pfWagesAtJoining: 30_000, epsWageCeiling: 25_000 })).toBe(false)
   })
 })
 

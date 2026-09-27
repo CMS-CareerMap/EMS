@@ -22,10 +22,17 @@ model OrganizationPolicy {
   pfEmployeeRate      Decimal @default(12) @db.Decimal(5, 2)
   pfEmployerRate      Decimal @default(12) @db.Decimal(5, 2)
   /// The client wants PF "kept low", which in practice means restricting the
-  /// contribution to the statutory wage ceiling so it caps at ₹1,800/month.
-  /// A flag rather than a hardcoded rule, because it is their choice to make.
+  /// contribution to the statutory wage ceiling — ₹3,000/month at 12% of
+  /// ₹25,000 (it was ₹1,800 at ₹15,000 before 17 September 2026). A flag
+  /// rather than a hardcoded rule, because it is their choice to make.
   pfRestrictToCeiling Boolean @default(true)
-  pfWageCeiling       Decimal @default(15000) @db.Decimal(12, 2)
+  /// The EPF wage ceiling. ₹25,000 from 17 September 2026 (S.O. 5109(E));
+  /// ₹15,000 before. A setting, so the next revision is not a code change.
+  pfWageCeiling       Decimal @default(25000) @db.Decimal(12, 2)
+  /// The pension scheme's ceiling: EPS is 8.33% of wages up to this. Separate
+  /// from the EPF ceiling because the September 2026 revision had not been
+  /// clarified for pensionable wages — ₹15,000 until the accountant says so.
+  epsWageCeiling      Decimal @default(15000) @db.Decimal(12, 2)
 
   esiEmployeeRate Decimal @default(0.75) @db.Decimal(5, 2)
   esiEmployerRate Decimal @default(3.25) @db.Decimal(5, 2)
@@ -56,6 +63,18 @@ model OrganizationPolicy {
   /// Which month the financial year begins in, for reports.
   fiscalYearStartMonth Int @default(4)
 
+  /// What one day of pay is worth: monthly gross divided by this many days.
+  ///
+  /// Company policy, not law, and the three common ones give different answers
+  /// for the same absence — which is why it is a setting, and why every
+  /// payslip records the one it was calculated on.
+  lopBasis LopBasis @default(calendar_days)
+
+  /// Whether a weekly off or holiday between two days of loss of pay is itself
+  /// unpaid. Absent Friday and Monday: with this on, the weekend goes too.
+  /// Off by default — it costs employees money, so it is the company's call.
+  sandwichRule Boolean @default(false)
+
   effectiveFrom DateTime  @db.Date
   /// Null means "current". Set when a later policy supersedes this one.
   effectiveTo   DateTime? @db.Date
@@ -68,6 +87,18 @@ model OrganizationPolicy {
 
   @@unique([organizationId, effectiveFrom])
   @@index([organizationId, effectiveTo])
+}
+
+/// The number of days a month's pay is divided into.
+enum LopBasis {
+  /// The days the month actually has — 28 to 31. The default, and the only
+  /// basis on which a day costs the same as the day it is.
+  calendar_days
+  /// Every month is thirty days, February included. A full month is always
+  /// the full salary; a day's absence costs the same in every month.
+  fixed_30
+  /// The month's working days: calendar days less weekly offs and holidays.
+  working_days
 }
 
 /// Professional tax, which is levied per STATE and per salary band.

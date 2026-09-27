@@ -28,19 +28,42 @@ const FIELDS = [
   ['pf_employer', 'pfEmployerRate'],
   ['pf_restrict_to_ceiling', 'pfRestrictToCeiling'],
   ['pf_wage_ceiling', 'pfWageCeiling'],
+  ['eps_wage_ceiling', 'epsWageCeiling'],
   ['esi_employee', 'esiEmployeeRate'],
   ['esi_employer', 'esiEmployerRate'],
   ['esi_threshold', 'esiThreshold'],
   ['pay_day', 'payDay'],
   ['payslip_lock', 'payslipLockDay'],
   ['fiscal_year_start_month', 'fiscalYearStartMonth'],
+  ['lop_basis', 'lopBasis'],
+  ['sandwich_rule', 'sandwichRule'],
 ]
 
 const DAYS = Array.from({ length: 28 }, (_, i) => i + 1)
 
+/** What one day of pay is, for each basis the server knows. */
+const LOP_BASES = [
+  {
+    value: 'calendar_days',
+    label: 'Monthly pay ÷ days in the month',
+    hint: 'A day is a 30th of September and a 31st of October — always exactly one day of that month.',
+  },
+  {
+    value: 'fixed_30',
+    label: 'Monthly pay ÷ 30, every month',
+    hint: 'Every month counts as 30 days, February included. A full month is always the full salary.',
+  },
+  {
+    value: 'working_days',
+    label: 'Monthly pay ÷ working days in the month',
+    hint: 'Days in the month less weekly offs and holidays, so a day costs more in a month with more holidays.',
+  },
+]
+
 /** A form value as the server wants it: numbers as numbers, blank as null. */
 function asValue(key, value) {
-  if (key === 'pf_restrict_to_ceiling') return Boolean(value)
+  if (key === 'pf_restrict_to_ceiling' || key === 'sandwich_rule') return Boolean(value)
+  if (key === 'lop_basis') return value || null
   if (value === '' || value == null) return null
   return Number(value)
 }
@@ -116,11 +139,14 @@ export default function PayrollSettings() {
         <Field label="Employer Contribution" hint="Split by payroll into pension (EPS) and provident fund (EPF)">
           <PercentInput value={form.pf_employer} onChange={(v) => set('pf_employer', v)} disabled={!canEdit} />
         </Field>
-        <Field label="Restrict to the Wage Ceiling" hint="On: contributions are worked out on PF wages up to the ceiling — ₹1,800 a month at 12% of ₹15,000. The client's choice.">
+        <Field label="Restrict to the Wage Ceiling" hint="On: contributions are worked out on PF wages up to the ceiling — ₹3,000 a month at 12% of ₹25,000. Off: on full PF wages.">
           <Toggle checked={Boolean(form.pf_restrict_to_ceiling)} onChange={(v) => set('pf_restrict_to_ceiling', v)} disabled={!canEdit} label="Restrict PF to the wage ceiling" />
         </Field>
-        <Field label="Wage Ceiling" hint="The statutory ceiling. Kept as a setting so a revision is not a code change.">
+        <Field label="Wage Ceiling" hint="The statutory EPF ceiling — ₹25,000 from 17 Sept 2026, ₹15,000 before. Kept as a setting so a revision is not a code change.">
           <MoneyInput value={form.pf_wage_ceiling} onChange={(v) => set('pf_wage_ceiling', v)} disabled={!canEdit} />
+        </Field>
+        <Field label="Pension (EPS) Ceiling" hint="The employer's pension share is 8.33% of PF wages up to this — ₹1,250 a month at ₹15,000, ₹2,083 at ₹25,000. The rest of the employer's share goes to EPF. Confirm the figure with your accountant.">
+          <MoneyInput value={form.eps_wage_ceiling} onChange={(v) => set('eps_wage_ceiling', v)} disabled={!canEdit} />
         </Field>
       </Section>
 
@@ -148,10 +174,21 @@ export default function PayrollSettings() {
             {DAYS.map((d) => <option key={d} value={d}>{d} of the month</option>)}
           </select>
         </Field>
-        <Field label="Financial Year Starts" hint="For income tax. April in India.">
+        <Field label="Financial Year Starts" hint="For reports. Income tax always runs April to March, whatever this says.">
           <select className={inpSm} value={form.fiscal_year_start_month ?? ''} onChange={(e) => set('fiscal_year_start_month', e.target.value)} disabled={!canEdit}>
             {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
           </select>
+        </Field>
+      </Section>
+
+      <Section title="Loss of Pay" desc="How an unpaid day is counted. Weekly offs and holidays inside someone's employment are paid — unless the sandwich rule below takes them.">
+        <Field label="One Day's Pay" hint={LOP_BASES.find((b) => b.value === form.lop_basis)?.hint}>
+          <select className={`${inpSm} w-full sm:w-auto max-w-full`} value={form.lop_basis ?? 'calendar_days'} onChange={(e) => set('lop_basis', e.target.value)} disabled={!canEdit}>
+            {LOP_BASES.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
+          </select>
+        </Field>
+        <Field label="Sandwich Rule" hint="On: a weekly off or holiday between two days of loss of pay is unpaid too — absent Saturday and Monday costs the Sunday as well.">
+          <Toggle checked={Boolean(form.sandwich_rule)} onChange={(v) => set('sandwich_rule', v)} disabled={!canEdit} label="Apply the sandwich rule" />
         </Field>
       </Section>
 

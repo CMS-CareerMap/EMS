@@ -70,3 +70,62 @@ export const salaryStructureSchema = z
       .max(30),
   })
   .strict()
+
+// ── Payroll runs ────────────────────────────────────────────────────────────
+
+/** A payroll month, in a body or a query string. */
+export const payrollMonthSchema = z.object({ year, month }).strict()
+
+export const payrollRunParamSchema = z.object({
+  id: z.uuid('That is not a valid payroll run id'),
+})
+
+export const payslipParamSchema = z.object({
+  id: z.uuid('That is not a valid payroll run id'),
+  payslipId: z.uuid('That is not a valid payslip id'),
+})
+
+// ── What people enter before a run ──────────────────────────────────────────
+
+/**
+ * A TDS directive: from this month, deduct this much each month.
+ *
+ * A zero is allowed and is not the same as nothing — the service insists on a
+ * reason for it, so that "no tax" is always a decision somebody wrote down.
+ */
+export const tdsDirectiveSchema = z
+  .object({
+    employeeId: z.uuid('employeeId must be a valid id'),
+    year,
+    month,
+    // A typo guard, not a tax rule: nobody on this payroll pays a crore a month.
+    monthlyAmount: z.number().min(0, 'Tax cannot be negative').max(10_000_000),
+    reason: z.string().trim().max(300).nullish(),
+  })
+  .strict()
+
+export const financialYearQuerySchema = z
+  .object({
+    financialYear: z.coerce.number().int().min(2000).max(2100),
+  })
+  .strict()
+
+/**
+ * This month's amount of a monthly component — Incentive, per the client.
+ * Positive: removing one is a DELETE, not an entry of zero, because "no
+ * incentive this month" is the absence of a row.
+ */
+export const monthlyEntrySchema = z
+  .object({
+    employeeId: z.uuid('employeeId must be a valid id'),
+    componentCode: z.string().regex(/^[A-Z0-9_]{1,20}$/, 'A component code, such as INCENTIVE'),
+    year,
+    month,
+    amount: z.number().positive('Enter an amount above zero — or remove the entry').max(10_000_000),
+    note: z.string().trim().max(300).nullish(),
+  })
+  .strict()
+
+export const monthlyEntryParamSchema = z.object({
+  id: z.uuid('That is not a valid entry id'),
+})

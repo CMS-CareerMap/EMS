@@ -61,6 +61,13 @@ export interface SalaryInput {
   paidDays: number
   daysInMonth: number
 
+  /**
+   * What the pay is prorated by, when the company does not count calendar
+   * days: `payable` out of `basis`, from payDays.proration(). Left out, it is
+   * paidDays out of daysInMonth — which is what calendar days means.
+   */
+  proration?: { payable: number; basis: number }
+
   /** 1–12. February matters for professional tax in some states. */
   month: number
   year: number
@@ -71,6 +78,8 @@ export interface SalaryInput {
     employerRate: number
     restrictToCeiling: boolean
     wageCeiling: number
+    /** The pension scheme's ceiling, which need not be the PF ceiling. */
+    epsWageCeiling: number
     epsMember: boolean
   }
 
@@ -141,6 +150,7 @@ function prorate(amount: number, paidDays: number, daysInMonth: number): number 
 
 export function computeSalary(input: SalaryInput): SalaryResult {
   const paidDays = Math.max(0, Math.min(input.paidDays, input.daysInMonth))
+  const units = input.proration ?? { payable: paidDays, basis: input.daysInMonth }
 
   const earnings: SalaryResult['earnings'] = []
   const componentDeductions: SalaryResult['deductions'] = []
@@ -152,7 +162,7 @@ export function computeSalary(input: SalaryInput): SalaryResult {
     const amount =
       component.entry === 'monthly'
         ? paise(component.amount)
-        : prorate(component.amount, paidDays, input.daysInMonth)
+        : prorate(component.amount, units.payable, units.basis)
 
     if (component.type === 'earning') {
       earnings.push({ code: component.code, label: component.label, amount })
@@ -174,6 +184,7 @@ export function computeSalary(input: SalaryInput): SalaryResult {
         employerRate: input.pf.employerRate,
         restrictToCeiling: input.pf.restrictToCeiling,
         wageCeiling: input.pf.wageCeiling,
+        epsWageCeiling: input.pf.epsWageCeiling,
         epsMember: input.pf.epsMember,
       })
     : { pfWages: 0, employee: 0, employerTotal: 0, employerEps: 0, employerEpf: 0 }
@@ -272,6 +283,29 @@ export function employmentDaysInMonth(input: {
   dateOfJoining: string | null
   lastWorkingDate: string | null
 }): number {
+  const window = employmentWindow(input)
+  if (!window) return 0
+
+  return Number(window.to.slice(8, 10)) - Number(window.from.slice(8, 10)) + 1
+}
+
+/** The first and last day of somebody's employment inside a month, inclusive. */
+export interface EmploymentWindow {
+  from: string
+  to: string
+}
+
+/**
+ * The same window as employmentDaysInMonth, as dates: from the later of joining
+ * and the 1st, to the earlier of their last working day and the month's end.
+ * Null when they were not employed at all that month.
+ */
+export function employmentWindow(input: {
+  year: number
+  month: number
+  dateOfJoining: string | null
+  lastWorkingDate: string | null
+}): EmploymentWindow | null {
   const total = daysInMonth(input.year, input.month)
   const mm = String(input.month).padStart(2, '0')
   const monthStart = `${input.year}-${mm}-01`
@@ -283,7 +317,7 @@ export function employmentDaysInMonth(input: {
     input.lastWorkingDate && input.lastWorkingDate < monthEnd ? input.lastWorkingDate : monthEnd
 
   // Joined after the month ended, or left before it began.
-  if (from > to) return 0
+  if (from > to) return null
 
-  return Number(to.slice(8, 10)) - Number(from.slice(8, 10)) + 1
+  return { from, to }
 }

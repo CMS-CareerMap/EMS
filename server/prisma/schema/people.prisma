@@ -119,6 +119,9 @@ model Employee {
   attendance        Attendance[]
   leaveRequests     LeaveRequest[]
   esiCoverage       EsiCoverage[]
+  payslips          Payslip[]
+  tdsDirectives     EmployeeTdsDirective[]
+  monthlyEntries    EmployeeMonthlyEntry[]
 
   @@unique([organizationId, employeeCode])
   @@index([organizationId, archivedAt])

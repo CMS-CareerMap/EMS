@@ -80,6 +80,7 @@ describe('monthly entries', () => {
       employerRate: 12,
       restrictToCeiling: true,
       wageCeiling: 15_000,
+      epsWageCeiling: 15_000,
       epsMember: true,
     },
     esi: { covered: true, employeeRate: 0.75, employerRate: 3.25 },

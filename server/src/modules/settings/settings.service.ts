@@ -83,6 +83,7 @@ export interface PolicyInput {
   pfEmployerRate?: number | undefined
   pfRestrictToCeiling?: boolean | undefined
   pfWageCeiling?: number | undefined
+  epsWageCeiling?: number | undefined
   esiEmployeeRate?: number | undefined
   esiEmployerRate?: number | undefined
   esiThreshold?: number | undefined
@@ -91,6 +92,8 @@ export interface PolicyInput {
   weeklyOffDays?: number[] | undefined
   leaveYearStartMonth?: number | undefined
   fiscalYearStartMonth?: number | undefined
+  lopBasis?: 'calendar_days' | 'fixed_30' | 'working_days' | undefined
+  sandwichRule?: boolean | undefined
 }
 
 /**
@@ -198,6 +201,7 @@ export async function updatePolicy(ctx: AppContext, input: PolicyInput) {
       pfEmployerRate: current.pfEmployerRate,
       pfRestrictToCeiling: current.pfRestrictToCeiling,
       pfWageCeiling: current.pfWageCeiling,
+      epsWageCeiling: current.epsWageCeiling,
       esiEmployeeRate: current.esiEmployeeRate,
       esiEmployerRate: current.esiEmployerRate,
       esiThreshold: current.esiThreshold,
@@ -206,6 +210,8 @@ export async function updatePolicy(ctx: AppContext, input: PolicyInput) {
       weeklyOffDays: current.weeklyOffDays,
       leaveYearStartMonth: current.leaveYearStartMonth,
       fiscalYearStartMonth: current.fiscalYearStartMonth,
+      lopBasis: current.lopBasis,
+      sandwichRule: current.sandwichRule,
       ...data,
     })
 

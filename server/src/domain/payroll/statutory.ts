@@ -29,16 +29,33 @@ function upToRupee(value: number): number {
 // ── Provident Fund ──────────────────────────────────────────────────────────
 
 /**
- * The statutory wage ceiling for PF and EPS.
+ * The statutory wage ceilings, as the law stood when this was written.
  *
- * A number the law fixes, not a company setting — which is why it is here and
- * the RATE is not. A company may choose to contribute on full wages; it may not
- * choose what the ceiling is.
+ * FALLBACKS ONLY. Payroll always passes the company's figures from
+ * OrganizationPolicy, because the law moves: on 17 September 2026 the EPF
+ * ceiling rose from ₹15,000 to ₹25,000 (S.O. 5109(E)) — the first change since
+ * 2014 — and a ceiling written only here would have been wrong the next day.
+ *
+ * EPS has its own. Whether pensionable wages follow the new EPF ceiling had not
+ * been officially clarified, so the pension ceiling stays at ₹15,000 until the
+ * company's accountant changes the setting.
  */
-export const PF_WAGE_CEILING = 15_000
+export const PF_WAGE_CEILING = 25_000
+export const EPS_WAGE_CEILING = 15_000
 
-/** 8.33% of the ceiling. The maximum that can ever go to the pension scheme. */
-export const EPS_MONTHLY_CAP = 1_250
+/** The pension scheme's share of wages. Fixed by the scheme, not the company. */
+const EPS_RATE = 8.33
+
+/**
+ * The most that can go to the pension scheme in a month: 8.33% of its ceiling,
+ * to the rupee. ₹1,250 at ₹15,000; ₹2,083 at ₹25,000.
+ */
+export function epsMonthlyCap(epsWageCeiling: number): number {
+  return toNearestRupee((epsWageCeiling * EPS_RATE) / 100)
+}
+
+/** The cap at the fallback ceiling — ₹1,250. */
+export const EPS_MONTHLY_CAP = epsMonthlyCap(EPS_WAGE_CEILING)
 
 /** The date from which a new high-wage joiner is excluded from EPS. */
 export const EPS_EXCLUSION_DATE = '2014-09-01'
@@ -61,6 +78,8 @@ export interface PfInput {
   restrictToCeiling: boolean
   /** The ceiling in force. Passed in so a future revision is a settings change. */
   wageCeiling?: number
+  /** The pension scheme's own ceiling in force. Separate, because it can differ. */
+  epsWageCeiling?: number
   /**
    * Whether this employee is a member of the pension scheme.
    *
@@ -100,13 +119,21 @@ export function isEpsMember(input: {
   dateOfJoining: string | null
   pfWagesAtJoining: number
   hasPriorMembership: boolean
+  /**
+   * The pension ceiling in force now. Tested against the wages they joined on:
+   * for everybody hired from here on, that is exactly the rule; for somebody
+   * hired earlier it is the reading the September 2026 revision points to —
+   * membership open to whoever is within the new ceiling. Defaults to the
+   * fallback ceiling.
+   */
+  epsWageCeiling?: number
 }): boolean {
   if (input.hasPriorMembership) return true
   if (!input.dateOfJoining) return true
   if (input.dateOfJoining < EPS_EXCLUSION_DATE) return true
 
   // Joined after the cut-off, above the ceiling, never a member before.
-  return input.pfWagesAtJoining <= PF_WAGE_CEILING
+  return input.pfWagesAtJoining <= (input.epsWageCeiling ?? EPS_WAGE_CEILING)
 }
 
 export function computePf(input: PfInput): PfResult {
@@ -122,11 +149,19 @@ export function computePf(input: PfInput): PfResult {
     return { pfWages: base, employee, employerTotal, employerEps: 0, employerEpf: employerTotal }
   }
 
-  // EPS is always 8.33% of wages capped at the CEILING, even when the company
-  // contributes on more than that. The cap is on the pension scheme, not on
-  // what the employer chooses to pay.
-  const epsBase = Math.min(base, ceiling)
-  const employerEps = Math.min(toNearestRupee((epsBase * 8.33) / 100), EPS_MONTHLY_CAP)
+  // EPS is always 8.33% of wages capped at the PENSION ceiling, even when the
+  // company contributes on more than that. The cap is on the pension scheme,
+  // not on what the employer chooses to pay.
+  //
+  // And never more than the employer paid in. An edited employer rate below
+  // 8.33% would otherwise leave EPF with a negative share.
+  const epsCeiling = input.epsWageCeiling ?? EPS_WAGE_CEILING
+  const epsBase = Math.min(base, epsCeiling)
+  const employerEps = Math.min(
+    toNearestRupee((epsBase * EPS_RATE) / 100),
+    epsMonthlyCap(epsCeiling),
+    employerTotal,
+  )
 
   return {
     pfWages: base,

@@ -63,6 +63,11 @@ model Organization {
   salaryComponents         SalaryComponent[]
   employeeSalaryComponents EmployeeSalaryComponent[]
   esiCoverage              EsiCoverage[]
+  payrollRuns              PayrollRun[]
+  payslips                 Payslip[]
+  payslipLines             PayslipLine[]
+  tdsDirectives            EmployeeTdsDirective[]
+  monthlyEntries           EmployeeMonthlyEntry[]
 
   auditLogs AuditLog[]
 }
