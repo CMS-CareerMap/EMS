@@ -58,6 +58,47 @@ export function zonedMinutes(instant: Date, timezone: string): number {
   return get('hour') * 60 + get('minute')
 }
 
+/**
+ * The instant a calendar day begins in `timezone` — where "from 1 October" in a
+ * company's own clock starts on the server's. 1 Oct 2026 in Kolkata begins at
+ * 18:30 UTC on 30 Sep.
+ *
+ * The offset is read at the guessed instant and then again at the answer, so a
+ * zone that changed its clocks in between (a UK October) still lands on its
+ * midnight.
+ */
+export function zonedDayStart(day: CalendarDate, timezone: string): Date {
+  const utcMidnight = Date.parse(`${day}T00:00:00.000Z`)
+  const offsetAt = (instant: number) => {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(new Date(instant))
+    const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? '0')
+    const wall = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'))
+    return wall - Math.floor(instant / 1000) * 1000
+  }
+  const first = utcMidnight - offsetAt(utcMidnight)
+  return new Date(utcMidnight - offsetAt(first))
+}
+
+/**
+ * An instant on the company's clock, as a spreadsheet sorts it:
+ * "2026-09-30 14:05:12". For exports; the browser formats its own.
+ */
+export function zonedDateTime(instant: Date, timezone: string): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(instant)
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? ''
+  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')}`
+}
+
 /** "09:30" to 570. Returns null for anything that is not a wall-clock label. */
 export function parseWallClock(value: string): number | null {
   const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim())

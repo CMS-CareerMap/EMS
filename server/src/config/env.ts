@@ -32,6 +32,10 @@ if (process.env.NODE_ENV === 'test') {
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(4000),
+  /// The address to listen on. Production defaults to 127.0.0.1: Nginx on the
+  /// same machine is the only way in, so a firewall slip cannot expose Node —
+  /// whose trust in X-Forwarded-For would then let anybody choose their own IP.
+  HOST: z.string().min(1).optional(),
   CORS_ORIGIN: z.url(),
 
   /// Pooled endpoint — what the running app uses.
@@ -62,6 +66,17 @@ const schema = z.object({
   R2_SECRET_ACCESS_KEY: z.string().min(1).optional(),
   R2_BUCKET: z.string().min(1).optional(),
   R2_ENDPOINT: z.url().optional(),
+
+  /// Backups (npm run backup / restore / backup:drill). PG_BIN is the folder
+  /// holding pg_dump, pg_restore and psql when they are not on the PATH — on
+  /// Windows, C:\Program Files\PostgreSQL\17\bin.
+  PG_BIN: z.string().min(1).optional(),
+  /// Seals each dump (AES-256-GCM). Kept by the company OUTSIDE the server: a
+  /// backup cannot be restored without it, by anybody.
+  BACKUP_PASSPHRASE: z.string().min(16, 'BACKUP_PASSPHRASE must be at least 16 characters').optional(),
+  /// How many daily backups to keep, and how many months' first backups.
+  BACKUP_KEEP_DAILY: z.coerce.number().int().min(1).max(365).default(30),
+  BACKUP_KEEP_MONTHLY: z.coerce.number().int().min(0).max(120).default(12),
 }).refine((c) => c.JWT_ACCESS_SECRET !== c.JWT_REFRESH_SECRET, {
   path: ['JWT_REFRESH_SECRET'],
   message: 'JWT_REFRESH_SECRET must differ from JWT_ACCESS_SECRET',

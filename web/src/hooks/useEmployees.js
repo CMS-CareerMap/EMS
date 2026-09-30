@@ -30,10 +30,11 @@ function invalidateAll(queryClient) {
   queryClient.invalidateQueries({ queryKey: ['users'] })
 }
 
-export function useEmployees({ enabled = true } = {}) {
+/** `includeArchived` adds the people who have left — for looking back, as the audit log does. */
+export function useEmployees({ enabled = true, includeArchived = false } = {}) {
   return useQuery({
-    queryKey: KEY,
-    queryFn: async () => (await api.get('/employees')).data,
+    queryKey: includeArchived ? [...KEY, 'with-archived'] : KEY,
+    queryFn: async () => (await api.get(includeArchived ? '/employees?includeArchived=true' : '/employees')).data,
     enabled,
   })
 }

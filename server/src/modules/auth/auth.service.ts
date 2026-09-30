@@ -91,6 +91,7 @@ export async function login(input: LoginInput, meta: SessionMeta): Promise<Issue
   await recordSecurityEvent({
     organizationId: identity.organizationId,
     actorUserId: identity.userId,
+    actorRole: identity.role,
     action: 'auth.login_succeeded',
     entityType: 'user',
     entityId: identity.userId,

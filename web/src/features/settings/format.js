@@ -9,9 +9,4 @@ export const MONTHS = [
 ]
 
 /** A calendar day, whatever zone the browser is in. */
-export function formatDay(day) {
-  if (!day) return '—'
-  return new Date(`${day}T00:00:00Z`).toLocaleDateString('en-IN', {
-    day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
-  })
-}
+export { formatDay } from '../../lib/dates'

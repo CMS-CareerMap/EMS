@@ -7,6 +7,9 @@ import { useEmployees } from '../hooks/useEmployees'
 import { useAuthStore } from '../stores/authStore'
 import { saveFromApi } from '../api/http'
 import { useDownload } from '../hooks/useDownload'
+import { DataRows } from '../components/DataState'
+import { optionsNote } from '../lib/optionsNote'
+import { formatDay } from '../lib/dates'
 
 const STATUS_OPTIONS = ['All', 'active', 'inactive']
 
@@ -26,13 +29,17 @@ function initials(name) {
   return (name || '').split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
 }
 
-function formatDate(day) {
-  if (!day) return '—'
-  return new Date(`${day}T00:00:00Z`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
-}
+const formatDate = (day) => formatDay(day)
+
+/** One empty list, so the filters below are not recomputed on every render. */
+const NO_EMPLOYEES = []
 
 export default function Employees() {
-  const { data: employees = [], isLoading } = useEmployees()
+  const employeesQuery = useEmployees()
+  const employees = employeesQuery.data ?? NO_EMPLOYEES
+  // Counts only from a list the server actually sent. A request that failed
+  // is not "0 total employees".
+  const known = employeesQuery.data !== undefined && !employeesQuery.isError
   const canCreate = useAuthStore((state) => state.can('employee:create'))
   const canUpdate = useAuthStore((state) => state.can('employee:update'))
 
@@ -51,7 +58,7 @@ export default function Employees() {
   // The company's own departments, from the people in the list — not a list
   // typed into this page that named departments the company does not have.
   const departments = useMemo(
-    () => ['All', ...[...new Set(employees.map((e) => e.department).filter(Boolean))].sort()],
+    () => [...new Set(employees.map((e) => e.department).filter(Boolean))].sort(),
     [employees],
   )
 
@@ -109,7 +116,7 @@ export default function Employees() {
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <h2 className="text-2xl font-bold text-gray-900">Employees</h2>
-            <p className="text-sm text-gray-500 mt-0.5">{employees.length} total employees</p>
+            <p className="text-sm text-gray-500 mt-0.5">{known && `${employees.length} total employees`}</p>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={handleExport} disabled={exporting === 'csv'}
@@ -151,6 +158,8 @@ export default function Employees() {
             <select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)}
               className="border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-700
                 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+              {/* The departments are read off the list, so they share its fate. */}
+              <option value="All">{optionsNote(employeesQuery, 'All')}</option>
               {departments.map((d) => <option key={d}>{d}</option>)}
             </select>
           </div>
@@ -161,13 +170,15 @@ export default function Employees() {
               <option key={s} value={s}>{s === 'All' ? 'All Status' : s.charAt(0).toUpperCase() + s.slice(1)}</option>
             ))}
           </select>
-          <span className="text-sm text-gray-400 ml-auto">{filtered.length} result{filtered.length !== 1 ? 's' : ''}</span>
+          {known && (
+            <span className="text-sm text-gray-400 ml-auto">{filtered.length} result{filtered.length !== 1 ? 's' : ''}</span>
+          )}
         </div>
 
         {/* Table */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[800px]">
+            <table className="w-full min-w-200">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
                   <Th onClick={() => toggleSort('full_name')} className="pl-5">Employee {sortKey === 'full_name' ? (sortDir === 'asc' ? <ChevronUp className="w-3 h-3 text-blue-500 inline" /> : <ChevronDown className="w-3 h-3 text-blue-500 inline" />) : <ChevronUp className="w-3 h-3 text-gray-300 inline" />}</Th>
@@ -180,89 +191,86 @@ export default function Employees() {
                 </tr>
               </thead>
               <tbody>
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={7} className="text-center py-16 text-sm text-gray-400">Loading employees…</td>
-                  </tr>
-                ) : filtered.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="text-center py-16 text-sm text-gray-400">No employees found.</td>
-                  </tr>
-                ) : filtered.map((emp, index) => (
-                  <tr key={emp.id}
-                    className="border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer"
-                    onClick={() => openDrawer(emp)}>
+                {/* Empty means none match — and only once the list has loaded;
+                    a list that failed shows the error, never "No employees". */}
+                <DataRows query={employeesQuery} colSpan={7} loading="Loading employees…"
+                  empty="No employees found." isEmpty={() => filtered.length === 0}>
+                  {() => filtered.map((emp, index) => (
+                    <tr key={emp.id}
+                      className="border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer"
+                      onClick={() => openDrawer(emp)}>
 
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
-                          <span className="text-blue-700 text-xs font-semibold">{initials(emp.full_name)}</span>
+                      <td className="px-5 py-3.5">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
+                            <span className="text-blue-700 text-xs font-semibold">{initials(emp.full_name)}</span>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">{emp.full_name}</p>
+                            <p className="text-xs text-gray-400 truncate">{emp.designation || '—'}</p>
+                          </div>
                         </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">{emp.full_name}</p>
-                          <p className="text-xs text-gray-400 truncate">{emp.designation || '—'}</p>
-                        </div>
-                      </div>
-                    </td>
+                      </td>
 
-                    <td className="px-4 py-3.5">
-                      <span className="text-sm text-gray-600 font-mono">{emp.employee_id || '—'}</span>
-                    </td>
+                      <td className="px-4 py-3.5">
+                        <span className="text-sm text-gray-600 font-mono">{emp.employee_id || '—'}</span>
+                      </td>
 
-                    <td className="px-4 py-3.5">
-                      <p className="text-sm text-gray-700">{emp.department || '—'}</p>
-                    </td>
+                      <td className="px-4 py-3.5">
+                        <p className="text-sm text-gray-700">{emp.department || '—'}</p>
+                      </td>
 
-                    <td className="px-4 py-3.5">
-                      <span className="text-sm text-gray-600">{formatDate(emp.date_of_joining)}</span>
-                    </td>
+                      <td className="px-4 py-3.5">
+                        <span className="text-sm text-gray-600">{formatDate(emp.date_of_joining)}</span>
+                      </td>
 
-                    <td className="px-4 py-3.5">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${EMP_TYPE[emp.employment_type]?.cls ?? 'bg-gray-100 text-gray-600'}`}>
-                        {EMP_TYPE[emp.employment_type]?.label ?? '—'}
-                      </span>
-                    </td>
+                      <td className="px-4 py-3.5">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${EMP_TYPE[emp.employment_type]?.cls ?? 'bg-gray-100 text-gray-600'}`}>
+                          {EMP_TYPE[emp.employment_type]?.label ?? '—'}
+                        </span>
+                      </td>
 
-                    <td className="px-4 py-3.5">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${STATUS_CLASS[emp.status] ?? 'bg-gray-100 text-gray-600'}`}>
-                        {emp.status}
-                      </span>
-                    </td>
+                      <td className="px-4 py-3.5">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${STATUS_CLASS[emp.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                          {emp.status}
+                        </span>
+                      </td>
 
-                    <td className="px-5 py-3.5 text-right" onClick={(e) => e.stopPropagation()}>
-                      <div className="relative inline-block">
-                        <button onClick={() => setMenuOpenId(menuOpenId === emp.id ? null : emp.id)}
-                          className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
-                          <MoreVertical className="w-4 h-4" />
-                        </button>
-                        {menuOpenId === emp.id && (
-                          <>
-                            <div className="fixed inset-0 z-10" onClick={() => setMenuOpenId(null)} />
-                            <div className={`absolute right-0 ${index >= Math.max(1, filtered.length - 2) ? 'bottom-full mb-1' : 'top-full mt-1'} w-40 bg-white rounded-xl border border-gray-200 shadow-lg z-20 overflow-hidden py-1`}>
-                              <button onClick={() => openDrawer(emp)}
-                                className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
-                                View Profile
-                              </button>
-                              {canUpdate && (
-                                <button onClick={() => openEdit(emp)}
+                      <td className="px-5 py-3.5 text-right" onClick={(e) => e.stopPropagation()}>
+                        <div className="relative inline-block">
+                          <button onClick={() => setMenuOpenId(menuOpenId === emp.id ? null : emp.id)}
+                            className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
+                            <MoreVertical className="w-4 h-4" />
+                          </button>
+                          {menuOpenId === emp.id && (
+                            <>
+                              <div className="fixed inset-0 z-10" onClick={() => setMenuOpenId(null)} />
+                              <div className={`absolute right-0 ${index >= Math.max(1, filtered.length - 2) ? 'bottom-full mb-1' : 'top-full mt-1'} w-40 bg-white rounded-xl border border-gray-200 shadow-lg z-20 overflow-hidden py-1`}>
+                                <button onClick={() => openDrawer(emp)}
                                   className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
-                                  Edit
+                                  View Profile
                                 </button>
-                              )}
-                              {/* No Deactivate here. It sent a status the employee
-                                  endpoint refuses, so it could only ever fail;
-                                  taking away access is Settings → Users. */}
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                                {canUpdate && (
+                                  <button onClick={() => openEdit(emp)}
+                                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+                                    Edit
+                                  </button>
+                                )}
+                                {/* No Deactivate here. It sent a status the employee
+                                    endpoint refuses, so it could only ever fail;
+                                    taking away access is Settings → Users. */}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </DataRows>
               </tbody>
             </table>
           </div>
-          {filtered.length > 0 && (
+          {known && filtered.length > 0 && (
             <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between">
               <p className="text-xs text-gray-400">Showing {filtered.length} of {employees.length} employees</p>
             </div>

@@ -14,6 +14,7 @@ import { calendarDayIn } from '../../lib/dates'
 import { ApiError } from '../../api/http'
 import PayslipModal from './PayslipModal'
 import Dialog from '../../components/Dialog'
+import DataState from '../../components/DataState'
 import BankFilePanel from './BankFilePanel'
 import { money, days, formatDay, monthLabel, recentMonths, monthValue, RUN_STATUS, LOP_BASIS } from './format'
 import { useDownload } from '../../hooks/useDownload'
@@ -28,48 +29,55 @@ import { useDownload } from '../../hooks/useDownload'
 export default function RunsTab() {
   const timezone = useAuthStore((s) => s.organization?.timezone)
   const today = calendarDayIn(timezone)
-  const { data: runs = [] } = usePayrollRuns()
+  const runs = usePayrollRuns()
+  const list = useMemo(() => runs.data ?? [], [runs.data])
   // The last thirteen months, and every older month that has a run — a run
   // from two years ago must still be one click away.
   const months = useMemo(() => {
     const recent = recentMonths(today, 13)
     const shown = new Set(recent.map(monthValue))
-    const older = runs
+    const older = list
       .filter((r) => !shown.has(monthValue(r)))
       .map((r) => ({ year: r.year, month: r.month }))
       .sort((a, b) => b.year - a.year || b.month - a.month)
     return [...recent, ...older]
-  }, [today, runs])
+  }, [today, list])
   // Until somebody picks a month: the latest one still to be paid, which is
   // the one there is work to do on — else this month.
   const [picked, setPicked] = useState(null)
-  const unfinished = months.find((m) => runs.some((r) => r.year === m.year && r.month === m.month && r.status !== 'paid'))
+  const unfinished = months.find((m) => list.some((r) => r.year === m.year && r.month === m.month && r.status !== 'paid'))
   const selected = picked ?? unfinished ?? months[0]
 
-  const runFor = (m) => runs.find((r) => r.year === m.year && r.month === m.month)
+  const runFor = (m) => list.find((r) => r.year === m.year && r.month === m.month)
   const run = runFor(selected)
 
+  // Until the list of runs is in, every month would read "No run" and offer to
+  // run a payroll that may already exist.
   return (
-    <div className="space-y-5">
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Month</p>
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {months.map((m) => {
-            const r = runFor(m)
-            const active = m.year === selected.year && m.month === selected.month
-            return (
-              <button key={`${m.year}-${m.month}`} onClick={() => setPicked(m)}
-                className={`shrink-0 rounded-lg border px-3 py-2 text-left transition-colors ${active ? 'border-blue-600 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'}`}>
-                <p className={`text-sm font-semibold ${active ? 'text-blue-700' : 'text-gray-800'}`}>{monthLabel(m.year, m.month)}</p>
-                <p className="text-[11px] text-gray-500">{r ? RUN_STATUS[r.status]?.label : 'No run'}</p>
-              </button>
-            )
-          })}
+    <DataState query={runs}>
+      {() => (
+      <div className="space-y-5">
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Month</p>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {months.map((m) => {
+              const r = runFor(m)
+              const active = m.year === selected.year && m.month === selected.month
+              return (
+                <button key={`${m.year}-${m.month}`} onClick={() => setPicked(m)}
+                  className={`shrink-0 rounded-lg border px-3 py-2 text-left transition-colors ${active ? 'border-blue-600 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+                  <p className={`text-sm font-semibold ${active ? 'text-blue-700' : 'text-gray-800'}`}>{monthLabel(m.year, m.month)}</p>
+                  <p className="text-[11px] text-gray-500">{r ? RUN_STATUS[r.status]?.label : 'No run'}</p>
+                </button>
+              )
+            })}
+          </div>
         </div>
-      </div>
 
-      {run ? <RunDetail key={run.id} runId={run.id} /> : <Readiness key={`${selected.year}-${selected.month}`} year={selected.year} month={selected.month} />}
-    </div>
+        {run ? <RunDetail key={run.id} runId={run.id} /> : <Readiness key={`${selected.year}-${selected.month}`} year={selected.year} month={selected.month} />}
+      </div>
+      )}
+    </DataState>
   )
 }
 
@@ -77,11 +85,9 @@ export default function RunsTab() {
 
 function Readiness({ year, month }) {
   const can = useAuthStore((s) => s.can)
-  const { data, isLoading, isFetching, error } = useRunReadiness(year, month)
+  const readiness = useRunReadiness(year, month)
+  const isFetching = readiness.isFetching
   const createRun = useCreateRun()
-
-  if (isLoading) return <p className="text-sm text-gray-400 py-10 text-center">Checking {monthLabel(year, month)}…</p>
-  if (error || !data) return <p className="text-sm text-gray-500 py-10 text-center">{error?.message ?? 'Could not check this month.'}</p>
 
   async function handleCreate() {
     const ok = await createRun.mutateAsync({ year, month }).then(() => true, () => false)
@@ -89,6 +95,8 @@ function Readiness({ year, month }) {
   }
 
   return (
+    <DataState query={readiness} loading={`Checking ${monthLabel(year, month)}…`}>
+    {(data) => (
     <div className="space-y-4">
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex flex-wrap items-center justify-between gap-4">
         <div>
@@ -149,6 +157,8 @@ function Readiness({ year, month }) {
         </div>
       </div>
     </div>
+    )}
+    </DataState>
   )
 }
 
@@ -182,14 +192,20 @@ function Notices({ blockers = [], warnings = [] }) {
 const STEPS = ['draft', 'approved', 'paid']
 
 function RunDetail({ runId }) {
+  const run = usePayrollRun(runId)
+  return (
+    <DataState query={run} loading="Loading the run…">
+      {(data) => <RunView run={data} />}
+    </DataState>
+  )
+}
+
+function RunView({ run }) {
   const can = useAuthStore((s) => s.can)
-  const { data: run, isLoading } = usePayrollRun(runId)
   const recalculate = useRecalculateRun()
   const [dialog, setDialog] = useState(null)
   const [viewing, setViewing] = useState(null)
   const { busy: downloading, start: startDownload } = useDownload()
-
-  if (isLoading || !run) return <p className="text-sm text-gray-400 py-10 text-center">Loading the run…</p>
 
   const label = monthLabel(run.year, run.month)
   const step = STEPS.indexOf(run.status)
@@ -287,6 +303,9 @@ function RunDetail({ runId }) {
               </tr>
             </thead>
             <tbody>
+              {run.payslips.length === 0 && (
+                <tr><td colSpan={7} className="px-4 py-10 text-center text-gray-400">This run has no payslips.</td></tr>
+              )}
               {run.payslips.map((slip) => (
                 <tr key={slip.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                   <td className="px-4 py-3">
@@ -396,7 +415,7 @@ const CHANGE_LABELS = {
 function ApproveDialog({ run, onClose }) {
   const approve = useApproveRun()
   const recalculate = useRecalculateRun()
-  const { data: components = [] } = usePayrollComponents()
+  const components = usePayrollComponents()
   const [reply, setReply] = useState(null)
   const label = monthLabel(run.year, run.month)
 
@@ -465,13 +484,18 @@ function ApproveDialog({ run, onClose }) {
       {reply && changed.length > 0 && (
         <>
           <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-lg p-3">{reply.message}</p>
-          <ul className="text-sm text-gray-700 list-disc pl-5 space-y-0.5">
-            {changed.map((c) => (
-              <li key={c.employee_id}>
-                {c.full_name}: {c.change === 'changed' ? c.fields.map((f) => fieldLabel(f, components)).join(', ') : CHANGE_LABELS[c.change] ?? c.change}
-              </li>
-            ))}
-          </ul>
+          {/* An earning is named by its component; without the list it would show as a bare code. */}
+          <DataState query={components} compact>
+            {(list) => (
+              <ul className="text-sm text-gray-700 list-disc pl-5 space-y-0.5">
+                {changed.map((c) => (
+                  <li key={c.employee_id}>
+                    {c.full_name}: {c.change === 'changed' ? c.fields.map((f) => fieldLabel(f, list)).join(', ') : CHANGE_LABELS[c.change] ?? c.change}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </DataState>
           <div className="flex justify-end">
             <button onClick={handleRecalculate} disabled={recalculate.isPending}
               className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-60">

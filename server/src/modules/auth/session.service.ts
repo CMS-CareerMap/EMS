@@ -165,14 +165,28 @@ export async function refreshSession(
  * up signed out, so a token that is already invalid is not an error worth
  * showing them. The controller clears the cookie either way.
  */
-export async function logout(rawToken: string | undefined): Promise<void> {
+export async function logout(rawToken: string | undefined, meta: SessionMeta): Promise<void> {
   if (!rawToken) return
 
   try {
     const stored = await sessions.findByHash(hashRefreshToken(rawToken))
-    if (stored) {
+    // A token already revoked is somebody signing out twice, not a sign-out.
+    if (stored && !stored.revokedAt) {
       await sessions.revokeOne(stored.id)
       logger.info('Logged out', { userId: stored.userId })
+      const owner = await findIdentityByUserId(stored.userId)
+      if (owner) {
+        await recordSecurityEvent({
+          organizationId: owner.organizationId,
+          actorUserId: stored.userId,
+          actorRole: owner.role,
+          action: 'auth.logged_out',
+          entityType: 'user',
+          entityId: stored.userId,
+          details: { ip: meta.ip ?? null, userAgent: meta.userAgent ?? null },
+          requestId: meta.requestId,
+        })
+      }
     }
   } catch (err) {
     logger.warn('Logout could not revoke the token', {
@@ -232,6 +246,7 @@ export async function changePassword(
   await recordSecurityEvent({
     organizationId: identity.organizationId,
     actorUserId: userId,
+    actorRole: identity.role,
     action: 'auth.password_changed',
     entityType: 'user',
     entityId: userId,

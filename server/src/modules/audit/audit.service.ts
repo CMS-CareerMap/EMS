@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client'
 import type { AppContext } from '../../platform/context'
 import { withTransaction, type TxDb } from '../../platform/db/transaction'
 import { logger } from '../../platform/logger'
+import type { AuditAction } from '../../domain/audit/catalogue'
 import * as repo from './audit.repository'
 
 /**
@@ -24,91 +25,12 @@ import * as repo from './audit.repository'
  * a password, a token or a bank account number.
  */
 
-export type AuditAction =
-  // Signing in and staying in
-  | 'auth.login_succeeded'
-  | 'auth.login_failed'
-  | 'auth.refresh_token_reused'
-  | 'auth.password_changed'
-  | 'auth.password_link_used'
-  // Refusals
-  | 'permission.denied'
-  // Who has access, and as what
-  | 'user.invited'
-  | 'user.role_changed'
-  | 'user.status_changed'
-  | 'user.terminated'
-  | 'user.password_link_issued'
-  // People and pay
-  | 'employee.created'
-  | 'employee.updated'
-  | 'employee.imported'
-  | 'salary.set'
-  // Payroll
-  | 'payroll.run_created'
-  | 'payroll.run_recalculated'
-  | 'payroll.run_discarded'
-  | 'payroll.run_approved'
-  | 'payroll.run_reopened'
-  | 'payroll.run_paid'
-  | 'payslip.downloaded'
-  | 'payroll.bank_file_downloaded'
-  | 'bank_file_template.saved'
-  | 'bank_account.saved'
-  | 'bank_account.verified'
-  | 'bank_account.rejected'
-  | 'payroll.tds_directive_set'
-  | 'payroll.entry_set'
-  | 'payroll.entry_removed'
-  // Leave and attendance
-  | 'leave.applied_for'
-  | 'leave.withdrawn'
-  | 'leave.approved'
-  | 'leave.rejected'
-  | 'leave.reversed'
-  | 'attendance.marked'
-  | 'attendance.imported'
-  // Company rules
-  | 'company.updated'
-  | 'policy.updated'
-  | 'geofence.saved'
-  | 'geofence.deleted'
-  | 'leave_type.created'
-  | 'leave_type.restored'
-  | 'leave_type.updated'
-  | 'leave_type.archived'
-  | 'pt_table.set'
-  | 'holiday.added'
-  | 'holiday.changed'
-  | 'holiday.removed'
-  | 'master_data.added'
-  | 'master_data.restored'
-  | 'master_data.renamed'
-  | 'master_data.changed'
-  | 'master_data.archived'
-  // Documents (Day 19). Downloads are recorded too: who opened whose Aadhaar
-  // is exactly what an audit of an HR system is asked.
-  | 'document_type.created'
-  | 'document_type.updated'
-  | 'document_type.archived'
-  | 'document_type.restored'
-  | 'document.uploaded'
-  | 'document.verified'
-  | 'document.rejected'
-  | 'document.removed'
-  | 'document.downloaded'
-  // A stored file that was missing or had been altered when somebody opened it.
-  | 'file.unreadable'
-  | 'company_document.published'
-  | 'company_document.removed'
-  | 'company_document.downloaded'
-  | 'bank_account.submitted'
-  | 'bank_account.proof_downloaded'
-  // Everything that leaves the system as a file.
-  | 'report.exported'
-  | 'employee.exported'
-  | 'attendance.exported'
-  | 'notification_settings.saved'
+/**
+ * The actions are listed, with their names and categories, in
+ * domain/audit/catalogue.ts — one list for writing a row and for reading it
+ * back in words, so an action cannot exist without a name.
+ */
+export type { AuditAction }
 
 export interface AuditEntry {
   action: AuditAction
@@ -117,21 +39,27 @@ export interface AuditEntry {
   details?: Record<string, unknown> | undefined
 }
 
-function row(organizationId: string, actorUserId: string | null, requestId: string | undefined, entry: AuditEntry): repo.AuditRow {
+/**
+ * `actorRole` is the role the person held AT THE TIME, kept with the facts:
+ * somebody who approved leave as HR in June and was moved to Employee in
+ * August must still read as HR on June's rows.
+ */
+function row(organizationId: string, actorUserId: string | null, requestId: string | undefined, entry: AuditEntry, actorRole?: string): repo.AuditRow {
+  const details = actorRole ? { ...entry.details, actorRole } : entry.details
   return {
     organizationId,
     actorUserId,
     action: entry.action,
     entityType: entry.entityType ?? null,
     entityId: entry.entityId ?? null,
-    details: entry.details as Prisma.InputJsonValue | undefined,
+    details: details as Prisma.InputJsonValue | undefined,
     requestId: requestId ?? null,
   }
 }
 
 /** A change, recorded on the transaction making it. Pass `tx` whenever there is one. */
 export async function audit(ctx: AppContext, entry: AuditEntry, db: TxDb = ctx.db): Promise<void> {
-  await repo.append(db, row(ctx.organizationId, ctx.userId, ctx.requestId, entry))
+  await repo.append(db, row(ctx.organizationId, ctx.userId, ctx.requestId, entry, ctx.role))
 }
 
 /**
@@ -154,13 +82,15 @@ export interface SecurityEvent extends AuditEntry {
   organizationId: string
   /** Null when nobody is signed in — a failed sign-in. */
   actorUserId: string | null
+  /** The actor's role at the time, when it is known. */
+  actorRole?: string | undefined
   requestId?: string | undefined
 }
 
 /** A security event, written now, never at the cost of the request it describes. */
 export async function recordSecurityEvent(event: SecurityEvent): Promise<void> {
   try {
-    await repo.appendUnscoped(row(event.organizationId, event.actorUserId, event.requestId, event))
+    await repo.appendUnscoped(row(event.organizationId, event.actorUserId, event.requestId, event, event.actorRole))
   } catch (err) {
     logger.error('Audit row could not be written', {
       action: event.action,

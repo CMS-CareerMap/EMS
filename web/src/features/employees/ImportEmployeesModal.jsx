@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { X, Upload, Download, Loader2, CheckCircle2, AlertCircle, Copy, Check } from 'lucide-react'
 import { useImportEmployees, useMasterData } from '../../hooks/useEmployees'
 import { saveFromApi } from '../../api/http'
+import DataState from '../../components/DataState'
 
 /**
  * Importing a roster from a spreadsheet.
@@ -29,7 +30,7 @@ function linkFor(token) {
 
 export default function ImportEmployeesModal({ onClose }) {
   const importer = useImportEmployees()
-  const { data: masterData } = useMasterData()
+  const masterData = useMasterData()
   const fileInput = useRef(null)
 
   const [fileName, setFileName] = useState('')
@@ -100,12 +101,21 @@ export default function ImportEmployeesModal({ onClose }) {
                   One row per person. <span className="font-medium">employee_code</span> and <span className="font-medium">full_name</span> are
                   required; the rest is optional. Dates as DD/MM/YYYY or YYYY-MM-DD.
                 </p>
-                {masterData?.departments?.length > 0 && (
+                {/* Which departments a file may name. Failed, it says so — silence
+                    would read as "any department is fine". */}
+                <DataState query={masterData} compact isEmpty={(lists) => !lists.departments?.length} empty={
                   <p className="text-xs text-gray-500">
-                    Departments must be one of: {masterData.departments.map((d) => d.name).join(', ')}.
-                    Anything else is flagged, not created — so a typo cannot become a new department.
+                    No departments are set up yet, so leave the department column blank — anything in it is flagged,
+                    not created. Add departments in Settings first to use it.
                   </p>
-                )}
+                }>
+                  {(lists) => (
+                    <p className="text-xs text-gray-500">
+                      Departments must be one of: {lists.departments.map((d) => d.name).join(', ')}.
+                      Anything else is flagged, not created — so a typo cannot become a new department.
+                    </p>
+                  )}
+                </DataState>
                 <button onClick={downloadTemplate} className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-800">
                   <Download className="w-4 h-4" /> Download a template
                 </button>

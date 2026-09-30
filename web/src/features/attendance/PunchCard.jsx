@@ -1,5 +1,8 @@
 import { LogIn, LogOut, Loader2, MapPin, CheckCircle2, Clock } from 'lucide-react'
 import { useMyToday, usePunchIn, usePunchOut } from '../../hooks/usePunch'
+import DataState from '../../components/DataState'
+import { useAuthStore } from '../../stores/authStore'
+import { wallClockIn } from '../../lib/dates'
 
 /**
  * Check In / Check Out, for the employee themselves.
@@ -8,38 +11,48 @@ import { useMyToday, usePunchIn, usePunchOut } from '../../hooks/usePunch'
  * means check out, a closed one means the day is done. Showing both and
  * disabling one invites somebody to wonder which they need.
  *
- * Errors are not handled here. Every failure — outside the fence, a vague GPS
+ * Punch errors are not handled here. Every failure — outside the fence, a vague GPS
  * reading, blocked permission — arrives as a toast from the global handler in
  * main.jsx, carrying the sentence the server wrote. Repeating that logic in the
  * component is how the two versions drift apart.
  */
 
-function time(iso) {
-  if (!iso) return null
-  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+/** A punch on the company's clock, as the Attendance page shows it — not the device's. */
+function time(iso, timezone) {
+  return iso ? wallClockIn(timezone, iso) : null
 }
 
 export default function PunchCard() {
-  const { data: today, isLoading } = useMyToday()
+  const myToday = useMyToday()
   const punchIn = usePunchIn()
   const punchOut = usePunchOut()
 
+  // Which button to show IS today's row. If it could not be read, the card
+  // says so — offering Check In to somebody already checked in is a guess.
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+      <DataState query={myToday} compact
+        loading={
+          <span className="inline-flex items-center gap-3">
+            <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+            <span className="text-gray-500">Loading today…</span>
+          </span>
+        }>
+        {(today) => <Today today={today} punchIn={punchIn} punchOut={punchOut} />}
+      </DataState>
+    </div>
+  )
+}
+
+/** Today's row — null before the first punch — and the one button it calls for. */
+function Today({ today, punchIn, punchOut }) {
+  const timezone = useAuthStore((state) => state.organization?.timezone)
   const busy = punchIn.isPending || punchOut.isPending
-
-  if (isLoading) {
-    return (
-      <div className="bg-white rounded-xl border border-gray-200 p-6 flex items-center gap-3">
-        <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
-        <span className="text-sm text-gray-500">Loading today…</span>
-      </div>
-    )
-  }
-
   const checkedIn = Boolean(today?.check_in)
   const checkedOut = Boolean(today?.check_out)
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+    <>
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-900">Today</h3>
         {today?.status && (
@@ -52,11 +65,11 @@ export default function PunchCard() {
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-1">
           <p className="text-xs text-gray-400">Check in</p>
-          <p className="text-2xl font-bold text-gray-900">{time(today?.check_in) ?? '—'}</p>
+          <p className="text-2xl font-bold text-gray-900">{time(today?.check_in, timezone) ?? '—'}</p>
         </div>
         <div className="space-y-1">
           <p className="text-xs text-gray-400">Check out</p>
-          <p className="text-2xl font-bold text-gray-900">{time(today?.check_out) ?? '—'}</p>
+          <p className="text-2xl font-bold text-gray-900">{time(today?.check_out, timezone) ?? '—'}</p>
         </div>
       </div>
 
@@ -131,6 +144,6 @@ export default function PunchCard() {
           </span>
         </p>
       )}
-    </div>
+    </>
   )
 }

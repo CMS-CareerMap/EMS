@@ -42,9 +42,12 @@ export interface CompanySummary {
   pendingLeaveCount: number
   pendingLeaves: {
     id: string
+    employeeId: string
     employeeCode: string
     fullName: string
+    department: string | null
     leaveType: string
+    leaveTypeName: string
     fromDate: CalendarDate
     toDate: CalendarDate
     days: number
@@ -140,9 +143,12 @@ export async function companySummary(ctx: AppContext): Promise<CompanySummary> {
     pendingLeaveCount: pending.length,
     pendingLeaves: pending.slice(0, 5).map((request) => ({
       id: request.id,
+      employeeId: request.employeeId,
       employeeCode: request.employee.employeeCode,
       fullName: request.employee.fullName,
+      department: request.employee.department?.name ?? null,
       leaveType: request.leaveType.code,
+      leaveTypeName: request.leaveType.name,
       fromDate: fromDateColumn(request.fromDate),
       toDate: fromDateColumn(request.toDate),
       days: Number(request.days),
@@ -186,12 +192,15 @@ export interface MySummary {
     absentDays: number
     leaveDays: number
     totalHours: number
+    /** The company's weekly offs from the 1st to today — counted from the rule, not from rows. */
+    weeklyOffDays: number
   }
   today: { status: string | null; checkIn: string | null; checkOut: string | null; hoursWorked: number | null }
   leaveBalances: { code: string; name: string; annualQuota: number; balance: number; pending: number; available: number }[]
   recentLeaves: {
     id: string
     leaveType: string
+    leaveTypeName: string
     fromDate: CalendarDate
     toDate: CalendarDate
     days: number
@@ -223,6 +232,17 @@ export async function mySummary(ctx: AppContext): Promise<MySummary> {
   const countOf = (status: string) => monthRows.filter((r) => r.status === status).length
   const todayRow = monthRows.find((r) => fromDateColumn(r.date) === today)
 
+  // Nobody marks a weekly off, so there are no rows to count: the days are
+  // counted from the company's rule, over the same 1st-to-today window.
+  // From the joining day, for somebody who started this month.
+  const offs = policy?.weeklyOffDays ?? []
+  const joined = fromDateColumn(employee?.dateOfJoining)
+  const countFrom = joined && joined > monthStart ? joined : monthStart
+  let weeklyOffDays = 0
+  for (let day = countFrom; day <= today; day = addCalendarDays(day, 1)) {
+    if (offs.includes(new Date(`${day}T00:00:00Z`).getUTCDay())) weeklyOffDays++
+  }
+
   return {
     date: today,
     employee: {
@@ -247,6 +267,7 @@ export async function mySummary(ctx: AppContext): Promise<MySummary> {
         Math.round(
           monthRows.reduce((sum, r) => sum + (r.hoursWorked ? Number(r.hoursWorked) : 0), 0) * 100,
         ) / 100,
+      weeklyOffDays,
     },
     today: {
       status: todayRow?.status ?? null,
@@ -268,6 +289,7 @@ export async function mySummary(ctx: AppContext): Promise<MySummary> {
     recentLeaves: leaves.slice(0, 5).map((request) => ({
       id: request.id,
       leaveType: request.leaveType.code,
+      leaveTypeName: request.leaveType.name,
       fromDate: fromDateColumn(request.fromDate),
       toDate: fromDateColumn(request.toDate),
       days: Number(request.days),

@@ -39,7 +39,121 @@ export async function appendIn(tx: Prisma.TransactionClient, row: AuditRow): Pro
   await tx.auditLog.create({ data: row })
 }
 
-/** Newest first. The screen that reads these comes on Day 20; tests read them now. */
+/** Newest first, everything matching — what the tests read. The screen pages through `page`. */
 export async function listFor(db: ScopedDb, filter: { entityType?: string; entityId?: string; action?: string } = {}) {
   return db.auditLog.findMany({ where: filter, orderBy: { createdAt: 'desc' } })
+}
+
+// ── Reading the log back: the audit screen ──────────────────────────────────
+
+export interface AuditFilter {
+  /** Only these actions — a category, turned into its actions by the caller. */
+  actions?: string[] | undefined
+  /** Who did it. */
+  actorUserId?: string | undefined
+  /** From this instant (inclusive) to that one (exclusive). */
+  from?: Date | undefined
+  to?: Date | undefined
+  /** Rows about one person: their record, their login, or naming them in the facts. */
+  about?: { employeeId: string; membershipId: string | null; userId: string | null } | undefined
+}
+
+export interface AuditCursor {
+  before: Date
+  beforeId: string
+}
+
+function whereOf(filter: AuditFilter): Prisma.AuditLogWhereInput[] {
+  const and: Prisma.AuditLogWhereInput[] = []
+  if (filter.actions) and.push({ action: { in: filter.actions } })
+  if (filter.actorUserId) and.push({ actorUserId: filter.actorUserId })
+  if (filter.from) and.push({ createdAt: { gte: filter.from } })
+  if (filter.to) and.push({ createdAt: { lt: filter.to } })
+  if (filter.about) {
+    const { employeeId, membershipId, userId } = filter.about
+    const about: Prisma.AuditLogWhereInput[] = [
+      { entityType: 'employee', entityId: employeeId },
+      { details: { path: ['employeeId'], equals: employeeId } },
+    ]
+    if (membershipId) about.push({ entityType: 'membership', entityId: membershipId })
+    if (userId) about.push({ entityType: 'user', entityId: userId })
+    and.push({ OR: about })
+  }
+  return and
+}
+
+const ROW = {
+  id: true,
+  actorUserId: true,
+  action: true,
+  entityType: true,
+  entityId: true,
+  details: true,
+  requestId: true,
+  createdAt: true,
+} as const
+
+export type AuditLogRow = Prisma.AuditLogGetPayload<{ select: typeof ROW }>
+
+/**
+ * One page, newest first, keyed on (createdAt, id): two rows written in the
+ * same millisecond are still told apart, so paging never skips or repeats one.
+ */
+export async function page(db: ScopedDb, filter: AuditFilter, limit: number, cursor?: AuditCursor): Promise<AuditLogRow[]> {
+  const and = whereOf(filter)
+  if (cursor) {
+    and.push({ OR: [{ createdAt: { lt: cursor.before } }, { createdAt: cursor.before, id: { lt: cursor.beforeId } }] })
+  }
+  return db.auditLog.findMany({ where: { AND: and }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: limit, select: ROW })
+}
+
+export async function countOf(db: ScopedDb, filter: AuditFilter): Promise<number> {
+  return db.auditLog.count({ where: { AND: whereOf(filter) } })
+}
+
+const LOGIN = {
+  id: true,
+  userId: true,
+  role: true,
+  user: { select: { email: true } },
+  employee: { select: { fullName: true, employeeCode: true } },
+} as const
+
+/** The names behind the ids a page of rows carries, fetched once per page. */
+export async function employeesByIds(db: ScopedDb, ids: string[]) {
+  if (ids.length === 0) return []
+  return db.employee.findMany({ where: { id: { in: ids } }, select: { id: true, fullName: true, employeeCode: true } })
+}
+
+export async function membershipsByIds(db: ScopedDb, ids: string[]) {
+  if (ids.length === 0) return []
+  return db.membership.findMany({ where: { id: { in: ids } }, select: LOGIN })
+}
+
+export async function membershipsByUserIds(db: ScopedDb, userIds: string[]) {
+  if (userIds.length === 0) return []
+  return db.membership.findMany({ where: { userId: { in: userIds } }, select: LOGIN })
+}
+
+export async function documentTypeLabels(db: ScopedDb, codes: string[]) {
+  if (codes.length === 0) return []
+  return db.documentType.findMany({ where: { code: { in: codes } }, select: { code: true, label: true } })
+}
+
+export async function componentLabels(db: ScopedDb, codes: string[]) {
+  if (codes.length === 0) return []
+  return db.salaryComponent.findMany({ where: { code: { in: codes } }, select: { code: true, label: true } })
+}
+
+export async function leaveTypeNames(db: ScopedDb, codes: string[], ids: string[] = []) {
+  if (codes.length === 0 && ids.length === 0) return []
+  return db.leaveType.findMany({ where: { OR: [{ code: { in: codes } }, { id: { in: ids } }] }, select: { id: true, code: true, name: true } })
+}
+
+/** A person's login, so "about Ravi" also finds his sign-ins and role changes. */
+export async function loginOf(db: ScopedDb, employeeId: string) {
+  return db.employee.findFirst({
+    where: { id: employeeId },
+    select: { id: true, membership: { select: { id: true, userId: true } } },
+  })
 }

@@ -7,9 +7,12 @@ import {
 } from '../../hooks/useSettings'
 import { useAuthStore } from '../../stores/authStore'
 import { calendarDayIn } from '../../lib/dates'
+import DataState, { DataRows } from '../../components/DataState'
+import ConfirmDialog from '../../components/ConfirmDialog'
 import WeeklyOffPicker from './WeeklyOffPicker'
 import { Section, Field, Toggle, inpSm } from './ui'
 import { MONTHS } from './format'
+import { formatDay } from '../../lib/dates'
 
 /**
  * The Leave Config tab.
@@ -58,13 +61,13 @@ export default function LeaveSettings() {
 // ─── Leave year ─────────────────────────────────────────────────────────────
 
 function LeaveYear() {
-  const { data: policy } = usePayrollSettings()
+  const settings = usePayrollSettings()
   const savePayroll = useSavePayroll()
   const [draft, setDraft] = useState(null)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
 
-  const current = policy?.leave_year_start_month
+  const current = settings.data?.leave_year_start_month
   const value = draft ?? current
 
   async function handleSave() {
@@ -81,17 +84,20 @@ function LeaveYear() {
 
   return (
     <Field label="Leave Year Starts" hint="Balances are granted and reset each leave year. Fixed once any leave has been granted.">
-      <div className="flex items-center gap-2">
-        <select className={inpSm} value={value ?? ''} disabled={!policy}
-          onChange={(e) => { setDraft(Number(e.target.value)); setSaved(false); setError('') }}>
-          {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
-        </select>
-        <button type="button" onClick={handleSave} disabled={savePayroll.isPending || value === current}
-          className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium">
-          {savePayroll.isPending ? 'Saving…' : 'Save'}
-        </button>
-        {saved && value === current && <span className="text-xs text-green-700 flex items-center gap-1"><Check className="w-3.5 h-3.5" /> Saved</span>}
-      </div>
+      {/* No month is offered until the stored one has loaded — a failed load would otherwise read as January. */}
+      <DataState query={settings} compact>
+        <div className="flex items-center gap-2">
+          <select className={inpSm} value={value ?? ''}
+            onChange={(e) => { setDraft(Number(e.target.value)); setSaved(false); setError('') }}>
+            {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+          </select>
+          <button type="button" onClick={handleSave} disabled={savePayroll.isPending || value === current}
+            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium">
+            {savePayroll.isPending ? 'Saving…' : 'Save'}
+          </button>
+          {saved && value === current && <span className="text-xs text-green-700 flex items-center gap-1"><Check className="w-3.5 h-3.5" /> Saved</span>}
+        </div>
+      </DataState>
       {error && <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mt-2">{error}</p>}
     </Field>
   )
@@ -112,13 +118,14 @@ function typeProblem(t) {
 }
 
 function LeaveTypes() {
-  const { data: types = [], isLoading } = useLeaveTypes()
+  const leaveTypes = useLeaveTypes()
   const createType = useCreateLeaveType()
   const archiveType = useArchiveLeaveType()
 
   const [editId, setEditId] = useState(null)
   const [adding, setAdding] = useState(false)
   const [notice, setNotice] = useState('')
+  const [archiving, setArchiving] = useState(null)
 
   async function handleAdd(t) {
     const result = await createType.mutateAsync({
@@ -138,14 +145,6 @@ function LeaveTypes() {
     return true
   }
 
-  async function handleArchive(t) {
-    const sure = window.confirm(
-      `Archive ${t.name}?\n\nNobody will be able to apply for it. Balances and leave already taken stay on record, and adding ${t.code} again brings it back.`,
-    )
-    if (!sure) return
-    await archiveType.mutateAsync({ id: t.id }).catch(() => null)
-  }
-
   return (
     <Section title="Leave Types" desc="Days granted each leave year, whether they are paid, and what carries into the next year.">
       <div className="py-3 space-y-3">
@@ -157,7 +156,7 @@ function LeaveTypes() {
         )}
 
         <div className="border border-gray-200 rounded-xl overflow-x-auto">
-          <table className="w-full min-w-[640px]">
+          <table className="w-full min-w-160">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
                 {['Leave Type', 'Code', 'Days / Year', 'Paid', 'Carry Forward', ''].map((h) => (
@@ -166,13 +165,8 @@ function LeaveTypes() {
               </tr>
             </thead>
             <tbody>
-              {isLoading && (
-                <tr><td colSpan={6} className="px-4 py-6 text-sm text-gray-400">Loading…</td></tr>
-              )}
-              {!isLoading && types.length === 0 && (
-                <tr><td colSpan={6} className="px-4 py-6 text-sm text-gray-500">No leave types yet. Add the first one below.</td></tr>
-              )}
-              {types.map((t) => (editId === t.id ? (
+              <DataRows query={leaveTypes} colSpan={6} empty="No leave types yet. Add the first one below.">
+                {(types) => types.map((t) => (editId === t.id ? (
                 <LeaveTypeEditor key={t.id} type={t} onClose={() => setEditId(null)} />
               ) : (
                 <tr key={t.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
@@ -187,12 +181,13 @@ function LeaveTypes() {
                     <div className="flex items-center justify-end gap-1">
                       <button type="button" onClick={() => { setEditId(t.id); setAdding(false) }} title={`Change ${t.name}`}
                         className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600"><Edit2 className="w-3.5 h-3.5" /></button>
-                      <button type="button" onClick={() => handleArchive(t)} disabled={archiveType.isPending} title={`Archive ${t.name}`}
+                      <button type="button" onClick={() => setArchiving(t)} disabled={archiveType.isPending} title={`Archive ${t.name}`}
                         className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500"><Archive className="w-3.5 h-3.5" /></button>
                     </div>
                   </td>
                 </tr>
               )))}
+              </DataRows>
               {adding && <LeaveTypeEditor type={null} onAdd={handleAdd} saving={createType.isPending} onClose={() => setAdding(false)} />}
             </tbody>
           </table>
@@ -205,6 +200,15 @@ function LeaveTypes() {
           </button>
         )}
       </div>
+
+      {archiving && (
+        <ConfirmDialog title={`Archive ${archiving.name}?`} confirmLabel="Archive" danger
+          onConfirm={() => archiveType.mutateAsync({ id: archiving.id })}
+          onClose={() => setArchiving(null)}>
+          <p>Nobody will be able to apply for <strong>{archiving.name}</strong>. Balances and leave already taken stay on record.</p>
+          <p>Adding {archiving.code} again brings it back.</p>
+        </ConfirmDialog>
+      )}
     </Section>
   )
 }
@@ -291,9 +295,7 @@ const TYPE_STYLE = {
 }
 
 function holidayDay(day) {
-  return new Date(`${day}T00:00:00Z`).toLocaleDateString('en-IN', {
-    weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC',
-  })
+  return formatDay(day, { weekday: true, year: false })
 }
 
 /**
@@ -322,13 +324,14 @@ function Holidays({ canManage }) {
   const timezone = useAuthStore((s) => s.organization?.timezone)
   const thisYear = Number(calendarDayIn(timezone).slice(0, 4))
   const [year, setYear] = useState(thisYear)
-  const { data: holidays = [], isLoading } = useHolidays(year)
+  const holidays = useHolidays(year)
   const addHoliday = useAddHoliday()
   const deleteHoliday = useDeleteHoliday()
 
   const [draft, setDraft] = useState({ date: '', name: '', type: 'public' })
   const [editId, setEditId] = useState(null)
   const [notice, setNotice] = useState('')
+  const [removing, setRemoving] = useState(null)
 
   async function handleAdd(e) {
     e.preventDefault()
@@ -342,13 +345,12 @@ function Holidays({ canManage }) {
   }
 
   async function handleDelete(h) {
-    if (!window.confirm(`Remove ${h.name} on ${holidayDay(h.date)}?`)) return
-    const result = await deleteHoliday.mutateAsync({ id: h.id }).catch(() => null)
-    if (result) setNotice(h.type === 'public' ? leaveNotice(result.approvedLeaveAffected, h.date, 'removed') : '')
+    const result = await deleteHoliday.mutateAsync({ id: h.id })
+    setNotice(h.type === 'public' ? leaveNotice(result.approvedLeaveAffected, h.date, 'removed') : '')
   }
 
   const years = [thisYear - 1, thisYear, thisYear + 1]
-  const publicCount = holidays.filter((h) => h.type === 'public').length
+  const publicCount = holidays.data?.filter((h) => h.type === 'public').length
 
   return (
     <Section title="Holidays" desc="Diwali, Holi, Eid and the state holidays move every year — enter them here. Leave is not charged for a public holiday.">
@@ -362,7 +364,8 @@ function Holidays({ canManage }) {
               </button>
             ))}
           </div>
-          {!isLoading && <p className="text-xs text-gray-500">{publicCount} public, {holidays.length - publicCount} other in {year}</p>}
+          {/* Counted only from an answer — a failed load is not "0 public". */}
+          {holidays.isSuccess && <p className="text-xs text-gray-500">{publicCount} public, {holidays.data.length - publicCount} other in {year}</p>}
         </div>
 
         {notice && (
@@ -373,11 +376,8 @@ function Holidays({ canManage }) {
         )}
 
         <div className="border border-gray-200 rounded-xl divide-y divide-gray-100">
-          {isLoading && <p className="px-4 py-6 text-sm text-gray-400">Loading…</p>}
-          {!isLoading && holidays.length === 0 && (
-            <p className="px-4 py-6 text-sm text-gray-500">No holidays entered for {year}.</p>
-          )}
-          {holidays.map((h) => (editId === h.id ? (
+          <DataState query={holidays} compact empty={`No holidays entered for ${year}.`}>
+            {(list) => list.map((h) => (editId === h.id ? (
             <HolidayEditor key={h.id} holiday={h} onDone={(message) => { setEditId(null); if (message) setNotice(message) }} />
           ) : (
             <div key={h.id} className="flex items-center gap-3 px-4 py-2.5">
@@ -388,12 +388,13 @@ function Holidays({ canManage }) {
                 <div className="flex items-center gap-1">
                   <button type="button" onClick={() => setEditId(h.id)} title={`Change ${h.name}`}
                     className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600"><Edit2 className="w-3.5 h-3.5" /></button>
-                  <button type="button" onClick={() => handleDelete(h)} disabled={deleteHoliday.isPending} title={`Remove ${h.name}`}
+                  <button type="button" onClick={() => setRemoving(h)} disabled={deleteHoliday.isPending} title={`Remove ${h.name}`}
                     className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div>
               )}
             </div>
           )))}
+          </DataState>
         </div>
 
         {canManage && (
@@ -403,7 +404,7 @@ function Holidays({ canManage }) {
               <input type="date" required value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })}
                 min="2000-01-01" max="2100-12-31" className={`${inpSm} block mt-1`} />
             </label>
-            <label className="text-xs text-gray-500 flex-1 min-w-[180px]">
+            <label className="text-xs text-gray-500 flex-1 min-w-45">
               Name
               <input required maxLength={80} value={draft.name} placeholder="e.g. Diwali" onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                 className={`${inpSm} block w-full mt-1`} />
@@ -422,6 +423,15 @@ function Holidays({ canManage }) {
           </form>
         )}
       </div>
+
+      {removing && (
+        <ConfirmDialog title={`Remove ${removing.name} on ${holidayDay(removing.date)} ${removing.date.slice(0, 4)}?`} confirmLabel="Remove" danger
+          onConfirm={() => handleDelete(removing)}
+          onClose={() => setRemoving(null)}>
+          <p><strong>{removing.name}</strong> comes off the calendar everybody's leave is counted against.</p>
+          {removing.type === 'public' && <p>Leave already approved for that day is not recalculated — you will be told if any covers it.</p>}
+        </ConfirmDialog>
+      )}
     </Section>
   )
 }
@@ -447,7 +457,7 @@ function HolidayEditor({ holiday, onDone }) {
   return (
     <form onSubmit={handleSave} className="flex items-center gap-2 px-4 py-2 bg-blue-50/40 flex-wrap">
       <input type="date" required value={h.date} min="2000-01-01" max="2100-12-31" onChange={(e) => setH({ ...h, date: e.target.value })} className={inpSm} />
-      <input required maxLength={80} value={h.name} onChange={(e) => setH({ ...h, name: e.target.value })} className={`${inpSm} flex-1 min-w-[160px]`} />
+      <input required maxLength={80} value={h.name} onChange={(e) => setH({ ...h, name: e.target.value })} className={`${inpSm} flex-1 min-w-40`} />
       <select value={h.type} onChange={(e) => setH({ ...h, type: e.target.value })} className={inpSm}>
         {holiday.type === 'weekly_off' && <option value="weekly_off" disabled>Weekly off (older entry)</option>}
         <option value="public">Public</option>

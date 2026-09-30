@@ -9,6 +9,7 @@ import {
   downloadCompanyDocument, companyDocumentBlob, useDocumentTypes,
 } from '../../hooks/useDocuments'
 import { prepareUpload, formatSize } from '../../lib/prepareUpload'
+import DataState, { QueryError } from '../../components/DataState'
 import PreviewDialog from './PreviewDialog'
 import { CATEGORIES, categoryLabel, when } from './meta'
 
@@ -24,7 +25,7 @@ const ICONS = { policy: Shield, handbook: BookOpen, template: File, announcement
 export default function CompanyDocuments() {
   const can = useAuthStore((s) => s.can)
   const manages = can('document:company:manage')
-  const { data: docs = [], isLoading } = useCompanyDocuments()
+  const docsQuery = useCompanyDocuments()
   const [publishing, setPublishing] = useState(false)
   const [viewing, setViewing] = useState(null)
   const [removing, setRemoving] = useState(null)
@@ -41,43 +42,43 @@ export default function CompanyDocuments() {
       )}
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden divide-y divide-gray-100">
-        {isLoading && <p className="px-5 py-10 text-center text-sm text-gray-400">Loading…</p>}
-        {!isLoading && docs.length === 0 && (
+        <DataState query={docsQuery} empty={
           <div className="px-5 py-12 text-center">
             <FileText className="w-8 h-8 mx-auto text-gray-300" />
             <p className="mt-2 text-sm font-medium text-gray-700">No company documents yet</p>
             <p className="text-sm text-gray-500">{manages ? 'Publish the handbook or a policy, and everybody can read it here.' : 'Policies and the handbook appear here once HR publishes them.'}</p>
           </div>
-        )}
-        {docs.map((doc) => {
-          const Icon = ICONS[doc.category] ?? FileText
-          return (
-            <div key={doc.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4">
-              <div className="flex items-start gap-3 min-w-0">
-                <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center shrink-0"><Icon className="w-5 h-5 text-blue-600" /></div>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-gray-900">{doc.title}</p>
-                  <p className="text-xs text-gray-500">{categoryLabel(doc.category)} · {formatSize(doc.bytes)} · {when(doc.uploaded_at)}{doc.uploaded_by ? ` · ${doc.uploaded_by}` : ''}</p>
-                  {doc.description && <p className="text-xs text-gray-600 mt-0.5">{doc.description}</p>}
+        }>
+          {(docs) => docs.map((doc) => {
+            const Icon = ICONS[doc.category] ?? FileText
+            return (
+              <div key={doc.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4">
+                <div className="flex items-start gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center shrink-0"><Icon className="w-5 h-5 text-blue-600" /></div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-gray-900">{doc.title}</p>
+                    <p className="text-xs text-gray-500">{categoryLabel(doc.category)} · {formatSize(doc.bytes)} · {when(doc.uploaded_at)}{doc.uploaded_by ? ` · ${doc.uploaded_by}` : ''}</p>
+                    {doc.description && <p className="text-xs text-gray-600 mt-0.5">{doc.description}</p>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 self-end sm:self-center">
+                  <button onClick={() => setViewing(doc)} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold">
+                    <Eye className="w-3.5 h-3.5" /> View
+                  </button>
+                  <button onClick={() => start(doc.id, () => downloadCompanyDocument(doc.id))} disabled={busy === doc.id}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-700 text-xs font-semibold hover:bg-gray-50 disabled:opacity-50">
+                    {busy === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />} Download
+                  </button>
+                  {manages && (
+                    <button onClick={() => setRemoving(doc)} aria-label={`Withdraw ${doc.title}`} className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               </div>
-              <div className="flex items-center gap-1.5 self-end sm:self-center">
-                <button onClick={() => setViewing(doc)} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold">
-                  <Eye className="w-3.5 h-3.5" /> View
-                </button>
-                <button onClick={() => start(doc.id, () => downloadCompanyDocument(doc.id))} disabled={busy === doc.id}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-700 text-xs font-semibold hover:bg-gray-50 disabled:opacity-50">
-                  {busy === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />} Download
-                </button>
-                {manages && (
-                  <button onClick={() => setRemoving(doc)} aria-label={`Withdraw ${doc.title}`} className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-            </div>
-          )
-        })}
+            )
+          })}
+        </DataState>
       </div>
 
       {publishing && <PublishDialog onClose={() => setPublishing(false)} />}
@@ -97,7 +98,9 @@ function CompanyPreview({ doc, onClose }) {
 
 function PublishDialog({ onClose }) {
   const publish = usePublishCompanyDocument()
-  const { data: limits } = useDocumentTypes()
+  const typesQuery = useDocumentTypes()
+  // The file is checked against the limit before it is sent: no limit, no publishing.
+  const limits = typesQuery.isError ? undefined : typesQuery.data
   const [title, setTitle] = useState('')
   const [category, setCategory] = useState('policy')
   const [description, setDescription] = useState('')
@@ -153,6 +156,7 @@ function PublishDialog({ onClose }) {
             className="w-full text-sm file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700" />
           {limits && <span className="block text-xs text-gray-500">{limits.accepted.join(', ')} · up to {maxMb} MB.</span>}
         </label>
+        {typesQuery.isError && <QueryError error={typesQuery.error} onRetry={() => typesQuery.refetch()} retrying={typesQuery.isFetching} compact />}
         {problem && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">{problem}</p>}
         <p className="text-xs text-gray-500">Everybody in the company is told it has been published.</p>
         <div className="flex justify-end gap-2">

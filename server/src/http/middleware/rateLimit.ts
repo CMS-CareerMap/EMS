@@ -5,7 +5,7 @@ import { env } from '../../config/env'
 /**
  * Rate limits for the auth routes.
  *
- * Built today rather than on Day 20, because a login endpoint with no limit is
+ * Built on Day 5 rather than at the end, because a login endpoint with no limit is
  * an open invitation from the moment it is reachable, and "we will add it at
  * the end" is how it ends up shipped without one.
  *
@@ -79,11 +79,13 @@ export const authIpLimiter = createLimiter({
 })
 
 /**
- * Refreshes are frequent and legitimate — one every fifteen minutes per open
- * tab — so this is high. It exists to stop a loop, not a human.
+ * Refreshes are frequent and legitimate — one on every page load and one every
+ * fifteen minutes per open tab, and a whole office arrives from one IP — so
+ * this is high. It exists to stop a loop, which makes hundreds a second, not a
+ * busy morning.
  */
 export const refreshLimiter = createLimiter({
-  limit: 120,
+  limit: 1000,
   keyGenerator: (req: Request) => ipKeyGenerator(req.ip ?? ''),
 })
 

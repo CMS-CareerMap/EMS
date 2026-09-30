@@ -23,13 +23,8 @@ export function money(value, currency = 'INR') {
   }
 }
 
-/** "2026-09-01" → "1 Sept 2026", without a timezone to move it a day. */
-export function formatDay(day) {
-  if (!day) return '—'
-  return new Date(`${day}T00:00:00Z`).toLocaleDateString('en-IN', {
-    day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
-  })
-}
+/** "2026-09-01" → "1 Sep 2026" — the app's one day formatter (lib/dates). */
+export { formatDay } from '../../lib/dates'
 
 /** 28 → "28", 28.5 → "28.5". */
 export function days(n) {

@@ -17,6 +17,10 @@ export default defineConfig({
     // Refuses to run against a remote database. The tests delete rows.
     setupFiles: ['./vitest.setup.ts'],
 
+    // `npm run build` compiles the tests into dist/ as well; those copies are
+    // not the suite.
+    exclude: ['**/node_modules/**', 'dist/**'],
+
     // Integration tests share one database. Running files in parallel would let
     // one file's cleanup delete another's fixtures mid-run.
     fileParallelism: false,

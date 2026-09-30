@@ -14,12 +14,13 @@ function useMasterDataMutation(fn) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: fn,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['master-data'] })
+    // Returned, so the confirm dialog closes only once the list shows the change.
+    onSuccess: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['master-data'] }),
       // A rename shows up in the directory and the attendance roster too.
-      queryClient.invalidateQueries({ queryKey: ['employees'] })
-      queryClient.invalidateQueries({ queryKey: ['attendance'] })
-    },
+      queryClient.invalidateQueries({ queryKey: ['employees'] }),
+      queryClient.invalidateQueries({ queryKey: ['attendance'] }),
+    ]),
   })
 }
 

@@ -31,15 +31,20 @@ import {
  */
 export const authRouter = Router()
 
-authRouter.use(authIpLimiter)
-
-authRouter.post('/login', loginLimiter, postLogin)
+// The spray guard sits on the routes where a password or a link token is
+// tried, and only there. It used to cover the whole router, so the refresh
+// every page load makes counted against it too: an office sharing one IP
+// could run out by mid-morning without a single wrong password. Refresh,
+// logout and session answer to a cookie or a token that cannot be guessed,
+// and refresh keeps its own loop guard.
+authRouter.post('/login', authIpLimiter, loginLimiter, postLogin)
 
 authRouter.post('/refresh', refreshLimiter, csrfGuard, postRefresh)
 authRouter.post('/logout', csrfGuard, postLogout)
 
 authRouter.get('/session', authenticate, getSession)
-authRouter.post('/change-password', authenticate, postChangePassword)
+// Checks the current password, so it is a place to guess one.
+authRouter.post('/change-password', authIpLimiter, authenticate, postChangePassword)
 
-authRouter.post('/password-link/inspect', passwordLinkLimiter, postInspectLink)
-authRouter.post('/password-link/redeem', passwordLinkLimiter, postRedeemLink)
+authRouter.post('/password-link/inspect', authIpLimiter, passwordLinkLimiter, postInspectLink)
+authRouter.post('/password-link/redeem', authIpLimiter, passwordLinkLimiter, postRedeemLink)

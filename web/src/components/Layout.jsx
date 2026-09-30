@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useState, Suspense } from 'react'
 import { Outlet, useLocation, Navigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
 import ProfileDrawer from './ProfileDrawer'
+import ErrorBoundary from './ErrorBoundary'
 import { useAuthStore } from '../stores/authStore'
 
 const PAGE_TITLES = {
@@ -21,6 +23,7 @@ export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { user, loading } = useAuthStore()
   const location = useLocation()
+  const queryClient = useQueryClient()
 
   if (loading) {
     return (
@@ -66,7 +69,16 @@ export default function Layout() {
         <TopBar title={title} onMenuClick={() => setSidebarOpen(true)} />
 
         <main className="flex-1 overflow-y-auto p-6">
-          <Outlet />
+          {/*
+            A page that throws stays inside this box: the sidebar and the top
+            bar go on working. Keyed on the path, so choosing another page
+            leaves the broken one behind.
+          */}
+          <ErrorBoundary resetKey={location.pathname} onReset={() => queryClient.resetQueries()}>
+            <Suspense fallback={<p className="text-sm text-gray-400 text-center py-16">Loading…</p>}>
+              <Outlet />
+            </Suspense>
+          </ErrorBoundary>
         </main>
       </div>
 

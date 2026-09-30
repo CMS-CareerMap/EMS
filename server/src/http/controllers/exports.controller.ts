@@ -74,6 +74,7 @@ export const getEmployeesExport: RequestHandler = async (req, res) => {
   await recordSecurityEvent({
     organizationId: ctx.organizationId,
     actorUserId: ctx.userId,
+    actorRole: ctx.role,
     requestId: ctx.requestId,
     action: 'employee.exported',
     entityType: 'employee',
@@ -147,6 +148,7 @@ export const getAttendanceExport: RequestHandler = async (req, res) => {
   await recordSecurityEvent({
     organizationId: ctx.organizationId,
     actorUserId: ctx.userId,
+    actorRole: ctx.role,
     requestId: ctx.requestId,
     action: 'attendance.exported',
     entityType: 'attendance',

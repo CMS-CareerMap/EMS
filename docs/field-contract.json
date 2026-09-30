@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-09-29",
+  "generatedAt": "2026-09-30",
   "note": "Field names the frontend reads, pinned so the API cannot quietly stop sending one. A serializer that stops sending one of these will render an empty cell rather than an error, so check new serializers against this list. Regenerate with: cd server && npm run field-contract",
-  "fieldCount": 151,
+  "fieldCount": 156,
   "allFields": [
     "absent_days",
     "absent_today",
@@ -10,6 +10,7 @@
     "account_number",
     "account_status",
     "account_type",
+    "action_label",
     "annual_quota",
     "applied_on",
     "approved_at",
@@ -27,6 +28,7 @@
     "calculated_at",
     "carry_forward",
     "carry_forward_cap",
+    "category_label",
     "check_in",
     "check_out",
     "component_code",
@@ -84,6 +86,7 @@
     "leave_days",
     "leave_type",
     "leave_type_id",
+    "leave_type_name",
     "leave_year_start_month",
     "legal_name",
     "lop_basis",
@@ -128,6 +131,7 @@
     "reporting_manager_designation",
     "reporting_manager_id",
     "reporting_manager_name",
+    "request_id",
     "salary_effective_from",
     "sandwich_rule",
     "shift_id",
@@ -147,6 +151,7 @@
     "updated_at",
     "uploaded_at",
     "uploaded_by",
+    "user_id",
     "verification_remarks",
     "verification_status",
     "waiting_count",
@@ -188,16 +193,18 @@
       "date_of_joining",
       "from_date",
       "full_name",
-      "leave_type",
+      "leave_type_name",
       "remaining_days",
       "to_date",
       "total_days"
     ],
     "web/src/features/dashboard/HRDashboard.jsx": [
       "date_of_joining",
+      "employee_id",
       "from_date",
       "full_name",
       "leave_type",
+      "leave_type_name",
       "to_date"
     ],
     "web/src/features/documents/Checklist.jsx": [
@@ -395,6 +402,14 @@
       "employee_id",
       "full_name"
     ],
+    "web/src/features/settings/AuditLog.jsx": [
+      "action_label",
+      "category_label",
+      "employee_id",
+      "full_name",
+      "request_id",
+      "user_id"
+    ],
     "web/src/features/settings/CompanySettings.jsx": [
       "date_format",
       "legal_name",
@@ -469,6 +484,7 @@
       "this_week",
       "total_employees",
       "total_hours",
+      "weekly_off_days",
       "weekly_off_today"
     ],
     "web/src/hooks/useDocuments.js": [
@@ -503,11 +519,13 @@
     "web/src/pages/Leave.jsx": [
       "annual_quota",
       "applied_on",
+      "employee_code",
       "employee_id",
       "from_date",
       "full_name",
       "leave_type",
       "leave_type_id",
+      "leave_type_name",
       "to_date"
     ],
     "web/src/pages/MyPayslips.jsx": [

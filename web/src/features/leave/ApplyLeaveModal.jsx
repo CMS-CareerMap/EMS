@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { X, CalendarDays, AlertCircle, Loader2 } from 'lucide-react'
 import { useLeaveBalances, usePreviewLeave } from '../../hooks/useLeave'
+import DataState from '../../components/DataState'
 
 /**
  * Applying for leave.
@@ -24,7 +25,9 @@ function isComplete(form) {
 }
 
 export default function ApplyLeaveModal({ open, onClose, onSave, saving }) {
-  const { data: balances = [], isLoading: loadingTypes } = useLeaveBalances()
+  const balanceQuery = useLeaveBalances()
+  // A list that failed offers nothing to choose — not the types it held before.
+  const balances = balanceQuery.isError ? [] : balanceQuery.data ?? []
   const preview = usePreviewLeave()
 
   const [form, setForm] = useState(EMPTY)
@@ -116,13 +119,15 @@ export default function ApplyLeaveModal({ open, onClose, onSave, saving }) {
           {/* Leave type — the company's own, with what is left of each */}
           <div className="space-y-1.5">
             <label className="text-sm font-medium text-gray-600">Leave Type <span className="text-red-400">*</span></label>
-            {loadingTypes ? (
-              <p className="text-sm text-gray-400 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading leave types…</p>
-            ) : balances.length === 0 ? (
-              <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                No leave types are set up for you yet. Ask HR to configure them.
-              </p>
-            ) : (
+            {/* The balances are the choices: failed, they show the error and a
+                way to try again, not an empty list or zero days. */}
+            <DataState query={balanceQuery} compact
+              loading={<span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading leave types…</span>}
+              empty={
+                <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  No leave types are set up for you yet. Ask HR to configure them.
+                </p>
+              }>
               <select value={typeId} onChange={(e) => set('leave_type_id', e.target.value)}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white">
                 {balances.map((b) => (
@@ -131,7 +136,7 @@ export default function ApplyLeaveModal({ open, onClose, onSave, saving }) {
                   </option>
                 ))}
               </select>
-            )}
+            </DataState>
             {errors.leave_type_id && <p className="text-xs text-red-500">{errors.leave_type_id}</p>}
           </div>
 

@@ -23,11 +23,18 @@ const keys = {
   holidays: ['leave', 'holidays'],
 }
 
+/**
+ * Returned, so a mutation's onSuccess waits for it: a dialog closes only once
+ * the list shows the change, and the button that made it is gone — not still
+ * there for a second click that the server would refuse.
+ */
 function invalidateAll(queryClient) {
-  queryClient.invalidateQueries({ queryKey: ['leave'] })
-  queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-  // An approval writes attendance rows, so those figures move too.
-  queryClient.invalidateQueries({ queryKey: ['attendance'] })
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['leave'] }),
+    queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+    // An approval writes attendance rows, so those figures move too.
+    queryClient.invalidateQueries({ queryKey: ['attendance'] }),
+  ])
 }
 
 /** No arguments. Whose requests these are is the server's decision. */

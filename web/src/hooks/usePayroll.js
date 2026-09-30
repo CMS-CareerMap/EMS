@@ -159,10 +159,10 @@ export function useSetTdsDirective() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (input) => (await api.put('/payroll/tds-directives', input)).data,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['payroll', 'tds'] })
-      qc.invalidateQueries({ queryKey: ['payroll', 'readiness'] })
-    },
+    onSuccess: () => Promise.all([
+      qc.invalidateQueries({ queryKey: ['payroll', 'tds'] }),
+      qc.invalidateQueries({ queryKey: ['payroll', 'readiness'] }),
+    ]),
   })
 }
 

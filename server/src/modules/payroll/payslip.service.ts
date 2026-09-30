@@ -122,6 +122,7 @@ export async function paidPayslipPdf(ctx: AppContext, id: string): Promise<PdfFi
   await recordSecurityEvent({
     organizationId: ctx.organizationId,
     actorUserId: ctx.userId,
+    actorRole: ctx.role,
     requestId: ctx.requestId,
     action: 'payslip.downloaded',
     entityType: 'payslip',

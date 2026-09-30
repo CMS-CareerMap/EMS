@@ -7,6 +7,8 @@ import { useAuthStore } from '../../stores/authStore'
 import { calendarDayIn } from '../../lib/dates'
 import { usePayrollPeople } from './people'
 import Dialog, { inputCls } from '../../components/Dialog'
+import { DataRows, QueryError } from '../../components/DataState'
+import { optionsNote } from '../../lib/optionsNote'
 import { money, monthLabel, recentMonths, monthAfter, monthValue, parseMonthValue, RUN_STATUS } from './format'
 
 /**
@@ -28,13 +30,22 @@ export default function MonthlyEntries() {
   const selected = parseMonthValue(selectedValue)
   const label = monthLabel(selected.year, selected.month)
 
-  const { data: components = [] } = usePayrollComponents()
-  const monthly = components.filter((c) => c.entry === 'monthly')
-  const { data: entries = [], isLoading } = useMonthlyEntries(selected.year, selected.month)
+  const components = usePayrollComponents()
+  const monthly = (components.data ?? []).filter((c) => c.entry === 'monthly')
+  const entries = useMonthlyEntries(selected.year, selected.month)
+  const entryList = entries.data ?? []
   const canSeeRuns = can('payroll:structure:read')
-  const { data: runs = [] } = usePayrollRuns({ enabled: canSeeRuns })
-  const run = runs.find((r) => r.year === selected.year && r.month === selected.month)
+  const runs = usePayrollRuns({ enabled: canSeeRuns })
+  const run = (runs.data ?? []).find((r) => r.year === selected.year && r.month === selected.month)
   const closed = Boolean(run && run.status !== 'draft')
+  // Whether the month is closed is not known until the runs have answered, so
+  // nothing is offered for editing before then — an open-looking month that
+  // is really approved would only earn a refusal.
+  const locked = closed || (canSeeRuns && !runs.isSuccess)
+  // The components and the runs only shape the hints above the table; a
+  // failure is said once there, rather than as "no component" or an open month.
+  const failures = [components, runs].filter((q) => q.isError)
+  const failed = failures[0]
 
   const [editing, setEditing] = useState(null)
   const [removing, setRemoving] = useState(null)
@@ -49,20 +60,25 @@ export default function MonthlyEntries() {
           </select>
         </label>
         {monthly.length > 0 && (
-          <button onClick={() => setEditing({})} disabled={closed}
+          <button onClick={() => setEditing({})} disabled={locked}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium">
             <Plus className="w-4 h-4" /> Add {monthly.length === 1 ? monthly[0].label.toLowerCase() : 'an amount'}
           </button>
         )}
       </div>
 
-      {run && run.status === 'draft' && (
+      {failed && (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
+          <QueryError error={failed.error} onRetry={() => failures.forEach((q) => q.refetch())} retrying={failures.some((q) => q.isFetching)} compact />
+        </div>
+      )}
+      {!runs.isError && run && run.status === 'draft' && (
         <Hint>A draft payroll for {label} exists. Recalculate it after changing these amounts, or approval will ask you to.</Hint>
       )}
-      {closed && (
+      {!runs.isError && closed && (
         <Hint>The {label} payroll is {RUN_STATUS[run.status].label.toLowerCase()}, so its amounts are closed. Reopen the payroll to change them.</Hint>
       )}
-      {monthly.length === 0 && (
+      {components.isSuccess && monthly.length === 0 && (
         <Hint>This company has no pay component entered month by month.</Hint>
       )}
 
@@ -79,11 +95,8 @@ export default function MonthlyEntries() {
               </tr>
             </thead>
             <tbody>
-              {isLoading && <tr><td colSpan={5} className="px-4 py-10 text-center text-gray-400">Loading…</td></tr>}
-              {!isLoading && entries.length === 0 && (
-                <tr><td colSpan={5} className="px-4 py-10 text-center text-gray-400">Nothing entered for {label}.</td></tr>
-              )}
-              {entries.map((entry) => (
+              <DataRows query={entries} colSpan={5} empty={`Nothing entered for ${label}.`}>
+              {(list) => list.map((entry) => (
                 <tr key={entry.id} className="border-b border-gray-100 last:border-0">
                   <td className="px-4 py-3">
                     <p className="font-medium text-gray-900">{entry.full_name}</p>
@@ -93,7 +106,7 @@ export default function MonthlyEntries() {
                   <td className="px-4 py-3 text-right font-medium text-gray-900">{money(entry.amount)}</td>
                   <td className="px-4 py-3 text-gray-500">{entry.note || '—'}</td>
                   <td className="px-4 py-3">
-                    {!closed && <div className="flex justify-end gap-1">
+                    {!locked && <div className="flex justify-end gap-1">
                       <button onClick={() => setEditing(entry)} aria-label={`Change ${entry.full_name}'s ${entry.component_label}`}
                         className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100"><Pencil className="w-4 h-4" /></button>
                       <button onClick={() => setRemoving(entry)} aria-label={`Remove ${entry.full_name}'s ${entry.component_label}`}
@@ -102,12 +115,13 @@ export default function MonthlyEntries() {
                   </td>
                 </tr>
               ))}
+              </DataRows>
             </tbody>
           </table>
         </div>
       </div>
 
-      {editing && <EntryDialog entry={editing} entries={entries} month={selected} components={monthly} onClose={() => setEditing(null)} />}
+      {editing && <EntryDialog entry={editing} entries={entryList} month={selected} components={monthly} onClose={() => setEditing(null)} />}
       {removing && <RemoveDialog entry={removing} onClose={() => setRemoving(null)} />}
     </div>
   )
@@ -122,7 +136,7 @@ function Hint({ children }) {
 }
 
 function EntryDialog({ entry, entries, month, components, onClose }) {
-  const { people, isLoading } = usePayrollPeople()
+  const staff = usePayrollPeople()
   const save = useSetMonthlyEntry()
   const existing = Boolean(entry.id)
   const [employeeId, setEmployeeId] = useState(entry.employee_id ?? '')
@@ -154,9 +168,9 @@ function EntryDialog({ entry, entries, month, components, onClose }) {
           {existing ? (
             <input className={inputCls} value={`${entry.full_name} (${entry.employee_code})`} disabled />
           ) : (
-            <select className={inputCls} value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} required disabled={isLoading}>
-              <option value="">{isLoading ? 'Loading…' : 'Choose a person'}</option>
-              {people.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.code})</option>)}
+            <select className={inputCls} value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} required disabled={staff.isLoading}>
+              <option value="">{optionsNote(staff, 'Choose a person')}</option>
+              {staff.people.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.code})</option>)}
             </select>
           )}
         </label>

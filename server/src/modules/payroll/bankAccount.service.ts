@@ -261,6 +261,7 @@ export async function proofFile(ctx: AppContext, employeeId: string) {
   await recordSecurityEvent({
     organizationId: ctx.organizationId,
     actorUserId: ctx.userId,
+    actorRole: ctx.role,
     requestId: ctx.requestId,
     action: 'bank_account.proof_downloaded',
     entityType: 'employee',

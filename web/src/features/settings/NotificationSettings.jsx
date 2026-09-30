@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import { Section, Toggle } from './ui'
 import { useAuthStore } from '../../stores/authStore'
 import { useNotificationSettings, useSaveNotificationSettings } from '../../hooks/useNotifications'
+import DataState from '../../components/DataState'
 
 /**
  * The Notifications tab: every notice the system sends, whom it tells, and a
@@ -14,15 +15,13 @@ import { useNotificationSettings, useSaveNotificationSettings } from '../../hook
  */
 export default function NotificationSettings() {
   const canEdit = useAuthStore((s) => s.can('settings:update'))
-  const { data: events = [], isLoading } = useNotificationSettings()
+  const settings = useNotificationSettings()
   const save = useSaveNotificationSettings()
 
   async function flip(event, enabled) {
     const ok = await save.mutateAsync([{ event: event.event, enabled }]).then(() => true, () => false)
     if (ok) toast.success(`${event.label}: ${enabled ? 'will be sent' : 'no longer sent'}`)
   }
-
-  const groups = [...new Set(events.map((e) => e.group))]
 
   return (
     <div className="space-y-6">
@@ -34,9 +33,8 @@ export default function NotificationSettings() {
         </div>
       </div>
 
-      {isLoading && <p className="text-sm text-gray-400">Loading…</p>}
-
-      {groups.map((group) => (
+      <DataState query={settings} empty="This system sends no notices yet.">
+        {(events) => [...new Set(events.map((e) => e.group))].map((group) => (
         <Section key={group} title={group}>
           <div className="divide-y divide-gray-100">
             {events.filter((e) => e.group === group).map((e) => (
@@ -57,7 +55,8 @@ export default function NotificationSettings() {
             ))}
           </div>
         </Section>
-      ))}
+        ))}
+      </DataState>
     </div>
   )
 }

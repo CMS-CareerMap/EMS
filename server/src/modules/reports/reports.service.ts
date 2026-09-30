@@ -69,7 +69,7 @@ export interface ReportParams extends repo.ReportFilters {
   month: number
 }
 
-const TITLES: Record<ReportId, string> = {
+export const REPORT_TITLES: Record<ReportId, string> = {
   'attendance-summary': 'Monthly attendance summary',
   'attendance-by-department': 'Attendance by department',
   'leave-taken': 'Leave taken',
@@ -629,5 +629,5 @@ export function isReportId(value: string): value is ReportId {
 export async function runReport(ctx: AppContext, id: ReportId, params: ReportParams): Promise<ReportResult> {
   if (params.month < 1 || params.month > 12) throw BadRequest('Month must be between 1 and 12')
   const built = await BUILDERS[id](ctx, params)
-  return { id, title: TITLES[id], ...built }
+  return { id, title: REPORT_TITLES[id], ...built }
 }

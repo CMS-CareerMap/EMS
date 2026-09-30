@@ -7,7 +7,6 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "type-check": "node -e \"console.log('No TypeScript configured; JavaScript project type-check is covered by lint and build.')\"",
     "preview": "vite preview"
   },
   "dependencies": {

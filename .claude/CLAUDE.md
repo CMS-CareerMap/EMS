@@ -6,7 +6,7 @@ HR & Payroll system for **CareerMap Solutions**. Employee lifecycle, attendance,
 
 ---
 
-## Current state — migration complete, hardening next
+## Current state — v1.0 built; deploy next
 
 The project has moved **off Supabase onto its own Node backend**. Nothing talks to Supabase any more.
 
@@ -36,7 +36,8 @@ Work follows the build guide's day plan.
 - [x] **Day 14** — leave approval, reversal, dashboards
 - [x] **Days 15–18** — payroll: policy, runs, payslips and PDFs, payroll frontend, bank file (`v0.5-payroll`)
 - [x] **Day 19** — documents, notifications, reports, one CSV writer, bank proof; **`web/src/lib/supabase.js` deleted**
-- [ ] **Day 20 ← next** — hardening, deploy
+- [x] **Day 20** — DataState on every screen, error boundaries, 404 page, lazy pages, confirm dialogs, audit log screen, security headers, backup + tested restore, deploy runbook (`deploy/`)
+- [ ] **Deploy ← next** — needs the VPS, the domain and the R2 keys; follow `deploy/DEPLOY.md`, then tag `v1.0`
 
 ---
 
@@ -123,7 +124,10 @@ Direction is one-way: `http` → `modules` → `domain`. Never the reverse.
 - JavaScript, not TypeScript. Tailwind for styling — see [style.md](./style.md)
 - `web/src/api/` is the only place that talks to the network; hooks call it
 - Hooks kept their names and return shapes through the cutover, so pages did not change with them
-- **The API emits `snake_case` for v1** and reproduces the nested `profiles` key the pages already read
+- **The API emits `snake_case` for v1.** Leave requests carry `full_name` / `employee_code` / `department` at the top level; there is no nested `profiles` key
+- A screen renders a query through `components/DataState.jsx` (`DataState`, `DataRows`, `QueryError`): an error is never shown as an empty list or a zero. A `<select>` fed by a query uses `lib/optionsNote.js`
+- "Are you sure?" is `components/ConfirmDialog.jsx`, never `window.confirm`. Days are formatted by `lib/dates.js` (`formatDay`, `formatDayOf`, `formatInstant`), whose fixed month table always gives "Sep", never "Sept"
+- A mutation's `onSuccess` **returns** its invalidation promise, so a dialog closes only after the list shows the change
 
 ---
 
@@ -156,7 +160,12 @@ cd server && npm run bootstrap  # first org + admin. Runs once, refuses after
 
 cd server && npm run storage:check          # put/get/list/delete against the configured storage (local or R2)
 cd server && npm run maintenance            # dry run: orphaned files, old notifications
-cd server && npm run maintenance -- --apply # actually remove them (schedule this nightly once deployed)
+cd server && npm run maintenance -- --apply # actually remove them (nightly on the server: deploy/crontab)
+
+cd server && npm run backup                 # dump → sealed → storage (backups/db/), then prune
+cd server && npm run backup -- --list       # what backups exist
+cd server && npm run restore -- --target-db <empty db>   # never over the live one
+cd server && npm run backup:drill           # backup, restore into a scratch db, check every table, drop it
 
 cd server && npm run db:test -- migrate deploy   # migrate the TEST database
 cd server && npm run db:test -- migrate reset    # wipe and rebuild it

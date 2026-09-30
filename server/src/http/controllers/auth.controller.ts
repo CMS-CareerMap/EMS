@@ -94,7 +94,7 @@ export const postRefresh: RequestHandler = async (req, res) => {
 export const postLogout: RequestHandler = async (req, res) => {
   const raw = (req.cookies as Record<string, string | undefined>)[REFRESH_COOKIE]
 
-  await logout(raw)
+  await logout(raw, metaFrom(req, res))
   clearRefreshCookie(res)
 
   res.status(204).end()

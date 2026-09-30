@@ -92,7 +92,7 @@ export default function SignIn() {
 
           {/* Centered Logo */}
           <div className="flex justify-center mb-8">
-            <img src="/logo.png" alt="CareerMap Solutions" className="w-[50%] max-w-[320px] object-contain" />
+            <img src="/logo.png" alt="CareerMap Solutions" className="w-[50%] max-w-80 object-contain" />
           </div>
 
           {/* Form Card */}

@@ -3,6 +3,8 @@ import { Search, IndianRupee, X, Loader2, AlertCircle, History, Info } from 'luc
 import { useSalaryRoster, useSalaryHistory, usePayrollComponents, useSetSalary } from '../../hooks/useSalary'
 import { useAuthStore } from '../../stores/authStore'
 import { calendarDayIn, addDays } from '../../lib/dates'
+import DataState, { DataRows } from '../../components/DataState'
+import { formatDay } from '../../lib/dates'
 
 /**
  * The Salary Structure tab: who is paid what, from the server.
@@ -19,15 +21,10 @@ function money(value) {
   return value == null ? '—' : '₹' + Number(value).toLocaleString('en-IN')
 }
 
-function formatDay(day) {
-  if (!day) return '—'
-  return new Date(`${day}T00:00:00Z`).toLocaleDateString('en-IN', {
-    day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
-  })
-}
 
 export default function SalaryStructures() {
-  const { data: roster = [], isLoading } = useSalaryRoster()
+  const salaries = useSalaryRoster()
+  const roster = useMemo(() => salaries.data ?? [], [salaries.data])
   const canManage = useAuthStore((state) => state.can('payroll:structure:manage'))
   const [search, setSearch] = useState('')
   const [editing, setEditing] = useState(null)
@@ -42,7 +39,7 @@ export default function SalaryStructures() {
 
   return (
     <div className="space-y-4">
-      {missing > 0 && !isLoading && (
+      {missing > 0 && salaries.isSuccess && (
         <div className="flex items-start gap-2.5 p-3 rounded-lg bg-amber-50 border border-amber-200">
           <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
           <p className="text-sm text-amber-800">
@@ -58,12 +55,12 @@ export default function SalaryStructures() {
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder:text-gray-400" />
         </div>
-        <span className="text-sm text-gray-400 shrink-0">{filtered.length} employees</span>
+        <span className="text-sm text-gray-400 shrink-0">{salaries.isSuccess ? `${filtered.length} employees` : '—'}</span>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px]">
+          <table className="w-full min-w-190">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
                 {['Employee', 'Department', 'Joined', 'Gross / month', 'Annual CTC', 'Since', ''].map((h) => (
@@ -72,11 +69,8 @@ export default function SalaryStructures() {
               </tr>
             </thead>
             <tbody>
-              {isLoading ? (
-                <tr><td colSpan={7} className="text-center py-16 text-sm text-gray-400">Loading…</td></tr>
-              ) : filtered.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-16 text-sm text-gray-400">No employees found.</td></tr>
-              ) : filtered.map((emp) => (
+              <DataRows query={salaries} colSpan={7} empty="No employees found." isEmpty={() => filtered.length === 0}>
+              {() => filtered.map((emp) => (
                 <tr key={emp.employee_id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                   <td className="px-4 py-3.5">
                     <p className="text-sm font-medium text-gray-900">{emp.full_name}</p>
@@ -105,6 +99,7 @@ export default function SalaryStructures() {
                   </td>
                 </tr>
               ))}
+              </DataRows>
             </tbody>
           </table>
         </div>
@@ -126,8 +121,8 @@ export default function SalaryStructures() {
  */
 function SalaryModal({ employee, canManage, onClose }) {
   const timezone = useAuthStore((state) => state.organization?.timezone)
-  const { data: catalogue = [], isLoading: loadingComponents } = usePayrollComponents()
-  const { data: record } = useSalaryHistory(employee.employee_id)
+  const catalogue = usePayrollComponents()
+  const record = useSalaryHistory(employee.employee_id)
   const setSalary = useSetSalary()
 
   const current = employee.salary
@@ -136,8 +131,8 @@ function SalaryModal({ employee, canManage, onClose }) {
 
   // Fixed components only. Incentive and its kind are entered month by month
   // at payroll time, and the server refuses them on a salary.
-  const fixed = catalogue.filter((c) => c.entry === 'fixed')
-  const monthly = catalogue.filter((c) => c.entry === 'monthly')
+  const fixed = (catalogue.data ?? []).filter((c) => c.entry === 'fixed')
+  const monthly = (catalogue.data ?? []).filter((c) => c.entry === 'monthly')
 
   const [effectiveFrom, setEffectiveFrom] = useState(
     current ? firstOfNextMonth : (employee.date_of_joining ?? today),
@@ -221,36 +216,42 @@ function SalaryModal({ employee, canManage, onClose }) {
                 <p className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
                   <IndianRupee className="w-4 h-4 text-emerald-600" /> Monthly components
                 </p>
-                {loadingComponents ? (
-                  <p className="text-sm text-gray-400 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading components…</p>
-                ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {fixed.map((c) => (
-                      <label key={c.code} className="space-y-1 block">
-                        <span className="text-xs font-medium text-gray-600">
-                          {c.label}{c.type === 'deduction' && <span className="text-red-500"> (deduction)</span>}
-                          {c.counts_for_pf && <span className="text-gray-400"> · PF</span>}
-                        </span>
-                        <input type="number" min="0" step="1" value={amounts[c.code] ?? ''}
-                          onChange={(e) => setAmounts((a) => ({ ...a, [c.code]: e.target.value }))}
-                          placeholder="0"
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                      </label>
-                    ))}
-                  </div>
-                )}
-                {monthly.length > 0 && (
-                  <p className="text-xs text-gray-500 mt-2 flex items-start gap-1.5">
-                    <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                    {monthly.map((c) => c.label).join(', ')} {monthly.length > 1 ? 'are' : 'is'} entered each month at payroll time, not here.
-                  </p>
-                )}
-              </div>
+                {/* The totals too: without the components they would read ₹0 for somebody who is paid. */}
+                <DataState query={catalogue} compact
+                  loading={<span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading components…</span>}>
+                  {() => (
+                  <div className="space-y-5">
+                    <div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        {fixed.map((c) => (
+                          <label key={c.code} className="space-y-1 block">
+                            <span className="text-xs font-medium text-gray-600">
+                              {c.label}{c.type === 'deduction' && <span className="text-red-500"> (deduction)</span>}
+                              {c.counts_for_pf && <span className="text-gray-400"> · PF</span>}
+                            </span>
+                            <input type="number" min="0" step="1" value={amounts[c.code] ?? ''}
+                              onChange={(e) => setAmounts((a) => ({ ...a, [c.code]: e.target.value }))}
+                              placeholder="0"
+                              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                          </label>
+                        ))}
+                      </div>
+                      {monthly.length > 0 && (
+                        <p className="text-xs text-gray-500 mt-2 flex items-start gap-1.5">
+                          <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                          {monthly.map((c) => c.label).join(', ')} {monthly.length > 1 ? 'are' : 'is'} entered each month at payroll time, not here.
+                        </p>
+                      )}
+                    </div>
 
-              <div className="grid grid-cols-3 gap-3 text-center">
-                <Stat label="Gross / month" value={money(earnings)} />
-                <Stat label="Deductions / month" value={money(deductions)} />
-                <Stat label="Gross / year" value={money(earnings * 12)} />
+                    <div className="grid grid-cols-3 gap-3 text-center">
+                      <Stat label="Gross / month" value={money(earnings)} />
+                      <Stat label="Deductions / month" value={money(deductions)} />
+                      <Stat label="Gross / year" value={money(earnings * 12)} />
+                    </div>
+                  </div>
+                  )}
+                </DataState>
               </div>
 
               {ctcBelowGross && (
@@ -277,13 +278,10 @@ function SalaryModal({ employee, canManage, onClose }) {
             <p className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
               <History className="w-4 h-4 text-gray-500" /> History
             </p>
-            {!record ? (
-              <p className="text-sm text-gray-400">Loading…</p>
-            ) : record.history.length === 0 ? (
-              <p className="text-sm text-gray-500">No salary has ever been recorded.</p>
-            ) : (
+            <DataState query={record} compact empty="No salary has ever been recorded." isEmpty={(r) => r.history.length === 0}>
+              {(r) => (
               <div className="border border-gray-200 rounded-xl divide-y divide-gray-100">
-                {record.history.map((h) => (
+                {r.history.map((h) => (
                   <div key={h.effective_from} className="px-4 py-3 flex items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-medium text-gray-900">
@@ -300,7 +298,8 @@ function SalaryModal({ employee, canManage, onClose }) {
                   </div>
                 ))}
               </div>
-            )}
+              )}
+            </DataState>
           </div>
         </div>
       </div>

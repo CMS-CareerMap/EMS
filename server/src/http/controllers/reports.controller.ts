@@ -51,6 +51,7 @@ export const getReport: RequestHandler = async (req, res) => {
     await recordSecurityEvent({
       organizationId: ctx.organizationId,
       actorUserId: ctx.userId,
+      actorRole: ctx.role,
       requestId: ctx.requestId,
       action: 'report.exported',
       entityType: 'report',

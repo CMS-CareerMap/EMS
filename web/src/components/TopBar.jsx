@@ -11,7 +11,10 @@ export default function TopBar({ title, onMenuClick }) {
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [notificationOpen, setNotificationOpen] = useState(false)
 
-  const { unreadCount } = useNotifications()
+  const notices = useNotifications()
+  // The bell only counts. When the notices could not be fetched it shows no
+  // badge rather than a stale or made-up number; the panel says what went wrong.
+  const unreadCount = notices.isError ? 0 : notices.unreadCount
 
   const displayName = profile?.full_name || user?.email?.split('@')[0] || 'User'
   const displayEmail = user?.email ?? ''

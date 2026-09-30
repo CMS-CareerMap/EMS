@@ -1,4 +1,5 @@
 import { CheckCircle2, Clock, XCircle, CircleDashed } from 'lucide-react'
+import { formatDayOf } from '../../lib/dates'
 
 /** How each document status reads on screen. */
 export const STATUS = {
@@ -20,6 +21,5 @@ export const categoryLabel = (value) => CATEGORIES.find((c) => c.value === value
 
 /** A moment as the person reading it would say it. */
 export function when(iso) {
-  if (!iso) return '—'
-  return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+  return formatDayOf(iso)
 }

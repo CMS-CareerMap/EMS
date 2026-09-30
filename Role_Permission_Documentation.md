@@ -1,6 +1,6 @@
 # Role & Permission Documentation
 
-**EMS — CareerMap Solutions** | Version 1.1 | 28 September 2026
+**EMS — CareerMap Solutions** | Version 1.2 | 30 September 2026
 
 ---
 
@@ -78,6 +78,7 @@ This document defines who can access what in the Employee Management System (EMS
 | Publish/withdraw company documents | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | Edit the document checklist | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | View reports | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Read the audit log (and export it) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Read own notifications | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Turn notification events on/off | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Invite users | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
@@ -236,8 +237,13 @@ Super Admin ─── Full control
 ```
 Employee applies → Manager/RM/HR reviews → Approve or Reject
                                               ↓
-                              DB trigger auto-deducts leave balance
+                  approval takes the days from the leave balance
 ```
+
+- The days are counted as working days (weekly offs and public holidays are not counted), and the balance shown is after anything already applied for.
+- **Withdraw:** a person can withdraw their own request while it is still pending. It shows as *Cancelled*, and the approvers are told.
+- **Reverse:** once approved, leave can only be reversed by an approver, **never by the person it belongs to**, whatever their role. Reversing puts the days back in the balance and takes the leave days off the attendance. A month whose payroll is already approved cannot be changed.
+- Nobody approves, rejects or reverses their own leave. On their own request an approver sees only Withdraw.
 
 ### Document Verification
 
@@ -252,6 +258,14 @@ Employee uploads a file against the checklist → HR/Admin is notified
 - Files are never reachable by a link. Each one is opened through the app after a permission check, and every download is recorded.
 - Every file is checked against the fingerprint taken when it was stored. A file that has gone missing or been altered is refused with a plain message, and the attempt to open it is recorded for the administrator.
 - The checklist — which documents each employee owes, and which are required — is the company's own (Settings → Documents). HR sees who is missing what under Documents → Employees.
+
+### Audit log
+
+- **What it records:** every sign-in, refused sign-in and sign-out; every request the system turned down; every change to a user's role or status; every salary change; each step of a payroll (calculated, approved, reopened, paid); every document or proof opened; and every file that leaves the system (reports, the employee list, attendance, payslips, the bank file, the audit log itself).
+- **Where to read it:** Settings → Audit Log, **Super Admin only**. It can be filtered by dates on the company's clock, by area, by who did it, or by whom it was about (people who have left included). It can be exported as a CSV, and the export is itself recorded.
+- **What it shows:** each entry says in words what happened, with the names of the people involved. It also shows the role the person held **at the time**. An entry from before roles were recorded is marked "(now)".
+- **What nobody can do:** change or delete an entry. There is no way to do either, anywhere in the system.
+- **Backups:** the nightly backup and the monthly restore drill write their outcome here too, under *System jobs*. A failure shows up where Super Admin looks.
 
 ### Notifications
 
@@ -332,6 +346,10 @@ Settings → Invite → the server checks the caller holds user:invite
 | Self-protection | Nobody changes their own role or status, deletes their own account, or verifies their own document or bank account |
 | Role validation | One list of permissions per role (`server/src/platform/authz/roles.ts`), checked against this document by an automated test |
 | Files | Checked by content on upload, kept in private storage, opened only through the app, each download recorded |
+| Audit log | Append-only; read by Super Admin only (`audit:read`); every entry says who, as what role, from which device and address |
+| Browser | Content-Security-Policy, HSTS, X-Frame-Options DENY, nosniff, Referrer-Policy and Permissions-Policy on the app; helmet's headers on the API |
+| Sign-in limits | 10 tries per account and 100 per address per 15 minutes on sign-in and password links. Refreshing a session has its own, much higher limit, so an office on one address is never locked out by it. |
+| Backups | Nightly, sealed (AES-256-GCM), stored off the server; restored and checked every month (`deploy/DEPLOY.md`) |
 
 ---
 
@@ -388,6 +406,9 @@ The sidebar and the page guards read one list (`web/src/config/navigation.js`) o
 - [ ] Every API route checks a permission
 - [ ] Passwords stored as bcrypt hashes
 - [ ] An uploaded file that is not really a PDF or image is refused, whatever its name
+- [ ] Only Super Admin sees Settings → Audit Log; the API answers 403 to everybody else
+- [ ] Nobody can reverse their own approved leave
+- [ ] A page that fails to load says so, with a reference and Try again — never an empty list
 
 ---
 
@@ -399,7 +420,6 @@ The sidebar and the page guards read one list (`web/src/config/navigation.js`) o
 | **Temporary permissions** | Time-bound elevated access (e.g., acting manager for 2 weeks) |
 | **Department-scoped HR** | HR restricted to specific departments |
 | **Multi-level approvals** | Leave: RM → HR → Auto-approved chain |
-| **Audit dashboard** | Log all login, CRUD, and role-change events |
 | **2FA** | TOTP-based two-factor for Super Admin & Accounts |
 | **Time-based access** | Restrict payroll module to business hours only |
 

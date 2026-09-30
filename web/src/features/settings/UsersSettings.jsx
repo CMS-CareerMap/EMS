@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  Trash2, Edit2, X, Check, ToggleLeft, ToggleRight, Loader2, AlertCircle, KeyRound, UserPlus,
+  Trash2, Edit2, X, Check, ToggleLeft, ToggleRight, Loader2, KeyRound, UserPlus,
 } from 'lucide-react'
 import {
   useUsers, useUpdateUserRole,
@@ -9,6 +9,8 @@ import {
 import { InviteUserForm, PasswordLinkPanel } from './UserAccess'
 import { Section, inpSm } from './ui'
 import { ROLE_LABELS } from '../../lib/roles'
+import DataState from '../../components/DataState'
+import ConfirmDialog from '../../components/ConfirmDialog'
 
 /**
  * The Users & Roles tab: sign-in accounts, their roles, and the links that
@@ -31,7 +33,7 @@ export default function UsersSettings() {
   const [editId, setEditId] = useState(null)
   const [editRole, setEditRole] = useState('')
 
-  const { data: users = [], isLoading, isError } = useUsers()
+  const users = useUsers()
   const updateRole = useUpdateUserRole()
   const toggleStatus = useToggleUserStatus()
   const deleteUser = useDeleteUser()
@@ -42,16 +44,20 @@ export default function UsersSettings() {
   // administrator closes it.
   const [showInvite, setShowInvite] = useState(false)
   const [issued, setIssued] = useState(null)
+  // Who a confirmation is open for: a reset link, or removal.
+  const [resetting, setResetting] = useState(null)
+  const [removing, setRemoving] = useState(null)
 
-  async function handleIssueLink(user) {
+  async function issueLinkFor(user) {
+    const result = await issueLink.mutateAsync({ user_id: user.id })
+    setIssued({ email: result.user.email, invite: result.invite })
+  }
+
+  function handleIssueLink(user) {
     // A reset link lets whoever holds it take over that account, so it is
     // worth one deliberate click. A repeat invitation carries no such risk.
-    if (user.status === 'active' && !window.confirm(
-      `Create a password reset link for ${user.email}? Whoever holds it can set a new password for this account, and their other sessions end when it is used.`,
-    )) return
-
-    const result = await issueLink.mutateAsync({ user_id: user.id }).catch(() => null)
-    if (result) setIssued({ email: result.user.email, invite: result.invite })
+    if (user.status === 'active') setResetting(user)
+    else issueLinkFor(user).catch(() => null)
   }
 
   function startEdit(user) { setEditId(user.id); setEditRole(user.role) }
@@ -73,22 +79,16 @@ export default function UsersSettings() {
     }
   }
 
-  async function handleDelete(userId) {
-    if (!window.confirm('Remove this user? They will lose all access immediately.')) return
-    try {
-      await deleteUser.mutateAsync({ user_id: userId })
-    } catch (err) {
-      console.error(err)
-    }
-  }
-
   const initials = (name) => (name || '?').split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
+
+  // A count only from an answer; a failed load says so below, not "0 users".
+  const count = users.isSuccess ? users.data.length : null
 
   return (
     <div className="space-y-6">
       <Section
         title="Manage Users"
-        desc={isLoading ? 'Loading…' : `${users.length} user${users.length !== 1 ? 's' : ''} in your organisation.`}
+        desc={count !== null ? `${count} user${count !== 1 ? 's' : ''} in your organisation.` : users.isLoading ? 'Loading…' : undefined}
       >
         <div className="space-y-4 mb-4">
           {issued && (
@@ -110,15 +110,8 @@ export default function UsersSettings() {
           )}
         </div>
 
-        {isLoading ? (
-          <div className="flex items-center justify-center py-12 text-gray-400">
-            <Loader2 className="w-6 h-6 animate-spin mr-2" /> Loading users…
-          </div>
-        ) : isError ? (
-          <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 rounded-lg px-4 py-3">
-            <AlertCircle className="w-4 h-4" /> Failed to load users.
-          </div>
-        ) : (
+        <DataState query={users} loading="Loading users…">
+          {(rows) => (
           <div className="border border-gray-200 rounded-xl overflow-hidden">
             <table className="w-full">
               <thead>
@@ -129,7 +122,7 @@ export default function UsersSettings() {
                 </tr>
               </thead>
               <tbody>
-                {users.map((user) => (
+                {rows.map((user) => (
                   <tr key={user.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-3">
@@ -214,7 +207,7 @@ export default function UsersSettings() {
                           </button>
                         )}
                         <button
-                          onClick={() => handleDelete(user.id)}
+                          onClick={() => setRemoving(user)}
                           disabled={deleteUser.isPending}
                           className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
                           title="Remove user"
@@ -228,6 +221,24 @@ export default function UsersSettings() {
               </tbody>
             </table>
           </div>
+          )}
+        </DataState>
+
+        {resetting && (
+          <ConfirmDialog title={`Create a password reset link for ${resetting.email}?`} confirmLabel="Create link"
+            onConfirm={() => issueLinkFor(resetting)}
+            onClose={() => setResetting(null)}>
+            <p>Whoever holds it can set a new password for this account.</p>
+            <p>Their other sessions end when it is used.</p>
+          </ConfirmDialog>
+        )}
+
+        {removing && (
+          <ConfirmDialog title={`Remove ${removing.full_name || removing.email}?`} confirmLabel="Remove" danger
+            onConfirm={() => deleteUser.mutateAsync({ user_id: removing.id })}
+            onClose={() => setRemoving(null)}>
+            <p><strong>{removing.email}</strong> will lose all access immediately.</p>
+          </ConfirmDialog>
         )}
       </Section>
     </div>

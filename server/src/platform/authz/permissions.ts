@@ -90,6 +90,10 @@ export const PERMISSIONS = [
   'user:status:update',
   'user:delete',
   'membership:role:assign',
+
+  // Reading the audit log: who did what, including every salary change and
+  // every document opened. Super Admin only.
+  'audit:read',
 ] as const
 
 export type Permission = (typeof PERMISSIONS)[number]

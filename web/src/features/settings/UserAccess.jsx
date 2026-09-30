@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { Copy, Check, KeyRound, Loader2, UserPlus, X } from 'lucide-react'
 import { useInviteUser } from '../../hooks/useUsers'
+import { formatInstant } from '../../lib/dates'
 
 /**
  * Inviting somebody, and handing them their link.
@@ -37,8 +38,9 @@ function linkFor(token) {
   return `${window.location.origin}/set-password#token=${encodeURIComponent(token)}`
 }
 
+/** When a link stops working — on this device's clock, where the person reading it is. */
 function formatExpiry(iso) {
-  return new Date(iso).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })
+  return formatInstant(iso)
 }
 
 /** Shows a freshly issued link, once. */

@@ -2,11 +2,11 @@ import { UserCheck, CalendarDays, Clock, TrendingUp, CheckCircle, XCircle, Alert
 import { useMyDashboardStats } from '../../hooks/useDashboard'
 import PunchCard from '../attendance/PunchCard'
 import { useAuthStore } from '../../stores/authStore'
+import DataState from '../../components/DataState'
+import { calendarDayIn, formatCalendarDay, formatDayOf } from '../../lib/dates'
 
-const LEAVE_TYPE_LABELS = {
-  sick: 'Sick Leave', casual: 'Casual Leave', earned: 'Earned Leave',
-  wfh: 'WFH', maternity: 'Maternity Leave', paternity: 'Paternity Leave', comp_off: 'Comp Off',
-}
+// Leave types are the company's own: the names come from the server with each row.
+const LEAVE_STATUS_LABELS = { pending: 'Pending', approved: 'Approved', rejected: 'Rejected', cancelled: 'Cancelled' }
 
 const LEAVE_STATUS_COLORS = {
   pending: 'bg-amber-100 text-amber-700',
@@ -23,46 +23,18 @@ const ATTENDANCE_STATUS = {
 }
 
 function formatDate(str) {
-  if (!str) return ''
-  return new Date(str).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+  return str ? formatDayOf(str) : ''
 }
 
 export default function EmployeeDashboard() {
-  const { data, isLoading, error } = useMyDashboardStats()
-  // Read before the early returns below — a hook cannot be called conditionally.
+  const stats = useMyDashboardStats()
   const attendanceMode = useAuthStore((state) => state.profile?.attendance_mode)
   // Accounts, in the client's matrix, has no attendance at all — the card's
   // first request would be refused on every visit.
   const canPunch = useAuthStore((state) => state.can('attendance:punch'))
 
-  const today = new Date().toLocaleDateString('en-IN', {
-    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-  })
-
-  const monthName = new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-64 text-red-500 text-sm">
-        Failed to load dashboard data.
-      </div>
-    )
-  }
-
-  const { profile, presentDays, absentDays, leaveDays, weeklyOffDays, todayStatus, recentLeaves, leaveBalances } = data
-
-  const totalWorkingDays = presentDays + absentDays + leaveDays
-  const attendancePct = totalWorkingDays > 0 ? Math.round(presentDays / totalWorkingDays * 100) : 0
-
-  const todayInfo = ATTENDANCE_STATUS[todayStatus] ?? null
+  const timezone = useAuthStore((state) => state.organization?.timezone)
+  const today = formatCalendarDay(calendarDayIn(timezone))
 
   return (
     <div className="space-y-6">
@@ -88,8 +60,28 @@ export default function EmployeeDashboard() {
       */}
       {attendanceMode === 'app' && canPunch && <PunchCard />}
 
+      {/* The punch card above has its own request, so it stays usable when this one fails. */}
+      <DataState query={stats}>
+        {(data) => <MyMonth data={data} />}
+      </DataState>
+    </div>
+  )
+}
+
+function MyMonth({ data }) {
+  const { profile, presentDays, absentDays, leaveDays, weeklyOffDays, todayStatus, recentLeaves, leaveBalances } = data
+
+  const monthName = new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
+
+  const totalWorkingDays = presentDays + absentDays + leaveDays
+  const attendancePct = totalWorkingDays > 0 ? Math.round(presentDays / totalWorkingDays * 100) : 0
+
+  const todayInfo = ATTENDANCE_STATUS[todayStatus] ?? null
+
+  return (
+    <>
       {/* Profile banner */}
-      <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl p-5 text-white flex items-center gap-4">
+      <div className="bg-linear-to-r from-blue-600 to-blue-700 rounded-xl p-5 text-white flex items-center gap-4">
         <div className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center shrink-0">
           <span className="text-xl font-bold text-white">
             {(profile?.full_name || 'U').split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase()}
@@ -170,7 +162,7 @@ export default function EmployeeDashboard() {
                 return (
                   <div key={lb.id} className="px-5 py-3.5 flex items-center gap-4">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900">{LEAVE_TYPE_LABELS[lb.leave_type] ?? lb.leave_type}</p>
+                      <p className="text-sm font-medium text-gray-900">{lb.name}</p>
                       <div className="mt-1.5 w-full bg-gray-100 rounded-full h-1.5">
                         <div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${pct}%` }} />
                       </div>
@@ -204,10 +196,10 @@ export default function EmployeeDashboard() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="text-sm font-medium text-gray-900">
-                        {LEAVE_TYPE_LABELS[req.leave_type] ?? req.leave_type}
+                        {req.leave_type_name}
                       </p>
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${LEAVE_STATUS_COLORS[req.status] ?? 'bg-gray-100 text-gray-700'}`}>
-                        {req.status}
+                        {LEAVE_STATUS_LABELS[req.status] ?? req.status}
                       </span>
                     </div>
                     <p className="text-xs text-gray-400 mt-0.5">
@@ -220,6 +212,6 @@ export default function EmployeeDashboard() {
           )}
         </div>
       </div>
-    </div>
+    </>
   )
 }

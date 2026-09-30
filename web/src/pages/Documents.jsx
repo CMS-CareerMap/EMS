@@ -5,6 +5,7 @@ import { useChecklist, useDocumentTypes } from '../hooks/useDocuments'
 import CompanyDocuments from '../features/documents/CompanyDocuments'
 import EmployeeDocuments from '../features/documents/EmployeeDocuments'
 import Checklist from '../features/documents/Checklist'
+import DataState from '../components/DataState'
 
 /**
  * Documents.
@@ -33,8 +34,6 @@ export default function Documents() {
   const fallback = tabs.find((t) => t.id === 'mine') ?? tabs[0]
   const current = tabs.find((t) => t.id === requested) ?? fallback
   const typesQuery = useDocumentTypes({ enabled: can('document:read') })
-  const limits = typesQuery.data ?? null
-  const types = typesQuery.data?.types ?? []
 
   const go = (tab, extra = {}) => setParams({ tab, ...extra }, { replace: true })
 
@@ -62,27 +61,31 @@ export default function Documents() {
 
       {current.id === 'company' && <CompanyDocuments />}
       {/* The checklist and the upload limit come first: a file is checked against them before it is sent. */}
-      {current.id !== 'company' && !limits && (
-        <p className="text-sm text-gray-400 py-12 text-center">{typesQuery.error ? typesQuery.error.message : 'Loading…'}</p>
-      )}
-      {current.id === 'mine' && limits && <MyDocuments types={types} limits={limits} canUpload={can('document:upload')} />}
-      {current.id === 'employees' && limits && (
-        <EmployeeDocuments types={types} limits={limits} selected={params.get('employee')} onSelect={(id) => go('employees', { employee: id })} />
+      {current.id !== 'company' && (
+        <DataState query={typesQuery}>
+          {(limits) => current.id === 'mine' ? (
+            <MyDocuments types={limits.types} limits={limits} canUpload={can('document:upload')} />
+          ) : (
+            <EmployeeDocuments types={limits.types} limits={limits} selected={params.get('employee')} onSelect={(id) => go('employees', { employee: id })} />
+          )}
+        </DataState>
       )}
     </div>
   )
 }
 
 function MyDocuments({ types, limits, canUpload }) {
-  const { data, isLoading, error } = useChecklist(undefined)
-  if (isLoading) return <p className="text-sm text-gray-400 py-12 text-center">Loading…</p>
-  if (error || !data) return <p className="text-sm text-gray-500 py-12 text-center">{error?.message ?? 'Your documents could not be opened.'}</p>
+  const checklist = useChecklist(undefined)
   return (
-    <div className="space-y-3">
-      <p className="text-sm text-gray-600">
-        Upload a clear photo or PDF of each document. HR checks it against the original; you are told when it is verified, or why it was not.
-      </p>
-      <Checklist data={data} types={types} limits={limits} reviewer={false} canUpload={canUpload} />
-    </div>
+    <DataState query={checklist}>
+      {(data) => (
+        <div className="space-y-3">
+          <p className="text-sm text-gray-600">
+            Upload a clear photo or PDF of each document. HR checks it against the original; you are told when it is verified, or why it was not.
+          </p>
+          <Checklist data={data} types={types} limits={limits} reviewer={false} canUpload={canUpload} />
+        </div>
+      )}
+    </DataState>
   )
 }
