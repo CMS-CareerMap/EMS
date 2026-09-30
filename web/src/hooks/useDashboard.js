@@ -102,9 +102,10 @@ export function useApproveLeaveDashboard() {
   })
 }
 
-/** The employee's own view. */
-export function useMyDashboardStats() {
+/** The employee's own view. `enabled` lets the profile drawer ask only when it is open. */
+export function useMyDashboardStats({ enabled = true } = {}) {
   return useQuery({
+    enabled,
     queryKey: keys.me,
     queryFn: async () => {
       const { data } = await api.get('/dashboard/me')

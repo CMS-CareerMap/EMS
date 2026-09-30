@@ -1,6 +1,6 @@
 # Role & Permission Documentation
 
-**EMS — CareerMap Solutions** | Version 1.0 | 11 July 2026
+**EMS — CareerMap Solutions** | Version 1.1 | 28 September 2026
 
 ---
 
@@ -40,11 +40,17 @@ This document defines who can access what in the Employee Management System (EMS
 | Leave | ✅ | ❌ | ✅ | 🟡 Team | 🟡 Team | ❌ | 🟡 Own |
 | Payroll | ✅ | ❌ | 🟡 Incentives | ❌ | ❌ | ✅ | ❌ |
 | My Payslips | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Documents | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | 🟡 Own |
+| Documents — employee files | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | 🟡 Own |
+| Documents — company documents | ✅ | ✅ | ✅ | 👁 View | 👁 View | 👁 View | 👁 View |
 | Reports | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Settings | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Notifications (the bell) | ✅ Own | ✅ Own | ✅ Own | ✅ Own | ✅ Own | ✅ Own | ✅ Own |
 
 ✅ Full  |  🟡 Limited  |  👁 View-only  |  ❌ No Access
+
+> **Company documents** are the company's own papers — policies, the handbook, templates, announcements. Everybody reads them (§5 has always said "All"); only Super Admin, Admin and HR publish or withdraw them. Nobody's personal files are in there.
+>
+> **Settings, in part:** Admin and HR open Settings for the tabs they run and nothing else — leave types (Admin, HR), holidays (HR) and the document checklist (Admin, HR). Company details, users, payroll configuration, the upload size limit and the notification switches stay Super Admin's.
 
 ### 3.2 Action Permissions
 
@@ -65,9 +71,15 @@ This document defines who can access what in the Employee Management System (EMS
 | Record / verify bank accounts | ✅ | ❌ | ❌ | ❌ | ✅ (not own) | ❌ |
 | Download bank transfer file | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ |
 | Download own payslips | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Send in own bank account (with cheque/passbook proof) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Upload documents | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ Own |
-| Verify/reject documents | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Verify/reject documents | ✅ (not own) | ✅ (not own) | ✅ (not own) | ❌ | ❌ | ❌ |
+| Read company documents | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Publish/withdraw company documents | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Edit the document checklist | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | View reports | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Read own notifications | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Turn notification events on/off | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Invite users | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Manage roles/status | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Delete users | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
@@ -87,12 +99,12 @@ This document defines who can access what in the Employee Management System (EMS
 | **Attendance** | View all, mark/edit/delete for anyone |
 | **Leave** | Apply own, approve/reject anyone's requests |
 | **Payroll** | Create salary structures, run payroll, generate payslips |
-| **Documents** | Upload for anyone, verify/reject |
-| **Reports** | Generate all 7 report types |
-| **Settings** | Invite users, change roles, toggle status, delete users, edit company info |
+| **Documents** | Upload for anyone; verify or reject anybody's but their own; publish and withdraw company documents; edit the document checklist |
+| **Reports** | All 8 reports — attendance summary, attendance by department, leave taken, leave balances, payroll summary, PF & ESI, headcount, joiners & exits — for any month, with Print / PDF and a CSV download. Every download is recorded |
+| **Settings** | Invite users, change roles, toggle status, delete users, edit company info; the upload size limit (1–10 MB, 2 MB to start); which notifications are sent |
 
-**Unique to this role:** Only role with access to Reports, Settings, and user management.
-**Restriction:** Cannot modify own account via the manage-user function (self-protection).
+**Unique to this role:** Only role with access to Reports, company Settings, and user management.
+**Restriction:** Cannot change their own role or status, or delete their own account (self-protection).
 
 ---
 
@@ -103,9 +115,10 @@ This document defines who can access what in the Employee Management System (EMS
 | Area | What They Can Do |
 |------|------------------|
 | **Employees** | Create, view, edit profiles |
-| **Documents** | Upload, verify, reject employee documents |
+| **Documents** | Upload, verify, reject employee documents — never their own; publish and withdraw company documents; edit the document checklist (Settings → Documents) |
+| **Leave types** | Add and edit the company's leave types (Settings → Leave) |
 
-**No access to:** Attendance, Leave, Payroll, Reports, Settings.
+**No access to:** Attendance, Leave records, Payroll, Reports, and the rest of Settings.
 
 ---
 
@@ -118,10 +131,11 @@ This document defines who can access what in the Employee Management System (EMS
 | **Employees** | Create, view, edit profiles |
 | **Attendance** | View all, mark/edit/delete for anyone |
 | **Leave** | View all, approve/reject any request, manage balances |
-| **Documents** | Upload, verify, reject employee documents |
+| **Documents** | Upload, verify, reject employee documents — never their own; publish and withdraw company documents; edit the document checklist (Settings → Documents) |
+| **Leave setup** | Leave types and the holiday calendar (Settings → Leave) |
 | **Incentive** | Enter each employee's monthly incentive amount (as Accounts can), under Payroll → Incentives. Nothing else of payroll — no salaries, runs, other people's payslips or bank details |
 
-**No access to:** Payroll (beyond entering incentives), Reports, Settings. Cannot delete employees.
+**No access to:** Payroll (beyond entering incentives), Reports, and the rest of Settings. Cannot delete employees.
 
 ---
 
@@ -134,9 +148,10 @@ This document defines who can access what in the Employee Management System (EMS
 | **Employees** | View all (read-only) |
 | **Attendance** | View own + direct reports |
 | **Leave** | Apply own, approve/reject direct reports' requests |
+| **Company documents** | Read and download the company's policies, handbook and templates |
 
 **Data scope:** Only sees attendance/leave for employees whose `reporting_manager_id` points to them.
-**No access to:** Payroll, Documents, Reports, Settings. Cannot edit profiles or mark attendance.
+**No access to:** Payroll, employee documents (their own included — see the note in §11), Reports, Settings. Cannot edit profiles or mark attendance.
 
 ---
 
@@ -148,11 +163,11 @@ This document defines who can access what in the Employee Management System (EMS
 |------|------------------|
 | **Payroll** | Create/edit salary structures; create a month's payroll run as a draft, recalculate or discard it; mark an approved run paid. Approving is Super Admin's |
 | **Payroll inputs** | Enter monthly incentive amounts; and, only if the company deducts TDS through payroll (Settings → Payroll Config, off by default), each employee's monthly TDS amount (₹0 needs a reason) |
-| **Bank accounts** | Record each employee's salary bank account from a cancelled cheque or passbook page, and verify or reject it (a rejection needs a reason). Never their own — somebody else in Accounts, or the Super Admin, checks that |
+| **Bank accounts** | Record each employee's salary bank account from a cancelled cheque or passbook page (the photo or PDF can be attached), and verify or reject it (a rejection needs a reason). Accounts an employee sends in themselves arrive as pending with their proof attached, marked "Sent in by them". Never their own — somebody else in Accounts, or the Super Admin, checks that |
 | **Bank transfer file** | Download the month's bank file (CSV) from an approved or paid run, and set its layout once to match the bank's bulk-payment format |
 
-**No access to:** Employees page, Attendance, Leave, Documents, Reports, Settings.
-**Can view:** Employee financial data (PAN, bank details) within payroll screens.
+**No access to:** Employees page, Attendance, Leave, employee documents, Reports, Settings.
+**Can view:** Employee financial data (PAN, bank details) within payroll screens, and the company's documents.
 
 ---
 
@@ -165,32 +180,36 @@ This document defines who can access what in the Employee Management System (EMS
 | **Dashboard** | Personal stats (attendance summary, leave balances) |
 | **Attendance** | View own records only |
 | **Leave** | Apply for leave, view own requests, view holidays |
-| **Documents** | Upload own documents, view verification status |
+| **Documents** | Upload their documents against the company's checklist; see each one's status — pending, verified, or rejected with the reason; replace one; remove their own upload while it is still pending. Read the company's documents |
 | **Payslips** | View and download own payslips (My Payslips), once the month is paid |
-| **Bank account** | See where their salary is paid (last four digits and status) in their profile. To add or change it, they give Accounts a cancelled cheque or passbook page |
+| **Bank account** | See where their salary is paid (last four digits and status) in their profile, and send in a new or changed account there with a photo or PDF of a cancelled cheque or passbook page. It is pending — and not paid into — until Accounts checks it |
+| **Notifications** | Their own: a leave request decided, a payslip ready, a document checked, a bank account checked, their password changed |
 
 **Cannot:** View other employees' data, approve anything, access payroll/reports/settings.
 **Can delete:** Only own pending leave requests.
 
 ---
 
-## 5. Data Visibility (RLS)
+## 5. Data Visibility
 
-The database enforces row-level security even if the frontend is bypassed.
+The API server decides this on every request, so it holds even if the frontend is bypassed: the permission decides whether a request runs at all, and the data scope decides whose rows it can reach. A row outside the caller's scope answers "not found", not "forbidden", so ids cannot be probed one by one.
 
-| Table | Super Admin | Admin | HR | Manager/RM | Accounts | Employee |
-|-------|:-----------:|:-----:|:--:|:----------:|:--------:|:--------:|
-| profiles | All | All | All | All | All | All |
-| attendance | All | ❌ | All | Own + reports | ❌ | Own |
-| leave_requests | All | ❌ | All | Own + reports | ❌ | Own |
-| leave_balances | All | ❌ | All | Own | ❌ | Own |
-| salary_structures | All | ❌ | ❌ | ❌ | All | Own |
-| payroll_runs | All | ❌ | ❌ | ❌ | All | ❌ |
-| payslips | All | Own | Own | Own | All | Own |
-| documents | All | All | All | All | All | All |
-| employee_documents | All | All | All | ❌ | ❌ | Own |
-| holidays | All | All | All | All | All | All |
-| notifications | All | Own | Own | Own | Own | Own |
+| Records | Super Admin | Admin | HR | Manager/RM | Accounts | Employee |
+|---------|:-----------:|:-----:|:--:|:----------:|:--------:|:--------:|
+| Employee directory (no salary, bank or tax ids) | All | All | All | All | ❌ | ❌ |
+| Salary and bank details | All | ❌ | ❌ | ❌ | All | Own |
+| PAN, UAN, PF and ESIC numbers | All | ❌ | All | ❌ | On payslips | Own payslips |
+| Attendance | All | ❌ | All | Own + reports | ❌ | Own |
+| Leave requests and balances | All | ❌ | All | Own + reports | ❌ | Own |
+| Salary structures, payroll runs | All | ❌ | ❌ | ❌ | All | ❌ |
+| Payslips | All | Own | Own | Own | All | Own |
+| Company documents | All | All | All | All | All | All |
+| Employee documents | All | All | All | ❌ | ❌ | Own |
+| Holidays | All | All | All | All | All | All |
+| Notifications | Own | Own | Own | Own | Own | Own |
+| Reports | All | ❌ | ❌ | ❌ | ❌ | ❌ |
+
+A notification is only ever written by the server, as part of the change it reports — the browser has no way to create one, or to send one to somebody else.
 
 ---
 
@@ -223,8 +242,32 @@ Employee applies → Manager/RM/HR reviews → Approve or Reject
 ### Document Verification
 
 ```
-Employee uploads file → HR/Admin reviews → Verify or Reject (with remarks)
+Employee uploads a file against the checklist → HR/Admin is notified
+  → opens it in the app → Verify, or Reject with a reason → the employee is notified
 ```
+
+- Nobody verifies their own document, whichever role they hold. An upload by HR or Admin for somebody else can be marked verified at once.
+- A new upload replaces the current one; the earlier ones stay listed, so what was rejected and why is not lost. Taking back a new upload — a second copy sent by mistake — makes the one it replaced current again.
+- Files are checked on the server by their contents, not their name: PDF, JPG, PNG or WebP only, up to the company's limit (2 MB to start, Settings → Documents). A photo taken on a phone is shrunk in the browser before it is sent.
+- Files are never reachable by a link. Each one is opened through the app after a permission check, and every download is recorded.
+- Every file is checked against the fingerprint taken when it was stored. A file that has gone missing or been altered is refused with a plain message, and the attempt to open it is recorded for the administrator.
+- The checklist — which documents each employee owes, and which are required — is the company's own (Settings → Documents). HR sees who is missing what under Documents → Employees.
+
+### Notifications
+
+- The bell shows each person their own notices and checks for new ones every minute.
+- A notice goes to whoever holds the matching right — for example, a leave request goes to the people who may approve it (HR, Super Admin and the employee's own manager), and a document sent in goes to whoever verifies documents. Nobody is sent a notice about their own action, and nobody is asked to approve their own leave — even when HR filed it for them. When HR files or withdraws a request for somebody, the notice says who did, and the person it was for is told of a withdrawal.
+- The password notice goes out however the password changed: by the person while signed in, or through a reset link from the administrator.
+- Super Admin turns each kind on or off under Settings → Notifications. The notice that a password was changed is always sent.
+- Notices older than 180 days are cleared by the regular maintenance job.
+
+### Reports
+
+- Super Admin picks a report and a month (the last two years are offered); some reports also take a department or an employee.
+- Every figure is counted by the server from the records. Nothing is estimated: somebody with no leave balance recorded shows none, not a made-up allowance, and a person who has left shows their real last working day.
+- People who have left are counted for the months they worked, including those whose access was removed. Somebody let go with no last working day recorded is shown leaving on the day their access was removed, and says so. Somebody marked inactive with no last working day at all is left out, with a note — as payroll leaves them out.
+- A past month is counted by the rules it had (its weekly offs), not today's. Payroll reports follow the department printed on each payslip.
+- Print / PDF prints the report as shown. The CSV is made on the server from the same rows and totals, and opens correctly in Excel.
 
 ### Payroll
 
@@ -247,6 +290,8 @@ Accounts records the account from a cancelled cheque → ticks "checked" (verifi
 ```
 
 - Nobody verifies their own bank account (`employee:bank:manage`, held by Accounts and Super Admin). Changing an account's number or IFSC makes it unverified again.
+- An employee can send in their own account from their profile. A new account, or a changed number or IFSC, needs a photo or PDF of a cancelled cheque or passbook page. It arrives as pending, Accounts is notified, opens the proof in the app, and verifies or rejects it — and the employee is told which.
+- A decision holds only for the account that was checked. If new details arrive while Accounts has the old ones open, the verify (or a save from that stale form) is refused and the new details have to be looked at first.
 - The bank file is made only from an approved or paid run, and pays exactly each payslip's net pay.
 - It includes verified accounts only (a setting in Payroll → Bank file format, on by default). A rejected account is never paid. Everybody left out is listed with the reason before the file is downloaded.
 - Every download of the file is recorded, with who took it and when. The screens show only the last four digits of an account number; the file has them in full.
@@ -254,14 +299,15 @@ Accounts records the account from a cancelled cheque → ticks "checked" (verifi
 ### Employee Onboarding
 
 ```
-HR/Super Admin fills form → RPC creates auth user + profile + leave balances
+HR/Super Admin fills the form → the server creates the employee and their leave balances
+  → an invitation link lets them set their own password
 ```
 
 ### User Invitation (Super Admin only)
 
 ```
-Settings → Invite → Edge function validates caller is super_admin
-  → Sends email invite → Creates profile with status = 'invited'
+Settings → Invite → the server checks the caller holds user:invite
+  → sends a single-use link (valid 72 hours) → status is "invited" until a password is set
 ```
 
 ---
@@ -272,39 +318,41 @@ Settings → Invite → Edge function validates caller is super_admin
 
 | Layer | What It Does | Bypass-proof? |
 |-------|-------------|:-------------:|
-| **Frontend Route Guards** | `ProtectedRoute` blocks page navigation by role | No (client-side) |
-| **Edge Function Auth** | JWT verification + role check for user management | ✅ |
-| **Database RLS Policies** | Row-level security on all 11 tables | ✅ |
+| **Frontend page guards** | A page and its sidebar link are shown only for the permission that opens it | No (client-side) |
+| **API permission check** | Every route signs the caller in and checks the permission it needs before anything runs | ✅ |
+| **Data scope** | Every read and write is narrowed to the caller's company and to whose rows they may reach (§5) | ✅ |
 
 ### Key Security Details
 
 | Area | Implementation |
 |------|----------------|
-| Authentication | Supabase Auth (email/password), JWT tokens |
-| Token expiry | 1 hour, with refresh token rotation |
-| Password hashing | bcrypt via pgcrypto |
-| Self-protection | Super Admin cannot modify own account via edge function |
-| Role validation | `has_role()` and `has_any_role()` SQL functions (SECURITY DEFINER) |
+| Authentication | The company's own API server (email or employee ID, and password) |
+| Token expiry | Access token 15 minutes; a refresh token of 7 days, rotated on each use, and a reused one ends the session |
+| Password hashing | bcrypt, cost 12 |
+| Self-protection | Nobody changes their own role or status, deletes their own account, or verifies their own document or bank account |
+| Role validation | One list of permissions per role (`server/src/platform/authz/roles.ts`), checked against this document by an automated test |
+| Files | Checked by content on upload, kept in private storage, opened only through the app, each download recorded |
 
 ---
 
 ## 9. Developer Quick Reference
 
-| Role | Sidebar Items | Route Guard | RLS Scope |
-|------|---------------|-------------|-----------|
-| `super_admin` | All 8 modules | No restrictions | All rows, all tables |
-| `admin` | Dashboard, Employees, Documents | Blocked: Payroll, Reports, Settings | No attendance/leave/payroll data |
-| `hr` | Dashboard, Employees, Attendance, Leave, Documents | Blocked: Payroll, Reports, Settings | All rows in people tables |
-| `manager` / `rm` | Dashboard, Employees, Attendance, Leave | Blocked: Payroll, Documents, Reports, Settings | Own + `reporting_manager_id = auth.uid()` |
-| `accounts` | Dashboard, Payroll | Blocked: Employees, Attendance, Leave, Docs, Reports, Settings | All payroll tables only |
-| `employee` | Dashboard, Attendance, Leave, Documents | Blocked: Employees, Payroll, Reports, Settings | `employee_id = auth.uid()` only |
+| Role | Sidebar Items | Data scope |
+|------|---------------|-----------|
+| `super_admin` | Everything | The whole company |
+| `admin` | Dashboard, Employees, My Payslips, Documents, Settings (leave types, document checklist) | People and documents; no attendance, leave or payroll |
+| `hr` | Dashboard, Employees, Attendance, Leave, Payroll (Incentives), My Payslips, Documents, Settings (leave, holidays, document checklist) | All people records; own payslips |
+| `manager` / `rm` | Dashboard, Employees, Attendance, Leave, My Payslips, Documents (company) | Own + direct reports for attendance and leave |
+| `accounts` | Dashboard, Payroll, My Payslips, Documents (company) | All payroll records |
+| `employee` | Dashboard, Attendance, Leave, My Payslips, Documents | Their own rows only |
+
+The sidebar and the page guards read one list (`web/src/config/navigation.js`) of which permission opens each page, so nothing in the browser names a role.
 
 **When adding a new role:**
-1. Add to `profiles.role` CHECK constraint (schema.sql + migration)
-2. Add RLS policies for the role on relevant tables
-3. Add to `NAV` array in `Sidebar.jsx`
-4. Add to `ProtectedRoute` wrappers in `App.jsx`
-5. Add to `ROLE_LABELS` mapping
+1. Add it to the `Role` enum in the Prisma schema, with a migration
+2. Give it its permission list in `server/src/platform/authz/roles.ts` and its data scope in `scope.ts`
+3. Add it to `authz.test.ts` and to this document, so the two cannot drift apart
+4. Add its label in Settings → Users & Roles
 
 ---
 
@@ -321,22 +369,25 @@ Settings → Invite → Edge function validates caller is super_admin
 - [ ] Sidebar shows only permitted modules
 - [ ] Direct URL to restricted page → redirects to `/dashboard`
 - [ ] CRUD operations work on permitted modules
-- [ ] CRUD operations blocked on restricted modules (RLS error)
+- [ ] CRUD operations blocked on restricted modules (the API answers 403)
 
 ### Negative Tests
 
 - [ ] Employee cannot see approve/reject buttons
 - [ ] Manager accessing `/payroll` → redirected
-- [ ] Accounts querying attendance API → empty result (RLS)
-- [ ] Non-super_admin calling invite-user → 403
-- [ ] Super Admin modifying own account → "Cannot modify your own account"
+- [ ] Accounts calling the attendance API → 403
+- [ ] Non-super_admin calling invite → 403
+- [ ] Super Admin changing their own role or status → refused
+- [ ] HR verifying their own document → refused
+- [ ] An employee opening another employee's document by id → not found
 
 ### Security
 
 - [ ] Unauthenticated access → redirected to `/signin`
 - [ ] Expired JWT → triggers re-authentication
-- [ ] RLS enabled on all 11 tables
+- [ ] Every API route checks a permission
 - [ ] Passwords stored as bcrypt hashes
+- [ ] An uploaded file that is not really a PDF or image is refused, whatever its name
 
 ---
 
@@ -351,6 +402,8 @@ Settings → Invite → Edge function validates caller is super_admin
 | **Audit dashboard** | Log all login, CRUD, and role-change events |
 | **2FA** | TOTP-based two-factor for Super Admin & Accounts |
 | **Time-based access** | Restrict payroll module to business hours only |
+
+> **Open question for the client:** §3.1 gives Manager, RM and Accounts no access to employee documents, so they cannot upload or see even their own. That is how it is built, as written. If they should manage their own like everybody else, it is a one-line change per role.
 
 ---
 

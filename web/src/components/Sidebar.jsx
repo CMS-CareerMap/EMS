@@ -3,16 +3,7 @@ import { LogOut, ChevronRight } from 'lucide-react'
 import { logout } from '../api/auth'
 import { NAV_GROUPS } from '../config/navigation'
 import { useAuthStore } from '../stores/authStore'
-
-const ROLE_LABELS = {
-  super_admin: 'Super Admin',
-  admin: 'Admin',
-  hr: 'HR',
-  manager: 'Manager',
-  rm: 'Reporting Manager',
-  accounts: 'Accounts',
-  employee: 'Employee',
-}
+import { ROLE_LABELS } from '../lib/roles'
 
 
 export default function Sidebar({ mobile = false, onClose }) {

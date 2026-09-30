@@ -73,7 +73,10 @@ async function send(method, path, body, { withAuth = true } = {}) {
     'X-Requested-With': 'ems',
   }
 
-  if (body !== undefined) headers['Content-Type'] = 'application/json'
+  // A file upload is a multipart form, and the browser writes its own
+  // Content-Type for it — with the boundary. Setting one here would break it.
+  const isForm = typeof FormData !== 'undefined' && body instanceof FormData
+  if (body !== undefined && !isForm) headers['Content-Type'] = 'application/json'
   if (withAuth && accessToken) headers.Authorization = `Bearer ${accessToken}`
 
   return fetch(`${BASE}${path}`, {
@@ -82,7 +85,7 @@ async function send(method, path, body, { withAuth = true } = {}) {
     // Sends the refresh cookie. Same-origin in both development (Vite proxy)
     // and production (Nginx), so this is never a cross-site request.
     credentials: 'same-origin',
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
   })
 }
 
@@ -198,7 +201,19 @@ export const api = {
   patch: (path, body) => request('PATCH', path, body),
   put: (path, body) => request('PUT', path, body),
   del: (path) => request('DELETE', path),
+  /** A multipart form — a file and its fields. POST unless told otherwise. */
+  upload: (path, form, method = 'POST') => request(method, path, form),
   download,
+}
+
+/**
+ * A stored file as a blob, to show inside the page — a photo of a document,
+ * a PDF in a frame. It still arrives through the authenticated route with its
+ * attachment headers; the page makes its own object URL for it.
+ */
+export async function fetchBlob(path) {
+  const { blob } = await download(path)
+  return blob
 }
 
 /** Downloads a file from the API and hands it to the browser to save. */

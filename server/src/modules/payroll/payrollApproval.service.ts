@@ -5,6 +5,7 @@ import { lockFor } from '../../platform/db/locks'
 import { logger } from '../../platform/logger'
 import { storage, storageKey } from '../../platform/storage'
 import { audit } from '../audit/audit.service'
+import { notify } from '../notifications/notify.service'
 import { companyToday } from '../organization/organization.service'
 import { reopenAllowed } from '../../domain/payroll/runStatus'
 import { payslipDifferences, runTotals, type ComparablePayslip } from '../../domain/payroll/run'
@@ -195,6 +196,15 @@ export async function approveRun(ctx: AppContext, id: string, input: ApproveInpu
         createdByUserId: run.createdByUserId,
       },
     }, tx)
+
+    await notify(ctx, tx, {
+      event: 'payroll.approved',
+      to: { holding: 'payroll:run:create' },
+      title: 'Payroll approved',
+      message: `The ${label} payroll is approved. Take the bank file, pay it, then mark it paid.`,
+      link: '/payroll',
+      entity: { type: 'payroll_run', id },
+    })
   })
 
   logger.info('Payroll run approved', { by: ctx.userId, runId: id, month: monthKey(run.year, run.month), assumedDays })
@@ -346,6 +356,17 @@ export async function markRunPaid(ctx: AppContext, id: string, input: MarkPaidIn
         paidOn: input.paidOn,
       },
     }, tx)
+
+    // Each employee with a login hears that their payslip is there — linking
+    // to their own page, not /payroll, which is not theirs to open.
+    await notify(ctx, tx, {
+      event: 'payslip.ready',
+      to: { employees: stored.map((slip) => slip.employeeId) },
+      title: 'Your payslip is ready',
+      message: `Your payslip for ${monthName(run.year, run.month)} is ready to download.`,
+      link: '/payslips',
+      entity: { type: 'payroll_run', id },
+    })
   })
 
   logger.info('Payroll run paid', { by: ctx.userId, runId: id, month: monthKey(run.year, run.month), payslips: files.length })

@@ -6,7 +6,7 @@ import { fromDateColumn, isoInstant } from '../../domain/shared/dates'
 /**
  * What an employee looks like over the wire.
  *
- * SNAKE_CASE, deliberately. The pages were written against Supabase and read
+ * SNAKE_CASE, deliberately. The pages were written against the original backend and read
  * `full_name`, `employee_id`, `date_of_joining`. Emitting camelCase would mean
  * editing every page in the same commit that changes where the data comes
  * from — two risky changes at once, and no way to tell which one broke a
@@ -176,8 +176,8 @@ function bank(employee: EmployeeRow) {
     verified_at: isoInstant(account.verifiedAt),
     bank_proof_name: account.proofFileName,
     // Note what is absent: proofKey. The storage key is never sent to a
-    // browser — a download goes through an endpoint that checks permission and
-    // issues a short-lived signed URL (Day 19).
+    // browser — the file is fetched through GET /payroll/employees/:id/
+    // bank-account/proof, which checks the permission and records who took it.
   }
 }
 

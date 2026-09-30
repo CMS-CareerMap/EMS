@@ -52,9 +52,9 @@ function dayFields(record: Omit<AttendanceRow, 'employee'>) {
 function row(record: AttendanceRow) {
   return {
     ...dayFields(record),
-    // employee_id is the UUID, matching what attendance.employee_id meant under
-    // Supabase. The human-readable code is employee_code. Confusing, and not
-    // ours to rename in the same commit that moves the data.
+    // employee_id is the UUID, matching what attendance.employee_id meant in
+    // the original backend. The human-readable code is employee_code.
+    // Confusing, and not ours to rename in the same commit that moves the data.
     employee_id: record.employeeId,
     employee_code: record.employee.employeeCode,
     full_name: record.employee.fullName,

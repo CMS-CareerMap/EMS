@@ -50,13 +50,26 @@ const schema = z.object({
   JWT_ACCESS_EXPIRY: z.string().default('15m'),
   JWT_REFRESH_EXPIRY: z.string().default('7d'),
 
-  /// 'local' in development; 'r2' in production, added on Day 19.
+  /// 'local' in development; 'r2' in production.
   /// Production never uses the VPS disk — see platform/storage/index.ts.
   STORAGE_DRIVER: z.enum(['local', 'r2']).default('local'),
   STORAGE_PATH: z.string().default('./uploads'),
+
+  /// Cloudflare R2, required when STORAGE_DRIVER is r2. The account belongs to
+  /// the company, not to a developer: it holds their employees' documents.
+  R2_ACCOUNT_ID: z.string().min(1).optional(),
+  R2_ACCESS_KEY_ID: z.string().min(1).optional(),
+  R2_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+  R2_BUCKET: z.string().min(1).optional(),
+  R2_ENDPOINT: z.url().optional(),
 }).refine((c) => c.JWT_ACCESS_SECRET !== c.JWT_REFRESH_SECRET, {
   path: ['JWT_REFRESH_SECRET'],
   message: 'JWT_REFRESH_SECRET must differ from JWT_ACCESS_SECRET',
+}).superRefine((c, ctx) => {
+  if (c.STORAGE_DRIVER !== 'r2') return
+  for (const key of ['R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET'] as const) {
+    if (!c[key]) ctx.addIssue({ code: 'custom', path: [key], message: `${key} is required when STORAGE_DRIVER is r2` })
+  }
 })
 
 const parsed = schema.safeParse(process.env)

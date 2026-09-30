@@ -122,6 +122,7 @@ model Employee {
   payslips          Payslip[]
   tdsDirectives     EmployeeTdsDirective[]
   monthlyEntries    EmployeeMonthlyEntry[]
+  documents         EmployeeDocument[]
 
   @@unique([organizationId, employeeCode])
   @@index([organizationId, archivedAt])
@@ -189,8 +190,18 @@ model EmployeeBankAccount {
 
   /// Cancelled cheque or passbook page. The KEY in object storage, not a URL —
   /// a stored URL either expires or is public forever.
-  proofKey      String?
-  proofFileName String?
+  proofKey         String?
+  proofFileName    String?
+  /// The proof's type from the allow-list, its size and hash — checked on
+  /// every read, as for every other stored file.
+  proofContentType String?
+  proofBytes       Int?
+  proofSha256      String?
+  proofUploadedAt  DateTime? @db.Timestamptz(3)
+
+  /// Who entered these details: the employee themselves (Day 19's
+  /// self-service), or Accounts from a cheque handed in.
+  submittedByUserId String?
 
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)

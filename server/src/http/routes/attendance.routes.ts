@@ -1,4 +1,5 @@
 import { Router, json } from 'express'
+import { getAttendanceExport } from '../controllers/exports.controller'
 import { postPunchIn, postPunchOut, getMyToday } from '../controllers/attendance.controller'
 import {
   getAttendance,
@@ -36,6 +37,7 @@ attendanceRouter.get('/', authorize('attendance:read'), getAttendance)
 attendanceRouter.get('/monthly-summary', authorize('attendance:read'), getMonthlySummary)
 attendanceRouter.get('/summary', authorize('attendance:read'), getDaySummary)
 attendanceRouter.get('/day', authorize('attendance:read'), getDayRoster)
+attendanceRouter.get('/export', authorize('attendance:read'), getAttendanceExport)
 
 // Recording somebody else's day, and correcting one. Separate permissions
 // from reading: a manager may see their team's attendance and may not edit it.

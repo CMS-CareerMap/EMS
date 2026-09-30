@@ -242,8 +242,10 @@ export async function findCard(db: ScopedDb, id: string) {
       employeeCode: true,
       dateOfJoining: true,
       attendanceMode: true,
+      phone: true,
       department: { select: { name: true } },
       designation: { select: { name: true } },
+      reportingManager: { select: { fullName: true, designation: { select: { name: true } } } },
     },
   })
 }

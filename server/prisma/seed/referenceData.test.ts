@@ -24,6 +24,7 @@ const counts = async () => {
     openPt: await prisma.ptSlab.count({ where: { ...where, effectiveTo: null } }),
     holidays: await prisma.holiday.count({ where }),
     openPolicies: await prisma.organizationPolicy.count({ where: { ...where, effectiveTo: null } }),
+    documentTypes: await prisma.documentType.count({ where }),
   }
 }
 
@@ -53,7 +54,10 @@ describe('reference data', () => {
       // not arrive with an empty calendar.
       holidays: 6,
       openPolicies: 1,
+      // The compliance checklist: Aadhaar, PAN, offer letter, resume required.
+      documentTypes: 8,
     })
+    expect(await prisma.documentType.count({ where: { organizationId: orgId, required: true } })).toBe(4)
 
     const policy = await prisma.organizationPolicy.findFirstOrThrow({ where: { organizationId: orgId } })
     expect(policy.effectiveFrom).toEqual(new Date(Date.UTC(2026, 3, 1)))

@@ -1,0 +1,60 @@
+// Notifications (Day 19): the bell at the top of every page.
+//
+// Written by the SERVER, inside the same transaction as the change they report
+// — a leave approval that rolls back takes its notice with it. Nobody can send
+// one from a browser: the old table let any user insert a notification for
+// anybody, which is how a fake "your salary was changed" message gets sent.
+
+enum NotificationKind {
+  leave
+  payroll
+  document
+  bank
+  account
+  announcement
+  system
+}
+
+model Notification {
+  id             String @id @default(uuid())
+  organizationId String
+  /// Who it is for.
+  userId         String
+
+  /// What happened, from the catalogue in domain/notifications/events.ts —
+  /// `leave.submitted`, `payslip.ready`. The switch in Settings is per event.
+  event   String
+  kind    NotificationKind
+  title   String
+  message String
+  /// Where clicking it goes, inside the app. Null for a notice with nowhere to go.
+  link    String?
+
+  entityType String?
+  entityId   String?
+
+  readAt    DateTime? @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, userId, createdAt])
+  @@index([organizationId, userId, readAt])
+}
+
+/// A company's choice to stop sending one kind of notice. No row means the
+/// catalogue's default, which is on.
+model NotificationSetting {
+  id             String  @id @default(uuid())
+  organizationId String
+  event          String
+  enabled        Boolean
+
+  updatedByUserId String?
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, event])
+}

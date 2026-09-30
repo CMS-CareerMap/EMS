@@ -1,11 +1,12 @@
 import { useState, useMemo } from 'react'
-import { Search, Plus, Filter, Download, Upload, MoreVertical, ChevronUp, ChevronDown } from 'lucide-react'
+import { Search, Plus, Filter, Download, Upload, MoreVertical, ChevronUp, ChevronDown, Loader2 } from 'lucide-react'
 import AddEmployeeModal from '../features/employees/AddEmployeeModal'
 import EmployeeDrawer from '../features/employees/EmployeeDrawer'
 import ImportEmployeesModal from '../features/employees/ImportEmployeesModal'
 import { useEmployees } from '../hooks/useEmployees'
 import { useAuthStore } from '../stores/authStore'
-import { calendarDayIn } from '../lib/dates'
+import { saveFromApi } from '../api/http'
+import { useDownload } from '../hooks/useDownload'
 
 const STATUS_OPTIONS = ['All', 'active', 'inactive']
 
@@ -21,11 +22,6 @@ const EMP_TYPE = {
   intern: { label: 'Intern', cls: 'bg-teal-100 text-teal-700' },
 }
 
-/** A CSV cell. Quotes inside a value are doubled, or one comma-laden name breaks the row. */
-function cell(value) {
-  return `"${String(value ?? '').replace(/"/g, '""')}"`
-}
-
 function initials(name) {
   return (name || '').split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
 }
@@ -37,7 +33,6 @@ function formatDate(day) {
 
 export default function Employees() {
   const { data: employees = [], isLoading } = useEmployees()
-  const timezone = useAuthStore((state) => state.organization?.timezone)
   const canCreate = useAuthStore((state) => state.can('employee:create'))
   const canUpdate = useAuthStore((state) => state.can('employee:update'))
 
@@ -51,6 +46,7 @@ export default function Employees() {
   const [drawerEmp, setDrawerEmp] = useState(null)
   const [menuOpenId, setMenuOpenId] = useState(null)
   const [importOpen, setImportOpen] = useState(false)
+  const { busy: exporting, start: startExport } = useDownload()
 
   // The company's own departments, from the people in the list — not a list
   // typed into this page that named departments the company does not have.
@@ -92,27 +88,17 @@ export default function Employees() {
   function openEdit(emp) { setEditTarget(emp); setModalOpen(true); setDrawerEmp(null) }
   function openDrawer(emp) { setDrawerEmp(emp); setMenuOpenId(null) }
 
+  // Made on the server with the page's filters and the caller's field access —
+  // a CTC column only for those who may see salaries — through the one CSV writer.
   function handleExport() {
-    const headers = ['Full Name', 'Employee Code', 'Department', 'Designation', 'Phone', 'Employment Type', 'Date of Joining', 'Status', 'CTC']
-    const rows = filtered.map((e) => [
-      e.full_name,
-      e.employee_id,
-      e.department,
-      e.designation,
-      e.phone,
-      EMP_TYPE[e.employment_type]?.label ?? e.employment_type,
-      e.date_of_joining,
-      e.status,
-      // Blank when unknown or not permitted — never 0, which would read as a
-      // salary of nothing.
-      e.ctc ?? '',
-    ])
-    const lines = [headers.map(cell).join(','), ...rows.map((r) => r.map(cell).join(','))]
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv' })
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = `employees_${calendarDayIn(timezone)}.csv`
-    a.click()
+    const params = new URLSearchParams()
+    if (search.trim()) params.set('search', search.trim())
+    if (statusFilter !== 'All') params.set('status', statusFilter)
+    if (deptFilter !== 'All') {
+      const departmentId = employees.find((e) => e.department === deptFilter)?.department_id
+      if (departmentId) params.set('departmentId', departmentId)
+    }
+    startExport('csv', () => saveFromApi(`/employees/export${params.size ? `?${params}` : ''}`))
   }
 
   return (
@@ -126,8 +112,9 @@ export default function Employees() {
             <p className="text-sm text-gray-500 mt-0.5">{employees.length} total employees</p>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={handleExport} className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors">
-              <Download className="w-4 h-4" />
+            <button onClick={handleExport} disabled={exporting === 'csv'}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-60">
+              {exporting === 'csv' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
               Export
             </button>
             {canCreate && (

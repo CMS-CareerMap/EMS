@@ -1,4 +1,5 @@
 import { Unauthorized, ValidationFailed } from '../../platform/errors/AppError'
+import { tellPasswordChanged } from './passwordNotice'
 import {
   signAccessToken,
   signRefreshToken,
@@ -180,6 +181,7 @@ export async function logout(rawToken: string | undefined): Promise<void> {
   }
 }
 
+
 /**
  * Changes a password and ends every session it opened.
  *
@@ -236,6 +238,8 @@ export async function changePassword(
     details: { sessionsEnded: revoked },
     requestId: meta.requestId,
   })
+
+  await tellPasswordChanged(identity.organizationId, userId, 'changed')
 
   return issueSession(identity, meta)
 }

@@ -1,8 +1,8 @@
 import { X, Download, Loader2, AlertTriangle } from 'lucide-react'
 import { usePayslipDetail, downloadRunPayslip } from '../../hooks/usePayroll'
 import { money, days, formatDay, monthLabel, LOP_BASIS } from './format'
-import { useDownload } from './useDownload'
-import { useEscape } from './useEscape'
+import { useDownload } from '../../hooks/useDownload'
+import { useEscape } from '../../hooks/useEscape'
 
 /**
  * One payslip, as the server stored it.

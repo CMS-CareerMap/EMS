@@ -1,5 +1,6 @@
 import { env } from '../../config/env'
 import { LocalStorage } from './local'
+import { R2Storage } from './r2'
 
 /**
  * File storage, behind one interface.
@@ -17,6 +18,14 @@ export interface StorageService {
   get(key: string): Promise<Buffer>
   delete(key: string): Promise<void>
   exists(key: string): Promise<boolean>
+  /** Everything under a prefix — for the sweeper that finds files no row points at. */
+  list(prefix: string): Promise<StoredObject[]>
+}
+
+export interface StoredObject {
+  key: string
+  lastModified: Date
+  bytes: number
 }
 
 /**
@@ -50,7 +59,16 @@ export function storage(): StorageService {
     case 'local':
       instance = new LocalStorage(env.STORAGE_PATH)
       return instance
-    // 'r2' lands on Day 19, implementing the same interface.
+    case 'r2':
+      // env.ts refuses to start without all four when the driver is r2.
+      instance = new R2Storage({
+        accountId: env.R2_ACCOUNT_ID ?? '',
+        accessKeyId: env.R2_ACCESS_KEY_ID ?? '',
+        secretAccessKey: env.R2_SECRET_ACCESS_KEY ?? '',
+        bucket: env.R2_BUCKET ?? '',
+        endpoint: env.R2_ENDPOINT,
+      })
+      return instance
     default:
       throw new Error(`Unknown STORAGE_DRIVER: ${env.STORAGE_DRIVER}`)
   }

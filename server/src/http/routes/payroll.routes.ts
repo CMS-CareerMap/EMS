@@ -18,11 +18,13 @@ import {
   getBankAccounts,
   putBankAccount,
   postVerifyBankAccount,
+  getBankAccountProof,
   getBankFileTemplate,
   putBankFileTemplate,
 } from '../controllers/bankAccount.controller'
 import { authenticate } from '../middleware/authenticate'
 import { authorize } from '../middleware/authorize'
+import { singleFile } from '../upload'
 
 /**
  * Mounted at /api/payroll.
@@ -64,10 +66,12 @@ payrollRouter.get('/monthly-entries', authorize('payroll:entry:manage'), getMont
 payrollRouter.put('/monthly-entries', authorize('payroll:entry:manage'), putMonthlyEntry)
 payrollRouter.delete('/monthly-entries/:id', authorize('payroll:entry:manage'), deleteMonthlyEntry)
 
-// Bank accounts for salary: read to pay, manage to enter and check (Day 18,
-// because the bank file needs them; the employee's own submission is Day 19).
+// Bank accounts for salary: read to pay, manage to enter and check. The
+// employee's own submission is PUT /payslips/me/bank-account.
 payrollRouter.get('/bank-accounts', authorize('employee:bank:read'), getBankAccounts)
-payrollRouter.put('/employees/:id/bank-account', authorize('employee:bank:manage'), putBankAccount)
+// JSON, or multipart with the cheque or passbook page as "proof".
+payrollRouter.put('/employees/:id/bank-account', authorize('employee:bank:manage'), singleFile('proof'), putBankAccount)
+payrollRouter.get('/employees/:id/bank-account/proof', authorize('employee:bank:read'), getBankAccountProof)
 payrollRouter.post('/employees/:id/bank-account/verify', authorize('employee:bank:manage'), postVerifyBankAccount)
 
 // The bank file's layout, set once from the bank's sample.

@@ -3,6 +3,7 @@ import request from 'supertest'
 import { createApp } from '../../app'
 import { prisma } from '../../platform/db/prisma'
 import { hashPassword } from '../../platform/auth/password'
+import { isoInstant } from '../../domain/shared/dates'
 
 /**
  * Day 18's server half: bank accounts for salary, the bank file's layout, and
@@ -50,6 +51,10 @@ const api = (role: Role) => ({
   post: (url: string, body: object = {}) => request(app).post(url).set('Authorization', `Bearer ${token[role]}`).send(body),
   put: (url: string, body: object) => request(app).put(url).set('Authorization', `Bearer ${token[role]}`).send(body),
 })
+
+/** The version of somebody's account a checker has in front of them. */
+const seen = async (employeeId: string) =>
+  isoInstant((await prisma.employeeBankAccount.findFirstOrThrow({ where: { employeeId } })).updatedAt)
 
 const download = (role: Role, url: string) =>
   request(app)
@@ -172,10 +177,10 @@ describe('bank accounts', () => {
     expect(marked.body.error.message).toMatch(/cannot verify your own/)
 
     expect((await api('accounts').put(self, account({ accountHolderName: 'ANIL', accountNumber: '555566667777' }))).status).toBe(200)
-    expect((await api('accounts').post(`${self}/verify`, { decision: 'verified' })).status).toBe(409)
+    expect((await api('accounts').post(`${self}/verify`, { decision: 'verified', accountUpdatedAt: await seen(who.accountant!) })).status).toBe(409)
 
     // Somebody else can.
-    const other = await api('super_admin').post(`${self}/verify`, { decision: 'verified' })
+    const other = await api('super_admin').post(`${self}/verify`, { decision: 'verified', accountUpdatedAt: await seen(who.accountant!) })
     expect(other.status).toBe(200)
     expect(other.body.data.bank_account.verification_status).toBe('verified')
   })
@@ -192,10 +197,31 @@ describe('bank accounts', () => {
     expect(none.body.data).toBeNull()
   })
 
+  it('refuses a decision on a version of the account that is no longer there — and a save from a stale form', async () => {
+    const url = `/api/payroll/employees/${who.ravi}/bank-account`
+    const looked = await seen(who.ravi!)
+    // Meanwhile the details change (in real life: Ravi sends in a new account).
+    await new Promise((r) => setTimeout(r, 5))
+    expect((await api('accounts').put(url, account({ accountHolderName: 'RAVI PATIL', accountNumber: '998877665544' }))).status).toBe(200)
+
+    const late = await api('accounts').post(`${url}/verify`, { decision: 'verified', accountUpdatedAt: looked })
+    expect(late.status).toBe(409)
+    expect(late.body.error.message).toMatch(/changed while you were checking it — it now ends 5544/)
+    expect((await prisma.employeeBankAccount.findFirstOrThrow({ where: { employeeId: who.ravi } })).verificationStatus).toBe('pending')
+
+    const stale = await api('accounts').put(url, account({ accountHolderName: 'RAVI P', accountNumber: '998877665544', accountUpdatedAt: looked }))
+    expect(stale.status).toBe(409)
+    expect(stale.body.error.message).toMatch(/changed since you opened it/)
+    // The current version goes through.
+    expect((await api('accounts').put(url, account({ accountHolderName: 'RAVI P', accountNumber: '998877665544', accountUpdatedAt: await seen(who.ravi!) }))).status).toBe(200)
+  })
+
   it('needs a reason to reject an account', async () => {
     const url = `/api/payroll/employees/${who.ravi}/bank-account/verify`
-    expect((await api('accounts').post(url, { decision: 'rejected' })).status).toBe(400)
-    const res = await api('accounts').post(url, { decision: 'rejected', remarks: 'Name does not match the cheque' })
+    expect((await api('accounts').post(url, { decision: 'rejected', accountUpdatedAt: await seen(who.ravi!) })).status).toBe(400)
+    // A decision has to say which version of the account it is about.
+    expect((await api('accounts').post(url, { decision: 'rejected', remarks: 'x' })).status).toBe(422)
+    const res = await api('accounts').post(url, { decision: 'rejected', remarks: 'Name does not match the cheque', accountUpdatedAt: await seen(who.ravi!) })
     expect(res.body.data.bank_account).toMatchObject({ verification_status: 'rejected', verification_remarks: 'Name does not match the cheque' })
   })
 

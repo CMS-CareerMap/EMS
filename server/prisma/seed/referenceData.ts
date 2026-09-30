@@ -37,6 +37,21 @@ const SHIFTS = [
   { name: 'Late', startTime: '11:00', endTime: '20:00', breakMinutes: 60, expectedHours: 9 },
 ]
 
+/**
+ * The compliance checklist — what HR collects from everybody. The old screen's
+ * list, with its "required" marks. Editable in Settings → Documents.
+ */
+export const DOCUMENT_TYPES = [
+  { code: 'offer_letter', label: 'Offer Letter', required: true },
+  { code: 'aadhaar', label: 'Aadhaar Card', required: true },
+  { code: 'pan', label: 'PAN Card', required: true },
+  { code: 'resume', label: 'Resume / CV', required: true },
+  { code: 'passport', label: 'Passport', required: false },
+  { code: 'edu_certificate', label: 'Education Certificate', required: false },
+  { code: 'exp_letter', label: 'Experience Letter', required: false },
+  { code: 'other', label: 'Other Document', required: false },
+]
+
 /** The five the existing UI already offers, with their short codes. */
 const LEAVE_TYPES = [
   { code: 'CL', name: 'Casual Leave', annualQuota: 12, isPaid: true, carryForward: false },
@@ -130,6 +145,12 @@ export async function seedForOrganization(db: Db, organization: SeedTarget, now:
 
   if ((await db.leaveType.count({ where: { organizationId } })) === 0) {
     await db.leaveType.createMany({ data: LEAVE_TYPES.map((type) => ({ organizationId, ...type })) })
+  }
+
+  if ((await db.documentType.count({ where: { organizationId } })) === 0) {
+    await db.documentType.createMany({
+      data: DOCUMENT_TYPES.map((type, i) => ({ organizationId, ...type, displayOrder: i + 1 })),
+    })
   }
 
   for (const component of SALARY_COMPONENTS) {

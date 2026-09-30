@@ -248,10 +248,10 @@ model Payslip {
 
   /// Who they were that month. A later rename or promotion must not rewrite a
   /// payslip that has already been issued.
-  employeeCode String
-  employeeName String
-  designation  String?
-  department   String?
+  employeeCode  String
+  employeeName  String
+  designation   String?
+  department    String?
   dateOfJoining DateTime? @db.Date
 
   /// Which country's layout the payslip is printed in, and its currency —
@@ -291,7 +291,7 @@ model Payslip {
   /// On a calendar basis they are simply paidDays out of daysInMonth.
   lopBasis     LopBasis
   payBasisDays Int
-  payableDays  Decimal @db.Decimal(4, 1)
+  payableDays  Decimal  @db.Decimal(4, 1)
 
   grossEarnings   Decimal @db.Decimal(12, 2)
   pfWages         Decimal @db.Decimal(12, 2)
@@ -320,14 +320,14 @@ model Payslip {
 
   createdAt DateTime @default(now()) @db.Timestamptz(3)
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   /// Cascade: discarding a draft run takes its payslips with it. A run that is
   /// not a draft cannot be discarded, which the service enforces.
-  run          PayrollRun   @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  run          PayrollRun    @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
   /// NoAction: a payslip is a statutory record, and deleting the employee must
   /// not delete it. NoAction rather than Restrict so that deleting a whole
   /// organization can still cascade through both.
-  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: NoAction)
+  employee     Employee      @relation(fields: [employeeId], references: [id], onDelete: NoAction)
   lines        PayslipLine[]
 
   @@unique([organizationId, payrollRunId, employeeId])

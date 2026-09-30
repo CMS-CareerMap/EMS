@@ -449,6 +449,18 @@ describe('decisions arriving together', () => {
 })
 
 describe('the dashboard, and the numbers it used to invent', () => {
+  it('gives the profile drawer the employee’s own HR record — their manager included', async () => {
+    await prisma.employee.update({ where: { id: aliceId }, data: { phone: '9876543210' } })
+    const res = await request(app).get('/api/dashboard/me').set('Authorization', as('alice'))
+    expect(res.status).toBe(200)
+    expect(res.body.data.profile).toMatchObject({
+      full_name: 'alice person',
+      phone: '9876543210',
+      reporting_manager_name: 'mgr person',
+      reporting_manager_designation: null,
+    })
+  })
+
   it('reports a real zero balance rather than a comfortable twelve', async () => {
     // Alice has NO ledger entries at all — exactly the state every employee
     // imported from the CSV starts in.

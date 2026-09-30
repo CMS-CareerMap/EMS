@@ -6,6 +6,7 @@ import { logger } from '../../platform/logger'
 import * as repo from './invite.repository'
 import { findIdentityByUserId } from './auth.repository'
 import { recordSecurityEvent } from '../audit/audit.service'
+import { tellPasswordChanged } from './passwordNotice'
 
 /**
  * The other half of an invitation: using it.
@@ -110,6 +111,9 @@ export async function redeemLink(
       details: { purpose: found.purpose, membershipsActivated: result.activated },
       requestId: meta.requestId,
     })
+    // A reset changes a password somebody already had: the same security
+    // notice as changing it while signed in. A first password is not a change.
+    if (found.purpose === 'reset') await tellPasswordChanged(owner.organizationId, found.userId, 'reset')
   }
 
   return { email: found.user.email, purpose: found.purpose }

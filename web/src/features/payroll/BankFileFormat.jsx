@@ -3,7 +3,7 @@ import { ArrowUp, ArrowDown, Trash2, Plus, Loader2, Info } from 'lucide-react'
 import { toast } from 'sonner'
 import { useBankFileTemplate, useSaveBankFileTemplate } from '../../hooks/usePayroll'
 import { useAuthStore } from '../../stores/authStore'
-import { inputCls, fieldCls } from './Dialog'
+import { inputCls, fieldCls } from '../../components/Dialog'
 
 /**
  * The bank file's layout: which columns, in what order, with what headings.

@@ -6,17 +6,17 @@ HR & Payroll system for **CareerMap Solutions**. Employee lifecycle, attendance,
 
 ---
 
-## Current state — mid-migration
+## Current state — migration complete, hardening next
 
-The project is moving **off Supabase onto its own Node backend**. Both halves exist right now and that is expected.
+The project has moved **off Supabase onto its own Node backend**. Nothing talks to Supabase any more.
 
 | | Status |
 |---|---|
-| `web/` — React app | Working. **Still talks to Supabase.** Cut over module by module |
-| `server/` — Express + Prisma | Auth, employees and user management complete |
-| `supabase/` | Reference during the migration. Deleted on Day 19 |
+| `web/` — React app | Every screen reads the API. `lib/supabase.js` and `@supabase/supabase-js` deleted on Day 19 |
+| `server/` — Express + Prisma | Every module: auth, people, attendance, leave, payroll, documents, notifications, reports |
+| `supabase/` | Deleted on Day 19 (it is in git history if the old SQL is ever needed) |
 
-**Do not "finish" the Supabase integration.** It is being replaced. Work follows the build guide's day plan.
+Work follows the build guide's day plan.
 
 ### Migration progress
 
@@ -34,9 +34,9 @@ The project is moving **off Supabase onto its own Node backend**. Both halves ex
 - [x] **Day 12** — attendance views, monthly hours, biometric import
 - [x] **Day 13** — leave requests, working-day counting, ledger backfill
 - [x] **Day 14** — leave approval, reversal, dashboards
-- [ ] **Days 15–18 ← next** — payroll
-- [ ] Day 19 — documents, notifications, reports; **`web/src/lib/supabase.js` deleted**
-- [ ] Day 20 — hardening, deploy
+- [x] **Days 15–18** — payroll: policy, runs, payslips and PDFs, payroll frontend, bank file (`v0.5-payroll`)
+- [x] **Day 19** — documents, notifications, reports, one CSV writer, bank proof; **`web/src/lib/supabase.js` deleted**
+- [ ] **Day 20 ← next** — hardening, deploy
 
 ---
 
@@ -68,8 +68,7 @@ New machine: install Postgres 17, create the `ems_test` database, copy
 ```
 EMS/
 ├── web/       React 19 + Vite + Tailwind v4 · JavaScript · Zustand · TanStack Query
-├── server/    Express 5 + TypeScript · Prisma + PostgreSQL
-└── supabase/  legacy, reference only
+└── server/    Express 5 + TypeScript · Prisma + PostgreSQL
 ```
 
 **Two `package.json` files.** Always `cd web` or `cd server` first — Prisma lives only under `server/`.
@@ -123,7 +122,7 @@ Direction is one-way: `http` → `modules` → `domain`. Never the reverse.
 
 - JavaScript, not TypeScript. Tailwind for styling — see [style.md](./style.md)
 - `web/src/api/` is the only place that talks to the network; hooks call it
-- Hooks keep their names and return shapes during cutover, so pages do not change
+- Hooks kept their names and return shapes through the cutover, so pages did not change with them
 - **The API emits `snake_case` for v1** and reproduces the nested `profiles` key the pages already read
 
 ---
@@ -154,6 +153,10 @@ cd server && npm test
 cd server && npx prisma studio
 
 cd server && npm run bootstrap  # first org + admin. Runs once, refuses after
+
+cd server && npm run storage:check          # put/get/list/delete against the configured storage (local or R2)
+cd server && npm run maintenance            # dry run: orphaned files, old notifications
+cd server && npm run maintenance -- --apply # actually remove them (schedule this nightly once deployed)
 
 cd server && npm run db:test -- migrate deploy   # migrate the TEST database
 cd server && npm run db:test -- migrate reset    # wipe and rebuild it

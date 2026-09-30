@@ -14,3 +14,11 @@ export async function findTimezone(db: ScopedDb, organizationId: string): Promis
   })
   return organization?.timezone ?? null
 }
+
+export async function findUploadLimit(db: ScopedDb, organizationId: string): Promise<number | null> {
+  const organization = await db.organization.findUnique({
+    where: { id: organizationId },
+    select: { maxUploadMb: true },
+  })
+  return organization?.maxUploadMb ?? null
+}

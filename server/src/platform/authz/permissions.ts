@@ -68,14 +68,24 @@ export const PERMISSIONS = [
   'document:read',
   'document:upload',
   'document:verify',
+  // The company's own documents — the handbook, the policies. §5 of the
+  // client's document gives them to every role, which is wider than the
+  // Documents module (employee files), so they are a permission of their own.
+  'document:company:read',
+  'document:company:manage',
+  // What the compliance checklist asks every employee for.
+  'document:type:manage',
+
+  // One's own notices in the bell. Everybody; nobody can read anyone else's.
+  'notification:read',
 
   'report:read',
 
   'settings:read',
   'settings:update',
 
-  // User management. These four are what the Supabase edge functions currently
-  // do, and nothing else replaces them.
+  // User management. These four are what the original backend's edge
+  // functions did, and nothing else replaces them.
   'user:invite',
   'user:status:update',
   'user:delete',

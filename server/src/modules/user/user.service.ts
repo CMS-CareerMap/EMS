@@ -16,7 +16,7 @@ import * as employeeRepo from '../employee/employee.repository'
 import { audit } from '../audit/audit.service'
 
 /**
- * The four things the Supabase edge functions used to do, and nothing else
+ * The four things the original backend's edge functions used to do, and nothing else
  * replaced: invite, change role, change status, terminate.
  *
  * Every one of them is a transaction, because every one of them touches more

@@ -6,7 +6,7 @@ import { usePayrollComponents } from '../../hooks/useSalary'
 import { useAuthStore } from '../../stores/authStore'
 import { calendarDayIn } from '../../lib/dates'
 import { usePayrollPeople } from './people'
-import Dialog, { inputCls } from './Dialog'
+import Dialog, { inputCls } from '../../components/Dialog'
 import { money, monthLabel, recentMonths, monthAfter, monthValue, parseMonthValue, RUN_STATUS } from './format'
 
 /**

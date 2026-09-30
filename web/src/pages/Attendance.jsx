@@ -1,11 +1,13 @@
 import { createElement, useState, useMemo } from 'react'
 import {
   UserCheck, UserX, Clock, CalendarDays, CircleDashed, Search,
-  ChevronLeft, ChevronRight, Download, Edit2, Calendar,
+  ChevronLeft, ChevronRight, Download, Edit2, Calendar, Loader2,
 } from 'lucide-react'
 import MarkAttendanceModal from '../features/attendance/MarkAttendanceModal'
 import { useDayRoster, useMonthAttendance, useMarkAttendance } from '../hooks/useAttendance'
 import { useAuthStore } from '../stores/authStore'
+import { saveFromApi } from '../api/http'
+import { useDownload } from '../hooks/useDownload'
 import { calendarDayIn, addDays, wallClockIn, formatCalendarDay } from '../lib/dates'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -45,10 +47,6 @@ function initials(name) {
 }
 
 /** A CSV cell. Quotes inside a value are doubled, or one note breaks every column after it. */
-function cell(value) {
-  return `"${String(value ?? '').replace(/"/g, '""')}"`
-}
-
 // ─── Monthly calendar ─────────────────────────────────────────────────────────
 
 function MonthlyCalendar({ attendanceMap, year, month, today }) {
@@ -117,6 +115,7 @@ export default function Attendance() {
   const [deptFilter, setDeptFilter] = useState('All')
   const [search, setSearch]         = useState('')
   const [modalEmp, setModalEmp]     = useState(null)
+  const { busy: exporting, start: startExport } = useDownload()
 
   const { data: roster, isLoading } = useDayRoster(date)
   const markAttendance              = useMarkAttendance()
@@ -194,25 +193,13 @@ export default function Attendance() {
     if (saved) setModalEmp(null)
   }
 
+  // The file is made on the server from the same roster and the same filters,
+  // through the one CSV writer — BOM, quoting, and no formula can run in Excel.
   function handleExportCSV() {
-    const headers = ['Employee Name', 'Employee Code', 'Department', 'Designation', 'Status', 'Check In', 'Check Out', 'Hours Worked', 'Note']
-    const rows = filtered.map((r) => [
-      r.full_name,
-      r.employee_code,
-      r.department,
-      r.designation,
-      r.status ? STATUS_META[r.status]?.label ?? r.status : 'Not Marked',
-      r.check_in,
-      r.check_out,
-      r.hours_worked ?? '',
-      r.note,
-    ])
-    const lines = [headers.map(cell).join(','), ...rows.map((row) => row.map(cell).join(','))]
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv' })
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = `attendance_${date}.csv`
-    a.click()
+    const params = new URLSearchParams({ date, status: tab })
+    if (deptFilter !== 'All') params.set('department', deptFilter)
+    if (search.trim()) params.set('search', search.trim())
+    startExport('csv', () => saveFromApi(`/attendance/export?${params}`))
   }
 
   const marked = records.length - stats.unmarked
@@ -254,8 +241,9 @@ export default function Attendance() {
                 </button>
               </div>
             )}
-            <button onClick={handleExportCSV} className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors">
-              <Download className="w-4 h-4" /> Export
+            <button onClick={handleExportCSV} disabled={exporting === 'csv'}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-60">
+              {exporting === 'csv' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} Export
             </button>
           </div>
         </div>

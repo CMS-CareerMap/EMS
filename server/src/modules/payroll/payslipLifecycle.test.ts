@@ -418,6 +418,18 @@ describe('from draft to paid payslips', () => {
     ).toBeGreaterThan(0)
   })
 
+  it('tells the right people at each step — the approver, Accounts, and each employee with a login', async () => {
+    const notices = (userId: string, event: string) => prisma.notification.findMany({ where: { organizationId: org.id, userId, event } })
+    // Prepared by Accounts: the approver hears it is ready.
+    expect((await notices(org.userId.super_admin, 'payroll.awaiting_approval'))[0]).toMatchObject({ title: 'Payroll ready to approve', link: '/payroll' })
+    expect(await notices(org.userId.accounts, 'payroll.awaiting_approval')).toHaveLength(0)
+    // Approved by the Super Admin: Accounts hear they can pay it.
+    expect((await notices(org.userId.accounts, 'payroll.approved')).length).toBeGreaterThan(0)
+    // Paid: Asha, who has a login, hears her payslip is ready — on her own page, not /payroll.
+    const [ready] = await notices(org.userId.employee, 'payslip.ready')
+    expect(ready).toMatchObject({ title: 'Your payslip is ready', message: 'Your payslip for August 2026 is ready to download.', link: '/payslips' })
+  })
+
   it('keeps everybody else’s payslip out of an employee’s reach — and a manager’s, and HR’s', async () => {
     for (const role of ['employee', 'manager', 'hr'] as const) {
       expect((await download(org, role, `/api/payslips/${slipOf[ravi]}/pdf`)).status, role).toBe(404)

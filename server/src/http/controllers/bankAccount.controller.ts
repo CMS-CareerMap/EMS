@@ -15,6 +15,8 @@ import {
 import { parseBody } from '../validators/parse'
 import { appContext } from '../context'
 import { sendFile } from '../download'
+import { uploadedFile } from '../upload'
+import { uploadLimitMb } from '../../modules/organization/organization.service'
 
 /**
  * Bank accounts, the bank file's layout, and the bank file itself.
@@ -44,6 +46,11 @@ function accountPayload(row: BankRosterRow) {
           verified_at: isoInstant(a.verifiedAt),
           verified_by_user_id: a.verifiedByUserId,
           updated_at: isoInstant(a.updatedAt),
+          // Sent in by the employee themselves, rather than entered by Accounts.
+          submitted_by_employee: a.submittedByUserId !== null && a.submittedByUserId === row.membership?.userId,
+          proof: a.proofKey
+            ? { file_name: a.proofFileName, content_type: a.proofContentType, bytes: a.proofBytes, uploaded_at: isoInstant(a.proofUploadedAt) }
+            : null,
         }
       : null,
   }
@@ -52,16 +59,24 @@ function accountPayload(row: BankRosterRow) {
 /** GET /api/payroll/bank-accounts */
 export const getBankAccounts: RequestHandler = async (_req, res) => {
   const ctx = appContext(res)
-  reply(res, 200, (await bank.listBankAccounts(ctx)).map(accountPayload))
+  const [rows, maxUploadMb] = await Promise.all([bank.listBankAccounts(ctx), uploadLimitMb(ctx)])
+  res.status(200).json({ data: rows.map(accountPayload), meta: { requestId: res.locals.requestId, max_upload_mb: maxUploadMb } })
 }
 
 /** PUT /api/payroll/employees/:id/bank-account */
 export const putBankAccount: RequestHandler = async (req, res) => {
   const ctx = appContext(res)
   const { id } = parseBody(payrollEmployeeParamSchema, req.params)
-  const input = parseBody(bankAccountSchema, req.body)
-  const saved = await bank.saveBankAccount(ctx, id, input)
+  const input = parseBody(bankAccountSchema, req.body ?? {})
+  const saved = await bank.saveBankAccount(ctx, id, input, uploadedFile(req.file))
   reply(res, 200, saved ? accountPayload(saved) : null)
+}
+
+/** GET /api/payroll/employees/:id/bank-account/proof — the cheque or passbook page on file. */
+export const getBankAccountProof: RequestHandler = async (req, res) => {
+  const ctx = appContext(res)
+  const { id } = parseBody(payrollEmployeeParamSchema, req.params)
+  sendFile(res, await bank.proofFile(ctx, id))
 }
 
 /** POST /api/payroll/employees/:id/bank-account/verify  { decision, remarks? } */

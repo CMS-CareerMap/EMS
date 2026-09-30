@@ -57,6 +57,7 @@ function companyPayload(org: Company) {
     date_format: org.dateFormat,
     country: org.country,
     currency: org.currency,
+    max_upload_mb: org.maxUploadMb,
   }
 }
 

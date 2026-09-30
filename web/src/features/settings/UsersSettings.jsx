@@ -8,6 +8,7 @@ import {
 } from '../../hooks/useUsers'
 import { InviteUserForm, PasswordLinkPanel } from './UserAccess'
 import { Section, inpSm } from './ui'
+import { ROLE_LABELS } from '../../lib/roles'
 
 /**
  * The Users & Roles tab: sign-in accounts, their roles, and the links that
@@ -16,15 +17,6 @@ import { Section, inpSm } from './ui'
  */
 
 const ROLES = ['super_admin', 'admin', 'hr', 'manager', 'rm', 'accounts', 'employee']
-const ROLE_LABELS = {
-  super_admin: 'Super Admin',
-  admin:       'Admin',
-  hr:          'HR',
-  manager:     'Manager',
-  rm:          'Reporting Manager',
-  accounts:    'Accounts',
-  employee:    'Employee',
-}
 const ROLE_COLORS = {
   super_admin:   'bg-purple-100 text-purple-700',
   admin:         'bg-indigo-100 text-indigo-700',

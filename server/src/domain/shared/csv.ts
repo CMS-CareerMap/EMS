@@ -18,16 +18,21 @@
 
 const FORMULA_START = /^[=+\-@\t\r]/
 const NEEDS_QUOTES = /[",\r\n]/
+/** A plain decimal — "-350.00" — which no spreadsheet runs as a formula. */
+const PLAIN_NUMBER = /^-?\d+(\.\d+)?$/
 
 export type CsvCell = string | number | null | undefined
 
 /**
  * One cell, made safe. A number is written as it is — a negative amount is a
- * number, not a formula — and only text is guarded.
+ * number, not a formula — and so is text that is only a number, such as money
+ * written to two places ("-350.00"): an apostrophe there would turn it into
+ * text, and the column's SUM would quietly skip it. Everything else is guarded.
  */
 export function csvCell(value: CsvCell): string {
   if (value === null || value === undefined) return ''
   if (typeof value === 'number') return Number.isFinite(value) ? String(value) : ''
+  if (PLAIN_NUMBER.test(value)) return value
 
   const guarded = FORMULA_START.test(value) ? `'${value}` : value
   return NEEDS_QUOTES.test(guarded) ? `"${guarded.replace(/"/g, '""')}"` : guarded

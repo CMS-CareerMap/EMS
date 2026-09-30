@@ -23,6 +23,15 @@ describe('one CSV cell', () => {
     expect(csvCell('+91 98765')).toBe("'+91 98765")
     expect(csvCell('-SUM(A1)')).toBe("'-SUM(A1)")
     expect(csvCell('@cmd')).toBe("'@cmd")
+    expect(csvCell('-1+2')).toBe("'-1+2")
+    expect(csvCell('-2.5e3')).toBe("'-2.5e3")
+  })
+
+  it('writes a negative amount as a number, so the column still adds up', () => {
+    // Money arrives as text to two places; net pay can be below zero.
+    expect(csvCell('-350.00')).toBe('-350.00')
+    expect(csvCell('-7')).toBe('-7')
+    expect(csvCell(-350)).toBe('-350')
   })
 
   it('writes nothing for nothing', () => {

@@ -151,6 +151,12 @@ export const payslipIdParamSchema = z.object({
 
 // ── Bank accounts and the bank transfer file ────────────────────────────────
 
+/** A form field that is a yes/no — multipart sends "true", JSON sends true. */
+const formBoolean = z.union([
+  z.boolean(),
+  z.enum(['true', 'false', 'on', '1', '0']).transform((v) => v === 'true' || v === 'on' || v === '1'),
+])
+
 export const bankAccountSchema = z
   .object({
     bankName: z.string().trim().min(2, 'Name the bank').max(80),
@@ -160,14 +166,21 @@ export const bankAccountSchema = z
     ifsc: z.string().trim().regex(/^[A-Za-z]{4}0[A-Za-z0-9]{6}$/, 'An IFSC looks like HDFC0001234'),
     branch: z.string().trim().max(100).nullish(),
     accountType: z.enum(['Savings', 'Current', 'Salary']).nullish(),
-    markVerified: z.boolean().optional(),
+    markVerified: formBoolean.optional(),
+    // The version on screen when an existing account is changed; refused if it moved on.
+    accountUpdatedAt: z.iso.datetime().optional(),
   })
   .strict()
+
+/** An employee's own submission: the same details, and never "verified". */
+export const ownBankAccountSchema = bankAccountSchema.omit({ markVerified: true, accountUpdatedAt: true })
 
 export const bankVerifySchema = z
   .object({
     decision: z.enum(['verified', 'rejected']),
     remarks: z.string().trim().max(300).nullish(),
+    // Which version was checked. A decision is about that account, not a newer one.
+    accountUpdatedAt: z.iso.datetime('Say which version of the account was checked'),
   })
   .strict()
 

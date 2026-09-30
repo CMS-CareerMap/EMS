@@ -40,6 +40,7 @@ export interface CompanyIdentityInput {
   dateFormat?: string | undefined
   country?: string | undefined
   currency?: string | undefined
+  maxUploadMb?: number | undefined
 }
 
 export async function getCompany(ctx: AppContext) {

@@ -13,10 +13,10 @@ import { useAuthStore } from '../../stores/authStore'
 import { calendarDayIn } from '../../lib/dates'
 import { ApiError } from '../../api/http'
 import PayslipModal from './PayslipModal'
-import Dialog from './Dialog'
+import Dialog from '../../components/Dialog'
 import BankFilePanel from './BankFilePanel'
 import { money, days, formatDay, monthLabel, recentMonths, monthValue, RUN_STATUS, LOP_BASIS } from './format'
-import { useDownload } from './useDownload'
+import { useDownload } from '../../hooks/useDownload'
 
 /**
  * The Payroll Runs tab: one month at a time, from draft to paid.

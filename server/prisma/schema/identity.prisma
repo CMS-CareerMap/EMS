@@ -42,6 +42,7 @@ model User {
   memberships         Membership[]
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
+  notifications       Notification[]
 }
 
 model Membership {

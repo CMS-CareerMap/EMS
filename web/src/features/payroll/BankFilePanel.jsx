@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { X, Download, Loader2, AlertTriangle, Landmark } from 'lucide-react'
 import { useBankFilePreview, downloadBankFile } from '../../hooks/usePayroll'
-import { useDownload } from './useDownload'
-import { useEscape } from './useEscape'
+import { useDownload } from '../../hooks/useDownload'
+import { useEscape } from '../../hooks/useEscape'
 import { money, monthLabel } from './format'
 
 /**

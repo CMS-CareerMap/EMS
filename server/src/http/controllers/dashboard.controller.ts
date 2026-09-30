@@ -83,6 +83,10 @@ export const getMySummary: RequestHandler = async (_req, res) => {
         designation: summary.employee.designation,
         date_of_joining: summary.employee.dateOfJoining,
         attendance_mode: summary.employee.attendanceMode,
+        // For the profile drawer: the session carries identity only.
+        phone: summary.employee.phone,
+        reporting_manager_name: summary.employee.reportingManagerName,
+        reporting_manager_designation: summary.employee.reportingManagerDesignation,
       },
       this_month: {
         present_days: summary.thisMonth.presentDays,

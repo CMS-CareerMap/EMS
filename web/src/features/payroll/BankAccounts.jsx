@@ -1,9 +1,11 @@
-import { useMemo, useState } from 'react'
-import { Search, Pencil, Plus, ShieldCheck, Loader2, CheckCircle2, XCircle, Clock, CircleDashed } from 'lucide-react'
+import { useCallback, useMemo, useState } from 'react'
+import { Search, Pencil, Plus, ShieldCheck, Loader2, CheckCircle2, XCircle, Clock, CircleDashed, Paperclip, Eye } from 'lucide-react'
 import { toast } from 'sonner'
-import { useBankAccounts, useSaveBankAccount, useVerifyBankAccount } from '../../hooks/usePayroll'
+import { useBankAccounts, useSaveBankAccount, useVerifyBankAccount, bankProofBlob, downloadBankProof } from '../../hooks/usePayroll'
+import { prepareUpload } from '../../lib/prepareUpload'
+import PreviewDialog from '../documents/PreviewDialog'
 import { useAuthStore } from '../../stores/authStore'
-import Dialog, { inputCls } from './Dialog'
+import Dialog, { inputCls } from '../../components/Dialog'
 
 /**
  * Salary bank accounts, kept by Accounts.
@@ -41,7 +43,9 @@ export default function BankAccounts() {
   const can = useAuthStore((s) => s.can)
   const ownEmployeeId = useAuthStore((s) => s.profile?.id)
   const canManage = can('employee:bank:manage')
-  const { data: rows = [], isLoading } = useBankAccounts()
+  const { data, isLoading } = useBankAccounts()
+  const rows = useMemo(() => data?.rows ?? [], [data])
+  const maxUploadMb = data?.maxUploadMb
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
   const [editing, setEditing] = useState(null)
@@ -100,7 +104,13 @@ export default function BankAccounts() {
                     </td>
                     <td className="px-4 py-3 text-gray-700">{a ? <>{a.bank_name}{a.branch && <p className="text-xs text-gray-400">{a.branch}</p>}</> : <span className="text-gray-400">—</span>}</td>
                     <td className="px-4 py-3">
-                      {a ? <><p className="font-mono text-gray-800">•••• {a.account_number.slice(-4)}</p><p className="text-xs text-gray-400">{a.account_holder_name}</p></> : <span className="text-gray-400">—</span>}
+                      {a ? (
+                        <>
+                          <p className="font-mono text-gray-800 flex items-center gap-1">•••• {a.account_number.slice(-4)}{a.proof && <Paperclip className="w-3.5 h-3.5 text-gray-400" aria-label="Proof attached" />}</p>
+                          <p className="text-xs text-gray-400">{a.account_holder_name}</p>
+                          {a.submitted_by_employee && <p className="text-[11px] text-blue-600">Sent in by them</p>}
+                        </>
+                      ) : <span className="text-gray-400">—</span>}
                     </td>
                     <td className="px-4 py-3 font-mono text-gray-700">{a?.ifsc ?? '—'}</td>
                     <td className="px-4 py-3">
@@ -136,14 +146,17 @@ export default function BankAccounts() {
         </div>
       </div>
 
-      {editing && <AccountDialog row={editing} own={editing.employee_id === ownEmployeeId} onClose={() => setEditing(null)} />}
+      {editing && <AccountDialog row={editing} own={editing.employee_id === ownEmployeeId} maxUploadMb={maxUploadMb} onClose={() => setEditing(null)} />}
       {reviewing && <ReviewDialog row={reviewing} onClose={() => setReviewing(null)} />}
     </div>
   )
 }
 
-function AccountDialog({ row, own, onClose }) {
+function AccountDialog({ row, own, maxUploadMb, onClose }) {
   const save = useSaveBankAccount()
+  const [proof, setProof] = useState(null)
+  const [problem, setProblem] = useState('')
+  const [preparing, setPreparing] = useState(false)
   const a = row.bank_account
   const [form, setForm] = useState({
     bankName: a?.bank_name ?? '',
@@ -163,7 +176,23 @@ function AccountDialog({ row, own, onClose }) {
   async function handleSubmit(e) {
     e.preventDefault()
     if (mismatch) return
+    setProblem('')
+    let ready = null
+    if (proof) {
+      setPreparing(true)
+      try {
+        ready = await prepareUpload(proof, maxUploadMb)
+      } catch (err) {
+        setProblem(err.message)
+        return
+      } finally {
+        setPreparing(false)
+      }
+    }
     const ok = await save.mutateAsync({
+      proof: ready,
+      // The version on screen: the server refuses the save if it has changed since.
+      accountUpdatedAt: a?.updated_at ?? undefined,
       employeeId: row.employee_id,
       bankName: form.bankName,
       accountHolderName: form.accountHolderName,
@@ -172,7 +201,11 @@ function AccountDialog({ row, own, onClose }) {
       branch: form.branch || null,
       accountType: form.accountType || null,
       markVerified: !own && form.markVerified,
-    }).then(() => true, () => false)
+    }).then(() => true, (err) => {
+      // Changed meanwhile: the toast says so, and the list now shows the latest.
+      if (err?.status === 409) onClose()
+      return false
+    })
     if (ok) {
       toast.success(`${row.full_name}'s bank account saved`)
       onClose()
@@ -227,11 +260,24 @@ function AccountDialog({ row, own, onClose }) {
           <p className="text-xs text-amber-700">Changing the account number or IFSC means it has to be checked again.</p>
         )}
 
+        <Field label="Cancelled cheque or passbook page (optional)">
+          <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" onChange={(e) => { setProof(e.target.files?.[0] ?? null); setProblem('') }}
+            className="w-full text-sm file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700" />
+          <span className="block text-xs text-gray-500">
+            {!a?.proof
+              ? 'Kept with the account, for whoever checks it.'
+              : numberChanged
+                ? 'The proof on file shows the old number or IFSC, so it is removed unless you attach the new one.'
+                : 'A proof is on file; a new one replaces it.'}
+          </span>
+        </Field>
+        {problem && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">{problem}</p>}
+
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700">Cancel</button>
-          <button type="submit" disabled={save.isPending || mismatch}
+          <button type="submit" disabled={preparing || save.isPending || mismatch}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-60">
-            {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} Save
+            {(preparing || save.isPending) && <Loader2 className="w-4 h-4 animate-spin" />} {preparing ? 'Making the photo smaller…' : 'Save'}
           </button>
         </div>
       </form>
@@ -244,13 +290,20 @@ function ReviewDialog({ row, onClose }) {
   const a = row.bank_account
   const [remarks, setRemarks] = useState('')
   const [asked, setAsked] = useState(false)
+  const [showProof, setShowProof] = useState(false)
+  const loadProof = useCallback(() => bankProofBlob(row.employee_id), [row.employee_id])
 
   async function decide(decision) {
     if (decision === 'rejected' && !remarks.trim()) {
       setAsked(true)
       return
     }
-    const ok = await verify.mutateAsync({ employeeId: row.employee_id, decision, remarks: remarks.trim() || null }).then(() => true, () => false)
+    const ok = await verify.mutateAsync({ employeeId: row.employee_id, decision, remarks: remarks.trim() || null, accountUpdatedAt: a.updated_at })
+      .then(() => true, (err) => {
+        // Sent in again while being checked: close, so the new details are looked at afresh.
+        if (err?.status === 409) onClose()
+        return false
+      })
     if (ok) {
       toast.success(decision === 'verified' ? `${row.full_name}'s account verified` : `${row.full_name}'s account rejected`)
       onClose()
@@ -258,6 +311,7 @@ function ReviewDialog({ row, onClose }) {
   }
 
   return (
+    <>
     <Dialog title={`Check bank account — ${row.full_name}`} onClose={onClose}>
       <dl className="grid grid-cols-[9rem_1fr] gap-y-1.5 text-sm">
         <dt className="text-gray-400">Bank</dt><dd className="font-medium text-gray-900">{a.bank_name}{a.branch ? `, ${a.branch}` : ''}</dd>
@@ -266,7 +320,17 @@ function ReviewDialog({ row, onClose }) {
         <dt className="text-gray-400">IFSC</dt><dd className="font-mono font-medium text-gray-900">{a.ifsc}</dd>
         <dt className="text-gray-400">Type</dt><dd className="text-gray-900">{a.account_type ?? '—'}</dd>
         <dt className="text-gray-400">Last changed</dt><dd className="text-gray-900">{a.updated_at ? new Date(a.updated_at).toLocaleString('en-IN') : '—'}</dd>
-        <dt className="text-gray-400">Proof</dt><dd className="text-gray-500">No proof uploaded yet</dd>
+        <dt className="text-gray-400">Proof</dt>
+        <dd>
+          {a.proof ? (
+            <button type="button" onClick={() => setShowProof(true)} className="inline-flex items-center gap-1 text-blue-600 hover:underline">
+              <Eye className="w-3.5 h-3.5" /> View the {a.proof.content_type === 'application/pdf' ? 'PDF' : 'photo'}
+            </button>
+          ) : (
+            <span className="text-gray-500">No proof on file</span>
+          )}
+        </dd>
+        {a.submitted_by_employee && <><dt className="text-gray-400">Sent in by</dt><dd className="text-gray-900">{row.full_name}, themselves</dd></>}
       </dl>
       <p className="text-xs text-gray-500">Verify only after comparing every detail with a cancelled cheque or passbook page.</p>
       <label className="block space-y-1.5">
@@ -283,6 +347,11 @@ function ReviewDialog({ row, onClose }) {
         </button>
       </div>
     </Dialog>
+    {showProof && (
+      <PreviewDialog title={`Bank proof — ${row.full_name}`} subtitle={a.proof?.file_name} loadBlob={loadProof}
+        download={() => downloadBankProof(row.employee_id)} contentType={a.proof?.content_type} onClose={() => setShowProof(false)} />
+    )}
+    </>
   )
 }
 

@@ -35,6 +35,10 @@ model Organization {
   /// Every date rule takes this as an argument. Nothing reads the machine clock.
   timezone String @default("Asia/Kolkata")
 
+  /// The largest file anybody may upload, in MB. The client chose 2 MB; the
+  /// server's own ceiling is 10 MB whatever this says.
+  maxUploadMb Int @default(2)
+
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
@@ -69,6 +73,12 @@ model Organization {
   tdsDirectives            EmployeeTdsDirective[]
   monthlyEntries           EmployeeMonthlyEntry[]
   bankFileTemplates        BankFileTemplate[]
+
+  documentTypes        DocumentType[]
+  employeeDocuments    EmployeeDocument[]
+  companyDocuments     CompanyDocument[]
+  notifications        Notification[]
+  notificationSettings NotificationSetting[]
 
   auditLogs AuditLog[]
 }

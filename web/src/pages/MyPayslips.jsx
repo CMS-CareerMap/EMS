@@ -1,7 +1,7 @@
 import { Download, Loader2, FileText } from 'lucide-react'
 import { useMyPayslips, downloadMyPayslip } from '../hooks/usePayroll'
 import { useAuthStore } from '../stores/authStore'
-import { useDownload } from '../features/payroll/useDownload'
+import { useDownload } from '../hooks/useDownload'
 import { money, formatDay, monthLabel } from '../features/payroll/format'
 
 /**

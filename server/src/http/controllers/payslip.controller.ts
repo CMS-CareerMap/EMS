@@ -1,6 +1,9 @@
 import type { RequestHandler } from 'express'
 import * as payslips from '../../modules/payroll/payslip.service'
-import { myBankAccount } from '../../modules/payroll/bankAccount.service'
+import { myBankAccount, submitOwnBankAccount } from '../../modules/payroll/bankAccount.service'
+import { ownBankAccountSchema } from '../validators/payroll.validator'
+import { uploadedFile } from '../upload'
+import { uploadLimitMb } from '../../modules/organization/organization.service'
 import { fromDateColumn, isoInstant } from '../../domain/shared/dates'
 import { payslipIdParamSchema } from '../validators/payroll.validator'
 import { parseBody } from '../validators/parse'
@@ -48,11 +51,24 @@ export const getMyPayslips: RequestHandler = async (_req, res) => {
  */
 export const getMyBankAccount: RequestHandler = async (_req, res) => {
   const ctx = appContext(res)
-  const a = await myBankAccount(ctx)
-  reply(
-    res,
-    200,
-    a
+  const [account, maxUploadMb] = await Promise.all([myBankAccount(ctx), uploadLimitMb(ctx)])
+  // The upload limit travels with it: the page makes a proof photo fit before sending.
+  res.status(200).json({ data: ownAccountPayload(account), meta: { requestId: res.locals.requestId, max_upload_mb: maxUploadMb } })
+}
+
+/**
+ * PUT /api/payslips/me/bank-account — multipart: the details, and "proof", a
+ * photo or PDF of a cancelled cheque or passbook page. It waits for Accounts.
+ */
+export const putMyBankAccount: RequestHandler = async (req, res) => {
+  const ctx = appContext(res)
+  const input = parseBody(ownBankAccountSchema, req.body ?? {})
+  const saved = await submitOwnBankAccount(ctx, input, uploadedFile(req.file))
+  reply(res, 200, ownAccountPayload(saved?.bankAccount ?? null))
+}
+
+function ownAccountPayload(a: Awaited<ReturnType<typeof myBankAccount>>) {
+  return a
       ? {
           bank_name: a.bankName,
           account_holder_name: a.accountHolderName,
@@ -63,9 +79,10 @@ export const getMyBankAccount: RequestHandler = async (_req, res) => {
           verification_status: a.verificationStatus,
           verification_remarks: a.verificationRemarks,
           verified_at: isoInstant(a.verifiedAt),
+          has_proof: a.proofKey !== null,
+          updated_at: isoInstant(a.updatedAt),
         }
-      : null,
-  )
+      : null
 }
 
 /** GET /api/payslips/:id/pdf — the stored document, for whoever may see it. */
