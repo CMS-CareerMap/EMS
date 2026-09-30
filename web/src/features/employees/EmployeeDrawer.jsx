@@ -8,6 +8,8 @@ import {
 import { useAuthStore } from '../../stores/authStore'
 import { useChecklist } from '../../hooks/useDocuments'
 import { roleLabel } from '../../lib/roles'
+import DataState from '../../components/DataState'
+import { formatDay } from '../../lib/dates'
 
 /**
  * One employee, as the server holds them.
@@ -57,12 +59,7 @@ function money(value) {
   return value == null ? '—' : '₹' + Number(value).toLocaleString('en-IN')
 }
 
-function formatDate(day) {
-  if (!day) return '—'
-  return new Date(`${day}T00:00:00Z`).toLocaleDateString('en-IN', {
-    day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
-  })
-}
+const formatDate = (day) => formatDay(day)
 
 export default function EmployeeDrawer({ employee, onClose, onEdit }) {
   const can = useAuthStore((state) => state.can)
@@ -271,12 +268,22 @@ export default function EmployeeDrawer({ employee, onClose, onEdit }) {
   )
 }
 
-/** Where somebody stands against the required documents — from their checklist. */
+/**
+ * Where somebody stands against the required documents — from their checklist.
+ * A checklist that failed shows the error with a way to try again, not a
+ * summary that reads as "nothing uploaded".
+ */
 function DocumentsSummary({ query, onOpen }) {
-  const { data, isLoading, error } = query
-  if (isLoading) return <p className="text-sm text-gray-400">Loading…</p>
-  if (error || !data) return <p className="text-sm text-gray-500">{error?.message ?? 'Their documents could not be opened.'}</p>
+  return (
+    <div className="bg-slate-50 rounded-xl border border-slate-200">
+      <DataState query={query} compact>
+        {(data) => <ChecklistStanding data={data} onOpen={onOpen} />}
+      </DataState>
+    </div>
+  )
+}
 
+function ChecklistStanding({ data, onOpen }) {
   const required = data.items.filter((i) => i.type.required)
   const verified = required.filter((i) => i.current?.status === 'verified').length
   const waiting = data.items.filter((i) => i.current?.status === 'pending').length
@@ -284,7 +291,7 @@ function DocumentsSummary({ query, onOpen }) {
   const missing = required.filter((i) => !i.current).length
 
   return (
-    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2.5">
+    <div className="p-4 space-y-2.5">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <FileText className="w-4 h-4 text-blue-600" />

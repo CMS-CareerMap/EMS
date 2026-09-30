@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Search, CheckCircle2, Clock, FolderOpen } from 'lucide-react'
 import { useCompliance, useChecklist } from '../../hooks/useDocuments'
 import Checklist from './Checklist'
+import DataState from '../../components/DataState'
 import { when } from './meta'
 
 /**
@@ -25,7 +26,9 @@ function matches(filter, e) {
 }
 
 export default function EmployeeDocuments({ types, limits, selected, onSelect }) {
-  const { data, isLoading } = useCompliance()
+  const compliance = useCompliance()
+  // Nothing from an answer that has since failed: the list below shows the error instead.
+  const data = compliance.isError ? undefined : compliance.data
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
   const checklist = useChecklist(selected, { enabled: Boolean(selected) })
@@ -87,34 +90,34 @@ export default function EmployeeDocuments({ types, limits, selected, onSelect })
               </button>
             ))}
           </div>
-          <div className="space-y-2 max-h-[560px] overflow-y-auto pr-1">
-            {isLoading && <p className="text-sm text-gray-400 py-6 text-center">Loading…</p>}
-            {!isLoading && employees.length === 0 && <p className="text-sm text-gray-400 py-6 text-center">Nobody here.</p>}
-            {employees.map((e) => {
-              const active = selected === e.employee_id
-              const complete = e.verified === e.required
-              return (
-                <button key={e.employee_id} onClick={() => onSelect(e.employee_id)}
-                  className={`w-full text-left p-3 rounded-xl border transition-colors ${active ? 'border-blue-500 bg-blue-50/60 ring-1 ring-blue-500' : 'border-gray-200 bg-white hover:bg-gray-50'}`}>
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-gray-900 truncate">{e.full_name}</p>
-                      <p className="text-[11px] text-gray-500 truncate"><span className="font-mono">{e.employee_code}</span>{e.department ? ` · ${e.department}` : ''}</p>
+          <div className="space-y-2 max-h-140 overflow-y-auto pr-1">
+            <DataState query={compliance} compact empty="Nobody here." isEmpty={() => employees.length === 0}>
+              {() => employees.map((e) => {
+                const active = selected === e.employee_id
+                const complete = e.verified === e.required
+                return (
+                  <button key={e.employee_id} onClick={() => onSelect(e.employee_id)}
+                    className={`w-full text-left p-3 rounded-xl border transition-colors ${active ? 'border-blue-500 bg-blue-50/60 ring-1 ring-blue-500' : 'border-gray-200 bg-white hover:bg-gray-50'}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-900 truncate">{e.full_name}</p>
+                        <p className="text-[11px] text-gray-500 truncate"><span className="font-mono">{e.employee_code}</span>{e.department ? ` · ${e.department}` : ''}</p>
+                      </div>
+                      {complete ? (
+                        <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" aria-label="All required documents verified" />
+                      ) : (
+                        <span className="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded shrink-0">{e.verified}/{e.required}</span>
+                      )}
                     </div>
-                    {complete ? (
-                      <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" aria-label="All required documents verified" />
-                    ) : (
-                      <span className="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded shrink-0">{e.verified}/{e.required}</span>
+                    {(e.waiting_count > 0 || e.rejected > 0) && (
+                      <p className="mt-1 text-[11px] text-gray-500">
+                        {e.waiting_count > 0 ? `${e.waiting_count} waiting` : ''}{e.waiting_count > 0 && e.rejected > 0 ? ' · ' : ''}{e.rejected > 0 ? `${e.rejected} rejected` : ''}
+                      </p>
                     )}
-                  </div>
-                  {(e.waiting_count > 0 || e.rejected > 0) && (
-                    <p className="mt-1 text-[11px] text-gray-500">
-                      {e.waiting_count > 0 ? `${e.waiting_count} waiting` : ''}{e.waiting_count > 0 && e.rejected > 0 ? ' · ' : ''}{e.rejected > 0 ? `${e.rejected} rejected` : ''}
-                    </p>
-                  )}
-                </button>
-              )
-            })}
+                  </button>
+                )
+              })}
+            </DataState>
           </div>
         </div>
 
@@ -125,12 +128,10 @@ export default function EmployeeDocuments({ types, limits, selected, onSelect })
               <p className="mt-2 text-sm font-medium text-gray-600">Choose somebody from the list</p>
               <p className="text-xs text-gray-400">Their documents open here, to check, upload or remove.</p>
             </div>
-          ) : checklist.isLoading ? (
-            <p className="text-sm text-gray-400 py-16 text-center">Loading…</p>
-          ) : checklist.data ? (
-            <Checklist data={checklist.data} types={types} limits={limits} reviewer canUpload />
           ) : (
-            <p className="text-sm text-gray-500 py-16 text-center">That person's documents could not be opened.</p>
+            <DataState query={checklist}>
+              {(data) => <Checklist data={data} types={types} limits={limits} reviewer canUpload />}
+            </DataState>
           )}
         </div>
       </div>

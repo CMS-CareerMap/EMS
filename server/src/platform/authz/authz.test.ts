@@ -90,6 +90,10 @@ const MATRIX: Record<string, { permission: Permission; allowed: Role[] }> = {
     permission: 'report:read',
     allowed: ['super_admin'],
   },
+  'Read the audit log': {
+    permission: 'audit:read',
+    allowed: ['super_admin'],
+  },
   'Read own notifications': {
     permission: 'notification:read',
     allowed: ['super_admin', 'admin', 'hr', 'manager', 'rm', 'accounts', 'employee'],

@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { useBankFileTemplate, useSaveBankFileTemplate } from '../../hooks/usePayroll'
 import { useAuthStore } from '../../stores/authStore'
 import { inputCls, fieldCls } from '../../components/Dialog'
+import DataState from '../../components/DataState'
 
 /**
  * The bank file's layout: which columns, in what order, with what headings.
@@ -39,10 +40,13 @@ function exampleCell(column, form) {
 }
 
 export default function BankFileFormat() {
-  const { data, isLoading } = useBankFileTemplate()
-  if (isLoading || !data) return <p className="text-sm text-gray-400 py-10 text-center">Loading…</p>
+  const template = useBankFileTemplate()
   // Keyed on the saved layout so a save, or another person's, starts the form afresh.
-  return <Editor key={JSON.stringify([data.columns, data.include_header, data.date_format, data.narration, data.only_verified])} template={data} />
+  return (
+    <DataState query={template}>
+      {(data) =><Editor key={JSON.stringify([data.columns, data.include_header, data.date_format, data.narration, data.only_verified])} template={data} />}
+    </DataState>
+  )
 }
 
 function Editor({ template }) {

@@ -9,11 +9,11 @@ import MyBankAccount from '../features/payroll/MyBankAccount'
 import { useEscape } from '../hooks/useEscape'
 import { useMyDashboardStats } from '../hooks/useDashboard'
 import { ROLE_LABELS } from '../lib/roles'
+import DataState from './DataState'
+import { formatDay } from '../lib/dates'
 
 function formatDate(str) {
-  if (!str) return 'N/A'
-  // A calendar day, read in UTC so it is the same day in every browser's zone.
-  return new Date(`${str}T00:00:00Z`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+  return str ? formatDay(str) : 'N/A'
 }
 
 function getPasswordStrength(password) {
@@ -36,8 +36,8 @@ export default function ProfileDrawer() {
   // designation, joining date, phone and manager come from their own summary,
   // asked for only when the drawer is open — so the rows show what HR holds
   // instead of "N/A" for things that are on file.
-  const { data: mine } = useMyDashboardStats({ enabled: profileDrawerOpen && Boolean(profile) })
-  const details = mine?.profile ? { ...profile, ...mine.profile } : profile
+  const mine = useMyDashboardStats({ enabled: profileDrawerOpen && Boolean(profile) })
+  const details = !mine.isError && mine.data?.profile ? { ...profile, ...mine.data.profile } : profile
 
   // Form states
   const [currentPassword, setCurrentPassword] = useState('')
@@ -171,7 +171,7 @@ export default function ProfileDrawer() {
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
 
             {/* Profile Avatar Card */}
-            <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl p-6 text-white flex items-center gap-4 shadow-sm">
+            <div className="bg-linear-to-r from-blue-600 to-blue-700 rounded-2xl p-6 text-white flex items-center gap-4 shadow-sm">
               <div className="w-16 h-16 rounded-full bg-white/20 border-2 border-white/40 flex items-center justify-center shrink-0">
                 <span className="text-2xl font-bold text-white">{initials}</span>
               </div>
@@ -223,38 +223,10 @@ export default function ProfileDrawer() {
                     <Mail className="w-4 h-4 text-blue-500" />
                     <span>Email Address</span>
                   </div>
-                  <span className="font-medium text-gray-900 truncate max-w-[200px]" title={profile?.email || user?.email}>
+                  <span className="font-medium text-gray-900 truncate max-w-50" title={profile?.email || user?.email}>
                     {profile?.email || user?.email || 'N/A'}
                   </span>
                 </div>
-
-                {profile && (
-                  <>
-                <div className="py-2.5 flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2.5 text-gray-500">
-                    <Phone className="w-4 h-4 text-blue-500" />
-                    <span>Phone Number</span>
-                  </div>
-                  <span className="font-medium text-gray-900">{details?.phone || 'N/A'}</span>
-                </div>
-
-                <div className="py-2.5 flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2.5 text-gray-500">
-                    <Building2 className="w-4 h-4 text-blue-500" />
-                    <span>Department</span>
-                  </div>
-                  <span className="font-medium text-gray-900">{details?.department || 'N/A'}</span>
-                </div>
-
-                <div className="py-2.5 flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2.5 text-gray-500">
-                    <Briefcase className="w-4 h-4 text-blue-500" />
-                    <span>Designation</span>
-                  </div>
-                  <span className="font-medium text-gray-900">{details?.designation || 'N/A'}</span>
-                </div>
-                  </>
-                )}
 
                 <div className="py-2.5 flex items-center justify-between text-sm">
                   <div className="flex items-center gap-2.5 text-gray-500">
@@ -264,37 +236,66 @@ export default function ProfileDrawer() {
                   <span className="font-medium text-gray-900">{displayRole}</span>
                 </div>
 
+                {/* What HR holds comes from the summary, not the session: shown together, or the error in their place. */}
                 {profile && (
-                  <>
-                <div className="py-2.5 flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2.5 text-gray-500">
-                    <Calendar className="w-4 h-4 text-blue-500" />
-                    <span>Date of Joining</span>
-                  </div>
-                  <span className="font-medium text-gray-900">{formatDate(details?.date_of_joining)}</span>
-                </div>
-
-                <div className="py-2.5 flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2.5 text-gray-500">
-                    <UserCheck className="w-4 h-4 text-blue-500" />
-                    <span>Reporting Manager</span>
-                  </div>
-                  <span className="font-medium text-gray-900 text-right">
-                    {details?.reporting_manager_name ? (
+                  <DataState query={mine} compact>
+                    {() => (
                       <>
-                        {details.reporting_manager_name}
-                        {details.reporting_manager_designation && (
-                          <span className="block text-xs text-gray-400 font-normal">
-                            {details.reporting_manager_designation}
+                        <div className="py-2.5 flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2.5 text-gray-500">
+                            <Phone className="w-4 h-4 text-blue-500" />
+                            <span>Phone Number</span>
+                          </div>
+                          <span className="font-medium text-gray-900">{details?.phone || 'N/A'}</span>
+                        </div>
+
+                        <div className="py-2.5 flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2.5 text-gray-500">
+                            <Building2 className="w-4 h-4 text-blue-500" />
+                            <span>Department</span>
+                          </div>
+                          <span className="font-medium text-gray-900">{details?.department || 'N/A'}</span>
+                        </div>
+
+                        <div className="py-2.5 flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2.5 text-gray-500">
+                            <Briefcase className="w-4 h-4 text-blue-500" />
+                            <span>Designation</span>
+                          </div>
+                          <span className="font-medium text-gray-900">{details?.designation || 'N/A'}</span>
+                        </div>
+
+                        <div className="py-2.5 flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2.5 text-gray-500">
+                            <Calendar className="w-4 h-4 text-blue-500" />
+                            <span>Date of Joining</span>
+                          </div>
+                          <span className="font-medium text-gray-900">{formatDate(details?.date_of_joining)}</span>
+                        </div>
+
+                        <div className="py-2.5 flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2.5 text-gray-500">
+                            <UserCheck className="w-4 h-4 text-blue-500" />
+                            <span>Reporting Manager</span>
+                          </div>
+                          <span className="font-medium text-gray-900 text-right">
+                            {details?.reporting_manager_name ? (
+                              <>
+                                {details.reporting_manager_name}
+                                {details.reporting_manager_designation && (
+                                  <span className="block text-xs text-gray-400 font-normal">
+                                    {details.reporting_manager_designation}
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              'None'
+                            )}
                           </span>
-                        )}
+                        </div>
                       </>
-                    ) : (
-                      'None'
                     )}
-                  </span>
-                </div>
-                  </>
+                  </DataState>
                 )}
 
               </div>

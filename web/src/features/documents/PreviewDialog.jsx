@@ -57,7 +57,7 @@ export default function PreviewDialog({ title, subtitle, loadBlob, download, con
           </div>
         </div>
 
-        <div className="bg-slate-100 flex items-center justify-center min-h-[320px] p-4">
+        <div className="bg-slate-100 flex items-center justify-center min-h-80 p-4">
           {failed ? (
             <div className="text-center text-sm text-gray-500 py-12">
               <FileWarning className="w-8 h-8 mx-auto text-gray-300" />

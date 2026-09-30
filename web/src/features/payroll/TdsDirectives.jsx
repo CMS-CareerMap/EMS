@@ -6,6 +6,8 @@ import { useAuthStore } from '../../stores/authStore'
 import { calendarDayIn } from '../../lib/dates'
 import { usePayrollPeople } from './people'
 import Dialog, { inputCls } from '../../components/Dialog'
+import DataState from '../../components/DataState'
+import { optionsNote } from '../../lib/optionsNote'
 import {
   money, formatDay, monthLabel, financialYearOf, financialYearLabel, monthValue, parseMonthValue,
 } from './format'
@@ -25,11 +27,11 @@ export default function TdsDirectives() {
   const currentFy = financialYearOf(Number(today.slice(0, 4)), Number(today.slice(5, 7)))
   const years = [currentFy + 1, currentFy, currentFy - 1]
   const [fy, setFy] = useState(currentFy)
-  const { data, isLoading } = useTdsDirectives(fy)
+  const tds = useTdsDirectives(fy)
   const [adding, setAdding] = useState(false)
 
-  const directives = data?.directives ?? []
-  const enabled = data?.tdsEnabled ?? false
+  // Only from an answer: a request that failed must not read as "TDS is off".
+  const enabled = tds.isSuccess && tds.data.tdsEnabled
   const canManage = can('payroll:structure:manage')
 
   return (
@@ -48,49 +50,54 @@ export default function TdsDirectives() {
         )}
       </div>
 
-      {!isLoading && !enabled && (
-        <div className="flex gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-          <Info className="w-5 h-5 shrink-0 text-blue-600" />
-          <div className="space-y-1">
-            <p className="font-semibold">Income tax (TDS) is not deducted through payroll</p>
-            <p>Payslips carry no income tax line, and nothing entered here would be used. If the company starts deducting TDS, a super admin turns it on under Settings → Payroll Config; each person's monthly amount is then recorded here.</p>
+      <DataState query={tds}>
+        {({ directives, tdsEnabled }) => (
+        <>
+        {!tdsEnabled && (
+          <div className="flex gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+            <Info className="w-5 h-5 shrink-0 text-blue-600" />
+            <div className="space-y-1">
+              <p className="font-semibold">Income tax (TDS) is not deducted through payroll</p>
+              <p>Payslips carry no income tax line, and nothing entered here would be used. If the company starts deducting TDS, a super admin turns it on under Settings → Payroll Config; each person's monthly amount is then recorded here.</p>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {(enabled || directives.length > 0) && (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-160 text-sm">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  <th className="px-4 py-3 text-left">Employee</th>
-                  <th className="px-4 py-3 text-left">From</th>
-                  <th className="px-4 py-3 text-right">Each month</th>
-                  <th className="px-4 py-3 text-left">Reason</th>
-                </tr>
-              </thead>
-              <tbody>
-                {isLoading && <tr><td colSpan={4} className="px-4 py-10 text-center text-gray-400">Loading…</td></tr>}
-                {!isLoading && directives.length === 0 && (
-                  <tr><td colSpan={4} className="px-4 py-10 text-center text-gray-400">No TDS recorded for {financialYearLabel(fy)}.</td></tr>
-                )}
-                {directives.map((d) => (
-                  <tr key={d.id} className="border-b border-gray-100 last:border-0">
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-gray-900">{d.full_name}</p>
-                      <p className="text-xs text-gray-400 font-mono">{d.employee_code}</p>
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">{formatDay(d.effective_from)}</td>
-                    <td className="px-4 py-3 text-right font-medium text-gray-900">{money(d.monthly_amount)}</td>
-                    <td className="px-4 py-3 text-gray-500">{d.reason || '—'}</td>
+        {(tdsEnabled || directives.length > 0) && (
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-160 text-sm">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left">Employee</th>
+                    <th className="px-4 py-3 text-left">From</th>
+                    <th className="px-4 py-3 text-right">Each month</th>
+                    <th className="px-4 py-3 text-left">Reason</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {directives.length === 0 && (
+                    <tr><td colSpan={4} className="px-4 py-10 text-center text-gray-400">No TDS recorded for {financialYearLabel(fy)}.</td></tr>
+                  )}
+                  {directives.map((d) => (
+                    <tr key={d.id} className="border-b border-gray-100 last:border-0">
+                      <td className="px-4 py-3">
+                        <p className="font-medium text-gray-900">{d.full_name}</p>
+                        <p className="text-xs text-gray-400 font-mono">{d.employee_code}</p>
+                      </td>
+                      <td className="px-4 py-3 text-gray-700">{formatDay(d.effective_from)}</td>
+                      <td className="px-4 py-3 text-right font-medium text-gray-900">{money(d.monthly_amount)}</td>
+                      <td className="px-4 py-3 text-gray-500">{d.reason || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+        </>
+        )}
+      </DataState>
 
       {adding && <DirectiveDialog fy={fy} onClose={() => setAdding(false)} />}
     </div>
@@ -98,7 +105,7 @@ export default function TdsDirectives() {
 }
 
 function DirectiveDialog({ fy, onClose }) {
-  const { people, isLoading } = usePayrollPeople()
+  const staff = usePayrollPeople()
   const save = useSetTdsDirective()
   // April of the year to March of the next.
   const months = useMemo(() => Array.from({ length: 12 }, (_, i) => {
@@ -127,9 +134,9 @@ function DirectiveDialog({ fy, onClose }) {
       <form onSubmit={handleSubmit} className="space-y-4">
         <label className="block space-y-1.5">
           <span className="text-sm font-medium text-gray-600">Employee</span>
-          <select className={inputCls} value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} required disabled={isLoading}>
-            <option value="">{isLoading ? 'Loading…' : 'Choose a person'}</option>
-            {people.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.code})</option>)}
+          <select className={inputCls} value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} required disabled={staff.isLoading}>
+            <option value="">{optionsNote(staff, 'Choose a person')}</option>
+            {staff.people.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.code})</option>)}
           </select>
         </label>
         <div className="grid grid-cols-2 gap-3">

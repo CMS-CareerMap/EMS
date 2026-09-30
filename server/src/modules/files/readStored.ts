@@ -19,6 +19,7 @@ export async function readStored(ctx: AppContext, file: { key: string; sha256: s
       await recordSecurityEvent({
         organizationId: ctx.organizationId,
         actorUserId: ctx.userId,
+        actorRole: ctx.role,
         requestId: ctx.requestId,
         action: 'file.unreadable',
         entityType: entity.type,

@@ -3,6 +3,7 @@ import { usePayslipDetail, downloadRunPayslip } from '../../hooks/usePayroll'
 import { money, days, formatDay, monthLabel, LOP_BASIS } from './format'
 import { useDownload } from '../../hooks/useDownload'
 import { useEscape } from '../../hooks/useEscape'
+import DataState from '../../components/DataState'
 
 /**
  * One payslip, as the server stored it.
@@ -14,7 +15,9 @@ import { useEscape } from '../../hooks/useEscape'
  * guess — and the PDF is the server's.
  */
 export default function PayslipModal({ runId, payslipId, runStatus, onClose }) {
-  const { data: slip, isLoading } = usePayslipDetail(runId, payslipId)
+  const payslip = usePayslipDetail(runId, payslipId)
+  // The heading and the PDF button, only from an answer that stands.
+  const slip = payslip.isSuccess ? payslip.data : null
   useEscape(onClose)
   const { busy, start } = useDownload()
   const downloading = busy === payslipId
@@ -45,9 +48,8 @@ export default function PayslipModal({ runId, payslipId, runStatus, onClose }) {
           </div>
         </div>
 
-        {isLoading || !slip ? (
-          <p className="p-10 text-center text-sm text-gray-400">Loading payslip…</p>
-        ) : (
+        <DataState query={payslip} loading="Loading payslip…">
+          {(slip) => (
           <div className="p-6 space-y-5">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1.5 text-sm">
               <Line label="Designation" value={slip.designation} />
@@ -102,7 +104,8 @@ export default function PayslipModal({ runId, payslipId, runStatus, onClose }) {
               </div>
             )}
           </div>
-        )}
+          )}
+        </DataState>
       </div>
     </div>
   )

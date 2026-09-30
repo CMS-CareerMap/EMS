@@ -52,11 +52,19 @@ export function useAttendance(date) {
  * a separate employee list whose ids came from a different system, and the
  * two never matched: people who had punched in showed as unmarked.
  */
+/*
+ * Stepping to the next day or month keeps the last answer on screen until the
+ * new one arrives (the page marks it as loading), rather than swapping the
+ * whole page — its date controls included — for "Loading…" on every click.
+ */
+const keepPrevious = (previous) => previous
+
 export function useDayRoster(date) {
   return useQuery({
     queryKey: keys.roster(date),
     queryFn: async () => (await api.get(`/attendance/day?date=${date}`)).data,
     enabled: !!date,
+    placeholderData: keepPrevious,
   })
 }
 
@@ -65,6 +73,7 @@ export function useMonthAttendance(year, month) {
     queryKey: keys.month(year, month),
     queryFn: async () => (await api.get(`/attendance?year=${year}&month=${month}`)).data,
     enabled: Boolean(year && month),
+    placeholderData: keepPrevious,
   })
 }
 

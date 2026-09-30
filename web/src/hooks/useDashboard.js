@@ -1,6 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/http'
 
+const DEPARTMENT_COLOURS = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EF4444', '#14B8A6', '#EC4899', '#6366F1', '#84CC16', '#F97316']
+
 /**
  * The dashboards.
  *
@@ -56,10 +58,13 @@ export function useDashboardStats() {
         pendingLeaveCount: data.pending_leave_count,
         pendingLeaves: data.pending_leaves,
 
-        deptData: data.by_department.map((d) => ({
+        // Each department its own colour, for the chart and its legend. The
+        // chart drew colourless, invisible slices without one.
+        deptData: data.by_department.map((d, i) => ({
           name: d.department,
           value: d.headcount,
           present: d.present_today,
+          color: DEPARTMENT_COLOURS[i % DEPARTMENT_COLOURS.length],
         })),
 
         // Same derivation, per department: on a weekly off the whole department
@@ -94,11 +99,12 @@ export function useApproveLeaveDashboard() {
       const action = status === 'approved' ? 'approve' : 'reject'
       return (await api.post(`/leave-requests/${id}/${action}`, note ? { note } : {})).data
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      queryClient.invalidateQueries({ queryKey: ['leave'] })
-      queryClient.invalidateQueries({ queryKey: ['attendance'] })
-    },
+    // Returned: the buttons stay held until the list no longer shows the request.
+    onSuccess: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+      queryClient.invalidateQueries({ queryKey: ['leave'] }),
+      queryClient.invalidateQueries({ queryKey: ['attendance'] }),
+    ]),
   })
 }
 
@@ -121,9 +127,9 @@ export function useMyDashboardStats({ enabled = true } = {}) {
         // hours, so it matches the attendance page and the payslip.
         totalHours: data.this_month.total_hours,
 
-        // Weekly offs are not counted as attendance rows, so this is no longer
-        // a figure the dashboard can report. Zero rather than a guess.
-        weeklyOffDays: 0,
+        // Counted on the server from the weekly-off rule, 1st to today: nobody
+        // marks a weekly off, so there are no attendance rows to count.
+        weeklyOffDays: data.this_month.weekly_off_days,
 
         todayStatus: data.today.status,
         today: data.today,

@@ -96,6 +96,7 @@ export async function download(ctx: AppContext, id: string) {
   await recordSecurityEvent({
     organizationId: ctx.organizationId,
     actorUserId: ctx.userId,
+    actorRole: ctx.role,
     requestId: ctx.requestId,
     action: 'company_document.downloaded',
     entityType: 'company_document',

@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { Section, Toggle, inpSm } from './ui'
 import { useAuthStore } from '../../stores/authStore'
 import { useDocumentTypes, useSaveDocumentType, useSaveUploadLimit } from '../../hooks/useDocuments'
+import DataState from '../../components/DataState'
 
 /**
  * The Documents tab: the largest file anybody may upload (the Super Admin's
@@ -17,13 +18,13 @@ export default function DocumentSettings() {
   const can = useAuthStore((s) => s.can)
   const canSetLimit = can('settings:update')
   const canEditTypes = can('document:type:manage')
-  const { data, isLoading } = useDocumentTypes({ includeArchived: true })
+  const documentTypes = useDocumentTypes({ includeArchived: true })
   const saveType = useSaveDocumentType()
   const saveLimit = useSaveUploadLimit()
   const [label, setLabel] = useState('')
   const [required, setRequired] = useState(false)
 
-  const types = data?.types ?? []
+  const types = documentTypes.data?.types ?? []
   const active = types.filter((t) => !t.archived)
   const archived = types.filter((t) => t.archived)
 
@@ -59,20 +60,24 @@ export default function DocumentSettings() {
   return (
     <div className="space-y-6">
       <Section title="Largest upload" desc="Applies to every file: documents, company policies and bank proofs. A photo bigger than this is made smaller in the browser before it is sent; a PDF bigger than this is refused with a message.">
-        <div className="flex items-center gap-3">
-          <select className={inpSm} value={data?.maxUploadMb ?? 2} disabled={!canSetLimit || saveLimit.isPending} onChange={(e) => setLimit(e.target.value)} aria-label="Largest upload in MB">
-            {LIMITS.map((n) => <option key={n} value={n}>{n} MB</option>)}
-          </select>
-          {!canSetLimit && <span className="text-xs text-gray-500">Set by the Super Admin.</span>}
-        </div>
+        {/* The stored limit, never an assumed one: the server always sends it. */}
+        <DataState query={documentTypes} compact>
+          {(data) => (
+          <div className="flex items-center gap-3">
+            <select className={inpSm} value={data.maxUploadMb} disabled={!canSetLimit || saveLimit.isPending} onChange={(e) => setLimit(e.target.value)} aria-label="Largest upload in MB">
+              {LIMITS.map((n) => <option key={n} value={n}>{n} MB</option>)}
+            </select>
+            {!canSetLimit && <span className="text-xs text-gray-500">Set by the Super Admin.</span>}
+          </div>
+          )}
+        </DataState>
       </Section>
 
       <Section title="Documents to collect" desc="What every employee is asked for. Required ones decide who is complete on the compliance list. A type no longer needed is archived — files already under it keep their name.">
-        {isLoading ? (
-          <p className="text-sm text-gray-400">Loading…</p>
-        ) : (
+        <DataState query={documentTypes} compact>
           <div className="space-y-4">
             <div className="divide-y divide-gray-100 border border-gray-200 rounded-lg">
+              {active.length === 0 && <p className="px-3 py-2.5 text-sm text-gray-400">No documents on the checklist yet.</p>}
               {active.map((type, i) => (
                 <div key={type.id} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
                   <input className={`${inpSm} flex-1 min-w-40`} defaultValue={type.label} disabled={!canEditTypes} maxLength={60} aria-label={`Name of ${type.label}`}
@@ -126,7 +131,7 @@ export default function DocumentSettings() {
               </div>
             )}
           </div>
-        )}
+        </DataState>
       </Section>
     </div>
   )

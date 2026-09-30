@@ -41,7 +41,7 @@ export default function Sidebar({ mobile = false, onClose }) {
 
       {/* Logo */}
       <div className="flex items-center justify-center relative px-4 py-2 border-b border-white/10">
-        <img src="/logo.png" alt="CareerMap Solutions" className="w-[85%] max-w-[240px] object-contain" />
+        <img src="/logo.png" alt="CareerMap Solutions" className="w-[85%] max-w-60 object-contain" />
         {mobile && (
           <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors p-1 absolute right-4">
             <ChevronRight className="w-4 h-4" />

@@ -72,3 +72,48 @@ export function formatCalendarDay(day) {
     timeZone: 'UTC',
   })
 }
+
+/*
+ * Month names written out here rather than asked of the browser. Browsers
+ * differ, and the Indian and British English data now call September "Sept"
+ * while every other month has three letters — and while the server's messages
+ * and PDFs say "Sep". One table, so the same day reads the same everywhere.
+ */
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+const SHORT_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+/**
+ * "2026-09-01" → "1 Sep 2026" — or "Tue, 1 Sep" with { weekday: true, year: false }.
+ * A calendar day, so no zone can move it. Empty stays a dash.
+ */
+export function formatDay(day, { weekday = false, year = true } = {}) {
+  if (!day) return '—'
+  const month = SHORT_MONTHS[Number(day.slice(5, 7)) - 1]
+  if (!month) return day
+  const text = `${Number(day.slice(8, 10))} ${month}${year ? ` ${day.slice(0, 4)}` : ''}`
+  return weekday ? `${SHORT_WEEKDAYS[new Date(`${day}T00:00:00Z`).getUTCDay()]}, ${text}` : text
+}
+
+/**
+ * The day of either a calendar day ("2026-09-01") or an instant (an approval's
+ * time), as "1 Sep 2026". An instant is read on the given zone's clock — the
+ * company's — or, before a session has one, the device's.
+ */
+export function formatDayOf(value, timeZone) {
+  if (!value) return '—'
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return formatDay(value)
+  const instant = new Date(value)
+  // Something that is neither: shown as it came, rather than throwing mid-render.
+  return Number.isNaN(instant.getTime()) ? String(value) : formatDay(calendarDayIn(timeZone, instant))
+}
+
+/**
+ * An instant on the company's clock: "30 Sep 2026, 14:05". For WHEN something
+ * happened — a sign-in, an approval.
+ */
+export function formatInstant(iso, timeZone) {
+  if (!iso) return '—'
+  const instant = new Date(iso)
+  return `${formatDay(calendarDayIn(timeZone, instant))}, ${wallClockIn(timeZone, iso)}`
+}

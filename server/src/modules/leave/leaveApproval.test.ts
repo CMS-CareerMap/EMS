@@ -271,6 +271,18 @@ describe('who may decide', () => {
     expect(res.body.error.message).toMatch(/your own leave/i)
   })
 
+  it('refuses reversing one’s own approved leave, which would hand the days back to oneself', async () => {
+    await grant(managerEmpId, 12)
+    const id = await applyAs('mgr', D(7), D(8))
+    expect((await decide('approve', id, 'hr')).status).toBe(200)
+
+    const res = await decide('reverse', id, 'mgr')
+    expect(res.status).toBe(403)
+    expect(res.body.error.message).toMatch(/your own leave/i)
+    // Somebody else still may.
+    expect((await decide('reverse', id, 'hr')).status).toBe(200)
+  })
+
   it('answers 404 — not 403 — for somebody outside the team', async () => {
     await grant(strangerId, 12)
     const id = await applyAs('stranger')

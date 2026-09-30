@@ -23,5 +23,7 @@ export function usePayrollPeople() {
     return list.sort((a, b) => a.name.localeCompare(b.name))
   }, [fromRoster, roster.data, directory.data])
 
-  return { people, isLoading: fromRoster ? roster.isLoading : directory.isLoading }
+  // Shaped like a query where the pickers need it: optionsNote reads the error.
+  const source = fromRoster ? roster : directory
+  return { people, isLoading: source.isLoading, isError: source.isError, error: source.error, refetch: source.refetch }
 }

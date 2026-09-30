@@ -8,7 +8,10 @@ import { isoInstant } from '../../domain/shared/dates'
  * development it is readable. Either way the requestId travels with the line,
  * which is how a user's "it broke at 3pm" becomes a single grep.
  *
- * Day 20 swaps the transport for pino. The call sites do not change.
+ * The plan was to swap this for pino on Day 20. It was kept instead: in
+ * production it already writes one JSON line per event to stdout, which PM2
+ * collects and rotates (deploy/ecosystem.config.cjs), and a dependency adds
+ * nothing to that. Swapping later would still leave the call sites unchanged.
  */
 
 type Level = 'debug' | 'info' | 'warn' | 'error'

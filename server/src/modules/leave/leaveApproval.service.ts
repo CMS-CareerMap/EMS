@@ -223,6 +223,9 @@ export async function reverseLeave(
 ): Promise<repo.LeaveRequestRow> {
   const request = await repo.findRequest(ctx.db, ctx.scopeFor('leave'), id)
   if (!request) throw NotFound('Leave request not found')
+  // A reversal is a decision too: an approver who could reverse their own
+  // leave after taking it would give themselves the days back.
+  refuseSelfApproval(ctx, request.employeeId)
 
   if (request.status !== 'approved') {
     throw Conflict(`Only approved leave can be reversed. That request is ${request.status}.`)

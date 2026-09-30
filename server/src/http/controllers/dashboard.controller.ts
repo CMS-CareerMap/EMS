@@ -33,9 +33,12 @@ export const getCompanySummary: RequestHandler = async (_req, res) => {
       pending_leave_count: summary.pendingLeaveCount,
       pending_leaves: summary.pendingLeaves.map((l) => ({
         id: l.id,
+        employee_id: l.employeeId,
         employee_code: l.employeeCode,
         full_name: l.fullName,
+        department: l.department,
         leave_type: l.leaveType,
+        leave_type_name: l.leaveTypeName,
         from_date: l.fromDate,
         to_date: l.toDate,
         days: l.days,
@@ -94,6 +97,7 @@ export const getMySummary: RequestHandler = async (_req, res) => {
         absent_days: summary.thisMonth.absentDays,
         leave_days: summary.thisMonth.leaveDays,
         total_hours: summary.thisMonth.totalHours,
+        weekly_off_days: summary.thisMonth.weeklyOffDays,
       },
       today: {
         status: summary.today.status,
@@ -119,6 +123,7 @@ export const getMySummary: RequestHandler = async (_req, res) => {
       recent_leaves: summary.recentLeaves.map((l) => ({
         id: l.id,
         leave_type: l.leaveType,
+        leave_type_name: l.leaveTypeName,
         from_date: l.fromDate,
         to_date: l.toDate,
         days: l.days,

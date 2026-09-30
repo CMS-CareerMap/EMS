@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Landmark, CheckCircle2, XCircle, Clock, CircleDashed, Pencil, Plus, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import Dialog, { inputCls } from '../../components/Dialog'
+import DataState from '../../components/DataState'
 import { useMyBankAccount, useSubmitMyBankAccount } from '../../hooks/usePayroll'
 import { prepareUpload } from '../../lib/prepareUpload'
 
@@ -24,8 +25,8 @@ const STATUS = {
 }
 
 export default function MyBankAccount() {
-  const { data, isLoading, error } = useMyBankAccount()
-  const account = data?.account ?? null
+  const bank = useMyBankAccount()
+  const account = bank.data?.account ?? null
   const [editing, setEditing] = useState(false)
   const status = account ? STATUS[account.verification_status] : null
 
@@ -36,7 +37,7 @@ export default function MyBankAccount() {
           <Landmark className="w-4 h-4 text-blue-600" />
           <h4 className="text-sm font-bold text-gray-900">Bank Account for Salary Credit</h4>
         </div>
-        {!isLoading && !error && (
+        {bank.isSuccess && (
           <button onClick={() => setEditing(true)} className="flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700">
             {account ? <Pencil className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />} {account ? 'Change' : 'Add account'}
           </button>
@@ -44,12 +45,9 @@ export default function MyBankAccount() {
       </div>
 
       <div className="bg-slate-50 rounded-xl p-4 border border-slate-200/80 space-y-2.5 text-xs">
-        {isLoading && <p className="text-slate-400">Loading…</p>}
-        {error && <p className="text-rose-600">{error.message}</p>}
-        {!isLoading && !error && !account && (
-          <p className="text-slate-600">No bank account is recorded for your salary yet.</p>
-        )}
-        {account && (
+        <DataState query={bank} compact isEmpty={(d) => !d.account}
+          empty={<p className="text-slate-600">No bank account is recorded for your salary yet.</p>}>
+          {() => (
           <>
             <Row label="Bank" value={account.bank_name} />
             <Row label="Name on account" value={account.account_holder_name} />
@@ -70,15 +68,16 @@ export default function MyBankAccount() {
               </p>
             )}
           </>
-        )}
-        {!isLoading && !error && (
+          )}
+        </DataState>
+        {bank.isSuccess && (
           <p className="text-[11px] text-slate-500 pt-1">
             To add or change it, send the details with a photo of a cancelled cheque or a passbook page. Accounts checks it before any salary goes there.
           </p>
         )}
       </div>
 
-      {editing && createPortal(<SubmitDialog account={account} maxMb={data.maxUploadMb} onClose={() => setEditing(false)} />, document.body)}
+      {editing && createPortal(<SubmitDialog account={account} maxMb={bank.data?.maxUploadMb} onClose={() => setEditing(false)} />, document.body)}
     </div>
   )
 }

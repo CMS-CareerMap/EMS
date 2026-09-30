@@ -5,6 +5,7 @@ import {
 } from '../../hooks/useSettings'
 import { useAuthStore } from '../../stores/authStore'
 import { calendarDayIn, addDays } from '../../lib/dates'
+import DataState from '../../components/DataState'
 import { Section, Field, SaveBar, Toggle, inpSm } from './ui'
 import { MONTHS, formatDay } from './format'
 
@@ -70,15 +71,31 @@ function asValue(key, value) {
 }
 
 export default function PayrollSettings() {
-  const { data: policy, isLoading } = usePayrollSettings()
-  const { data: history = [] } = usePayrollHistory()
-  const savePayroll = useSavePayroll()
+  const settings = usePayrollSettings()
+  const history = usePayrollHistory()
   const canEdit = useAuthStore((state) => state.can('settings:update'))
+
+  // The rates form only once the stored rates are here: a form drawn over a
+  // failed load would offer blanks that Save could write over them. PT has its
+  // own request, so it does not wait for this one.
+  return (
+    <div className="space-y-6">
+      <DataState query={settings} loading="Loading payroll settings…">
+        {(policy) => <PolicyForm policy={policy} history={history} canEdit={canEdit} />}
+      </DataState>
+
+      <PtTables canEdit={canEdit} />
+    </div>
+  )
+}
+
+function PolicyForm({ policy, history, canEdit }) {
+  const savePayroll = useSavePayroll()
 
   const [draft, setDraft] = useState(null)
   const [saved, setSaved] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
-  const form = draft ?? policy ?? {}
+  const form = draft ?? policy
 
   function set(key, value) {
     setDraft({ ...form, [key]: value })
@@ -87,12 +104,10 @@ export default function PayrollSettings() {
 
   // Only what actually changed. Saving an unchanged form on a later day would
   // otherwise open a new period identical to the last — noise in the history.
-  const changes = policy
-    ? Object.fromEntries(
-        FIELDS.filter(([key]) => asValue(key, form[key]) !== asValue(key, policy[key]))
-          .map(([key, body]) => [body, asValue(key, form[key])]),
-      )
-    : {}
+  const changes = Object.fromEntries(
+    FIELDS.filter(([key]) => asValue(key, form[key]) !== asValue(key, policy[key]))
+      .map(([key, body]) => [body, asValue(key, form[key])]),
+  )
   const changed = Object.keys(changes).length > 0
 
   async function handleSave() {
@@ -103,7 +118,9 @@ export default function PayrollSettings() {
     }
   }
 
-  if (isLoading || !policy) return <p className="text-sm text-gray-500">Loading payroll settings…</p>
+  // Counted only from an answer. When the history could not be read the link
+  // still shows, and opening it shows why.
+  const earlier = history.data ? history.data.length - 1 : null
 
   return (
     <div className="space-y-6">
@@ -114,9 +131,9 @@ export default function PayrollSettings() {
             These rates have been in force since <span className="font-semibold">{formatDay(policy.effective_from)}</span>.
             Saving on a later day starts a new period from that day; the rates before it stay as they were for payslips already issued.
           </p>
-          {history.length > 1 && (
+          {(history.isError || earlier > 0) && (
             <button type="button" onClick={() => setShowHistory((v) => !v)} className="inline-flex items-center gap-1 font-semibold text-blue-600 hover:text-blue-800">
-              <History className="w-3.5 h-3.5" /> {showHistory ? 'Hide' : 'Show'} earlier rates ({history.length - 1})
+              <History className="w-3.5 h-3.5" /> {showHistory ? 'Hide' : 'Show'} earlier rates{earlier > 0 ? ` (${earlier})` : ''}
             </button>
           )}
         </div>
@@ -124,12 +141,14 @@ export default function PayrollSettings() {
 
       {showHistory && (
         <div className="border border-gray-200 rounded-xl divide-y divide-gray-100 bg-white">
-          {history.map((p) => (
+          <DataState query={history} compact>
+            {(periods) => periods.map((p) => (
             <div key={p.id} className="px-4 py-2.5 flex items-center justify-between text-sm">
               <span className="font-medium text-gray-800">{formatDay(p.effective_from)} — {p.effective_to ? formatDay(p.effective_to) : 'now'}</span>
               <span className="text-xs text-gray-500">PF {p.pf_employee}% / {p.pf_employer}% · ESI {p.esi_employee}% / {p.esi_employer}% up to ₹{Number(p.esi_threshold).toLocaleString('en-IN')} · pay day {p.pay_day}</span>
             </div>
-          ))}
+            ))}
+          </DataState>
         </div>
       )}
 
@@ -143,7 +162,7 @@ export default function PayrollSettings() {
         <Field label="Restrict to the Wage Ceiling" hint="On: contributions are worked out on PF wages up to the ceiling — ₹3,000 a month at 12% of ₹25,000. Off: on full PF wages.">
           <Toggle checked={Boolean(form.pf_restrict_to_ceiling)} onChange={(v) => set('pf_restrict_to_ceiling', v)} disabled={!canEdit} label="Restrict PF to the wage ceiling" />
         </Field>
-        <Field label="Wage Ceiling" hint="The statutory EPF ceiling — ₹25,000 from 17 Sept 2026, ₹15,000 before. Kept as a setting so a revision is not a code change.">
+        <Field label="Wage Ceiling" hint="The statutory EPF ceiling — ₹25,000 from 17 Sep 2026, ₹15,000 before. Kept as a setting so a revision is not a code change.">
           <MoneyInput value={form.pf_wage_ceiling} onChange={(v) => set('pf_wage_ceiling', v)} disabled={!canEdit} />
         </Field>
         <Field label="Pension (EPS) Ceiling" hint="The employer's pension share is 8.33% of PF wages up to this — ₹1,250 a month at ₹15,000, ₹2,083 at ₹25,000. The rest of the employer's share goes to EPF. Confirm the figure with your accountant.">
@@ -200,8 +219,6 @@ export default function PayrollSettings() {
       </Section>
 
       {canEdit && <SaveBar onSave={handleSave} saving={savePayroll.isPending} saved={saved} disabled={!changed} />}
-
-      <PtTables canEdit={canEdit} />
     </div>
   )
 }
@@ -255,12 +272,13 @@ function money(value) {
  * ₹2,500 a year — the constitutional cap — and says why.
  */
 function PtTables({ canEdit }) {
-  const { data: slabs = [], isLoading } = usePtSlabs()
+  const ptSlabs = usePtSlabs()
+  const slabs = ptSlabs.data
   const [adding, setAdding] = useState(false)
 
   const states = useMemo(() => {
     const byState = new Map()
-    for (const slab of slabs) {
+    for (const slab of slabs ?? []) {
       if (!byState.has(slab.state)) byState.set(slab.state, [])
       byState.get(slab.state).push(slab)
     }
@@ -272,16 +290,16 @@ function PtTables({ canEdit }) {
   return (
     <Section title="Professional Tax (PT)" desc="Per state. An employee pays the table for the state recorded as where they work; women and men can have different slabs.">
       <div className="py-3 space-y-4">
-        {isLoading && <p className="text-sm text-gray-400">Loading…</p>}
-        {!isLoading && states.length === 0 && <p className="text-sm text-gray-500">No state has a PT table yet.</p>}
-
-        {states.map(([state, rows]) => (
-          <PtState key={state} state={state} rows={rows} canEdit={canEdit} />
-        ))}
+        <DataState query={ptSlabs} compact empty="No state has a PT table yet.">
+          {states.map(([state, rows]) => (
+            <PtState key={state} state={state} rows={rows} canEdit={canEdit} />
+          ))}
+        </DataState>
 
         {adding && <PtState state="" rows={[]} canEdit={canEdit} startEditing onDone={() => setAdding(false)} />}
 
-        {canEdit && !adding && (
+        {/* Only once the tables are known, so a state that already has one is seen before another is started for it. */}
+        {canEdit && !adding && ptSlabs.isSuccess && (
           <button type="button" onClick={() => setAdding(true)}
             className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-800">
             <Plus className="w-4 h-4" /> Add a state

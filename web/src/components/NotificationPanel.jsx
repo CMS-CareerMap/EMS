@@ -25,6 +25,7 @@ import {
   useMarkAllNotificationsAsRead,
   useClearAllNotifications
 } from '../hooks/useNotifications'
+import DataState from './DataState'
 
 function formatTimeAgo(dateString) {
   if (!dateString) return ''
@@ -79,7 +80,9 @@ export default function NotificationPanel({ isOpen, onClose }) {
   const navigate = useNavigate()
   const panelRef = useRef(null)
 
-  const { notifications, unreadCount, isLoading, hasOlder, loadingOlder, loadOlder } = useNotifications()
+  const {
+    notifications, unreadCount, isLoading, isError, error, isFetching, refetch, hasOlder, loadingOlder, loadOlder,
+  } = useNotifications()
   const markAsReadMutation = useMarkNotificationAsRead()
   const markAllMutation = useMarkAllNotificationsAsRead()
   const clearAllMutation = useClearAllNotifications()
@@ -123,7 +126,10 @@ export default function NotificationPanel({ isOpen, onClose }) {
 
   const visibleNotifications = filteredNotifications.slice(0, displayLimit)
   // More already here to show, or more on the server to fetch.
-  const hasMore = filteredNotifications.length > displayLimit || hasOlder
+  const hasMore = !isError && (filteredNotifications.length > displayLimit || hasOlder)
+  // The list below, in the shape DataState reads. While it is in error no
+  // count, badge or action drawn from the last answer is shown either.
+  const list = { isLoading, isError, error, isFetching, refetch, data: visibleNotifications }
 
   const showOlder = async () => {
     if (filteredNotifications.length <= displayLimit && hasOlder) await loadOlder()
@@ -159,7 +165,7 @@ export default function NotificationPanel({ isOpen, onClose }) {
         <div className="flex items-center gap-2">
           <Bell className="w-5 h-5 text-gray-700" />
           <h2 className="font-semibold text-gray-900 text-base">Notifications</h2>
-          {unreadCount > 0 && (
+          {!isError && unreadCount > 0 && (
             <span className="px-2 py-0.5 text-xs font-bold text-white bg-red-500 rounded-full animate-pulse">
               {unreadCount}
             </span>
@@ -184,7 +190,7 @@ export default function NotificationPanel({ isOpen, onClose }) {
                 : 'text-gray-500 hover:text-gray-800'
               }`}
           >
-            All ({notifications.length}{hasOlder ? '+' : ''})
+            All ({isError ? '—' : `${notifications.length}${hasOlder ? '+' : ''}`})
           </button>
           <button
             onClick={() => setActiveTab('unread')}
@@ -193,12 +199,12 @@ export default function NotificationPanel({ isOpen, onClose }) {
                 : 'text-gray-500 hover:text-gray-800'
               }`}
           >
-            Unread ({unreadCount})
+            Unread ({isError ? '—' : unreadCount})
           </button>
         </div>
 
         <div className="flex items-center gap-2">
-          {unreadCount > 0 && (
+          {!isError && unreadCount > 0 && (
             <button
               onClick={handleMarkAllRead}
               className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium transition-colors"
@@ -208,7 +214,7 @@ export default function NotificationPanel({ isOpen, onClose }) {
               <span>Mark all read</span>
             </button>
           )}
-          {notifications.length > 0 && (
+          {!isError && notifications.length > 0 && (
             <button
               onClick={handleClearAll}
               className="flex items-center gap-1 text-xs text-gray-400 hover:text-red-600 font-medium transition-colors"
@@ -223,9 +229,7 @@ export default function NotificationPanel({ isOpen, onClose }) {
 
       {/* Notification List Container */}
       <div className="max-h-96 overflow-y-auto divide-y divide-gray-100">
-        {isLoading ? (
-          <div className="p-8 text-center text-gray-400 text-sm">Loading notifications…</div>
-        ) : visibleNotifications.length === 0 ? (
+        <DataState query={list} compact loading="Loading notifications…" empty={
           <div className="p-10 text-center flex flex-col items-center gap-2">
             <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
               <Sparkles className="w-6 h-6" />
@@ -235,8 +239,8 @@ export default function NotificationPanel({ isOpen, onClose }) {
               {activeTab === 'unread' ? 'You have read all your notifications!' : 'No new notifications to display.'}
             </p>
           </div>
-        ) : (
-          visibleNotifications.map((item) => {
+        }>
+          {(items) => items.map((item) => {
             const { icon: Icon, bg } = getNotificationIcon(item.type)
             return (
               <div
@@ -282,8 +286,8 @@ export default function NotificationPanel({ isOpen, onClose }) {
                 </div>
               </div>
             )
-          })
-        )}
+          })}
+        </DataState>
       </div>
 
       {/* Footer / Load More */}

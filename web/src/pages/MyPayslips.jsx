@@ -3,6 +3,7 @@ import { useMyPayslips, downloadMyPayslip } from '../hooks/usePayroll'
 import { useAuthStore } from '../stores/authStore'
 import { useDownload } from '../hooks/useDownload'
 import { money, formatDay, monthLabel } from '../features/payroll/format'
+import DataState from '../components/DataState'
 
 /**
  * A person's own payslips — every month that has been paid, as the PDF that
@@ -11,7 +12,7 @@ import { money, formatDay, monthLabel } from '../features/payroll/format'
  */
 export default function MyPayslips() {
   const linked = useAuthStore((s) => Boolean(s.profile))
-  const { data: slips = [], isLoading } = useMyPayslips()
+  const payslips = useMyPayslips()
   const { busy, start } = useDownload()
 
   return (
@@ -22,9 +23,7 @@ export default function MyPayslips() {
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        {isLoading ? (
-          <p className="px-4 py-12 text-center text-sm text-gray-400">Loading…</p>
-        ) : slips.length === 0 ? (
+        <DataState query={payslips} empty={
           <div className="px-4 py-12 text-center">
             <FileText className="w-8 h-8 text-gray-300 mx-auto" />
             <p className="mt-3 text-sm font-medium text-gray-700">No payslips yet</p>
@@ -34,7 +33,8 @@ export default function MyPayslips() {
                 : 'This login is not linked to an employee record, so it has no payslips.'}
             </p>
           </div>
-        ) : (
+        }>
+          {(slips) => (
           <>
           {/* On a phone, one card a month: the net pay and the download first. */}
           <ul className="sm:hidden divide-y divide-gray-100">
@@ -80,7 +80,8 @@ export default function MyPayslips() {
             </table>
           </div>
           </>
-        )}
+          )}
+        </DataState>
       </div>
     </div>
   )

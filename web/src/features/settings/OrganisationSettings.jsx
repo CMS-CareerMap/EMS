@@ -5,6 +5,8 @@ import {
   useAddNamed, useRenameNamed, useArchiveNamed,
   useAddShift, useEditShift, useArchiveShift,
 } from '../../hooks/useMasterDataAdmin'
+import DataState from '../../components/DataState'
+import ConfirmDialog from '../../components/ConfirmDialog'
 
 /**
  * The company's departments, designations and shifts.
@@ -20,16 +22,18 @@ import {
 const inp = 'border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900'
 
 export default function OrganisationSettings() {
-  const { data, isLoading } = useMasterData()
-
-  if (isLoading) return <p className="text-sm text-gray-500">Loading…</p>
+  const masterData = useMasterData()
 
   return (
-    <div className="space-y-6">
-      <NamedList kind="departments" title="Departments" noun="department" rows={data?.departments ?? []} />
-      <NamedList kind="designations" title="Designations" noun="designation" rows={data?.designations ?? []} />
-      <Shifts rows={data?.shifts ?? []} />
-    </div>
+    <DataState query={masterData}>
+      {(data) => (
+        <div className="space-y-6">
+          <NamedList kind="departments" title="Departments" noun="department" rows={data.departments ?? []} />
+          <NamedList kind="designations" title="Designations" noun="designation" rows={data.designations ?? []} />
+          <Shifts rows={data.shifts ?? []} />
+        </div>
+      )}
+    </DataState>
   )
 }
 
@@ -54,6 +58,7 @@ function NamedList({ kind, title, noun, rows }) {
   const [editId, setEditId] = useState(null)
   const [editName, setEditName] = useState('')
   const [notice, setNotice] = useState('')
+  const [archiving, setArchiving] = useState(null)
 
   async function handleAdd(e) {
     e.preventDefault()
@@ -67,11 +72,6 @@ function NamedList({ kind, title, noun, rows }) {
   async function handleRename(id) {
     const done = await rename.mutateAsync({ id, name: editName.trim() }).then(() => true, () => false)
     if (done) setEditId(null)
-  }
-
-  function handleArchive(row) {
-    if (!window.confirm(`Archive the ${noun} "${row.name}"? It will no longer be offered to new hires. Nobody already in it is moved.`)) return
-    archive.mutate({ id: row.id })
   }
 
   return (
@@ -101,7 +101,7 @@ function NamedList({ kind, title, noun, rows }) {
                     className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600" title="Rename">
                     <Edit2 className="w-3.5 h-3.5" />
                   </button>
-                  <button onClick={() => handleArchive(row)} disabled={archive.isPending}
+                  <button onClick={() => setArchiving(row)} disabled={archive.isPending}
                     className="p-1.5 rounded-lg hover:bg-amber-50 text-gray-400 hover:text-amber-600" title="Archive">
                     <Archive className="w-3.5 h-3.5" />
                   </button>
@@ -120,6 +120,16 @@ function NamedList({ kind, title, noun, rows }) {
           {add.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Add
         </button>
       </form>
+
+      {/* Last in the card, so the card's spacing adds no margin to the overlay. */}
+      {archiving && (
+        <ConfirmDialog title={`Archive the ${noun} "${archiving.name}"?`} confirmLabel="Archive" danger
+          onConfirm={() => archive.mutateAsync({ id: archiving.id })}
+          onClose={() => setArchiving(null)}>
+          <p><strong>{archiving.name}</strong> will no longer be offered to new hires.</p>
+          <p>Nobody already in it is moved.</p>
+        </ConfirmDialog>
+      )}
     </Card>
   )
 }
@@ -144,6 +154,7 @@ function Shifts({ rows }) {
   const [form, setForm] = useState(EMPTY_SHIFT)
   const [editId, setEditId] = useState(null)
   const [editForm, setEditForm] = useState(EMPTY_SHIFT)
+  const [archiving, setArchiving] = useState(null)
 
   async function handleAdd(e) {
     e.preventDefault()
@@ -165,11 +176,6 @@ function Shifts({ rows }) {
       breakMinutes: String(row.break_minutes),
       expectedHours: String(row.expected_hours),
     })
-  }
-
-  function handleArchive(row) {
-    if (!window.confirm(`Archive the "${row.name}" shift? People already on it stay on it.`)) return
-    archive.mutate({ id: row.id })
   }
 
   const cells = (f, set) => (
@@ -213,7 +219,7 @@ function Shifts({ rows }) {
                     <td className="px-3 py-2.5 text-sm text-gray-700">{row.expected_hours}</td>
                     <td className="px-3 py-2.5 text-right whitespace-nowrap">
                       <button onClick={() => startEdit(row)} className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600" title="Edit"><Edit2 className="w-3.5 h-3.5" /></button>
-                      <button onClick={() => handleArchive(row)} disabled={archive.isPending} className="p-1.5 rounded-lg hover:bg-amber-50 text-gray-400 hover:text-amber-600" title="Archive"><Archive className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => setArchiving(row)} disabled={archive.isPending} className="p-1.5 rounded-lg hover:bg-amber-50 text-gray-400 hover:text-amber-600" title="Archive"><Archive className="w-3.5 h-3.5" /></button>
                     </td>
                   </>
                 )}
@@ -232,6 +238,14 @@ function Shifts({ rows }) {
           </tbody>
         </table>
       </div>
+
+      {archiving && (
+        <ConfirmDialog title={`Archive the "${archiving.name}" shift?`} confirmLabel="Archive" danger
+          onConfirm={() => archive.mutateAsync({ id: archiving.id })}
+          onClose={() => setArchiving(null)}>
+          <p>People already on <strong>{archiving.name}</strong> stay on it.</p>
+        </ConfirmDialog>
+      )}
     </Card>
   )
 }

@@ -3,6 +3,7 @@ import { X, Info } from 'lucide-react'
 import { useEmployees, useMasterData, useCreateEmployee, useUpdateEmployee } from '../../hooks/useEmployees'
 import { useAuthStore } from '../../stores/authStore'
 import { PasswordLinkPanel } from '../settings/UserAccess'
+import { optionsNote } from '../../lib/optionsNote'
 
 /**
  * Adding or editing an employee, against the server.
@@ -110,8 +111,13 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
   const isEdit = Boolean(initial)
   const canSeeIdentity = useAuthStore((state) => state.can('employee:identity:read'))
 
-  const { data: employees = [] } = useEmployees()
-  const { data: masterData, isLoading: loadingLists } = useMasterData()
+  // Both only fill dropdowns. Each says in its first option when its list is
+  // loading or failed, so an empty dropdown never reads as "none exist".
+  const people = useEmployees()
+  const lists = useMasterData()
+  const employees = people.data ?? []
+  const masterData = lists.data
+  const loadingLists = lists.isLoading
   const createEmployee = useCreateEmployee()
   const updateEmployee = useUpdateEmployee()
 
@@ -282,19 +288,19 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
                 ) : <div />}
                 <Field label="Department">
                   <select value={form.departmentId} onChange={(e) => set('departmentId', e.target.value)} className={inp()} disabled={loadingLists}>
-                    <option value="">{loadingLists ? 'Loading…' : 'Not assigned'}</option>
+                    <option value="">{optionsNote(lists, 'Not assigned')}</option>
                     {masterData?.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                   </select>
                 </Field>
                 <Field label="Designation">
                   <select value={form.designationId} onChange={(e) => set('designationId', e.target.value)} className={inp()} disabled={loadingLists}>
-                    <option value="">{loadingLists ? 'Loading…' : 'Not assigned'}</option>
+                    <option value="">{optionsNote(lists, 'Not assigned')}</option>
                     {masterData?.designations.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                   </select>
                 </Field>
                 <Field label="Shift" hint="Daily hours are read against the shift's expected hours.">
                   <select value={form.shiftId} onChange={(e) => set('shiftId', e.target.value)} className={inp()} disabled={loadingLists}>
-                    <option value="">{loadingLists ? 'Loading…' : 'No shift'}</option>
+                    <option value="">{optionsNote(lists, 'No shift')}</option>
                     {masterData?.shifts.map((s) => (
                       <option key={s.id} value={s.id}>{s.name} ({s.start_time}–{s.end_time})</option>
                     ))}
@@ -308,7 +314,7 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
                 <div className="sm:col-span-2">
                   <Field label="Reporting Manager" hint="Their leave requests go to this person.">
                     <select value={form.reportingManagerId} onChange={(e) => set('reportingManagerId', e.target.value)} className={inp()}>
-                      <option value="">No reporting manager</option>
+                      <option value="">{optionsNote(people, 'No reporting manager')}</option>
                       {managers.map((m) => (
                         <option key={m.id} value={m.id}>{m.full_name}{m.designation ? ` — ${m.designation}` : ''}</option>
                       ))}

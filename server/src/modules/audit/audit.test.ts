@@ -217,6 +217,7 @@ describe('changes', () => {
     const res = await request(app).put('/api/settings/company').set('Authorization', as('boss')).send({ city: 'Pune' })
     expect(res.status).toBe(200)
     const [updated] = await rows({ action: 'company.updated' })
-    expect(updated?.details).toEqual({ changes: { city: 'Pune' } })
+    // The role the actor held when they did it is kept with the facts.
+    expect(updated?.details).toEqual({ changes: { city: 'Pune' }, actorRole: 'super_admin' })
   })
 })

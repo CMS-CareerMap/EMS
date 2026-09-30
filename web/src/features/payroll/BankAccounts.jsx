@@ -6,6 +6,7 @@ import { prepareUpload } from '../../lib/prepareUpload'
 import PreviewDialog from '../documents/PreviewDialog'
 import { useAuthStore } from '../../stores/authStore'
 import Dialog, { inputCls } from '../../components/Dialog'
+import { DataRows } from '../../components/DataState'
 
 /**
  * Salary bank accounts, kept by Accounts.
@@ -43,9 +44,9 @@ export default function BankAccounts() {
   const can = useAuthStore((s) => s.can)
   const ownEmployeeId = useAuthStore((s) => s.profile?.id)
   const canManage = can('employee:bank:manage')
-  const { data, isLoading } = useBankAccounts()
-  const rows = useMemo(() => data?.rows ?? [], [data])
-  const maxUploadMb = data?.maxUploadMb
+  const accounts = useBankAccounts()
+  const rows = useMemo(() => accounts.data?.rows ?? [], [accounts.data])
+  const maxUploadMb = accounts.data?.maxUploadMb
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
   const [editing, setEditing] = useState(null)
@@ -65,7 +66,8 @@ export default function BankAccounts() {
           {FILTERS.map((f) => (
             <button key={f.id} onClick={() => setFilter(f.id)}
               className={`px-3 py-1.5 rounded-full text-xs font-medium border ${filter === f.id ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
-              {f.label} <span className="opacity-75">{counts[f.id]}</span>
+              {/* No count until the list is in: a failed load is not "0 not checked". */}
+              {f.label} {accounts.isSuccess && <span className="opacity-75">{counts[f.id]}</span>}
             </button>
           ))}
         </div>
@@ -90,9 +92,8 @@ export default function BankAccounts() {
               </tr>
             </thead>
             <tbody>
-              {isLoading && <tr><td colSpan={6} className="px-4 py-10 text-center text-gray-400">Loading…</td></tr>}
-              {!isLoading && shown.length === 0 && <tr><td colSpan={6} className="px-4 py-10 text-center text-gray-400">Nobody here.</td></tr>}
-              {shown.map((row) => {
+              <DataRows query={accounts} colSpan={6} empty="Nobody here." isEmpty={() => shown.length === 0}>
+              {() => shown.map((row) => {
                 const a = row.bank_account
                 const status = a ? STATUS[a.verification_status] : null
                 const own = row.employee_id === ownEmployeeId
@@ -141,6 +142,7 @@ export default function BankAccounts() {
                   </tr>
                 )
               })}
+              </DataRows>
             </tbody>
           </table>
         </div>

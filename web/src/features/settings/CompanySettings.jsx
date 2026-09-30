@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { MapPin, LocateFixed, Loader2, AlertCircle } from 'lucide-react'
 import { useCompanySettings, useSaveCompany, useGeofences, useSaveGeofence } from '../../hooks/useSettings'
+import DataState from '../../components/DataState'
 import { Section, Field, SaveBar, inp, inpSm } from './ui'
 
 /**
@@ -45,8 +46,19 @@ const EMPTY_GEOFENCE = { name: 'Head Office', latitude: '', longitude: '', radiu
 const blank = (value) => (value === '' || value == null ? null : value)
 
 export default function CompanySettings() {
-  const { data: company, isLoading } = useCompanySettings()
-  const { data: geofences } = useGeofences()
+  const company = useCompanySettings()
+  const geofences = useGeofences()
+
+  // The form only over what is stored. Drawn over a failed load, its blanks —
+  // and an empty office location — would be what Save writes back.
+  return (
+    <DataState queries={[company, geofences]} loading="Loading company settings…">
+      {([companyData, geofenceData]) => <CompanyForm company={companyData} geofences={geofenceData} />}
+    </DataState>
+  )
+}
+
+function CompanyForm({ company, geofences }) {
   const saveCompany = useSaveCompany()
   const saveGeofence = useSaveGeofence()
 
@@ -159,8 +171,6 @@ export default function CompanySettings() {
     setGeoDraft(null)
     setSaved(true)
   }
-
-  if (isLoading) return <p className="text-sm text-gray-500">Loading company settings…</p>
 
   const radius = Number(geo.radiusMeters) || 0
 

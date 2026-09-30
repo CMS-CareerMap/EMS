@@ -10,6 +10,8 @@ import { useDownload } from '../hooks/useDownload'
 import { useEscape } from '../hooks/useEscape'
 import { calendarDayIn } from '../lib/dates'
 import { money, days, formatDay, monthLabel, recentMonths, monthValue, parseMonthValue } from '../features/payroll/format'
+import DataState from '../components/DataState'
+import { optionsNote } from '../lib/optionsNote'
 
 /**
  * Reports. Every figure is the server's (GET /api/reports/:id), counted from
@@ -60,8 +62,8 @@ function ReportPanel({ report, onClose }) {
   const [monthKey, setMonthKey] = useState(() => monthValue(months[0]))
   const [departmentId, setDepartmentId] = useState('')
   const [employeeId, setEmployeeId] = useState('')
-  const { data: master } = useMasterData()
-  const { data: employees = [] } = useEmployees()
+  const masterQuery = useMasterData()
+  const employeesQuery = useEmployees()
   const { busy, start } = useDownload()
 
   const { year, month } = parseMonthValue(monthKey)
@@ -71,7 +73,9 @@ function ReportPanel({ report, onClose }) {
     departmentId: report.filters.includes('department') ? departmentId || undefined : undefined,
     employeeId: report.filters.includes('employee') ? employeeId || undefined : undefined,
   }
-  const { data, isLoading, error } = useReport(report.id, filters)
+  const reportQuery = useReport(report.id, filters)
+  // Print and CSV only for a report that is on the screen — not one whose refresh failed.
+  const shown = reportQuery.isError ? undefined : reportQuery.data
   const meta = CATEGORY_META[report.category]
 
   return (
@@ -85,7 +89,7 @@ function ReportPanel({ report, onClose }) {
             </div>
             <div className="min-w-0">
               <p className="text-base font-semibold text-gray-900 truncate">{report.title}</p>
-              <p className="text-xs text-gray-500">{data?.period ?? monthLabel(year, month)}</p>
+              <p className="text-xs text-gray-500">{shown?.period ?? monthLabel(year, month)}</p>
             </div>
           </div>
           <button onClick={onClose} aria-label="Close" className="no-print p-2 rounded-lg hover:bg-gray-100 text-gray-400"><X className="w-4 h-4" /></button>
@@ -100,23 +104,23 @@ function ReportPanel({ report, onClose }) {
           {report.filters.includes('department') && (
             <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} aria-label="Department"
               className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs text-gray-700 bg-white">
-              <option value="">All departments</option>
-              {(master?.departments ?? []).filter((d) => !d.archived).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              <option value="">{optionsNote(masterQuery, 'All departments')}</option>
+              {(masterQuery.data?.departments ?? []).filter((d) => !d.archived).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           )}
           {report.filters.includes('employee') && (
             <select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} aria-label="Employee"
               className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs text-gray-700 bg-white max-w-48">
-              <option value="">All employees</option>
-              {employees.map((e) => <option key={e.id} value={e.id}>{e.full_name} ({e.employee_id})</option>)}
+              <option value="">{optionsNote(employeesQuery, 'All employees')}</option>
+              {(employeesQuery.data ?? []).map((e) => <option key={e.id} value={e.id}>{e.full_name} ({e.employee_id})</option>)}
             </select>
           )}
           <div className="ml-auto flex items-center gap-2">
-            <button onClick={() => window.print()} disabled={!data}
+            <button onClick={() => window.print()} disabled={!shown}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 text-xs font-medium disabled:opacity-50">
               <FileText className="w-3.5 h-3.5" /> Print / PDF
             </button>
-            <button onClick={() => start('csv', () => downloadReport(report.id, filters))} disabled={!data || busy === 'csv'}
+            <button onClick={() => start('csv', () => downloadReport(report.id, filters))} disabled={!shown || busy === 'csv'}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium disabled:opacity-50">
               {busy === 'csv' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />} Export CSV
             </button>
@@ -124,81 +128,81 @@ function ReportPanel({ report, onClose }) {
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-          {isLoading && <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-blue-600" /></div>}
-          {error && <p className="text-sm text-red-600 py-10 text-center">{error.message}</p>}
-          {data && (
-            <>
-              {data.notes.length > 0 && (
-                <div className="space-y-1">
-                  {data.notes.map((n) => (
-                    <p key={n} className="flex gap-2 text-xs text-gray-600"><Info className="w-3.5 h-3.5 shrink-0 mt-0.5 text-gray-400" /> {n}</p>
-                  ))}
-                </div>
-              )}
+          <DataState query={reportQuery}>
+            {(data) => (
+              <>
+                {data.notes.length > 0 && (
+                  <div className="space-y-1">
+                    {data.notes.map((n) => (
+                      <p key={n} className="flex gap-2 text-xs text-gray-600"><Info className="w-3.5 h-3.5 shrink-0 mt-0.5 text-gray-400" /> {n}</p>
+                    ))}
+                  </div>
+                )}
 
-              {data.chart && data.chart.points.length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">{data.chart.label}</p>
-                  <ResponsiveContainer width="100%" height={data.chart.kind === 'pie' ? 220 : 170}>
-                    {data.chart.kind === 'pie' ? (
-                      <PieChart>
-                        <Pie data={data.chart.points} dataKey="value" nameKey="label" cx="50%" cy="50%" innerRadius={50} outerRadius={85} paddingAngle={3} strokeWidth={0} isAnimationActive={false}>
-                          {data.chart.points.map((p, i) => <Cell key={p.label} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                        </Pie>
-                        <Tooltip formatter={(v, n) => [`${v}`, n]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-                      </PieChart>
-                    ) : (
-                      <BarChart data={data.chart.points} barSize={26}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
-                        <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
-                        <YAxis tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} width={72}
-                          tickFormatter={(v) => (report.category === 'payroll' ? Number(v).toLocaleString('en-IN') : `${v}%`)} />
-                        <Tooltip formatter={(v) => [v === null || v === undefined ? 'None' : report.category === 'payroll' ? money(v) : `${v}%`, data.chart.label]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-                        <Bar dataKey="value" fill="#2563EB" radius={[4, 4, 0, 0]} isAnimationActive={false} />
-                      </BarChart>
-                    )}
-                  </ResponsiveContainer>
-                </div>
-              )}
-
-              {data.rows.length === 0 ? (
-                <p className="text-sm text-gray-400 py-12 text-center">Nothing to show for these filters.</p>
-              ) : (
-                <div className="overflow-x-auto border border-gray-200 rounded-xl">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-gray-50 border-b border-gray-200">
-                        {data.columns.map((c) => (
-                          <th key={c.key} className={`px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap ${numeric(c.type) ? 'text-right' : 'text-left'}`}>{c.label}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.rows.map((row, i) => (
-                        <tr key={i} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
-                          {data.columns.map((c) => (
-                            <td key={c.key} className={`px-3 py-2.5 whitespace-nowrap ${numeric(c.type) ? 'text-right text-gray-800' : 'text-gray-700'} ${c.key === 'employee_code' ? 'font-mono text-xs text-gray-500' : ''}`}>
-                              {show(row[c.key], c.type)}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                      {data.totals && (
-                        <tr className="bg-gray-50 border-t-2 border-gray-200 font-semibold">
-                          {data.columns.map((c) => (
-                            <td key={c.key} className={`px-3 py-2.5 whitespace-nowrap ${numeric(c.type) ? 'text-right' : ''}`}>
-                              {data.totals[c.key] === null || data.totals[c.key] === undefined ? '' : show(data.totals[c.key], c.type)}
-                            </td>
-                          ))}
-                        </tr>
+                {data.chart && data.chart.points.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">{data.chart.label}</p>
+                    <ResponsiveContainer width="100%" height={data.chart.kind === 'pie' ? 220 : 170}>
+                      {data.chart.kind === 'pie' ? (
+                        <PieChart>
+                          <Pie data={data.chart.points} dataKey="value" nameKey="label" cx="50%" cy="50%" innerRadius={50} outerRadius={85} paddingAngle={3} strokeWidth={0} isAnimationActive={false}>
+                            {data.chart.points.map((p, i) => <Cell key={p.label} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                          </Pie>
+                          <Tooltip formatter={(v, n) => [`${v}`, n]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                        </PieChart>
+                      ) : (
+                        <BarChart data={data.chart.points} barSize={26}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
+                          <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
+                          <YAxis tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} width={72}
+                            tickFormatter={(v) => (report.category === 'payroll' ? Number(v).toLocaleString('en-IN') : `${v}%`)} />
+                          <Tooltip formatter={(v) => [v === null || v === undefined ? 'None' : report.category === 'payroll' ? money(v) : `${v}%`, data.chart.label]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                          <Bar dataKey="value" fill="#2563EB" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                        </BarChart>
                       )}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              <p className="text-xs text-gray-400">{data.rows.length} {data.rows.length === 1 ? 'row' : 'rows'} · the CSV has exactly these rows.</p>
-            </>
-          )}
+                    </ResponsiveContainer>
+                  </div>
+                )}
+
+                {data.rows.length === 0 ? (
+                  <p className="text-sm text-gray-400 py-12 text-center">Nothing to show for these filters.</p>
+                ) : (
+                  <div className="overflow-x-auto border border-gray-200 rounded-xl">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-200">
+                          {data.columns.map((c) => (
+                            <th key={c.key} className={`px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap ${numeric(c.type) ? 'text-right' : 'text-left'}`}>{c.label}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.rows.map((row, i) => (
+                          <tr key={i} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                            {data.columns.map((c) => (
+                              <td key={c.key} className={`px-3 py-2.5 whitespace-nowrap ${numeric(c.type) ? 'text-right text-gray-800' : 'text-gray-700'} ${c.key === 'employee_code' ? 'font-mono text-xs text-gray-500' : ''}`}>
+                                {show(row[c.key], c.type)}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                        {data.totals && (
+                          <tr className="bg-gray-50 border-t-2 border-gray-200 font-semibold">
+                            {data.columns.map((c) => (
+                              <td key={c.key} className={`px-3 py-2.5 whitespace-nowrap ${numeric(c.type) ? 'text-right' : ''}`}>
+                                {data.totals[c.key] === null || data.totals[c.key] === undefined ? '' : show(data.totals[c.key], c.type)}
+                              </td>
+                            ))}
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <p className="text-xs text-gray-400">{data.rows.length} {data.rows.length === 1 ? 'row' : 'rows'} · the CSV has exactly these rows.</p>
+              </>
+            )}
+          </DataState>
         </div>
       </div>
     </>

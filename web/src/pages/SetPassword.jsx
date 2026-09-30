@@ -82,7 +82,7 @@ export default function SetPassword() {
     <div className="min-h-screen flex items-center justify-center p-6 bg-[#F8FAFC]" style={{ fontFamily: 'Inter, sans-serif' }}>
       <div className="w-full max-w-md">
         <div className="flex justify-center mb-8">
-          <img src="/logo.png" alt="CareerMap Solutions" className="w-[50%] max-w-[320px] object-contain" />
+          <img src="/logo.png" alt="CareerMap Solutions" className="w-[50%] max-w-80 object-contain" />
         </div>
 
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8">

@@ -1,5 +1,6 @@
-import { Loader2, CalendarOff } from 'lucide-react'
+import { CalendarOff } from 'lucide-react'
 import { usePayrollSettings, useSavePayroll } from '../../hooks/useSettings'
+import DataState from '../../components/DataState'
 
 /**
  * Which days the company is closed.
@@ -26,19 +27,19 @@ const DAYS = [
 ]
 
 export default function WeeklyOffPicker() {
-  const { data: policy, isLoading } = usePayrollSettings()
+  const settings = usePayrollSettings()
+
+  // Only the real days: a failed load drawn as "no weekly offs" would save
+  // one clicked day over the whole stored week.
+  return (
+    <DataState query={settings} loading="Loading working days…" compact>
+      {(policy) => <Days selected={policy.weekly_off_days ?? []} />}
+    </DataState>
+  )
+}
+
+function Days({ selected }) {
   const savePayroll = useSavePayroll()
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center gap-2 text-sm text-gray-500">
-        <Loader2 className="w-4 h-4 animate-spin" />
-        Loading working days…
-      </div>
-    )
-  }
-
-  const selected = policy?.weekly_off_days ?? []
 
   function toggle(value) {
     const next = selected.includes(value)

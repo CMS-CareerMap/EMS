@@ -171,6 +171,7 @@ export async function bankFileCsv(ctx: AppContext, runId: string, payDate?: Cale
   await recordSecurityEvent({
     organizationId: ctx.organizationId,
     actorUserId: ctx.userId,
+    actorRole: ctx.role,
     requestId: ctx.requestId,
     action: 'payroll.bank_file_downloaded',
     entityType: 'payroll_run',

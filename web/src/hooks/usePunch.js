@@ -70,12 +70,14 @@ export function usePunchIn() {
       const position = await getPosition()
       return (await api.post('/attendance/punch-in', position)).data
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: KEY })
+    // Returned: the button stays busy until today's row shows the punch, so
+    // it cannot be pressed a second time in between.
+    onSuccess: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: KEY }),
       // The client asked for the dashboard to update the moment somebody
       // punches, so the figures it draws are refreshed too.
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-    },
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+    ]),
   })
 }
 
@@ -87,9 +89,9 @@ export function usePunchOut() {
     // bus stop must still be able to close their day — refusing them leaves a
     // row with no check-out, which looks like they never left.
     mutationFn: async () => (await api.post('/attendance/punch-out', {})).data,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: KEY })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-    },
+    onSuccess: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: KEY }),
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+    ]),
   })
 }

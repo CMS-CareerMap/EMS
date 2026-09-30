@@ -43,6 +43,12 @@ export function useNotifications() {
   const pages = query.data?.pages ?? []
   return {
     isLoading: query.isLoading,
+    // Enough of the query for DataState: the panel shows why the list is
+    // missing, not "No notifications".
+    isError: query.isError,
+    error: query.error,
+    isFetching: query.isFetching,
+    refetch: query.refetch,
     notifications: pages.flatMap((p) => p.items),
     // The first page's count is the whole count, not just what is loaded.
     unreadCount: pages[0]?.unread ?? 0,

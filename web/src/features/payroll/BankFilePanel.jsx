@@ -3,6 +3,7 @@ import { X, Download, Loader2, AlertTriangle, Landmark } from 'lucide-react'
 import { useBankFilePreview, downloadBankFile } from '../../hooks/usePayroll'
 import { useDownload } from '../../hooks/useDownload'
 import { useEscape } from '../../hooks/useEscape'
+import DataState from '../../components/DataState'
 import { money, monthLabel } from './format'
 
 /**
@@ -22,12 +23,12 @@ const REASONS = {
 
 export default function BankFilePanel({ run, onClose }) {
   const [payDate, setPayDate] = useState('')
-  const { data, isLoading, error } = useBankFilePreview(run.id, payDate || undefined)
+  const preview = useBankFilePreview(run.id, payDate || undefined)
   const { busy, start } = useDownload()
   useEscape(onClose)
   const label = monthLabel(run.year, run.month)
 
-  const date = payDate || data?.pay_date || ''
+  const date = payDate || preview.data?.pay_date || ''
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-label="Bank transfer file">
@@ -50,18 +51,16 @@ export default function BankFilePanel({ run, onClose }) {
               <input type="date" value={date} onChange={(e) => setPayDate(e.target.value)}
                 className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </label>
-            {data && (
+            {preview.isSuccess && (
               <div className="text-right">
-                <p className="text-xs text-gray-500">{data.count} {data.count === 1 ? 'payment' : 'payments'}</p>
-                <p className="text-xl font-bold text-gray-900">{money(data.total)}</p>
+                <p className="text-xs text-gray-500">{preview.data.count} {preview.data.count === 1 ? 'payment' : 'payments'}</p>
+                <p className="text-xl font-bold text-gray-900">{money(preview.data.total)}</p>
               </div>
             )}
           </div>
 
-          {isLoading && <p className="text-sm text-gray-400 py-6 text-center">Preparing the file…</p>}
-          {error && <p className="text-sm text-red-600">{error.message}</p>}
-
-          {data && (
+          <DataState query={preview} loading="Preparing the file…">
+            {(data) => (
             <>
               {!data.template_saved && (
                 <p className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-lg p-3">
@@ -131,7 +130,8 @@ export default function BankFilePanel({ run, onClose }) {
                 </button>
               </div>
             </>
-          )}
+            )}
+          </DataState>
         </div>
       </div>
     </div>

@@ -42,6 +42,7 @@ export function authorize(permission: Permission | readonly Permission[]): Reque
       await recordSecurityEvent({
         organizationId: ctx.organizationId,
         actorUserId: ctx.userId,
+        actorRole: ctx.role,
         action: 'permission.denied',
         details: { permission, method: req.method, path: req.originalUrl, role: ctx.role },
         requestId: ctx.requestId,

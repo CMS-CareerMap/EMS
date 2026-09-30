@@ -10,6 +10,7 @@ import {
 import { Toaster, toast } from 'sonner'
 import './index.css'
 import App from './App.jsx'
+import ErrorBoundary from './components/ErrorBoundary'
 import { ApiError } from './api/http'
 import { useAuthStore } from './stores/authStore'
 
@@ -65,10 +66,11 @@ const queryClient = new QueryClient({
       /**
        * Never retry a 4xx. A 403 will not become a 200 by asking again — it
        * just delays the error by two seconds and sends three requests where
-       * one would do. Server errors are worth one more try.
+       * one would do. Server errors, and status 0 — no answer at all, a
+       * dropped connection — are worth two more tries.
        */
       retry: (failureCount, error) => {
-        if (error instanceof ApiError && error.status < 500) return false
+        if (error instanceof ApiError && error.status > 0 && error.status < 500) return false
         return failureCount < 2
       },
       staleTime: 30_000,
@@ -94,7 +96,10 @@ createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>
       <QueryClientProvider client={queryClient}>
-        <App />
+        {/* The last line of defence, for a crash outside any page — the layout itself. */}
+        <ErrorBoundary whole onReset={() => queryClient.resetQueries()}>
+          <App />
+        </ErrorBoundary>
         <Toaster position="top-right" richColors closeButton />
       </QueryClientProvider>
     </BrowserRouter>

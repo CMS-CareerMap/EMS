@@ -9,26 +9,10 @@ import {
 } from 'lucide-react'
 import { useDashboardStats, useApproveLeaveDashboard } from '../../hooks/useDashboard'
 import { useAuthStore } from '../../stores/authStore'
+import DataState from '../../components/DataState'
+import { typeColourOf } from '../../lib/leaveTypes'
+import { calendarDayIn, formatCalendarDay, formatDayOf } from '../../lib/dates'
 
-const LEAVE_TYPE_LABELS = {
-  sick: 'Sick Leave',
-  casual: 'Casual Leave',
-  earned: 'Earned Leave',
-  wfh: 'WFH',
-  maternity: 'Maternity Leave',
-  paternity: 'Paternity Leave',
-  comp_off: 'Comp Off',
-}
-
-const LEAVE_TYPE_COLORS = {
-  sick: 'bg-red-100 text-red-700',
-  casual: 'bg-blue-100 text-blue-700',
-  earned: 'bg-purple-100 text-purple-700',
-  wfh: 'bg-teal-100 text-teal-700',
-  maternity: 'bg-pink-100 text-pink-700',
-  paternity: 'bg-indigo-100 text-indigo-700',
-  comp_off: 'bg-orange-100 text-orange-700',
-}
 
 function initials(name) {
   return (name || '')
@@ -40,8 +24,7 @@ function initials(name) {
 }
 
 function formatDate(str) {
-  if (!str) return ''
-  return new Date(str).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+  return str ? formatDayOf(str) : ''
 }
 
 function AttendanceTooltip({ active, payload, label }) {
@@ -87,7 +70,7 @@ function StatCard({ label, value, change, icon, iconBg, iconColor }) {
         {change && (
           <div className="flex items-center gap-1 mt-1.5">
             <TrendingUp className="w-3 h-3 text-green-500" />
-            <span className="text-xs text-gray-400 truncate max-w-[150px]" title={change}>{change}</span>
+            <span className="text-xs text-gray-400 truncate max-w-37.5" title={change}>{change}</span>
           </div>
         )}
       </div>
@@ -97,8 +80,9 @@ function StatCard({ label, value, change, icon, iconBg, iconColor }) {
 
 export default function HRDashboard() {
   const { role } = useAuthStore()
-  const { data, isLoading, error } = useDashboardStats()
+  const stats = useDashboardStats()
   const approveLeave = useApproveLeaveDashboard()
+  const myEmployeeId = useAuthStore((state) => state.profile?.id ?? null)
 
   const roleTitles = {
     super_admin: 'Admin Dashboard',
@@ -111,36 +95,8 @@ export default function HRDashboard() {
 
   const dashboardTitle = roleTitles[role] || 'Dashboard'
 
-  const today = new Date().toLocaleDateString('en-IN', {
-    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-  })
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-64 text-red-500 text-sm">
-        Failed to load dashboard data.
-      </div>
-    )
-  }
-
-  const {
-    totalEmployees, presentToday, onLeaveToday, weeklyOffToday, deptWeeklyOff,
-    pendingLeaveCount, pendingLeaves, deptData, weekData, recentJoiners,
-  } = data
-
-  const attendancePct = totalEmployees > 0 ? Math.round(presentToday / totalEmployees * 100) : 0
-
-  const weeklyOffChangeText = Object.entries(deptWeeklyOff || {})
-    .map(([dept, count]) => `${dept}: ${count}`)
-    .join(', ') || 'No employees'
+  const timezone = useAuthStore((state) => state.organization?.timezone)
+  const today = formatCalendarDay(calendarDayIn(timezone))
 
   return (
     <div className="space-y-6">
@@ -151,6 +107,29 @@ export default function HRDashboard() {
         <p className="text-sm text-gray-500 mt-0.5">{today} · Overview of your workforce</p>
       </div>
 
+      {/* Every card below is drawn from this one answer: one error for all of them, never cards of zeros. */}
+      <DataState query={stats}>
+        {(data) => <Overview data={data} approveLeave={approveLeave} myEmployeeId={myEmployeeId} />}
+      </DataState>
+    </div>
+  )
+}
+
+function Overview({ data, approveLeave, myEmployeeId }) {
+  const {
+    totalEmployees, presentToday, onLeaveToday, weeklyOffToday, deptWeeklyOff,
+    pendingLeaveCount, pendingLeaves, deptData, weekData, recentJoiners,
+  } = data
+
+  const attendancePct = totalEmployees > 0 ? Math.round(presentToday / totalEmployees * 100) : 0
+
+  // A list of { name, value } per department (empty on a working day).
+  const weeklyOffChangeText = (deptWeeklyOff ?? [])
+    .map((d) => `${d.name}: ${d.value}`)
+    .join(', ') || 'No employees'
+
+  return (
+    <>
       {/* ── Stat cards ─────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
         <StatCard
@@ -209,7 +188,7 @@ export default function HRDashboard() {
             </span>
           </div>
           {weekData.length === 0 ? (
-            <div className="flex items-center justify-center h-[220px] text-gray-400 text-sm">
+            <div className="flex items-center justify-center h-55 text-gray-400 text-sm">
               No attendance data for this week yet
             </div>
           ) : (
@@ -298,10 +277,10 @@ export default function HRDashboard() {
           ) : (
             <div className="divide-y divide-gray-50">
               {pendingLeaves.map((req) => {
-                const name = req.profiles?.full_name ?? 'Unknown'
-                const dept = req.profiles?.department ?? ''
-                const typeLabel = LEAVE_TYPE_LABELS[req.leave_type] ?? req.leave_type
-                const typeColor = LEAVE_TYPE_COLORS[req.leave_type] ?? 'bg-gray-100 text-gray-700'
+                const name = req.full_name
+                const dept = req.department ?? ''
+                const typeLabel = req.leave_type_name
+                const typeColor = typeColourOf(req.leave_type)
                 const from = formatDate(req.from_date)
                 const to = req.to_date !== req.from_date ? ` – ${formatDate(req.to_date)}` : ''
 
@@ -325,6 +304,10 @@ export default function HRDashboard() {
                         <span className="text-xs text-gray-400">({req.days}d)</span>
                       </div>
                     </div>
+                    {/* Nobody decides their own leave; the server refuses it too. */}
+                    {req.employee_id === myEmployeeId ? (
+                      <span className="text-xs text-gray-400 italic shrink-0">Your own — another approver decides</span>
+                    ) : (
                     <div className="flex items-center gap-2 shrink-0">
                       <button
                         onClick={() => approveLeave.mutate({ id: req.id, status: 'approved' })}
@@ -343,6 +326,7 @@ export default function HRDashboard() {
                         Reject
                       </button>
                     </div>
+                    )}
                   </div>
                 )
               })}
@@ -392,6 +376,6 @@ export default function HRDashboard() {
           )}
         </div>
       </div>
-    </div>
+    </>
   )
 }

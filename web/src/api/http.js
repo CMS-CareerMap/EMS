@@ -79,14 +79,24 @@ async function send(method, path, body, { withAuth = true } = {}) {
   if (body !== undefined && !isForm) headers['Content-Type'] = 'application/json'
   if (withAuth && accessToken) headers.Authorization = `Bearer ${accessToken}`
 
-  return fetch(`${BASE}${path}`, {
-    method,
-    headers,
-    // Sends the refresh cookie. Same-origin in both development (Vite proxy)
-    // and production (Nginx), so this is never a cross-site request.
-    credentials: 'same-origin',
-    body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
-  })
+  try {
+    return await fetch(`${BASE}${path}`, {
+      method,
+      headers,
+      // Sends the refresh cookie. Same-origin in both development (Vite proxy)
+      // and production (Nginx), so this is never a cross-site request.
+      credentials: 'same-origin',
+      body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
+    })
+  } catch {
+    // fetch rejects only when no answer came at all: offline, or the server
+    // unreachable. The browser's own words for that are "Failed to fetch".
+    throw new ApiError({
+      status: 0,
+      code: 'NETWORK',
+      message: 'Could not reach the server. Check your connection and try again.',
+    })
+  }
 }
 
 async function toResult(response) {
@@ -97,10 +107,14 @@ async function toResult(response) {
   try {
     payload = await response.json()
   } catch {
+    // Not our JSON at all. From a 502 or 504 that is Nginx speaking while the
+    // API restarts or is down, which is worth saying in those words.
     throw new ApiError({
       status: response.status,
       code: 'BAD_RESPONSE',
-      message: 'The server sent a response this app could not read.',
+      message: response.status >= 500
+        ? 'The server is not answering right now. Try again in a minute.'
+        : 'The server sent a response this app could not read.',
     })
   }
 
@@ -119,6 +133,27 @@ async function toResult(response) {
 }
 
 let refreshInFlight = null
+
+/**
+ * Whether a failed refresh means the session is really over. Only the server
+ * saying so does (401, or 403 for a login turned off). No answer at all, a 502
+ * while the API restarts, a 429 — none of those is the person's session
+ * ending, and signing them out for it would throw away whatever they had open.
+ */
+export function sessionIsOver(error) {
+  return error instanceof ApiError && (error.status === 401 || error.status === 403)
+}
+
+/** A refresh that failed: the session ends only if it really is over; otherwise the failure itself is passed on. */
+function afterFailedRefresh(error) {
+  if (!sessionIsOver(error)) throw error
+  announceSessionEnded()
+  throw new ApiError({
+    status: 401,
+    code: 'SESSION_EXPIRED',
+    message: 'Your session has expired. Please sign in again.',
+  })
+}
 
 /**
  * Trades the refresh cookie for a new access token. Concurrent callers share
@@ -155,13 +190,8 @@ export async function request(method, path, body, options = {}) {
 
   try {
     await refreshSession()
-  } catch {
-    announceSessionEnded()
-    throw new ApiError({
-      status: 401,
-      code: 'SESSION_EXPIRED',
-      message: 'Your session has expired. Please sign in again.',
-    })
+  } catch (error) {
+    afterFailedRefresh(error)
   }
 
   return toResult(await send(method, path, body, { ...options, retrying: true }))
@@ -178,9 +208,8 @@ async function download(path) {
   if (response.status === 401 && !path.startsWith('/auth/')) {
     try {
       await refreshSession()
-    } catch {
-      announceSessionEnded()
-      throw new ApiError({ status: 401, code: 'SESSION_EXPIRED', message: 'Your session has expired. Please sign in again.' })
+    } catch (error) {
+      afterFailedRefresh(error)
     }
     response = await send('GET', path)
   }
