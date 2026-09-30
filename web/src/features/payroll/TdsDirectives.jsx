@@ -5,7 +5,7 @@ import { useTdsDirectives, useSetTdsDirective } from '../../hooks/usePayroll'
 import { useAuthStore } from '../../stores/authStore'
 import { calendarDayIn } from '../../lib/dates'
 import { usePayrollPeople } from './people'
-import Dialog, { inputCls } from './Dialog'
+import Dialog, { inputCls } from '../../components/Dialog'
 import {
   money, formatDay, monthLabel, financialYearOf, financialYearLabel, monthValue, parseMonthValue,
 } from './format'

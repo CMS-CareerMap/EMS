@@ -4,7 +4,7 @@ import { api } from '../api/http'
 /**
  * Employees, from the server.
  *
- * This file used to talk to Supabase — and, with no Supabase configured, to a
+ * This file used to talk to a hosted backend — and, with none configured, to a
  * mock kept in the browser's localStorage. So the Employees page showed people
  * who did not exist anywhere the rest of the system could see: the attendance
  * roster, leave and payroll all read the real server and matched none of them.

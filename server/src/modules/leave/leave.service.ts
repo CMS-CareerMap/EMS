@@ -1,6 +1,7 @@
 import type { AppContext } from '../../platform/context'
 import { BadRequest, Conflict, Forbidden, NotFound } from '../../platform/errors/AppError'
 import { withTransaction } from '../../platform/db/transaction'
+import { tellApprovers } from './leaveNotices'
 import { lockFor } from '../../platform/db/locks'
 import { logger } from '../../platform/logger'
 import { zonedToday, toDateColumn, fromDateColumn, type CalendarDate } from '../../domain/shared/dates'
@@ -267,6 +268,8 @@ export async function applyForLeave(ctx: AppContext, input: ApplyInput): Promise
       }, tx)
     }
 
+    await tellApprovers(ctx, tx, request.id, 'leave.submitted')
+
     return request
   })
 
@@ -331,6 +334,7 @@ export async function cancelLeave(ctx: AppContext, id: string): Promise<repo.Lea
       entityId: id,
       details: { employeeId: request.employeeId, days: Number(request.days) },
     }, tx)
+    await tellApprovers(ctx, tx, id, 'leave.withdrawn')
   })
 
   logger.info('Leave withdrawn', { by: ctx.userId, requestId: id })

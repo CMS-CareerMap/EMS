@@ -18,7 +18,7 @@ import type { MembershipRow } from '../../modules/user/user.repository'
 import { isoInstant } from '../../domain/shared/dates'
 
 /**
- * User management: the four capabilities the Supabase edge functions provided.
+ * User management: the four capabilities the original backend's edge functions provided.
  *
  * Snake_case out, like everywhere else in v1, because Settings → Users already
  * reads these names.

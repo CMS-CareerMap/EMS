@@ -39,6 +39,11 @@ export const TENANT_MODELS = [
   'EmployeeTdsDirective',
   'EmployeeMonthlyEntry',
   'BankFileTemplate',
+  'DocumentType',
+  'EmployeeDocument',
+  'CompanyDocument',
+  'Notification',
+  'NotificationSetting',
 ] as const
 
 export const TENANT_MODEL_SET: ReadonlySet<string> = new Set(TENANT_MODELS)

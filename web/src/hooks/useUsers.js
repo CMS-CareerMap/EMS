@@ -4,7 +4,7 @@ import { api } from '../api/http'
 /**
  * Users and access, now served by our own API.
  *
- * These four ran as Supabase edge functions until today. The hook NAMES and
+ * These four ran as edge functions on the old hosted backend until today. The hook NAMES and
  * ARGUMENT SHAPES are unchanged on purpose, so Settings → Users did not have to
  * be rewritten in the same commit that replaced the backend behind it. When
  * both halves change at once and a screen breaks, there is no way to tell which

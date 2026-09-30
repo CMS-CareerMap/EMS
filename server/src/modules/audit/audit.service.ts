@@ -86,6 +86,29 @@ export type AuditAction =
   | 'master_data.renamed'
   | 'master_data.changed'
   | 'master_data.archived'
+  // Documents (Day 19). Downloads are recorded too: who opened whose Aadhaar
+  // is exactly what an audit of an HR system is asked.
+  | 'document_type.created'
+  | 'document_type.updated'
+  | 'document_type.archived'
+  | 'document_type.restored'
+  | 'document.uploaded'
+  | 'document.verified'
+  | 'document.rejected'
+  | 'document.removed'
+  | 'document.downloaded'
+  // A stored file that was missing or had been altered when somebody opened it.
+  | 'file.unreadable'
+  | 'company_document.published'
+  | 'company_document.removed'
+  | 'company_document.downloaded'
+  | 'bank_account.submitted'
+  | 'bank_account.proof_downloaded'
+  // Everything that leaves the system as a file.
+  | 'report.exported'
+  | 'employee.exported'
+  | 'attendance.exported'
+  | 'notification_settings.saved'
 
 export interface AuditEntry {
   action: AuditAction

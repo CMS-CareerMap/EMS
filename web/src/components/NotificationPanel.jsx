@@ -15,7 +15,9 @@ import {
   Info,
   ChevronRight,
   Sparkles,
-  X
+  X,
+  FileText,
+  Landmark,
 } from 'lucide-react'
 import {
   useNotifications,
@@ -23,7 +25,6 @@ import {
   useMarkAllNotificationsAsRead,
   useClearAllNotifications
 } from '../hooks/useNotifications'
-import { useAuthStore } from '../stores/authStore'
 
 function formatTimeAgo(dateString) {
   if (!dateString) return ''
@@ -62,6 +63,12 @@ function getNotificationIcon(type) {
       return { icon: UserPlus, bg: 'bg-violet-100 text-violet-600' }
     case 'payroll':
       return { icon: DollarSign, bg: 'bg-teal-100 text-teal-600' }
+    case 'document':
+      return { icon: FileText, bg: 'bg-blue-100 text-blue-600' }
+    case 'bank':
+      return { icon: Landmark, bg: 'bg-teal-100 text-teal-700' }
+    case 'account':
+      return { icon: ShieldCheck, bg: 'bg-indigo-100 text-indigo-600' }
     case 'system':
     default:
       return { icon: Info, bg: 'bg-slate-100 text-slate-600' }
@@ -70,10 +77,9 @@ function getNotificationIcon(type) {
 
 export default function NotificationPanel({ isOpen, onClose }) {
   const navigate = useNavigate()
-  const { user } = useAuthStore()
   const panelRef = useRef(null)
 
-  const { notifications, unreadCount, isLoading } = useNotifications(user?.id)
+  const { notifications, unreadCount, isLoading, hasOlder, loadingOlder, loadOlder } = useNotifications()
   const markAsReadMutation = useMarkNotificationAsRead()
   const markAllMutation = useMarkAllNotificationsAsRead()
   const clearAllMutation = useClearAllNotifications()
@@ -84,6 +90,9 @@ export default function NotificationPanel({ isOpen, onClose }) {
   // Handle click outside & ESC key
   useEffect(() => {
     const handleClickOutside = (e) => {
+      // The bell toggles the panel itself; closing here too would let its
+      // click open it straight back up.
+      if (e.target.closest?.('[data-notification-toggle]')) return
       if (panelRef.current && !panelRef.current.contains(e.target)) {
         onClose()
       }
@@ -113,7 +122,13 @@ export default function NotificationPanel({ isOpen, onClose }) {
   })
 
   const visibleNotifications = filteredNotifications.slice(0, displayLimit)
-  const hasMore = filteredNotifications.length > displayLimit
+  // More already here to show, or more on the server to fetch.
+  const hasMore = filteredNotifications.length > displayLimit || hasOlder
+
+  const showOlder = async () => {
+    if (filteredNotifications.length <= displayLimit && hasOlder) await loadOlder()
+    setDisplayLimit((prev) => prev + 10)
+  }
 
   const handleNotificationClick = async (item) => {
     if (!item.read) {
@@ -126,21 +141,18 @@ export default function NotificationPanel({ isOpen, onClose }) {
   }
 
   const handleMarkAllRead = () => {
-    if (user?.id && unreadCount > 0) {
-      markAllMutation.mutate({ userId: user.id })
-    }
+    if (unreadCount > 0) markAllMutation.mutate()
   }
 
   const handleClearAll = () => {
-    if (user?.id && notifications.length > 0) {
-      clearAllMutation.mutate({ userId: user.id })
-    }
+    if (notifications.length > 0) clearAllMutation.mutate()
   }
 
   return (
     <div
       ref={panelRef}
-      className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-white rounded-2xl border border-gray-200 shadow-2xl z-50 overflow-hidden transition-all duration-200 ease-out transform scale-100 opacity-100"
+      // A phone gets the screen's width under the header; from sm up it hangs from the bell.
+      className="fixed left-2 right-2 top-16 sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-96 bg-white rounded-2xl border border-gray-200 shadow-2xl z-50 overflow-hidden transition-all duration-200 ease-out transform scale-100 opacity-100"
     >
       {/* Panel Header */}
       <div className="p-4 border-b border-gray-100 bg-slate-50/70 flex items-center justify-between">
@@ -172,7 +184,7 @@ export default function NotificationPanel({ isOpen, onClose }) {
                 : 'text-gray-500 hover:text-gray-800'
               }`}
           >
-            All ({notifications.length})
+            All ({notifications.length}{hasOlder ? '+' : ''})
           </button>
           <button
             onClick={() => setActiveTab('unread')}
@@ -229,7 +241,15 @@ export default function NotificationPanel({ isOpen, onClose }) {
             return (
               <div
                 key={item.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => handleNotificationClick(item)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    handleNotificationClick(item)
+                  }
+                }}
                 className={`p-3.5 flex items-start gap-3 hover:bg-gray-50 transition-colors cursor-pointer relative group ${!item.read ? 'bg-blue-50/40 font-normal' : 'bg-white'
                   }`}
               >
@@ -270,10 +290,11 @@ export default function NotificationPanel({ isOpen, onClose }) {
       {hasMore && (
         <div className="p-2 border-t border-gray-100 bg-gray-50 text-center">
           <button
-            onClick={() => setDisplayLimit((prev) => prev + 10)}
-            className="text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors py-1"
+            onClick={showOlder}
+            disabled={loadingOlder}
+            className="text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors py-1 disabled:opacity-60"
           >
-            Load older notifications
+            {loadingOlder ? 'Loading…' : 'Load older notifications'}
           </button>
         </div>
       )}

@@ -3,24 +3,15 @@ import { Bell, Menu, ChevronDown, User } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { useNotifications } from '../hooks/useNotifications'
 import NotificationPanel from './NotificationPanel'
+import { ROLE_LABELS } from '../lib/roles'
 
 // The server's role names — the same labels as the sidebar.
-const ROLE_LABELS = {
-  super_admin: 'Super Admin',
-  admin: 'Admin',
-  hr: 'HR',
-  manager: 'Manager',
-  rm: 'Reporting Manager',
-  accounts: 'Accounts',
-  employee: 'Employee',
-}
-
 export default function TopBar({ title, onMenuClick }) {
   const { user, profile, role, setProfileDrawerOpen } = useAuthStore()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [notificationOpen, setNotificationOpen] = useState(false)
 
-  const { unreadCount } = useNotifications(user?.id)
+  const { unreadCount } = useNotifications()
 
   const displayName = profile?.full_name || user?.email?.split('@')[0] || 'User'
   const displayEmail = user?.email ?? ''
@@ -53,8 +44,11 @@ export default function TopBar({ title, onMenuClick }) {
         <div className="relative">
           <button
             onClick={() => setNotificationOpen(!notificationOpen)}
+            data-notification-toggle
+            aria-expanded={notificationOpen}
             className="relative p-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors"
             title="Notifications"
+            aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
           >
             <Bell className="w-5 h-5" />
             {/* Dynamic Unread Badge */}

@@ -231,3 +231,25 @@ export async function changeStatusIf(
 export async function addLedgerEntry(db: TxDb, data: Prisma.LeaveLedgerEntryUncheckedCreateInput) {
   return db.leaveLedgerEntry.create({ data })
 }
+
+/** What a notice about a request says: whose it is, what kind, which days. */
+/** A person's name, to say who acted when it was not the person the leave is for. */
+export async function employeeName(db: TxDb, employeeId: string | null): Promise<string | null> {
+  if (!employeeId) return null
+  return (await db.employee.findFirst({ where: { id: employeeId }, select: { fullName: true } }))?.fullName ?? null
+}
+
+export async function requestFacts(db: TxDb, id: string) {
+  return db.leaveRequest.findFirst({
+    where: { id },
+    select: {
+      id: true,
+      employeeId: true,
+      fromDate: true,
+      toDate: true,
+      days: true,
+      employee: { select: { fullName: true } },
+      leaveType: { select: { name: true } },
+    },
+  })
+}

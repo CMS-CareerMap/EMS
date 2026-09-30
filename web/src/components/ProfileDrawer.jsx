@@ -1,26 +1,19 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import {
   X, User, Mail, Phone, Building2, Briefcase, ShieldCheck,
   Calendar, UserCheck, KeyRound, Eye, EyeOff, CheckCircle, AlertCircle, Hash,
 } from 'lucide-react'
 import { changePassword } from '../api/auth'
 import { useAuthStore } from '../stores/authStore'
-import { sendNotification } from '../hooks/useNotifications'
 import MyBankAccount from '../features/payroll/MyBankAccount'
-
-const ROLE_LABELS = {
-  super_admin: 'Super Admin',
-  admin: 'Admin',
-  hr: 'HR Lead',
-  manager: 'Manager',
-  rm: 'Reporting Manager',
-  accounts: 'Finance & Accounts',
-  employee: 'Employee',
-}
+import { useEscape } from '../hooks/useEscape'
+import { useMyDashboardStats } from '../hooks/useDashboard'
+import { ROLE_LABELS } from '../lib/roles'
 
 function formatDate(str) {
   if (!str) return 'N/A'
-  return new Date(str).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+  // A calendar day, read in UTC so it is the same day in every browser's zone.
+  return new Date(`${str}T00:00:00Z`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
 }
 
 function getPasswordStrength(password) {
@@ -39,6 +32,12 @@ function getPasswordStrength(password) {
 
 export default function ProfileDrawer() {
   const { user, profile, role, profileDrawerOpen, setProfileDrawerOpen, setSession, can } = useAuthStore()
+  // The session carries who somebody is, not their HR record. Department,
+  // designation, joining date, phone and manager come from their own summary,
+  // asked for only when the drawer is open — so the rows show what HR holds
+  // instead of "N/A" for things that are on file.
+  const { data: mine } = useMyDashboardStats({ enabled: profileDrawerOpen && Boolean(profile) })
+  const details = mine?.profile ? { ...profile, ...mine.profile } : profile
 
   // Form states
   const [currentPassword, setCurrentPassword] = useState('')
@@ -55,17 +54,11 @@ export default function ProfileDrawer() {
   const [toast, setToast] = useState(null) // { type: 'success' | 'error', message: string }
 
 
-  // Close on Escape key
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && profileDrawerOpen) {
-        handleClose()
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profileDrawerOpen])
+  // Escape closes the drawer — unless a dialog is open on top of it (sending
+  // in a bank account), which closes first.
+  useEscape(() => {
+    if (profileDrawerOpen) handleClose()
+  })
 
   if (!profileDrawerOpen) return null
 
@@ -108,8 +101,8 @@ export default function ProfileDrawer() {
     setLoading(true)
 
     try {
-      // The old path called supabase.auth.updateUser({ password }), which does
-      // NOT verify the current password — it only needs a valid session. So
+      // The old path changed it through the hosted auth service, which did
+      // NOT verify the current password — it only needed a valid session. So
       // anyone at an unlocked laptop could change the password and lock the
       // owner out. The server endpoint requires the current password, and the
       // field above was collected and then thrown away.
@@ -119,17 +112,9 @@ export default function ProfileDrawer() {
       const session = await changePassword(currentPassword, newPassword)
       setSession(session)
 
+      // The security notice in the bell is written by the server now — for a
+      // change made from any device, not just this page.
       setToast({ type: 'success', message: 'Password updated. Other devices have been signed out.' })
-
-      if (user?.id) {
-        sendNotification({
-          userId: user.id,
-          title: 'Password Changed',
-          message: 'Your account password was updated successfully.',
-          type: 'auth',
-          link: '/dashboard'
-        })
-      }
 
       setCurrentPassword('')
       setNewPassword('')
@@ -192,7 +177,7 @@ export default function ProfileDrawer() {
               </div>
               <div className="min-w-0 flex-1">
                 <h3 className="text-xl font-bold text-white truncate">{displayName}</h3>
-                <p className="text-blue-100 text-sm truncate mt-0.5">{profile?.designation || 'Team Member'}</p>
+                <p className="text-blue-100 text-sm truncate mt-0.5">{details?.designation ?? ''}</p>
                 <div className="flex items-center gap-2 mt-2">
                   <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-white/20 text-white border border-white/30">
                     {displayRole}
@@ -221,6 +206,8 @@ export default function ProfileDrawer() {
                   <span className="font-medium text-gray-900">{displayName}</span>
                 </div>
 
+                {profile && (
+                  <>
                 <div className="py-2.5 flex items-center justify-between text-sm">
                   <div className="flex items-center gap-2.5 text-gray-500">
                     <Hash className="w-4 h-4 text-blue-500" />
@@ -228,6 +215,8 @@ export default function ProfileDrawer() {
                   </div>
                   <span className="font-mono font-medium text-gray-900">{profile?.employee_id || 'N/A'}</span>
                 </div>
+                  </>
+                )}
 
                 <div className="py-2.5 flex items-center justify-between text-sm">
                   <div className="flex items-center gap-2.5 text-gray-500">
@@ -239,12 +228,14 @@ export default function ProfileDrawer() {
                   </span>
                 </div>
 
+                {profile && (
+                  <>
                 <div className="py-2.5 flex items-center justify-between text-sm">
                   <div className="flex items-center gap-2.5 text-gray-500">
                     <Phone className="w-4 h-4 text-blue-500" />
                     <span>Phone Number</span>
                   </div>
-                  <span className="font-medium text-gray-900">{profile?.phone || 'N/A'}</span>
+                  <span className="font-medium text-gray-900">{details?.phone || 'N/A'}</span>
                 </div>
 
                 <div className="py-2.5 flex items-center justify-between text-sm">
@@ -252,7 +243,7 @@ export default function ProfileDrawer() {
                     <Building2 className="w-4 h-4 text-blue-500" />
                     <span>Department</span>
                   </div>
-                  <span className="font-medium text-gray-900">{profile?.department || 'N/A'}</span>
+                  <span className="font-medium text-gray-900">{details?.department || 'N/A'}</span>
                 </div>
 
                 <div className="py-2.5 flex items-center justify-between text-sm">
@@ -260,8 +251,10 @@ export default function ProfileDrawer() {
                     <Briefcase className="w-4 h-4 text-blue-500" />
                     <span>Designation</span>
                   </div>
-                  <span className="font-medium text-gray-900">{profile?.designation || 'N/A'}</span>
+                  <span className="font-medium text-gray-900">{details?.designation || 'N/A'}</span>
                 </div>
+                  </>
+                )}
 
                 <div className="py-2.5 flex items-center justify-between text-sm">
                   <div className="flex items-center gap-2.5 text-gray-500">
@@ -271,12 +264,14 @@ export default function ProfileDrawer() {
                   <span className="font-medium text-gray-900">{displayRole}</span>
                 </div>
 
+                {profile && (
+                  <>
                 <div className="py-2.5 flex items-center justify-between text-sm">
                   <div className="flex items-center gap-2.5 text-gray-500">
                     <Calendar className="w-4 h-4 text-blue-500" />
                     <span>Date of Joining</span>
                   </div>
-                  <span className="font-medium text-gray-900">{formatDate(profile?.date_of_joining)}</span>
+                  <span className="font-medium text-gray-900">{formatDate(details?.date_of_joining)}</span>
                 </div>
 
                 <div className="py-2.5 flex items-center justify-between text-sm">
@@ -285,12 +280,12 @@ export default function ProfileDrawer() {
                     <span>Reporting Manager</span>
                   </div>
                   <span className="font-medium text-gray-900 text-right">
-                    {profile?.reporting_manager_name ? (
+                    {details?.reporting_manager_name ? (
                       <>
-                        {profile.reporting_manager_name}
-                        {profile.reporting_manager_designation && (
+                        {details.reporting_manager_name}
+                        {details.reporting_manager_designation && (
                           <span className="block text-xs text-gray-400 font-normal">
-                            {profile.reporting_manager_designation}
+                            {details.reporting_manager_designation}
                           </span>
                         )}
                       </>
@@ -299,15 +294,23 @@ export default function ProfileDrawer() {
                     )}
                   </span>
                 </div>
+                  </>
+                )}
 
               </div>
+              {!profile && (
+                <p className="mt-2 text-xs text-gray-500">
+                  This login has no employee record, so it has no employment details, payslips or salary account.
+                </p>
+              )}
             </div>
 
             {/* Divider */}
             <hr className="border-gray-100" />
 
             {/* Bank Account for Salary Credit Section */}
-            {can('payslip:read') && <MyBankAccount />}
+            {/* A salary account belongs to an employee record; a login without one has none to show or send. */}
+            {can('payslip:read') && profile && <MyBankAccount />}
 
             {/* Divider */}
             <hr className="border-gray-100" />

@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { X, Upload, Download, Loader2, CheckCircle2, AlertCircle, Copy, Check } from 'lucide-react'
 import { useImportEmployees, useMasterData } from '../../hooks/useEmployees'
+import { saveFromApi } from '../../api/http'
 
 /**
  * Importing a roster from a spreadsheet.
@@ -17,17 +18,9 @@ import { useImportEmployees, useMasterData } from '../../hooks/useEmployees'
 
 const MAX_BYTES = 1_000_000
 
-const TEMPLATE = [
-  'employee_code,full_name,email,personal_email,phone,date_of_joining,employment_type,department,designation,pan,gender',
-  'CMS-1001,Priya Sharma,priya@company.in,,9876543210,01/10/2026,full_time,Sales,Executive,,female',
-].join('\n')
-
+/** The template comes from the server — the columns the importer itself reads. */
 function downloadTemplate() {
-  const blob = new Blob([TEMPLATE], { type: 'text/csv' })
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = 'employee_import_template.csv'
-  a.click()
+  saveFromApi('/employees/import/template').catch(() => undefined)
 }
 
 function linkFor(token) {

@@ -138,6 +138,12 @@ export function monthName(year: number, month: number): string {
   return `${MONTH_NAMES[month - 1] ?? month} ${year}`
 }
 
+/** A day as people write it: "2026-10-01" → "1 Oct 2026". For messages, not for storage. */
+export function dayLabel(day: CalendarDate): string {
+  const month = MONTH_NAMES[Number(day.slice(5, 7)) - 1]
+  return `${Number(day.slice(8, 10))} ${month ? month.slice(0, 3) : day.slice(5, 7)} ${day.slice(0, 4)}`
+}
+
 /** The month a calendar day falls in. */
 export function monthOfDay(day: CalendarDate): { year: number; month: number } {
   return { year: Number(day.slice(0, 4)), month: Number(day.slice(5, 7)) }

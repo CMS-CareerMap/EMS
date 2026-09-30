@@ -176,6 +176,9 @@ export interface MySummary {
     designation: string | null
     dateOfJoining: CalendarDate | null
     attendanceMode: string
+    phone: string | null
+    reportingManagerName: string | null
+    reportingManagerDesignation: string | null
   }
   thisMonth: {
     presentDays: number
@@ -229,6 +232,9 @@ export async function mySummary(ctx: AppContext): Promise<MySummary> {
       designation: employee?.designation?.name ?? null,
       dateOfJoining: fromDateColumn(employee?.dateOfJoining),
       attendanceMode: employee?.attendanceMode ?? 'app',
+      phone: employee?.phone ?? null,
+      reportingManagerName: employee?.reportingManager?.fullName ?? null,
+      reportingManagerDesignation: employee?.reportingManager?.designation?.name ?? null,
     },
     thisMonth: {
       presentDays: countOf('present'),

@@ -225,6 +225,10 @@ describe('issuing a new link', () => {
     const reset = await redeem(res.body.data.invite.token, NEW_PASSWORD)
     expect(reset.status).toBe(200)
     expect(reset.body.data.purpose).toBe('reset')
+    // The security notice goes out for a reset as for a change — never for a first password.
+    const notices = await prisma.notification.findMany({ where: { user: { email: person.email }, event: 'account.password_changed' } })
+    expect(notices).toHaveLength(1)
+    expect(notices[0]?.message).toMatch(/reset with a link from your administrator/)
 
     expect((await login(person.email, PASSWORD)).status).toBe(401)
     expect((await login(person.email, NEW_PASSWORD)).status).toBe(200)

@@ -95,8 +95,8 @@ function main(): void {
   const contract = {
     generatedAt: new Date().toISOString().slice(0, 10),
     note:
-      'Field names the frontend reads today, pinned before each module moves off ' +
-      'Supabase. A serializer that stops sending one of these will render an empty ' +
+      'Field names the frontend reads, pinned so the API cannot quietly stop ' +
+      'sending one. A serializer that stops sending one of these will render an empty ' +
       'cell rather than an error, so check new serializers against this list. ' +
       'Regenerate with: cd server && npm run field-contract',
     fieldCount: everywhere.size,

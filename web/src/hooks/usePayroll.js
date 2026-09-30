@@ -1,11 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api, saveFromApi } from '../api/http'
+import { api, fetchBlob, saveFromApi } from '../api/http'
 
 /**
  * Payroll, from the server — runs, payslips, the month's inputs, bank accounts
  * and the bank transfer file.
  *
- * This file used to write payroll runs to Supabase with figures the BROWSER
+ * This file used to write payroll runs to a hosted table with figures the BROWSER
  * had worked out: an estimate built from CTC by fixed percentages, sent up as
  * the payslip. Nothing here calculates anything now. Every figure is the
  * server's, from domain/payroll, and a screen only shows what it is sent.
@@ -168,36 +168,66 @@ export function useSetTdsDirective() {
 
 // ── Bank accounts and the bank transfer file ────────────────────────────────
 
+/** Everybody's account, and the upload limit for a proof attached here. */
 export function useBankAccounts(enabled = true) {
   return useQuery({
     queryKey: keys.bankAccounts,
-    queryFn: async () => (await api.get('/payroll/bank-accounts')).data,
+    queryFn: async () => {
+      const payload = await api.get('/payroll/bank-accounts')
+      return { rows: payload.data, maxUploadMb: payload.meta.max_upload_mb }
+    },
     enabled,
   })
+}
+
+/** Multipart when a proof is attached — the cheque or passbook page — JSON otherwise. */
+function accountForm(account, proof) {
+  const form = new FormData()
+  for (const [key, value] of Object.entries(account)) {
+    if (value !== undefined && value !== null && value !== '') form.append(key, String(value))
+  }
+  form.append('proof', proof, proof.name)
+  return form
 }
 
 export function useSaveBankAccount() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ employeeId, ...account }) =>
-      (await api.put(`/payroll/employees/${employeeId}/bank-account`, account)).data,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: keys.bankAccounts })
-      qc.invalidateQueries({ queryKey: ['payroll', 'bank-preview'] })
-    },
+    mutationFn: async ({ employeeId, proof, ...account }) =>
+      (proof
+        ? await api.upload(`/payroll/employees/${employeeId}/bank-account`, accountForm(account, proof), 'PUT')
+        : await api.put(`/payroll/employees/${employeeId}/bank-account`, account)
+      ).data,
+    // Settled, not just succeeded: when the account changed meanwhile (409),
+    // the list must show what is there now.
+    onSettled: () => Promise.all([
+      qc.invalidateQueries({ queryKey: keys.bankAccounts }),
+      qc.invalidateQueries({ queryKey: ['payroll', 'bank-preview'] }),
+    ]),
   })
 }
 
 export function useVerifyBankAccount() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ employeeId, decision, remarks }) =>
-      (await api.post(`/payroll/employees/${employeeId}/bank-account/verify`, { decision, remarks })).data,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: keys.bankAccounts })
-      qc.invalidateQueries({ queryKey: ['payroll', 'bank-preview'] })
-    },
+    // accountUpdatedAt: the version that was checked — the server refuses a
+    // decision once the account has changed.
+    mutationFn: async ({ employeeId, decision, remarks, accountUpdatedAt }) =>
+      (await api.post(`/payroll/employees/${employeeId}/bank-account/verify`, { decision, remarks, accountUpdatedAt })).data,
+    onSettled: () => Promise.all([
+      qc.invalidateQueries({ queryKey: keys.bankAccounts }),
+      qc.invalidateQueries({ queryKey: ['payroll', 'bank-preview'] }),
+    ]),
   })
+}
+
+/** The cheque or passbook page on file for somebody's account. */
+export function bankProofBlob(employeeId) {
+  return fetchBlob(`/payroll/employees/${employeeId}/bank-account/proof`)
+}
+
+export function downloadBankProof(employeeId) {
+  return saveFromApi(`/payroll/employees/${employeeId}/bank-account/proof`)
 }
 
 export function useBankFileTemplate() {
@@ -240,5 +270,32 @@ export function downloadMyPayslip(id) {
 
 /** Where my salary is paid: the account Accounts recorded, its last four digits, or null. */
 export function useMyBankAccount() {
-  return useQuery({ queryKey: keys.myBank, queryFn: async () => (await api.get('/payslips/me/bank-account')).data })
+  return useQuery({
+    queryKey: keys.myBank,
+    queryFn: async () => {
+      const payload = await api.get('/payslips/me/bank-account')
+      return { account: payload.data, maxUploadMb: payload.meta.max_upload_mb }
+    },
+  })
+}
+
+/**
+ * Sending in my own account, with a cancelled cheque or passbook page. It
+ * waits for Accounts to check it against that proof.
+ */
+export function useSubmitMyBankAccount() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ proof, ...account }) => {
+      const form = new FormData()
+      for (const [key, value] of Object.entries(account)) {
+        if (value !== undefined && value !== null && value !== '') form.append(key, String(value))
+      }
+      if (proof) form.append('proof', proof, proof.name)
+      return (await api.upload('/payslips/me/bank-account', form, 'PUT')).data
+    },
+    // The form shows these beside the field they are about.
+    meta: { quietCodes: ['BAD_REQUEST', 'PAYLOAD_TOO_LARGE', 'VALIDATION_FAILED'] },
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.myBank }),
+  })
 }

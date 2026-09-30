@@ -11,6 +11,7 @@ import { Toaster, toast } from 'sonner'
 import './index.css'
 import App from './App.jsx'
 import { ApiError } from './api/http'
+import { useAuthStore } from './stores/authStore'
 
 /**
  * The default error handler for every query and mutation in the app.
@@ -38,6 +39,14 @@ function reportError(error) {
       ? `Reference: ${error.requestId}`
       : undefined,
   })
+}
+
+// The demo database the old development build kept in the browser — made-up
+// people and bank numbers. Nothing reads it any more, so it is not left behind.
+try {
+  localStorage.removeItem('ems_mock_database')
+} catch {
+  // Storage blocked (a private window): there is nothing to remove then.
 }
 
 const queryClient = new QueryClient({
@@ -71,6 +80,14 @@ const queryClient = new QueryClient({
       retry: false,
     },
   },
+})
+
+// Whoever signs in next on this tab must not see the last person's cached
+// answers — their notices, their documents, their bank account — until each
+// query happens to refetch. Every way out (signing out, a session that ended,
+// a refresh that failed) goes through the store, so the cache follows it.
+useAuthStore.subscribe((state, previous) => {
+  if (previous.user && previous.user.id !== state.user?.id) queryClient.clear()
 })
 
 createRoot(document.getElementById('root')).render(

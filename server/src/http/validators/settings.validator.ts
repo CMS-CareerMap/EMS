@@ -58,6 +58,8 @@ export const companySchema = z
     // Upper-case codes, as they are compared: ISO 3166 country, ISO 4217 currency.
     country: z.string().trim().regex(/^[A-Z]{2}$/, 'A two-letter country code, such as IN').optional(),
     currency: z.string().trim().regex(/^[A-Z]{3}$/, 'A three-letter currency code, such as INR').optional(),
+    // The largest upload, in whole MB. The system's own ceiling is 10.
+    maxUploadMb: z.number().int('Whole megabytes, such as 2').min(1, 'At least 1 MB').max(10, 'At most 10 MB').optional(),
   })
   .strict()
 

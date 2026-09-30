@@ -1,162 +1,84 @@
-import { useEffect } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { supabase } from '../lib/supabase'
-import { isoInstant } from '../lib/dates'
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { api } from '../api/http'
+import { useAuthStore } from '../stores/authStore'
 
-export function useNotifications(userId) {
-  const queryClient = useQueryClient()
+/**
+ * The bell, from the server.
+ *
+ * The server writes every notice, inside the change it reports; this file
+ * only reads a person's own and marks them. The version it replaces let any
+ * page insert a notification for anybody — and addressed approvers as the
+ * literal string "demo-hr-admin-id", so nobody ever received one.
+ *
+ * Delivery is polling: once a minute, and when the tab comes back into view.
+ * Cheap, and nothing a small company would notice the difference from a push.
+ *
+ * They come 30 at a time. Older pages are fetched only when somebody asks for
+ * them, and each continues from the last notice seen — its time and its id.
+ */
 
-  const query = useQuery({
-    queryKey: ['notifications', userId],
-    queryFn: async () => {
-      if (!userId) return []
-      const { data, error } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
+const KEY = ['notifications']
+const POLL_MS = 60 * 1000
 
-      if (error) throw error
-      return data || []
+export function useNotifications() {
+  const enabled = useAuthStore((s) => s.can('notification:read'))
+  const query = useInfiniteQuery({
+    queryKey: KEY,
+    queryFn: async ({ pageParam }) => {
+      const cursor = pageParam ? `?before=${encodeURIComponent(pageParam.before)}&beforeId=${pageParam.beforeId}` : ''
+      const payload = await api.get(`/notifications${cursor}`)
+      return { items: payload.data, unread: payload.meta.unread, more: payload.meta.more }
     },
-    enabled: !!userId,
-    staleTime: 5000,
+    initialPageParam: null,
+    getNextPageParam: (last) => {
+      const end = last.items[last.items.length - 1]
+      return last.more && end ? { before: end.created_at, beforeId: end.id } : undefined
+    },
+    enabled,
+    refetchInterval: POLL_MS,
+    refetchOnWindowFocus: true,
+    staleTime: 15 * 1000,
   })
 
-  // Set up Real-Time listener and fallback event listeners
-  useEffect(() => {
-    if (!userId) return
-
-    // 1. Supabase Postgres Realtime Subscription (for real DB)
-    const channel = supabase
-      .channel(`notifications-${userId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'notifications',
-          filter: `user_id=eq.${userId}`,
-        },
-        () => {
-          queryClient.invalidateQueries({ queryKey: ['notifications', userId] })
-        }
-      )
-      .subscribe()
-
-    // 2. Custom Window Event listener for Mock DB real-time updates
-    const handleMockDbEvent = () => {
-      queryClient.invalidateQueries({ queryKey: ['notifications', userId] })
-    }
-
-    if (typeof window !== 'undefined') {
-      window.addEventListener('ems_mock_db_changed', handleMockDbEvent)
-      window.addEventListener('storage', handleMockDbEvent)
-    }
-
-    return () => {
-      supabase.removeChannel?.(channel) || channel.unsubscribe?.()
-      if (typeof window !== 'undefined') {
-        window.removeEventListener('ems_mock_db_changed', handleMockDbEvent)
-        window.removeEventListener('storage', handleMockDbEvent)
-      }
-    }
-  }, [userId, queryClient])
-
-  const notifications = query.data || []
-  const unreadCount = notifications.filter((n) => !n.read).length
-
+  const pages = query.data?.pages ?? []
   return {
-    ...query,
-    notifications,
-    unreadCount,
+    isLoading: query.isLoading,
+    notifications: pages.flatMap((p) => p.items),
+    // The first page's count is the whole count, not just what is loaded.
+    unreadCount: pages[0]?.unread ?? 0,
+    hasOlder: Boolean(query.hasNextPage),
+    loadingOlder: query.isFetchingNextPage,
+    loadOlder: () => query.fetchNextPage(),
   }
 }
 
-export function useMarkNotificationAsRead() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: async ({ id }) => {
-      const { error } = await supabase
-        .from('notifications')
-        .update({ read: true })
-        .eq('id', id)
+function useNoticeMutation(mutationFn) {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn, onSuccess: () => qc.invalidateQueries({ queryKey: KEY }) })
+}
 
-      if (error) throw error
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['notifications'] })
-    },
-  })
+export function useMarkNotificationAsRead() {
+  return useNoticeMutation(async ({ id }) => api.post(`/notifications/${id}/read`))
 }
 
 export function useMarkAllNotificationsAsRead() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: async ({ userId }) => {
-      const { error } = await supabase
-        .from('notifications')
-        .update({ read: true })
-        .eq('user_id', userId)
-
-      if (error) throw error
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['notifications'] })
-    },
-  })
+  return useNoticeMutation(async () => api.post('/notifications/read-all'))
 }
 
 export function useClearAllNotifications() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: async ({ userId }) => {
-      const { error } = await supabase
-        .from('notifications')
-        .delete()
-        .eq('user_id', userId)
-
-      if (error) throw error
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['notifications'] })
-    },
-  })
+  return useNoticeMutation(async () => api.del('/notifications'))
 }
 
-export function useCreateNotification() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: async (notificationData) => {
-      const records = Array.isArray(notificationData) ? notificationData : [notificationData]
-      const { data, error } = await supabase.from('notifications').insert(records)
-      if (error) throw error
-      return data
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['notifications'] })
-    },
-  })
+// ── Settings → Notifications ────────────────────────────────────────────────
+
+export function useNotificationSettings({ enabled = true } = {}) {
+  return useQuery({ queryKey: ['notifications', 'settings'], queryFn: async () => (await api.get('/notifications/settings')).data, enabled })
 }
 
-/**
- * Utility helper to dispatch a notification directly (handles array of recipient IDs or single ID)
- */
-export async function sendNotification({ userIds, userId, title, message, type = 'system', link = '/dashboard', relatedEntityId = null }) {
-  const targets = userIds || (userId ? [userId] : [])
-  if (!targets.length) return
-
-  const records = targets.map((id) => ({
-    user_id: id,
-    title,
-    message,
-    type,
-    link,
-    related_entity_id: relatedEntityId,
-    read: false,
-    created_at: isoInstant(),
-  }))
-
-  const { error } = await supabase.from('notifications').insert(records)
-  if (error) console.error('Failed to send notification:', error)
+export function useSaveNotificationSettings() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (changes) => (await api.put('/notifications/settings', { changes })).data,
+    onSuccess: (saved) => qc.setQueryData(['notifications', 'settings'], saved),
+  })
 }

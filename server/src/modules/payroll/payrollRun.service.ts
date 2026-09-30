@@ -5,6 +5,7 @@ import { withTransaction } from '../../platform/db/transaction'
 import { lockFor } from '../../platform/db/locks'
 import { logger } from '../../platform/logger'
 import { audit } from '../audit/audit.service'
+import { notify } from '../notifications/notify.service'
 import { companyToday } from '../organization/organization.service'
 import { listDaysOff } from '../holidays/holidays.repository'
 import { calculate, type Calculation } from './payroll.service'
@@ -508,6 +509,15 @@ export async function createRun(ctx: AppContext, year: number, month: number) {
         netPayable: values.netPayable,
       },
     }, tx)
+
+    await notify(ctx, tx, {
+      event: 'payroll.awaiting_approval',
+      to: { holding: 'payroll:run:approve' },
+      title: 'Payroll ready to approve',
+      message: `The ${monthName(year, month)} payroll for ${values.employeeCount} ${values.employeeCount === 1 ? 'person' : 'people'} is ready for your approval.`,
+      link: '/payroll',
+      entity: { type: 'payroll_run', id: run.id },
+    })
 
     return run.id
   })

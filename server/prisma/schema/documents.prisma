@@ -1,0 +1,123 @@
+// Documents (Day 19): what each employee must hand in, the files themselves,
+// and the company's own policies and handbooks.
+//
+// The FILES live in object storage (platform/storage — local disk in
+// development, Cloudflare R2 in production). A row holds the key, never a URL:
+// a stored URL either expires or is public forever. Keys are generated from
+// ids, so nothing a user typed ever becomes part of a path.
+
+/// A kind of document the company collects from every employee — the
+/// checklist. Seeded with the usual Indian set and editable in Settings, so a
+/// company that also wants, say, an address proof adds a row rather than
+/// asking for a code change.
+model DocumentType {
+  id             String @id @default(uuid())
+  organizationId String
+
+  /// Stable key: `aadhaar`, `pan`. The label can be renamed freely.
+  code  String
+  label String
+
+  /// Required ones are what "complete" means on the compliance list.
+  required     Boolean @default(false)
+  displayOrder Int     @default(0)
+
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @db.Timestamptz(3)
+  /// Archived, never deleted: documents already filed under it keep their type.
+  archivedAt DateTime? @db.Timestamptz(3)
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  documents    EmployeeDocument[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, archivedAt])
+}
+
+enum DocumentStatus {
+  /// Uploaded, and nobody has looked at it yet.
+  pending
+  verified
+  /// Looked at and refused, with the reason in `remarks`. The employee uploads
+  /// a corrected one, which supersedes this.
+  rejected
+}
+
+/// One uploaded file, for one employee, of one type.
+///
+/// Uploading again for the same type SUPERSEDES the current file rather than
+/// overwriting it: the old row and its file are kept, because "which Aadhaar
+/// did we have on file in March?" is a question an HR system must be able to
+/// answer.
+model EmployeeDocument {
+  id             String @id @default(uuid())
+  organizationId String
+  employeeId     String
+  documentTypeId String
+
+  /// As uploaded — shown on screen, never used in a key or a header.
+  fileName    String
+  /// From the server's allow-list, decided by the file's own bytes.
+  contentType String
+  bytes       Int
+  /// Checked on every read, so a file changed in storage is refused rather
+  /// than served.
+  sha256      String
+  storageKey  String
+
+  status          DocumentStatus @default(pending)
+  remarks         String?
+  decidedByUserId String?
+  decidedAt       DateTime?      @db.Timestamptz(3)
+
+  uploadedByUserId String?
+  uploadedAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  /// Set when a newer upload of the same type replaces this one.
+  supersededAt    DateTime? @db.Timestamptz(3)
+  /// Taken off the list by somebody allowed to. The file is kept.
+  removedAt       DateTime? @db.Timestamptz(3)
+  removedByUserId String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  documentType DocumentType @relation(fields: [documentTypeId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, employeeId, documentTypeId])
+  @@index([organizationId, status])
+}
+
+enum CompanyDocumentCategory {
+  policy
+  handbook
+  template
+  announcement
+  other
+}
+
+/// A document the company publishes to everybody: the handbook, the leave
+/// policy, a form to fill in.
+model CompanyDocument {
+  id             String @id @default(uuid())
+  organizationId String
+
+  title       String
+  category    CompanyDocumentCategory @default(policy)
+  description String?
+
+  fileName    String
+  contentType String
+  bytes       Int
+  sha256      String
+  storageKey  String
+
+  uploadedByUserId String?
+  uploadedAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  removedAt       DateTime? @db.Timestamptz(3)
+  removedByUserId String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, removedAt])
+}

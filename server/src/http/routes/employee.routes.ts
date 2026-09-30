@@ -8,6 +8,7 @@ import {
 import { authenticate } from '../middleware/authenticate'
 import { authorize } from '../middleware/authorize'
 import { postImport } from '../controllers/employeeImport.controller'
+import { getEmployeeImportTemplate, getEmployeesExport } from '../controllers/exports.controller'
 
 /**
  * Mounted at /api/employees.
@@ -25,6 +26,9 @@ export const employeeRouter = Router()
 employeeRouter.use(authenticate)
 
 employeeRouter.get('/', authorize('employee:read'), getEmployees)
+// Before '/:id', or 'export' would be read as an id.
+employeeRouter.get('/export', authorize('employee:read'), getEmployeesExport)
+employeeRouter.get('/import/template', authorize('employee:create'), getEmployeeImportTemplate)
 employeeRouter.get('/:id', authorize('employee:read'), getEmployeeById)
 
 employeeRouter.post('/', authorize('employee:create'), postEmployee)

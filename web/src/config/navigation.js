@@ -38,7 +38,8 @@ export const NAV_GROUPS = [
   {
     label: 'Resources',
     items: [
-      { to: '/documents', icon: FileText, label: 'Documents', permission: 'document:read' },
+      // Any of these: everybody reads the company's policies (§5); employee files are document:read.
+      { to: '/documents', icon: FileText, label: 'Documents', permission: ['document:read', 'document:company:read'] },
       { to: '/reports', icon: BarChart2, label: 'Reports', permission: 'report:read' },
     ],
   },
@@ -47,7 +48,7 @@ export const NAV_GROUPS = [
     items: [
       // Any of these. HR keeps leave types and holidays here without holding
       // company settings; the tabs inside are filtered the same way.
-      { to: '/settings', icon: Settings, label: 'Settings', permission: ['settings:read', 'leave:type:manage', 'holiday:manage'] },
+      { to: '/settings', icon: Settings, label: 'Settings', permission: ['settings:read', 'leave:type:manage', 'holiday:manage', 'document:type:manage'] },
     ],
   },
 ]

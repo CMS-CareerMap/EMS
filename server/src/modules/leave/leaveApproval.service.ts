@@ -10,6 +10,7 @@ import { getCurrentPolicy } from '../settings/settings.repository'
 import { listDaysOff } from '../holidays/holidays.repository'
 import { audit } from '../audit/audit.service'
 import { assertMonthsOpen, monthsBetween } from '../payroll/payrollLock.service'
+import { tellApplicant } from './leaveNotices'
 
 /**
  * Deciding on leave.
@@ -149,6 +150,7 @@ export async function approveLeave(
       entityId: id,
       details: { employeeId: request.employeeId, days: Number(request.days), fromDate: from, toDate: to },
     }, tx)
+    await tellApplicant(ctx, tx, id, 'approved', note)
   })
 
   logger.info('Leave approved', {
@@ -197,6 +199,7 @@ export async function rejectLeave(
       entityId: id,
       details: { employeeId: request.employeeId, days: Number(request.days) },
     }, tx)
+    await tellApplicant(ctx, tx, id, 'rejected', note)
   })
 
   logger.info('Leave rejected', { by: ctx.userId, requestId: id })
@@ -264,6 +267,7 @@ export async function reverseLeave(
       entityId: id,
       details: { employeeId: request.employeeId, daysReturned: Number(request.days) },
     }, tx)
+    await tellApplicant(ctx, tx, id, 'reversed', note)
   })
 
   logger.info('Leave reversed', { by: ctx.userId, requestId: id })

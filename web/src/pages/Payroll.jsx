@@ -13,7 +13,7 @@ import BankFileFormat from '../features/payroll/BankFileFormat'
  * The page this replaces worked every figure out in the browser — salaries
  * estimated from CTC by fixed percentages, payslips "Generated" that nobody had
  * generated, a GSTIN and PF account number made up from the PAN — and wrote
- * the result to Supabase as if it were a payroll. Every figure here is now the
+ * the result to the old hosted database as if it were a payroll. Every figure here is now the
  * server's, and a tab is drawn only for somebody allowed to use it: HR sees
  * the Incentive screen and nothing of anybody's pay.
  */

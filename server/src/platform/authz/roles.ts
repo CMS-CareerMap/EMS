@@ -30,8 +30,12 @@ const ADMIN: readonly Permission[] = [
   'document:read',
   'document:upload',
   'document:verify',
+  'document:company:read',
+  'document:company:manage',
+  'document:type:manage',
   // Their own payslips — the data scope keeps it to themselves.
   'payslip:read',
+  'notification:read',
 ]
 
 /** Runs the people side day to day. No payroll, no settings. */
@@ -57,8 +61,12 @@ const HR: readonly Permission[] = [
   'document:read',
   'document:upload',
   'document:verify',
+  'document:company:read',
+  'document:company:manage',
+  'document:type:manage',
   // Their own payslips, and nobody else's: payslip scope is SELF for HR.
   'payslip:read',
+  'notification:read',
 ]
 
 /**
@@ -76,10 +84,13 @@ const MANAGER: readonly Permission[] = [
   'leave:approve',
   // Their own payslips. Scope SELF: a manager does not see their team's pay.
   'payslip:read',
-  // No document access at all: §3.1 marks Documents ❌ for Manager and RM, and
+  // No employee documents: §3.1 marks Documents ❌ for Manager and RM, and
   // §4.4 repeats it. That leaves a manager with LESS document access than an
   // ordinary employee, which is unusual enough to be worth asking about —
-  // see OPEN_QUESTIONS below.
+  // see OPEN_QUESTIONS below. The company's handbook and policies are §5's
+  // "All", so those they read.
+  'document:company:read',
+  'notification:read',
 ]
 
 /** The client's matrix gives RM and Manager identical rights. */
@@ -105,6 +116,8 @@ const ACCOUNTS: readonly Permission[] = [
   'payroll:run:create',
   'payroll:entry:manage',
   'payslip:read',
+  'document:company:read',
+  'notification:read',
 ]
 
 /**
@@ -121,6 +134,8 @@ const EMPLOYEE: readonly Permission[] = [
   'document:read',
   'document:upload',
   'payslip:read',
+  'document:company:read',
+  'notification:read',
 ]
 
 const REGISTRY: Record<Role, readonly Permission[]> = {
@@ -150,6 +165,14 @@ export function permissionsFor(role: Role): readonly Permission[] {
 
 export function roleCan(role: Role, permission: Permission): boolean {
   return SETS[role].has(permission)
+}
+
+/**
+ * Every role holding a permission — how a notice finds "whoever can approve
+ * this" without naming a role anywhere (§A5 rule 5).
+ */
+export function rolesHolding(permission: Permission): Role[] {
+  return (Object.keys(SETS) as Role[]).filter((role) => SETS[role].has(permission))
 }
 
 /**

@@ -3,3 +3,59 @@
 * {
   font-family: 'Inter', sans-serif;
 }
+
+/*
+ * Printing a report prints the report — not the whole app around it. Only the
+ * element marked .print-area is drawn, at full length, without its scrollbars.
+ *
+ * Landscape, because a payroll report is thirteen columns wide: on a portrait
+ * A4 page the right-hand columns — net pay among them — were cut off. Only the
+ * Reports page prints, so this changes nothing else.
+ */
+@page {
+  size: A4 landscape;
+  margin: 10mm;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    height: auto !important;
+    box-shadow: none !important;
+  }
+  .print-area * {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  /* On paper a cell may wrap — a clipped column is worse than a two-line name —
+     and a row is never split across two pages. */
+  .print-area table {
+    font-size: 10px;
+  }
+  .print-area th,
+  .print-area td {
+    white-space: normal !important;
+    padding: 4px 6px !important;
+  }
+  .print-area tr {
+    break-inside: avoid;
+  }
+  /* A chart's tooltip is hidden until hovered; "everything visible" above would
+     print it as an empty box. */
+  .print-area .recharts-tooltip-wrapper {
+    display: none !important;
+  }
+}

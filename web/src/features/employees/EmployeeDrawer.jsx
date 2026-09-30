@@ -1,9 +1,13 @@
 import { createElement } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   X, Mail, Phone, Building2, Briefcase, Calendar, BadgeCheck, Edit2, Users, Clock,
   Landmark, CheckCircle2, XCircle, UserRound, KeyRound, Fingerprint, CalendarX,
+  FileText, Paperclip, ArrowRight, CircleDashed,
 } from 'lucide-react'
 import { useAuthStore } from '../../stores/authStore'
+import { useChecklist } from '../../hooks/useDocuments'
+import { roleLabel } from '../../lib/roles'
 
 /**
  * One employee, as the server holds them.
@@ -18,10 +22,20 @@ import { useAuthStore } from '../../stores/authStore'
  *     salary was recorded, and presented it as the person's pay. Only recorded
  *     figures are shown now.
  *   · The documents list said "Not uploaded" for three documents it never
- *     looked for. Documents arrive with their own module (Day 19).
- *   · Bank verification ran against the old store; it moves to the server on
- *     Day 19. The recorded details are shown here read-only until then.
+ *     looked for. It now shows where they really stand against the company's
+ *     checklist, for those who check documents, with the way to their files.
+ *   · Bank verification ran against the old store. It is done under Payroll →
+ *     Bank accounts now; this card shows the account as recorded — the number
+ *     by its last four digits, as every list does — and links there.
  */
+
+/** A bank account's status as the rest of the app words it. */
+const BANK_STATUS = {
+  verified: { label: 'Verified', cls: 'bg-emerald-100 text-emerald-800', icon: CheckCircle2 },
+  rejected: { label: 'Rejected', cls: 'bg-rose-100 text-rose-800', icon: XCircle },
+  pending: { label: 'Waiting for a check', cls: 'bg-amber-100 text-amber-800', icon: Clock },
+  unverified: { label: 'Not checked yet', cls: 'bg-gray-100 text-gray-700', icon: CircleDashed },
+}
 
 const EMPLOYMENT_TYPE = {
   full_time: { label: 'Full-time', cls: 'bg-blue-100 text-blue-700' },
@@ -52,8 +66,23 @@ function formatDate(day) {
 
 export default function EmployeeDrawer({ employee, onClose, onEdit }) {
   const can = useAuthStore((state) => state.can)
+  const navigate = useNavigate()
+  // Those who check documents see where this person stands; asked for only
+  // while the drawer is open on somebody.
+  const checksDocuments = can('document:verify')
+  const documents = useChecklist(employee?.id, { enabled: Boolean(employee) && checksDocuments })
 
   if (!employee) return null
+
+  const openDocuments = () => {
+    onClose()
+    navigate(`/documents?tab=employees&employee=${employee.id}`)
+  }
+  const openBankAccounts = () => {
+    onClose()
+    navigate('/payroll?tab=bank')
+  }
+  const bankStatus = BANK_STATUS[employee.bank_verification_status] ?? BANK_STATUS.unverified
 
   const initials = (employee.full_name || '').split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
   const type = EMPLOYMENT_TYPE[employee.employment_type]
@@ -137,8 +166,14 @@ export default function EmployeeDrawer({ employee, onClose, onEdit }) {
                   : '—'} />
               <InfoRow icon={UserRound} label="Gender" value={GENDER[employee.gender] ?? 'Not recorded'} />
               <InfoRow icon={KeyRound} label="Access"
-                value={employee.account_status ? `${ACCOUNT[employee.account_status] ?? employee.account_status}${employee.role ? ` · ${employee.role}` : ''}` : 'No login'} />
+                value={employee.account_status ? `${ACCOUNT[employee.account_status] ?? employee.account_status}${employee.role ? ` · ${roleLabel(employee.role)}` : ''}` : 'No login'} />
             </Section>
+
+            {checksDocuments && (
+              <Section title="Documents">
+                <DocumentsSummary query={documents} onOpen={openDocuments} />
+              </Section>
+            )}
 
             {can('employee:compensation:read') && (
               <Section title="Salary">
@@ -196,30 +231,35 @@ export default function EmployeeDrawer({ employee, onClose, onEdit }) {
                     <div className="grid grid-cols-2 gap-2 text-xs pt-1 border-t border-slate-200/80">
                       <div>
                         <span className="text-slate-400">Account No:</span>{' '}
-                        <span className="font-mono font-bold text-slate-800">{employee.bank_account}</span>
+                        <span className="font-mono font-bold text-slate-800">•••• {String(employee.bank_account).slice(-4)}</span>
                       </div>
                       <div>
                         <span className="text-slate-400">IFSC Code:</span>{' '}
                         <span className="font-mono font-semibold text-blue-700">{employee.ifsc || '—'}</span>
                       </div>
+                      {employee.bank_proof_name && (
+                        <div className="col-span-2 flex items-center gap-1 text-slate-500">
+                          <Paperclip className="w-3 h-3" /> Proof on file: {employee.bank_proof_name}
+                        </div>
+                      )}
                     </div>
                   )}
-                  <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-200/60">
-                    <span className="text-slate-500 font-medium">Verification</span>
-                    {employee.bank_verification_status === 'verified' ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800">
-                        <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Verified
+                  {employee.bank_account && (
+                    <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-200/60">
+                      <span className="text-slate-500 font-medium">Verification</span>
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${bankStatus.cls}`}>
+                        <bankStatus.icon className="w-3 h-3" /> {bankStatus.label}
                       </span>
-                    ) : employee.bank_verification_status === 'rejected' ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-100 text-rose-800">
-                        <XCircle className="w-3 h-3 text-rose-600" /> Rejected
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-600 capitalize">
-                        {employee.bank_verification_status || 'unverified'}
-                      </span>
-                    )}
-                  </div>
+                    </div>
+                  )}
+                  {employee.bank_verification_status === 'rejected' && employee.bank_verification_remarks && (
+                    <p className="text-xs text-rose-700">Why: {employee.bank_verification_remarks}</p>
+                  )}
+                  {can('employee:bank:manage') && (
+                    <button onClick={openBankAccounts} className="flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700">
+                      {employee.bank_account ? 'Check or change it' : 'Record it'} under Payroll → Bank accounts <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               </Section>
             )}
@@ -228,6 +268,39 @@ export default function EmployeeDrawer({ employee, onClose, onEdit }) {
         </div>
       </div>
     </>
+  )
+}
+
+/** Where somebody stands against the required documents — from their checklist. */
+function DocumentsSummary({ query, onOpen }) {
+  const { data, isLoading, error } = query
+  if (isLoading) return <p className="text-sm text-gray-400">Loading…</p>
+  if (error || !data) return <p className="text-sm text-gray-500">{error?.message ?? 'Their documents could not be opened.'}</p>
+
+  const required = data.items.filter((i) => i.type.required)
+  const verified = required.filter((i) => i.current?.status === 'verified').length
+  const waiting = data.items.filter((i) => i.current?.status === 'pending').length
+  const rejected = data.items.filter((i) => i.current?.status === 'rejected').length
+  const missing = required.filter((i) => !i.current).length
+
+  return (
+    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2.5">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <FileText className="w-4 h-4 text-blue-600" />
+          <span className="text-sm font-semibold text-slate-900">{verified} of {required.length} required verified</span>
+        </div>
+        {required.length > 0 && verified === required.length && <CheckCircle2 className="w-4 h-4 text-emerald-600" aria-label="Complete" />}
+      </div>
+      {(waiting > 0 || rejected > 0 || missing > 0) && (
+        <p className="text-xs text-slate-500">
+          {[waiting > 0 && `${waiting} waiting for a check`, rejected > 0 && `${rejected} rejected`, missing > 0 && `${missing} required not uploaded`].filter(Boolean).join(' · ')}
+        </p>
+      )}
+      <button onClick={onOpen} className="flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700">
+        Open their documents <ArrowRight className="w-3.5 h-3.5" />
+      </button>
+    </div>
   )
 }
 

@@ -19,6 +19,13 @@ const accountSelect = {
   verifiedAt: true,
   verifiedByUserId: true,
   updatedAt: true,
+  proofKey: true,
+  proofFileName: true,
+  proofContentType: true,
+  proofBytes: true,
+  proofSha256: true,
+  proofUploadedAt: true,
+  submittedByUserId: true,
 } as const
 
 /** Everybody on the books, with their account or none. */
@@ -31,6 +38,8 @@ export async function bankRoster(db: ScopedDb) {
       fullName: true,
       status: true,
       department: { select: { name: true } },
+      // Whose login sent the details in — to tell self-service from Accounts' entry.
+      membership: { select: { userId: true } },
       bankAccount: { select: accountSelect },
     },
     orderBy: { employeeCode: 'asc' },
@@ -48,6 +57,8 @@ export async function findEmployeeWithAccount(db: ScopedDb, employeeId: string) 
       fullName: true,
       status: true,
       department: { select: { name: true } },
+      // Whose login sent the details in — to tell self-service from Accounts' entry.
+      membership: { select: { userId: true } },
       bankAccount: { select: accountSelect },
     },
   })
@@ -64,6 +75,14 @@ export interface AccountValues {
   verificationRemarks: string | null
   verifiedAt: Date | null
   verifiedByUserId: string | null
+  submittedByUserId: string | null
+  // Left out: the proof on file stays. Null: it no longer describes the account.
+  proofKey?: string | null
+  proofFileName?: string | null
+  proofContentType?: string | null
+  proofBytes?: number | null
+  proofSha256?: string | null
+  proofUploadedAt?: Date | null
 }
 
 /** Creates or replaces the one account a person has. */
@@ -74,12 +93,19 @@ export async function saveAccount(tx: TxDb, organizationId: string, employeeId: 
     : tx.employeeBankAccount.create({ data: { organizationId, employeeId, ...values } })
 }
 
+/** The account as it stands — read under the lock, to see whether it changed meanwhile. */
+export async function accountNow(tx: TxDb, employeeId: string) {
+  return tx.employeeBankAccount.findFirst({ where: { employeeId }, select: { updatedAt: true, accountNumber: true } })
+}
+
+/** Records a decision on exactly the version that was looked at — no other. */
 export async function setVerification(
   tx: TxDb,
   employeeId: string,
+  version: Date,
   data: Pick<Prisma.EmployeeBankAccountUncheckedUpdateInput, 'verificationStatus' | 'verificationRemarks' | 'verifiedAt' | 'verifiedByUserId'>,
 ) {
-  return (await tx.employeeBankAccount.updateMany({ where: { employeeId }, data })).count
+  return (await tx.employeeBankAccount.updateMany({ where: { employeeId, updatedAt: version }, data })).count
 }
 
 /** The accounts of everybody in a run, for its bank file. */

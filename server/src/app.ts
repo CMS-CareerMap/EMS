@@ -18,6 +18,9 @@ import { payrollRunsRouter } from './http/routes/payrollRuns.routes'
 import { payslipsRouter } from './http/routes/payslips.routes'
 import { masterDataRouter } from './http/routes/masterData.routes'
 import { holidaysRouter } from './http/routes/holidays.routes'
+import { companyDocumentsRouter, documentTypesRouter, employeeDocumentsRouter } from './http/routes/documents.routes'
+import { notificationsRouter } from './http/routes/notifications.routes'
+import { reportsRouter } from './http/routes/reports.routes'
 
 /**
  * Assembles the app but does not listen. main.ts owns the port, so tests can
@@ -70,6 +73,11 @@ export function createApp() {
   app.use('/api/payslips', payslipsRouter)
   app.use('/api/master-data', masterDataRouter)
   app.use('/api/holidays', holidaysRouter)
+  app.use('/api/document-types', documentTypesRouter)
+  app.use('/api/employee-documents', employeeDocumentsRouter)
+  app.use('/api/company-documents', companyDocumentsRouter)
+  app.use('/api/notifications', notificationsRouter)
+  app.use('/api/reports', reportsRouter)
 
   // Express 5 uses path-to-regexp v8: a bare '*' throws at startup.
   app.use('/{*splat}', notFound)

@@ -1,8 +1,5 @@
-import { createHash } from 'node:crypto'
 import type { AppContext } from '../../platform/context'
 import { NotFound } from '../../platform/errors/AppError'
-import { logger } from '../../platform/logger'
-import { storage } from '../../platform/storage'
 import { renderPayslipPdf } from '../../platform/pdf/payslipPdf'
 import { recordSecurityEvent } from '../audit/audit.service'
 import { payslipView, addressOf, type PayslipViewInput } from '../../domain/payroll/payslipView'
@@ -21,9 +18,9 @@ import * as repo from './payrollRun.repository'
  * stored.
  */
 
-export function sha256(bytes: Buffer): string {
-  return createHash('sha256').update(bytes).digest('hex')
-}
+// One hash function for every stored file (platform/storage/files.ts).
+export { sha256 } from '../../platform/storage/files'
+import { readVerified } from '../../platform/storage/files'
 
 export interface PdfFile {
   filename: string
@@ -96,12 +93,7 @@ async function storedPdf(slip: { id: string; pdfKey: string | null; pdfSha256: s
     // Paid with no file is a broken record, not a missing payslip.
     throw new Error(`Paid payslip ${slip.id} has no stored PDF`)
   }
-  const bytes = await storage().get(slip.pdfKey)
-  if (sha256(bytes) !== slip.pdfSha256) {
-    logger.error('Stored payslip failed its integrity check', { payslipId: slip.id, key: slip.pdfKey })
-    throw new Error(`Stored payslip ${slip.id} does not match its hash`)
-  }
-  return bytes
+  return readVerified(slip.pdfKey, slip.pdfSha256, `payslip ${slip.id}`)
 }
 
 const filenameOf = (slip: { year: number; month: number; employeeCode: string }) =>

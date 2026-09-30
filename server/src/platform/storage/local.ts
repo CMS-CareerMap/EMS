@@ -1,6 +1,6 @@
-import { mkdir, readFile, writeFile, unlink, access } from 'node:fs/promises'
-import { dirname, join, resolve, sep } from 'node:path'
-import type { StorageService } from './index'
+import { mkdir, readFile, writeFile, unlink, access, readdir, stat } from 'node:fs/promises'
+import { dirname, join, relative, resolve, sep } from 'node:path'
+import type { StorageService, StoredObject } from './index'
 
 /**
  * Local disk storage. Development only.
@@ -55,5 +55,30 @@ export class LocalStorage implements StorageService {
     } catch {
       return false
     }
+  }
+
+  async list(prefix: string): Promise<StoredObject[]> {
+    const start = this.pathFor(prefix)
+    const out: StoredObject[] = []
+    const walk = async (dir: string): Promise<void> => {
+      let entries
+      try {
+        entries = await readdir(dir, { withFileTypes: true })
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') return
+        throw err
+      }
+      for (const entry of entries) {
+        const full = join(dir, entry.name)
+        if (entry.isDirectory()) {
+          await walk(full)
+        } else if (entry.isFile()) {
+          const info = await stat(full)
+          out.push({ key: relative(this.root, full).split(sep).join('/'), lastModified: info.mtime, bytes: info.size })
+        }
+      }
+    }
+    await walk(start)
+    return out
   }
 }

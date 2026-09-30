@@ -60,12 +60,42 @@ const MATRIX: Record<string, { permission: Permission; allowed: Role[] }> = {
     permission: 'payroll:run:create',
     allowed: ['super_admin', 'accounts'],
   },
+  // Through their own payslip page and profile; every role has one.
+  'Send in own bank account (with cheque/passbook proof)': {
+    permission: 'payslip:read',
+    allowed: ['super_admin', 'admin', 'hr', 'manager', 'rm', 'accounts', 'employee'],
+  },
+  'Upload documents': {
+    permission: 'document:upload',
+    allowed: ['super_admin', 'admin', 'hr', 'employee'],
+  },
+  // "(not own)" is the service's refusal, tested in documents.test.ts.
   'Verify/reject documents': {
     permission: 'document:verify',
     allowed: ['super_admin', 'admin', 'hr'],
   },
+  'Read company documents': {
+    permission: 'document:company:read',
+    allowed: ['super_admin', 'admin', 'hr', 'manager', 'rm', 'accounts', 'employee'],
+  },
+  'Publish/withdraw company documents': {
+    permission: 'document:company:manage',
+    allowed: ['super_admin', 'admin', 'hr'],
+  },
+  'Edit the document checklist': {
+    permission: 'document:type:manage',
+    allowed: ['super_admin', 'admin', 'hr'],
+  },
   'View reports': {
     permission: 'report:read',
+    allowed: ['super_admin'],
+  },
+  'Read own notifications': {
+    permission: 'notification:read',
+    allowed: ['super_admin', 'admin', 'hr', 'manager', 'rm', 'accounts', 'employee'],
+  },
+  'Turn notification events on/off': {
+    permission: 'settings:update',
     allowed: ['super_admin'],
   },
   'Invite users': {
@@ -215,9 +245,13 @@ const MODULE_ACCESS: Record<string, { permission: Permission; allowed: Role[] }>
     permission: 'payroll:structure:read',
     allowed: ['super_admin', 'accounts'],
   },
-  Documents: {
+  'Documents — employee files': {
     permission: 'document:read',
     allowed: ['super_admin', 'admin', 'hr', 'employee'],
+  },
+  'Documents — company documents': {
+    permission: 'document:company:read',
+    allowed: ['super_admin', 'admin', 'hr', 'manager', 'rm', 'accounts', 'employee'],
   },
   Reports: {
     permission: 'report:read',
@@ -226,6 +260,10 @@ const MODULE_ACCESS: Record<string, { permission: Permission; allowed: Role[] }>
   Settings: {
     permission: 'settings:read',
     allowed: ['super_admin'],
+  },
+  'Notifications (the bell)': {
+    permission: 'notification:read',
+    allowed: ['super_admin', 'admin', 'hr', 'manager', 'rm', 'accounts', 'employee'],
   },
 }
 
@@ -329,5 +367,38 @@ describe('bank accounts for salary', () => {
     for (const role of ROLES) {
       if (roleCan(role, 'employee:bank:manage')) expect(roleCan(role, 'employee:bank:read'), role).toBe(true)
     }
+  })
+})
+
+describe('documents (Day 19)', () => {
+  it('keep employee files to the client’s matrix — no manager, RM or Accounts', () => {
+    expect(ROLES.filter((role) => roleCan(role, 'document:read')).sort()).toEqual(['admin', 'employee', 'hr', 'super_admin'])
+    expect(ROLES.filter((role) => roleCan(role, 'document:upload')).sort()).toEqual(['admin', 'employee', 'hr', 'super_admin'])
+  })
+
+  it('reach the whole company only for those who verify; everybody else their own', () => {
+    for (const role of ROLES) {
+      const expected = roleCan(role, 'document:verify') ? 'ORGANIZATION' : 'SELF'
+      expect(scopeFor(role, 'document'), role).toBe(expected)
+    }
+  })
+
+  it('give the company’s handbook and policies to every role (§5: "All")', () => {
+    for (const role of ROLES) expect(roleCan(role, 'document:company:read'), role).toBe(true)
+  })
+
+  it('let only Super Admin, Admin and HR publish them, or change the checklist', () => {
+    expect(ROLES.filter((role) => roleCan(role, 'document:company:manage')).sort()).toEqual(['admin', 'hr', 'super_admin'])
+    expect(ROLES.filter((role) => roleCan(role, 'document:type:manage')).sort()).toEqual(['admin', 'hr', 'super_admin'])
+  })
+})
+
+describe('notifications (Day 19)', () => {
+  it('are read by everybody — their own', () => {
+    for (const role of ROLES) expect(roleCan(role, 'notification:read'), role).toBe(true)
+  })
+
+  it('are configured only by whoever changes settings', () => {
+    expect(ROLES.filter((role) => roleCan(role, 'settings:update'))).toEqual(['super_admin'])
   })
 })

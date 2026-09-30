@@ -42,3 +42,16 @@ export const ValidationFailed = (message = 'Validation failed', details?: unknow
  */
 export const BusinessRule = (message: string, details?: unknown) =>
   new AppError(422, 'BUSINESS_RULE', message, details)
+
+/**
+ * A stored file that is missing, or is not the file that was written. It is
+ * the server's fault, so a 500 — but a known one, with words a person can act
+ * on, instead of "Something went wrong". The details go to the log only.
+ */
+export const FileUnavailable = (
+  message = 'This file could not be read from storage — it is missing or has been altered. The problem has been logged for the administrator.',
+) => new AppError(500, 'FILE_UNAVAILABLE', message)
+
+/** A file larger than allowed — the company's cap, or the system's ceiling. */
+export const PayloadTooLarge = (message = 'That upload is too large.') =>
+  new AppError(413, 'PAYLOAD_TOO_LARGE', message)
