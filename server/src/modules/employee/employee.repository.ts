@@ -2,6 +2,7 @@ import type { Prisma, EmployeeStatus } from '@prisma/client'
 import type { ScopedDb } from '../../platform/db/scoped'
 import type { TxDb } from '../../platform/db/transaction'
 import type { ScopeContext } from '../../platform/authz/scope'
+import { employeesInScope } from '../../platform/authz/scopeWhere'
 
 /**
  * Reading employees, filtered by what the caller is allowed to see.
@@ -22,6 +23,12 @@ import type { ScopeContext } from '../../platform/authz/scope'
 
 export interface FieldAccess {
   includeCompensation: boolean
+  /**
+   * WHOSE salaries, when includeCompensation (Day 21). Narrower than whose
+   * records: the client wants HR to read employee records company-wide but
+   * never the pay of the people above them.
+   */
+  compensationScope: ScopeContext
   includeBank: boolean
   includeIdentity: boolean
 }
@@ -33,43 +40,8 @@ export interface EmployeeFilters {
   includeArchived?: boolean | undefined
 }
 
-/**
- * Turns a data scope into a where clause.
- *
- * The switch is exhaustive on purpose and DEPARTMENT throws rather than
- * returning `{}`. An unhandled scope that quietly falls through to "no filter"
- * is the worst possible failure here — it would widen access silently, and
- * every test would still pass because the rows come back.
- */
-function scopeWhere(scope: ScopeContext): Prisma.EmployeeWhereInput {
-  switch (scope.scope) {
-    case 'ORGANIZATION':
-      // forOrg() has already confined this to one company.
-      return {}
-
-    case 'DIRECT_REPORTS':
-      // A manager with no employee record of their own manages nobody. Without
-      // this guard `reportingManagerId: null` would match every unmanaged
-      // employee in the company.
-      if (!scope.employeeId) return IMPOSSIBLE
-      return {
-        OR: [{ reportingManagerId: scope.employeeId }, { id: scope.employeeId }],
-      }
-
-    case 'SELF':
-      if (!scope.employeeId) return IMPOSSIBLE
-      return { id: scope.employeeId }
-
-    case 'DEPARTMENT':
-      // No role uses this yet. When one does it needs the caller's
-      // departmentId, which ScopeContext does not carry — so it is a change to
-      // make deliberately, not something to approximate here.
-      throw new Error('DEPARTMENT scope is not implemented')
-  }
-}
-
-/** Matches nothing. A uuid column can never hold this. */
-const IMPOSSIBLE: Prisma.EmployeeWhereInput = { id: { equals: '00000000-0000-0000-0000-000000000000' } }
+/** The data scope as a where clause — one definition for every module (platform/authz/scopeWhere). */
+const scopeWhere = employeesInScope
 
 /**
  * The salary record in force, with its component amounts.
@@ -106,9 +78,13 @@ function includeFor(access: FieldAccess) {
     reportingManager: {
       select: { id: true, fullName: true, employeeCode: true, designation: { select: { name: true } } },
     },
-    membership: { select: { id: true, role: true, status: true, user: { select: { email: true } } } },
+    membership: { select: { id: true, role: true, roleDef: { select: { name: true } }, status: true, user: { select: { email: true } } } },
 
-    ...(access.includeCompensation ? { financials: CURRENT_SALARY } : {}),
+    // Salaries outside the caller's salary scope are not read at all; the
+    // serializer leaves their fields out for the same people (isInScope).
+    ...(access.includeCompensation
+      ? { financials: { ...CURRENT_SALARY, where: { effectiveTo: null, employee: employeesInScope(access.compensationScope) } } }
+      : {}),
     ...(access.includeBank ? { bankAccount: true } : {}),
     ...(access.includeIdentity ? { statutoryIdentity: true } : {}),
   } satisfies Prisma.EmployeeInclude

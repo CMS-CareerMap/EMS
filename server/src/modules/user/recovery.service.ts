@@ -1,4 +1,4 @@
-import type { PasswordTokenPurpose, Role } from '@prisma/client'
+import type { PasswordTokenPurpose } from '@prisma/client'
 import { Conflict, NotFound } from '../../platform/errors/AppError'
 import { generateToken, hashInviteToken } from '../../platform/auth/tokenHash'
 import { logger } from '../../platform/logger'
@@ -24,7 +24,8 @@ export const RECOVERY_LINK_MINUTES = 60
 
 export interface RecoveryLink {
   email: string
-  role: Role
+  /** The role's key. */
+  role: string
   purpose: PasswordTokenPurpose
   link: string
   expiresAt: Date

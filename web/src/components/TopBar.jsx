@@ -3,11 +3,11 @@ import { Bell, Menu, ChevronDown, User } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { useNotifications } from '../hooks/useNotifications'
 import NotificationPanel from './NotificationPanel'
-import { ROLE_LABELS } from '../lib/roles'
+import { roleLabel } from '../lib/roles'
 
 // The server's role names — the same labels as the sidebar.
 export default function TopBar({ title, onMenuClick }) {
-  const { user, profile, role, setProfileDrawerOpen } = useAuthStore()
+  const { user, profile, role, roleName, setProfileDrawerOpen } = useAuthStore()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [notificationOpen, setNotificationOpen] = useState(false)
 
@@ -18,7 +18,7 @@ export default function TopBar({ title, onMenuClick }) {
 
   const displayName = profile?.full_name || user?.email?.split('@')[0] || 'User'
   const displayEmail = user?.email ?? ''
-  const displayRole = ROLE_LABELS[role] ?? role ?? 'User'
+  const displayRole = roleLabel(role, roleName) || 'User'
 
   const initials = displayName
     .split(' ')

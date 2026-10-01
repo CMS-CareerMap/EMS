@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react'
 import { Copy, Check, KeyRound, Loader2, UserPlus, X } from 'lucide-react'
 import { useInviteUser } from '../../hooks/useUsers'
+import { useInvitableRoles } from '../../hooks/useRoles'
 import { formatInstant } from '../../lib/dates'
+import { optionsNote } from '../../lib/optionsNote'
 
 /**
  * Inviting somebody, and handing them their link.
@@ -16,18 +18,6 @@ import { formatInstant } from '../../lib/dates'
 
 const inp = 'w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 placeholder:text-gray-400'
 
-/**
- * super_admin is left out: handing over the top role is a deliberate act done
- * through a role change, with its own safeguards, not a field on an invite form.
- */
-const INVITABLE_ROLES = [
-  ['admin', 'Admin'],
-  ['hr', 'HR'],
-  ['manager', 'Manager'],
-  ['rm', 'Reporting Manager'],
-  ['accounts', 'Accounts'],
-  ['employee', 'Employee'],
-]
 
 /**
  * The link goes in the URL fragment — after the `#` — which browsers never
@@ -110,8 +100,11 @@ export function PasswordLinkPanel({ email, invite, onDone }) {
 /** Invites somebody by email and reports the link it produced. */
 export function InviteUserForm({ onInvited, onCancel }) {
   const invite = useInviteUser()
-  const [form, setForm] = useState({ email: '', full_name: '', role: 'employee', employee_code: '' })
+  const { query: rolesQuery, roles } = useInvitableRoles()
+  const [form, setForm] = useState({ email: '', full_name: '', role: '', employee_code: '' })
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }))
+  // Until somebody picks, the Employee role if it may be given, else the first.
+  const role = form.role || (roles.some((r) => r.key === 'employee') ? 'employee' : roles[0]?.key ?? '')
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -119,7 +112,7 @@ export function InviteUserForm({ onInvited, onCancel }) {
     // stays open with what was typed, so it can be corrected.
     const result = await invite.mutateAsync({
       email: form.email.trim(),
-      role: form.role,
+      role,
       full_name: form.full_name.trim(),
       employee_code: form.employee_code.trim(),
     }).catch(() => null)
@@ -147,8 +140,11 @@ export function InviteUserForm({ onInvited, onCancel }) {
         </div>
         <div className="space-y-1">
           <label className="text-xs font-medium text-gray-600">Role</label>
-          <select value={form.role} onChange={(e) => set('role', e.target.value)} className={`${inp} bg-white`}>
-            {INVITABLE_ROLES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          <select value={role} onChange={(e) => set('role', e.target.value)} disabled={!rolesQuery.isSuccess || roles.length === 0}
+            className={`${inp} bg-white`}>
+            {rolesQuery.isSuccess && roles.length > 0
+              ? roles.map((r) => <option key={r.key} value={r.key}>{r.name}</option>)
+              : <option value="">{optionsNote(rolesQuery, 'No role you may give')}</option>}
           </select>
         </div>
         <div className="space-y-1">
@@ -163,7 +159,7 @@ export function InviteUserForm({ onInvited, onCancel }) {
           className="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100">
           Cancel
         </button>
-        <button type="submit" disabled={invite.isPending}
+        <button type="submit" disabled={invite.isPending || !role}
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm font-semibold">
           {invite.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
           Create invitation

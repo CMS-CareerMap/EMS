@@ -31,6 +31,8 @@ function serializeMembership(row: MembershipRow) {
     full_name: row.fullName,
     employee_id: row.employeeCode,
     role: row.role,
+    // A custom role (Day 21) has no name the screen could know otherwise.
+    role_name: row.roleName,
     status: row.status,
     created_at: isoInstant(row.createdAt),
   }
@@ -43,7 +45,9 @@ export const getUsers: RequestHandler = async (_req, res) => {
 
   res.status(200).json({
     data: rows.map(serializeMembership),
-    meta: { requestId: res.locals.requestId, total: rows.length },
+    // Whose logins the list holds — the caller's employee scope (Day 21) — so
+    // the screen can say "in your department" instead of "in your organisation".
+    meta: { requestId: res.locals.requestId, total: rows.length, reach: ctx.scopeFor('employee').scope },
   })
 }
 

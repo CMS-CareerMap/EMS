@@ -49,9 +49,14 @@ async function yearFor(ctx: AppContext, requested?: number): Promise<YearContext
 
 const sumOf = (value: { _sum: { days: unknown } }) => Number(value._sum.days ?? 0)
 
-/** What a grant of this year would add now, for everybody on the payroll. */
+/**
+ * What a grant of this year would add now, for everybody the caller's leave
+ * scope reaches — the whole company for HR. A role given grants over its team
+ * (Day 21) grants its team's; the rest wait for somebody wider, and nothing is
+ * granted twice either way.
+ */
 async function planFor(db: AppContext['db'] | TxDb, ctx: AppContext, year: YearContext) {
-  const people = await repo.peopleInScope(db, { scope: 'ORGANIZATION', employeeId: ctx.employeeId })
+  const people = await repo.peopleInScope(db, ctx.scopeFor('leave'))
   const ids = people.map((p) => p.id)
   const [types, already, lastYear, lastYearPending] = await Promise.all([
     repo.activeLeaveTypes(db),
@@ -229,7 +234,12 @@ export async function adjustBalance(ctx: AppContext, input: AdjustInput) {
   if (input.employeeId === ctx.employeeId) {
     throw Forbidden('You cannot change your own leave balance. Ask another person who manages leave.')
   }
-  const [employee, type] = await Promise.all([repo.activeEmployee(ctx.db, input.employeeId), repo.activeLeaveType(ctx.db, input.leaveTypeId)])
+  // Only somebody the caller's leave scope reaches: a role given balance
+  // corrections over its team corrects its team's, not the company's.
+  const [employee, type] = await Promise.all([
+    repo.activeEmployee(ctx.db, ctx.scopeFor('leave'), input.employeeId),
+    repo.activeLeaveType(ctx.db, input.leaveTypeId),
+  ])
   if (!employee) throw NotFound('No such employee')
   if (!type) throw NotFound('No such leave type')
 

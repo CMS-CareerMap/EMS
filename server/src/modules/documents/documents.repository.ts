@@ -2,6 +2,7 @@ import type { CompanyDocumentCategory, DocumentStatus, Prisma } from '@prisma/cl
 import type { ScopedDb } from '../../platform/db/scoped'
 import type { TxDb } from '../../platform/db/transaction'
 import type { ScopeContext } from '../../platform/authz/scope'
+import { employeesInScope, ownedRowsInScope } from '../../platform/authz/scopeWhere'
 
 /**
  * Documents: the checklist of types, each employee's files, and the company's.
@@ -13,19 +14,18 @@ import type { ScopeContext } from '../../platform/authz/scope'
 
 type Db = ScopedDb | TxDb
 
-const IMPOSSIBLE = { id: '00000000-0000-0000-0000-000000000000' }
-
-/** Whose documents a caller reaches. Documents have no team view: a manager sees their own. */
-function ownerWhere(scope: ScopeContext): { employeeId?: string } | typeof IMPOSSIBLE {
-  if (scope.scope === 'ORGANIZATION') return {}
-  if (!scope.employeeId) return IMPOSSIBLE
-  return { employeeId: scope.employeeId }
+/**
+ * Whose documents a caller reaches. The built-in roles give documents only
+ * "the whole company" or "their own"; since Day 21 a role can be given a team
+ * or a department here as well, so the shared definition is used.
+ */
+function ownerWhere(scope: ScopeContext): Prisma.EmployeeDocumentWhereInput {
+  return ownedRowsInScope(scope)
 }
 
+/** The same scope on employees — people still on the books. */
 function employeeWhere(scope: ScopeContext): Prisma.EmployeeWhereInput {
-  if (scope.scope === 'ORGANIZATION') return { archivedAt: null }
-  if (!scope.employeeId) return IMPOSSIBLE
-  return { id: scope.employeeId, archivedAt: null }
+  return { AND: [employeesInScope(scope), { archivedAt: null }] }
 }
 
 // ── The checklist ───────────────────────────────────────────────────────────
@@ -215,27 +215,27 @@ export async function restorePrevious(tx: TxDb, employeeId: string, documentType
 }
 
 /** Everybody who is on the books, for the compliance list. */
-export async function activeEmployees(db: Db) {
+export async function activeEmployees(db: Db, scope: ScopeContext) {
   return db.employee.findMany({
-    where: { archivedAt: null, status: 'active' },
+    where: { AND: [employeesInScope(scope), { archivedAt: null, status: 'active' }] },
     orderBy: { fullName: 'asc' },
     select: { id: true, employeeCode: true, fullName: true, department: { select: { name: true } } },
   })
 }
 
 /** Current files by person, type and status — counted in Postgres. */
-export async function currentStatusCounts(db: Db) {
+export async function currentStatusCounts(db: Db, scope: ScopeContext) {
   return db.employeeDocument.groupBy({
     by: ['employeeId', 'documentTypeId', 'status'],
-    where: { supersededAt: null, removedAt: null },
+    where: { AND: [ownerWhere(scope), { supersededAt: null, removedAt: null }] },
     _count: { _all: true },
   })
 }
 
 /** What is waiting for somebody to look at it, oldest first. */
-export async function waitingForDecision(db: Db): Promise<DocumentRow[]> {
+export async function waitingForDecision(db: Db, scope: ScopeContext): Promise<DocumentRow[]> {
   return db.employeeDocument.findMany({
-    where: { status: 'pending', supersededAt: null, removedAt: null, employee: { archivedAt: null } },
+    where: { AND: [ownerWhere(scope), { status: 'pending', supersededAt: null, removedAt: null, employee: { archivedAt: null } }] },
     orderBy: { uploadedAt: 'asc' },
     take: 250,
     select: documentSelect,

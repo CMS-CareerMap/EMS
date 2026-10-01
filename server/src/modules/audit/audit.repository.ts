@@ -31,6 +31,12 @@ export async function appendUnscoped(row: AuditRow): Promise<void> {
   await unsafeDb.auditLog.create({ data: row })
 }
 
+/** What a company calls one of its roles, for a security event written without the name. */
+export async function roleNameOf(organizationId: string, key: string): Promise<string | null> {
+  const role = await unsafeDb.role.findUnique({ where: { organizationId_key: { organizationId, key } }, select: { name: true } })
+  return role?.name ?? null
+}
+
 /**
  * On a transaction of the unscoped client — for a pre-sign-in change that must
  * commit together with its row, like a recovery link issued from the terminal.
@@ -150,7 +156,25 @@ export async function leaveTypeNames(db: ScopedDb, codes: string[], ids: string[
   return db.leaveType.findMany({ where: { OR: [{ code: { in: codes } }, { id: { in: ids } }] }, select: { id: true, code: true, name: true } })
 }
 
+/** Every role's name today, by key — the company has only a handful. */
+export async function roleNames(db: ScopedDb) {
+  return db.role.findMany({ select: { key: true, name: true } })
+}
+
 /** A person's login, so "about Ravi" also finds his sign-ins and role changes. */
+/**
+ * Everybody the log can be filtered by: every login (as the one who did it)
+ * and every employee record, archived ones included (as the one it was about).
+ * The whole company, like the log itself.
+ */
+export async function filterPeople(db: ScopedDb) {
+  const [logins, employees] = await Promise.all([
+    db.membership.findMany({ select: { userId: true, user: { select: { email: true } }, employee: { select: { fullName: true } } } }),
+    db.employee.findMany({ select: { id: true, fullName: true, employeeCode: true } }),
+  ])
+  return { logins, employees }
+}
+
 export async function loginOf(db: ScopedDb, employeeId: string) {
   return db.employee.findFirst({
     where: { id: employeeId },

@@ -1,10 +1,12 @@
 import type { AppContext } from '../../platform/context'
 import type { TxDb } from '../../platform/db/transaction'
 import type { Permission } from '../../platform/authz/permissions'
-import { rolesHolding } from '../../platform/authz/roles'
-import { scopeFor } from '../../platform/authz/scope'
+import { readScopes } from '../../platform/authz/grant'
+import { isInScope } from '../../platform/authz/scopeWhere'
+import type { ScopedResource } from '../../platform/authz/scope'
 import { isEnabled, NOTIFICATION_EVENTS, type NotificationEvent } from '../../domain/notifications/events'
 import * as repo from './notification.repository'
+import * as roleRepo from '../roles/roles.repository'
 
 /**
  * Sending a notice — always from the server, always inside the transaction of
@@ -27,6 +29,13 @@ export type Recipients =
   | { employee: string }
   | { employees: readonly string[] }
   | { holding: Permission }
+  /**
+   * Whoever holds `permission` AND whose scope for `resource` reaches this
+   * employee — the same rule that decides whether they can open the thing the
+   * notice is about. A verifier who checks one department's documents is not
+   * told about another department's uploads.
+   */
+  | { reaching: { permission: Permission; resource: ScopedResource; employeeId: string } }
   | { leaveApproversOf: string }
   | { everybody: true }
 
@@ -48,20 +57,38 @@ async function resolve(tx: TxDb, to: Recipients): Promise<string[]> {
     return user ? [user] : []
   }
   if ('employees' in to) return [...(await repo.usersOfEmployees(tx, to.employees)).values()]
-  if ('holding' in to) return repo.usersWithRoles(tx, rolesHolding(to.holding))
+  // Found through the company's roles as they stand — a custom role given the
+  // permission on the Roles screen is told like a built-in one.
+  if ('holding' in to) {
+    const holders = await roleRepo.membershipsHolding(tx, to.holding)
+    return holders.filter((m) => m.status !== 'inactive').map((m) => m.userId)
+  }
   if ('everybody' in to) return repo.allUsers(tx)
+  if ('reaching' in to) return reaching(tx, to.reaching.permission, to.reaching.resource, to.reaching.employeeId)
 
-  // Whoever can decide this person's leave: every approver whose reach is the
-  // whole company, and their own manager if the manager may approve their team.
-  const approvers = rolesHolding('leave:approve')
-  const companyWide = approvers.filter((role) => scopeFor(role, 'leave') === 'ORGANIZATION')
-  const users = await repo.usersWithRoles(tx, companyWide)
-  const manager = await repo.managerOf(tx, to.leaveApproversOf)
-  if (manager && approvers.includes(manager.role)) users.push(manager.userId)
-  // Never the person the leave is for — they may not decide their own, even
-  // when somebody else filed it for them.
+  // Whoever can decide this person's leave: every approver whose leave scope
+  // reaches them — the whole company, their team (their reporting manager),
+  // or their department. A request somebody cannot open is not one to tell
+  // them about. Never the person the leave is for — they may not decide their
+  // own, even when somebody else filed it for them.
+  const users = await reaching(tx, 'leave:approve', 'leave', to.leaveApproversOf)
   const applicant = await repo.userOfEmployee(tx, to.leaveApproversOf)
   return users.filter((user) => user !== applicant)
+}
+
+/** Live logins holding `permission` whose `resource` scope reaches `employeeId`. */
+async function reaching(tx: TxDb, permission: Permission, resource: ScopedResource, employeeId: string): Promise<string[]> {
+  const [holders, place] = await Promise.all([roleRepo.membershipsHolding(tx, permission), repo.placeOf(tx, employeeId)])
+  if (!place) return []
+  return holders
+    .filter((m) => m.status !== 'inactive')
+    .filter((m) =>
+      isInScope(
+        { scope: readScopes(m.roleDef.scopes)[resource], employeeId: m.employee?.id ?? null, departmentId: m.employee?.departmentId ?? null },
+        place,
+      ),
+    )
+    .map((m) => m.userId)
 }
 
 /** Who is acting and in which company — all a notice needs to know of the caller. */

@@ -116,13 +116,14 @@ async function describe(ctx: AppContext, rows: repo.AuditLogRow[]): Promise<Audi
     if (row.entityType === 'leave_type' && row.entityId) leaveTypeIds.add(row.entityId)
   }
 
-  const [employees, memberships, logins, docTypes, components, leaveTypes] = await Promise.all([
+  const [employees, memberships, logins, docTypes, components, leaveTypes, roles] = await Promise.all([
     repo.employeesByIds(ctx.db, [...employeeIds]),
     repo.membershipsByIds(ctx.db, [...membershipIds]),
     repo.membershipsByUserIds(ctx.db, [...userIds]),
     repo.documentTypeLabels(ctx.db, [...docCodes]),
     repo.componentLabels(ctx.db, [...componentCodes]),
     repo.leaveTypeNames(ctx.db, [...leaveCodes], [...leaveTypeIds]),
+    repo.roleNames(ctx.db),
   ])
 
   const employeeName = new Map(employees.map((e) => [e.id, e.fullName]))
@@ -131,6 +132,7 @@ async function describe(ctx: AppContext, rows: repo.AuditLogRow[]): Promise<Audi
   const docLabel = new Map(docTypes.map((t) => [t.code, t.label]))
   const componentLabel = new Map(components.map((c) => [c.code, c.label]))
   const leaveName = new Map(leaveTypes.flatMap((t) => [[t.code, t.name], [t.id, t.name]] as [string, string][]))
+  const roleName = new Map(roles.map((r) => [r.key, r.name]))
   const lookup = <T>(map: Map<string, T>) => (key: unknown) => (typeof key === 'string' ? map.get(key) ?? null : null)
 
   const names: AuditNames = {
@@ -144,6 +146,7 @@ async function describe(ctx: AppContext, rows: repo.AuditLogRow[]): Promise<Audi
     component: lookup(componentLabel),
     leaveType: lookup(leaveName),
     report: (id) => (typeof id === 'string' && Object.hasOwn(REPORT_TITLES, id) ? REPORT_TITLES[id as keyof typeof REPORT_TITLES] : null),
+    role: lookup(roleName),
   }
 
   return rows.map((row) => {
@@ -153,6 +156,7 @@ async function describe(ctx: AppContext, rows: repo.AuditLogRow[]): Promise<Audi
     // The role written with the row; rows from before it was written show the
     // role now, which the screen says.
     const thenRole = str(d.actorRole) ?? (row.action === 'permission.denied' ? str(d.role) : null)
+    const thenName = str(d.actorRoleName) ?? (row.action === 'permission.denied' ? str(d.roleName) : null)
     return {
       id: row.id,
       at: row.createdAt,
@@ -160,7 +164,8 @@ async function describe(ctx: AppContext, rows: repo.AuditLogRow[]): Promise<Audi
         ? {
             userId: row.actorUserId,
             name: actor ? loginName(actor) : 'A removed login',
-            role: thenRole ? roleLabel(thenRole) : actor ? `${roleLabel(actor.role)} (now)` : '',
+            // "(now)" is today's role under today's name.
+            role: thenRole ? roleLabel(thenRole, names, thenName) : actor ? `${names.role(actor.role) ?? roleLabel(actor.role, names)} (now)` : '',
           }
         : null,
       action: row.action,
@@ -173,6 +178,20 @@ async function describe(ctx: AppContext, rows: repo.AuditLogRow[]): Promise<Audi
       requestId: row.requestId,
     }
   })
+}
+
+/**
+ * The "Done by" and "About" choices. From the log's own permission, not from
+ * the Users and Employees lists: whoever reads the log may hold neither, or
+ * reach only a department of them, while the log covers the whole company.
+ */
+export async function auditFilterPeople(ctx: AppContext) {
+  const { logins, employees } = await repo.filterPeople(ctx.db)
+  const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name)
+  return {
+    actors: logins.map((m) => ({ userId: m.userId, name: m.employee?.fullName ?? m.user.email })).sort(byName),
+    employees: employees.map((e) => ({ id: e.id, name: e.fullName, code: e.employeeCode })).sort(byName),
+  }
 }
 
 /** One page, newest first. `more` says whether "Load older" has anything to load. */

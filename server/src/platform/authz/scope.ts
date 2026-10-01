@@ -1,5 +1,3 @@
-import type { Role } from '@prisma/client'
-
 /**
  * WHOSE rows an action covers, once a permission has established that the
  * action is allowed at all.
@@ -20,38 +18,31 @@ import type { Role } from '@prisma/client'
  * And when a row falls outside scope, the answer is 404, never 403. A 403 says
  * "this exists and you may not see it", which confirms the row exists — enough
  * to enumerate the employee table one id at a time.
+ *
+ * Since Day 21 the scope of each role is the Super Admin's choice, stored with
+ * the role (Settings → Roles & Permissions); the starting values are in
+ * defaultRoles.ts. Every choice offered there is implemented in scopeWhere.ts.
+ * None is approximated.
  */
 export type DataScope = 'SELF' | 'DIRECT_REPORTS' | 'DEPARTMENT' | 'ORGANIZATION'
 
-/** The resources whose rows belong to a particular person. */
-export type ScopedResource = 'employee' | 'attendance' | 'leave' | 'payslip' | 'document'
+/** Every scope, widest last — the order the Roles screen offers them in. */
+export const DATA_SCOPES: readonly DataScope[] = ['SELF', 'DIRECT_REPORTS', 'DEPARTMENT', 'ORGANIZATION']
 
-const ORG: DataScope = 'ORGANIZATION'
-const TEAM: DataScope = 'DIRECT_REPORTS'
-const SELF: DataScope = 'SELF'
+export function isDataScope(value: unknown): value is DataScope {
+  return typeof value === 'string' && (DATA_SCOPES as readonly string[]).includes(value)
+}
 
 /**
- * Read from Role_Permission_Documentation.md §3.1.
+ * The resources whose rows belong to a particular person.
  *
- * Manager and RM get ORGANIZATION on `employee` because the matrix says
- * "👁 View" there without qualifying it to their team, while it explicitly says
- * "🟡 Team" for attendance and leave. They still cannot see salary, bank or tax
- * identity — those are separate permissions they do not hold — so this is the
- * staff directory, not the personnel file.
+ * `compensation` is a person's salary, scoped on its own since Day 21: who may
+ * see a salary is a narrower question than who may see the person's record,
+ * and the client wants HR to see salaries but never those of their seniors.
  */
-const SCOPES: Record<Role, Record<ScopedResource, DataScope>> = {
-  super_admin: { employee: ORG, attendance: ORG, leave: ORG, payslip: ORG, document: ORG },
-  admin: { employee: ORG, attendance: SELF, leave: SELF, payslip: SELF, document: ORG },
-  hr: { employee: ORG, attendance: ORG, leave: ORG, payslip: SELF, document: ORG },
-  manager: { employee: ORG, attendance: TEAM, leave: TEAM, payslip: SELF, document: SELF },
-  rm: { employee: ORG, attendance: TEAM, leave: TEAM, payslip: SELF, document: SELF },
-  accounts: { employee: ORG, attendance: SELF, leave: SELF, payslip: ORG, document: SELF },
-  employee: { employee: SELF, attendance: SELF, leave: SELF, payslip: SELF, document: SELF },
-}
+export type ScopedResource = 'employee' | 'attendance' | 'leave' | 'payslip' | 'document' | 'compensation'
 
-export function scopeFor(role: Role, resource: ScopedResource): DataScope {
-  return SCOPES[role][resource]
-}
+export const SCOPED_RESOURCES: readonly ScopedResource[] = ['employee', 'compensation', 'attendance', 'leave', 'payslip', 'document']
 
 /**
  * What a repository needs in order to filter. Built by the http layer from the
@@ -62,4 +53,10 @@ export interface ScopeContext {
   scope: DataScope
   /** The caller's own Employee row, when they have one. Null for an operator. */
   employeeId: string | null
+  /**
+   * The caller's department, for the DEPARTMENT scope. Optional so the many
+   * places that build an ORGANIZATION or SELF scope need not invent one;
+   * absent means "no department", which DEPARTMENT treats as their own rows.
+   */
+  departmentId?: string | null | undefined
 }

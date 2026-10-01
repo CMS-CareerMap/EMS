@@ -27,7 +27,10 @@ export const userRouter = Router()
 
 userRouter.use(authenticate)
 
-userRouter.get('/', authorize('user:invite'), getUsers)
+// The list is what every one of the four works from. Since Day 21 a role can
+// hold, say, "turn a login on or off" without "invite", and needs the list to
+// do it.
+userRouter.get('/', authorize(['user:invite', 'membership:role:assign', 'user:status:update', 'user:delete']), getUsers)
 userRouter.post('/invite', authorize('user:invite'), postInvite)
 userRouter.post('/:id/password-link', authorize('user:invite'), postPasswordLink)
 userRouter.put('/:id/role', authorize('membership:role:assign'), putRole)

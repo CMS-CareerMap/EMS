@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import type { Role } from '@prisma/client'
 import { PERMISSIONS, type Permission } from './permissions'
-import { permissionsFor, roleCan } from './roles'
-import { scopeFor } from './scope'
+import {
+  BUILT_IN_ROLE_KEYS,
+  defaultPermissionsFor as permissionsFor,
+  defaultRoleCan as roleCan,
+  defaultScopeFor as scopeFor,
+} from './defaultRoles'
 
 /**
  * The client's permission matrix, as a test.
@@ -12,11 +15,20 @@ import { scopeFor } from './scope'
  * when somebody widens a role — for a good reason, in a hurry, on a Friday —
  * the build says which line of the client's document they just contradicted.
  *
- * Read this as the specification and roles.ts as the implementation. If the two
- * disagree, the client decides which one is wrong, not us.
+ * Read this as the specification and defaultRoles.ts as the implementation. If
+ * the two disagree, the client decides which one is wrong, not us.
+ *
+ * Since Day 21 these are the roles every company STARTS with; the Super Admin
+ * may change them afterwards on the Roles screen. roles.test.ts checks that
+ * what a new company is actually given matches this file.
  */
 
-const ROLES: Role[] = ['super_admin', 'admin', 'hr', 'manager', 'rm', 'accounts', 'employee']
+type Role = string
+const ROLES: Role[] = [...BUILT_IN_ROLE_KEYS]
+
+it('the seven built-in roles are the ones the matrix names', () => {
+  expect([...ROLES].sort()).toEqual(['accounts', 'admin', 'employee', 'hr', 'manager', 'rm', 'super_admin'])
+})
 
 /**
  * §3.2 Action Permissions, transcribed verbatim.
@@ -122,6 +134,11 @@ const MATRIX: Record<string, { permission: Permission; allowed: Role[] }> = {
     permission: 'settings:update',
     allowed: ['super_admin'],
   },
+  // Day 21: the Roles & Permissions screen.
+  'Manage roles and permissions': {
+    permission: 'role:manage',
+    allowed: ['super_admin'],
+  },
 }
 
 describe('the client permission matrix (Role_Permission_Documentation §3.2)', () => {
@@ -197,9 +214,16 @@ describe('registry integrity', () => {
 
 describe('data scope (§3.1)', () => {
   it('confines an employee to their own rows everywhere', () => {
-    for (const resource of ['employee', 'attendance', 'leave', 'payslip', 'document'] as const) {
+    for (const resource of ['employee', 'compensation', 'attendance', 'leave', 'payslip', 'document'] as const) {
       expect(scopeFor('employee', resource)).toBe('SELF')
     }
+  })
+
+  it('lets the whole company’s salaries be seen only by those who pay them', () => {
+    // Day 21 gives salaries a scope of their own. Nothing changes for anybody:
+    // only Super Admin and Accounts hold employee:compensation:read at all.
+    const wide = ROLES.filter((role) => scopeFor(role, 'compensation') === 'ORGANIZATION')
+    expect(wide.sort()).toEqual(['accounts', 'super_admin'])
   })
 
   it('gives a manager their team for attendance and leave', () => {
@@ -214,7 +238,7 @@ describe('data scope (§3.1)', () => {
   })
 
   it('gives super_admin the organization everywhere', () => {
-    for (const resource of ['employee', 'attendance', 'leave', 'payslip', 'document'] as const) {
+    for (const resource of ['employee', 'compensation', 'attendance', 'leave', 'payslip', 'document'] as const) {
       expect(scopeFor('super_admin', resource)).toBe('ORGANIZATION')
     }
   })

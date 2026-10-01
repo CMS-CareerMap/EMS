@@ -145,7 +145,9 @@ export async function importAttendance(
   // so the rest of the file can still go in.
   const closed = await closedMonthKeys(ctx)
 
-  const employees = await repo.importableEmployees(ctx.db)
+  // Only the people the importer's attendance scope reaches; a code outside it
+  // reads like an unknown code, so the file cannot be used to probe who exists.
+  const employees = await repo.importableEmployees(ctx.db, ctx.scopeFor('attendance'))
   const byCode = new Map(employees.map((e) => [e.employeeCode.toLowerCase(), e]))
 
   const seen = new Map<string, number>()

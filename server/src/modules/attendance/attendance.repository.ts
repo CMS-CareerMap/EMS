@@ -2,6 +2,7 @@ import type { Prisma, AttendanceStatus, AttendanceSource } from '@prisma/client'
 import type { ScopedDb } from '../../platform/db/scoped'
 import type { TxDb } from '../../platform/db/transaction'
 import type { ScopeContext } from '../../platform/authz/scope'
+import { employeesInScope, ownedRowsInScope } from '../../platform/authz/scopeWhere'
 import { toDateColumn, type CalendarDate } from '../../domain/shared/dates'
 
 /**
@@ -13,33 +14,9 @@ import { toDateColumn, type CalendarDate } from '../../domain/shared/dates'
  * scope as a required argument, so it cannot be forgotten.
  */
 
+/** The data scope on attendance rows — one definition for every module (platform/authz/scopeWhere). */
 function scopeWhere(scope: ScopeContext): Prisma.AttendanceWhereInput {
-  switch (scope.scope) {
-    case 'ORGANIZATION':
-      return {}
-
-    case 'DIRECT_REPORTS':
-      if (!scope.employeeId) return IMPOSSIBLE
-      return {
-        OR: [
-          { employee: { reportingManagerId: scope.employeeId } },
-          { employeeId: scope.employeeId },
-        ],
-      }
-
-    case 'SELF':
-      if (!scope.employeeId) return IMPOSSIBLE
-      return { employeeId: scope.employeeId }
-
-    case 'DEPARTMENT':
-      // Unhandled rather than approximated. A scope that quietly falls through
-      // to "no filter" would widen access without failing any test.
-      throw new Error('DEPARTMENT scope is not implemented')
-  }
-}
-
-const IMPOSSIBLE: Prisma.AttendanceWhereInput = {
-  employeeId: { equals: '00000000-0000-0000-0000-000000000000' },
+  return ownedRowsInScope(scope)
 }
 
 /**
@@ -225,7 +202,10 @@ export async function daySummary(
       where: { AND: [scopeWhere(scope), { date: toDateColumn(date) }] },
       _count: { _all: true },
     }),
-    db.employee.count({ where: { archivedAt: null } }),
+    // The same people the counts are about. Counting the whole company here
+    // told a manager the company's headcount, and reported everybody outside
+    // their team as "not marked".
+    db.employee.count({ where: { AND: [employeeScopeWhere(scope), { archivedAt: null }] } }),
   ])
 
   const of = (status: AttendanceStatus) =>
@@ -296,27 +276,8 @@ export async function upsertDay(
   return findById(db, { scope: 'ORGANIZATION', employeeId: null }, row.id) as Promise<AttendanceRow>
 }
 
-/** Matches no employee. A uuid column can never hold this. */
-const NOBODY: Prisma.EmployeeWhereInput = { id: { equals: '00000000-0000-0000-0000-000000000000' } }
-
 /** The same data scope as `scopeWhere`, expressed on employees. */
-function employeeScopeWhere(scope: ScopeContext): Prisma.EmployeeWhereInput {
-  switch (scope.scope) {
-    case 'ORGANIZATION':
-      return {}
-
-    case 'DIRECT_REPORTS':
-      if (!scope.employeeId) return NOBODY
-      return { OR: [{ reportingManagerId: scope.employeeId }, { id: scope.employeeId }] }
-
-    case 'SELF':
-      if (!scope.employeeId) return NOBODY
-      return { id: scope.employeeId }
-
-    case 'DEPARTMENT':
-      throw new Error('DEPARTMENT scope is not implemented')
-  }
-}
+const employeeScopeWhere = employeesInScope
 
 /**
  * Everybody the caller may see who was employed on `day`, each with that
@@ -389,8 +350,16 @@ export async function replaceDay(db: TxDb, organizationId: string, employeeId: s
 }
 
 /** An active employee with the shift their day is measured against. */
-export async function findEmployeeWithShift(db: ScopedDb, employeeId: string) {
-  return db.employee.findFirst({ where: { id: employeeId, archivedAt: null }, include: { shift: true } })
+/**
+ * An employee still on the books, with their shift — if `scope` reaches them.
+ * Marking somebody's day is limited to the people one's attendance scope
+ * covers (Day 21): a role marking for its team marks its team's days only.
+ */
+export async function findEmployeeWithShift(db: ScopedDb, scope: ScopeContext, employeeId: string) {
+  return db.employee.findFirst({
+    where: { AND: [employeesInScope(scope), { id: employeeId, archivedAt: null }] },
+    include: { shift: true },
+  })
 }
 
 /** Today's row, with the shift that decides the break. */
@@ -407,9 +376,10 @@ export async function namesForTotals(db: ScopedDb, employeeIds: string[]) {
 }
 
 /** Everybody an import can match a code to, with the shift that measures their day. */
-export async function importableEmployees(db: ScopedDb) {
+/** Everybody an import may write days for: on the books, and within the importer's attendance scope. */
+export async function importableEmployees(db: ScopedDb, scope: ScopeContext) {
   return db.employee.findMany({
-    where: { archivedAt: null },
+    where: { AND: [employeesInScope(scope), { archivedAt: null }] },
     select: {
       id: true,
       employeeCode: true,

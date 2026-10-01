@@ -169,7 +169,7 @@ export async function markAttendance(ctx: AppContext, input: MarkInput) {
   // A day inside an approved or paid payroll is part of a signed-off month.
   await assertDaysOpen(ctx, [input.date], 'a change to attendance on that day')
 
-  const employee = await repo.findEmployeeWithShift(ctx.db, input.employeeId)
+  const employee = await repo.findEmployeeWithShift(ctx.db, ctx.scopeFor('attendance'), input.employeeId)
   if (!employee) throw NotFound('Employee not found')
 
   const expectedHours = employee.shift ? Number(employee.shift.expectedHours) : null

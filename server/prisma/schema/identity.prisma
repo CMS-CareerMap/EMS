@@ -8,14 +8,59 @@
 /// a User with no Employee), stops "remove user" from destroying payslips, and
 /// moves `role` off a row the employee can edit.
 
-enum Role {
-  super_admin
-  admin
-  hr
-  manager
-  rm
-  accounts
-  employee
+/// A role: what the people holding it may do, and whose information they reach.
+///
+/// A table rather than a list in code (Day 21), because the client wants the
+/// Super Admin to create roles and change what each one can do, without asking
+/// a developer. Settings → Roles & Permissions edits these rows.
+///
+/// Every company gets the seven built-in roles THE MOMENT IT IS CREATED, by a
+/// database trigger (migration 20261001…_roles_table). Not by application code:
+/// bootstrap, a test, a restore or a hand-written INSERT would each be a way to
+/// make a company whose logins point at roles that do not exist. The trigger's
+/// copy of the defaults is checked against `platform/authz/defaultRoles.ts` by
+/// roles.test.ts, so the two cannot drift.
+model Role {
+  id             String @id @default(uuid())
+  organizationId String
+
+  /// The role's name in code, in a login, and in the audit log. It never
+  /// changes, so renaming a role does not orphan the logins that hold it or the
+  /// history that recorded it. Custom roles get one made from their first name.
+  key         String
+  name        String
+  description String @default("")
+
+  /// The role this one comes under. Null only for the Super Admin role, at the
+  /// top. A person may give only a role below their own.
+  parentId String?
+
+  /// One of the seven seeded roles: edited and reset, never deleted.
+  builtIn Boolean @default(false)
+  /// The Super Admin role. Nobody can edit it, so nobody can lock the company
+  /// out of its own settings by editing it.
+  locked  Boolean @default(false)
+
+  /// Permission names (platform/authz/permissions.ts). Validated on every
+  /// write; a name the code no longer knows is ignored on read.
+  permissions String[]
+  /// Whose information the role reaches, per module:
+  /// { "employee": "ORGANIZATION", "leave": "DIRECT_REPORTS", … }.
+  /// A module missing here means the role's own rows only.
+  scopes Json
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// NO ACTION rather than RESTRICT: when a whole company is deleted, its roles
+  /// and their order go in the same statement, and NO ACTION checks at its end.
+  parent       Role?        @relation("RoleOrder", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children     Role[]       @relation("RoleOrder")
+  memberships  Membership[]
+
+  @@unique([organizationId, key])
+  @@index([parentId])
 }
 
 enum AccountStatus {
@@ -51,7 +96,11 @@ model Membership {
   userId         String
   organizationId String
 
-  role   Role          @default(employee)
+  /// The key of a Role in the same company. A database foreign key on
+  /// (organizationId, role), so a login can never hold a role that does not
+  /// exist — and a role somebody holds cannot be deleted, by the database
+  /// itself as well as by the service.
+  role   String        @default("employee")
   status AccountStatus @default(invited)
 
   createdAt DateTime @default(now()) @db.Timestamptz(3)
@@ -59,6 +108,7 @@ model Membership {
 
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  roleDef      Role         @relation(fields: [organizationId, role], references: [organizationId, key], onDelete: NoAction, onUpdate: NoAction)
   employee     Employee?
 
   @@unique([userId, organizationId])

@@ -90,6 +90,15 @@ export async function refreshSession(
     throw Unauthorized('Your session has expired. Please sign in again.')
   }
 
+  // Ended on purpose — signed out, switched off, or ended by an administrator
+  // — and never rotated: presenting it again is a browser that has not caught
+  // up, not a copy. Refused, without the theft alarm, which used to fire for
+  // every person switched off and fill the audit log with false incidents.
+  if (stored.revokedAt && !stored.replacedById) {
+    logger.warn('Refresh rejected', { userId: stored.userId, reason: 'ended' })
+    throw Unauthorized('Your session has ended. Please sign in again.')
+  }
+
   if (stored.revokedAt) {
     const killed = await sessions.revokeFamily(stored.familyId)
     const version = await sessions.bumpTokenVersion(stored.userId)

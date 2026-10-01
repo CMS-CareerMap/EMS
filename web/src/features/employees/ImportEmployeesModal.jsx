@@ -132,6 +132,10 @@ export default function ImportEmployeesModal({ onClose }) {
               {fileError && (
                 <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{fileError}</p>
               )}
+              {/* A refused preview or import, in the server's words, where the person is looking. */}
+              {importer.isError && (
+                <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{importer.error?.message}</p>
+              )}
 
               {preview && (
                 <div className="space-y-3">

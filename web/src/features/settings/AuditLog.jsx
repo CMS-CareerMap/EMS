@@ -2,9 +2,7 @@ import { useState } from 'react'
 import { Download, Loader2, RotateCw, X } from 'lucide-react'
 import { Section, inpSm } from './ui'
 import DataState, { QueryError } from '../../components/DataState'
-import { useAuditLog, downloadAuditLog } from '../../hooks/useAuditLog'
-import { useUsers } from '../../hooks/useUsers'
-import { useEmployees } from '../../hooks/useEmployees'
+import { useAuditLog, useAuditPeople, downloadAuditLog } from '../../hooks/useAuditLog'
 import { useDownload } from '../../hooks/useDownload'
 import { useAuthStore } from '../../stores/authStore'
 import { optionsNote } from '../../lib/optionsNote'
@@ -36,9 +34,8 @@ export default function AuditLog() {
   const ready = !backwards && !typing
 
   const log = useAuditLog(filters, { enabled: ready })
-  const users = useUsers()
   // Everybody who has ever been here: the log is asked about people who left too.
-  const employees = useEmployees({ includeArchived: true })
+  const people = useAuditPeople()
   const { busy, start } = useDownload()
 
   const filtered = Object.values(filters).some(Boolean)
@@ -50,8 +47,8 @@ export default function AuditLog() {
   // A failed "Load older" is said beside the button; the rows already loaded stay.
   const olderFailed = log.isFetchNextPageError
   const listQuery = olderFailed ? { ...log, isError: false } : log
-  const people = [...(users.data ?? [])].sort((a, b) => (a.full_name || a.email).localeCompare(b.full_name || b.email))
-  const staff = [...(employees.data ?? [])].sort((a, b) => (a.full_name ?? '').localeCompare(b.full_name ?? ''))
+  const actors = people.data?.actors ?? []
+  const staff = people.data?.employees ?? []
 
   return (
     <Section title="Audit log" desc="Every sign-in, refusal, change, download and export, newest first. Nothing here can be changed or deleted.">
@@ -75,15 +72,15 @@ export default function AuditLog() {
           <label className="text-xs font-medium text-gray-600 space-y-1">
             <span>Done by</span>
             <select value={filters.actor} onChange={set('actor')} className={`${inpSm} w-full`}>
-              <option value="">{optionsNote(users, 'Anybody')}</option>
-              {people.map((u) => <option key={u.user_id} value={u.user_id}>{u.full_name || u.email}</option>)}
+              <option value="">{optionsNote(people, 'Anybody')}</option>
+              {actors.map((u) => <option key={u.user_id} value={u.user_id}>{u.name}</option>)}
             </select>
           </label>
           <label className="text-xs font-medium text-gray-600 space-y-1">
             <span>About</span>
             <select value={filters.employee} onChange={set('employee')} className={`${inpSm} w-full`}>
-              <option value="">{optionsNote(employees, 'Anyone')}</option>
-              {staff.map((e) => <option key={e.id} value={e.id}>{e.full_name}{e.employee_id ? ` (${e.employee_id})` : ''}</option>)}
+              <option value="">{optionsNote(people, 'Anyone')}</option>
+              {staff.map((e) => <option key={e.id} value={e.id}>{e.name}{e.code ? ` (${e.code})` : ''}</option>)}
             </select>
           </label>
         </div>

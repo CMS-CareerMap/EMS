@@ -47,8 +47,26 @@ export const NAV_GROUPS = [
     label: 'System',
     items: [
       // Any of these. HR keeps leave types and holidays here without holding
-      // company settings; the tabs inside are filtered the same way.
-      { to: '/settings', icon: Settings, label: 'Settings', permission: ['settings:read', 'leave:type:manage', 'holiday:manage', 'document:type:manage', 'audit:read'] },
+      // company settings; the tabs inside are filtered the same way. Since
+      // Day 21 a role can be given user management, or the Super Admin's Roles
+      // screen, without company settings — so those open it too.
+      {
+        to: '/settings',
+        icon: Settings,
+        label: 'Settings',
+        permission: [
+          'settings:read',
+          'leave:type:manage',
+          'holiday:manage',
+          'document:type:manage',
+          'audit:read',
+          'user:invite',
+          'user:status:update',
+          'user:delete',
+          'membership:role:assign',
+          'role:manage',
+        ],
+      },
     ],
   },
 ]

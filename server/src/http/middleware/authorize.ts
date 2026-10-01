@@ -43,8 +43,9 @@ export function authorize(permission: Permission | readonly Permission[]): Reque
         organizationId: ctx.organizationId,
         actorUserId: ctx.userId,
         actorRole: ctx.role,
+        actorRoleName: ctx.roleName,
         action: 'permission.denied',
-        details: { permission, method: req.method, path: req.originalUrl, role: ctx.role },
+        details: { permission, method: req.method, path: req.originalUrl, role: ctx.role, roleName: ctx.roleName },
         requestId: ctx.requestId,
       })
       throw Forbidden('You do not have permission to do that')

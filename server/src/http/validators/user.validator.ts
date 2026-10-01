@@ -1,15 +1,27 @@
 import { z } from 'zod'
+import { SUPER_ADMIN_ROLE } from '../../platform/authz/defaultRoles'
 
 /**
  * User management input.
  *
- * `super_admin` is absent from the assignable roles on purpose. Nothing stops a
+ * A role is given by its key. Since Day 21 roles are the company's own list,
+ * so the validator checks only the shape of a key; the service checks that it
+ * is one of the company's roles, and that the caller may give it.
+ *
+ * `super_admin` is refused on the invite form on purpose. Nothing stops a
  * super_admin from promoting someone to super_admin — that is a legitimate act
  * and the policy allows it — but it must be a deliberate choice, and leaving it
  * out of the invite form means a typo or a copied payload cannot produce one.
- * Promotion happens through the role endpoint, where the three invariants run.
+ * Promotion happens through the role endpoint, where the invariants run.
  */
-const assignableRole = z.enum(['admin', 'hr', 'manager', 'rm', 'accounts', 'employee'])
+export const roleKey = z
+  .string()
+  .trim()
+  .regex(/^[a-z][a-z0-9_]{1,39}$/, 'That is not a role')
+
+const assignableRole = roleKey.refine((key) => key !== SUPER_ADMIN_ROLE, {
+  message: 'Make somebody a Super Admin from Users & Roles, not with an invitation',
+})
 
 export const inviteUserSchema = z
   .object({
@@ -26,7 +38,7 @@ export const changeRoleSchema = z
     // Every role here, including super_admin: a super_admin handing over to a
     // successor before leaving is exactly what this endpoint is for. The
     // invariants in user.policy are what keep it safe.
-    role: z.enum(['super_admin', 'admin', 'hr', 'manager', 'rm', 'accounts', 'employee']),
+    role: roleKey,
   })
   .strict()
 
@@ -41,3 +53,5 @@ export const changeStatusSchema = z
 export const membershipIdSchema = z.object({
   id: z.uuid('That is not a valid user id'),
 })
+
+export { assignableRole }

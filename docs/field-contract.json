@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-09-30",
+  "generatedAt": "2026-10-01",
   "note": "Field names the frontend reads, pinned so the API cannot quietly stop sending one. A serializer that stops sending one of these will render an empty cell rather than an error, so check new serializers against this list. Regenerate with: cd server && npm run field-contract",
-  "fieldCount": 160,
+  "fieldCount": 165,
   "allFields": [
     "absent_days",
     "absent_today",
@@ -24,12 +24,14 @@
     "bank_verification_status",
     "beneficiary_name",
     "break_minutes",
+    "built_in",
     "by_department",
     "calculated_at",
     "carry_forward",
     "carry_forward_cap",
     "carry_later",
     "category_label",
+    "changed_from_default",
     "check_in",
     "check_out",
     "component_code",
@@ -107,6 +109,7 @@
     "only_verified",
     "paid_days",
     "paid_on",
+    "parent_key",
     "pay_basis_days",
     "pay_date",
     "pay_day",
@@ -136,8 +139,10 @@
     "reporting_manager_id",
     "reporting_manager_name",
     "request_id",
+    "role_name",
     "salary_effective_from",
     "sandwich_rule",
+    "scope_question",
     "shift_id",
     "start_time",
     "submitted_by_employee",
@@ -279,6 +284,7 @@
       "pt_state",
       "reporting_manager_designation",
       "reporting_manager_name",
+      "role_name",
       "salary_effective_from",
       "start_time"
     ],
@@ -468,13 +474,20 @@
       "sandwich_rule",
       "tds_enabled"
     ],
+    "web/src/features/settings/RolesSettings.jsx": [
+      "built_in",
+      "changed_from_default",
+      "parent_key",
+      "scope_question"
+    ],
     "web/src/features/settings/UserAccess.jsx": [
       "employee_code",
       "expires_at",
       "full_name"
     ],
     "web/src/features/settings/UsersSettings.jsx": [
-      "full_name"
+      "full_name",
+      "role_name"
     ],
     "web/src/features/settings/WeeklyOffPicker.jsx": [
       "weekly_off_days"
@@ -512,6 +525,9 @@
     "web/src/hooks/usePayroll.js": [
       "max_upload_mb",
       "tds_enabled"
+    ],
+    "web/src/hooks/useRoles.js": [
+      "parent_key"
     ],
     "web/src/hooks/useSettings.js": [
       "approved_leave_affected"

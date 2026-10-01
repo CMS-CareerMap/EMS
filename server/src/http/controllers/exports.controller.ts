@@ -67,7 +67,8 @@ export const getEmployeesExport: RequestHandler = async (req, res) => {
       e.status as CsvCell,
     ]
     // Blank when not recorded — never 0, which would read as a salary of nothing.
-    if (withPay) line.push((e.ctc as CsvCell) ?? null)
+    // Left out by the salary scope (Day 21) says so, rather than looking unrecorded.
+    if (withPay) line.push(Object.hasOwn(e, 'ctc') ? ((e.ctc as CsvCell) ?? null) : 'Not shown to you')
     return line
   })
 

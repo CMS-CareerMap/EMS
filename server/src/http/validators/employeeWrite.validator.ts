@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { assignableRole } from './user.validator'
 
 /**
  * Creating and editing employees.
@@ -65,7 +66,9 @@ const statutorySchema = z
 const loginSchema = z
   .object({
     email: z.email('That is not a valid email address'),
-    role: z.enum(['admin', 'hr', 'manager', 'rm', 'accounts', 'employee']),
+    // One of the company's roles, by key; the service checks it exists and
+    // that the caller may give it. Never super_admin from this form.
+    role: assignableRole,
   })
   .strict()
 
