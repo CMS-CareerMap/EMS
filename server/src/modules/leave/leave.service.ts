@@ -231,8 +231,13 @@ export async function applyForLeave(ctx: AppContext, input: ApplyInput): Promise
     // lock, the second waits and then reads what the first left behind.
     await lockFor(tx, `leave-apply:${employeeId}`)
 
-    const held = await repo.pendingDays(tx, employeeId, input.leaveTypeId, preview.leaveYear)
-    if (preview.balance.balance - held < preview.days) {
+    // Both read again under the lock: the balance too, because HR may have
+    // corrected it between the preview and now.
+    const [balanceNow, held] = await Promise.all([
+      repo.balanceOn(tx, employeeId, input.leaveTypeId, preview.leaveYear),
+      repo.pendingDays(tx, employeeId, input.leaveTypeId, preview.leaveYear),
+    ])
+    if (balanceNow - held < preview.days) {
       throw Conflict('Your balance changed while you were applying. Check it and try again.')
     }
 

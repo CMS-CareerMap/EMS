@@ -8,7 +8,7 @@
 
 > **Version 2.** This guide was reviewed against the live repository and the npm registry by five specialist reviewers, who found 113 problems in version 1 — including a toolchain mismatch that would have stopped work on Day 2. Every correction is applied below.
 
-**Reference:** [SYSTEM_DESIGN_AND_AUDIT.md](SYSTEM_DESIGN_AND_AUDIT.md) — the 438 problems in the current code · [ROADMAP.md](ROADMAP.md) — strategy and the later SaaS phase
+**Reference:** [SYSTEM_DESIGN_AND_AUDIT.md](SYSTEM_DESIGN_AND_AUDIT.md) — the 438 problems in the current code · ROADMAP.md (removed on 30 Sep 2026; it is in git history) — strategy and the later SaaS phase
 
 ---
 
@@ -1119,7 +1119,7 @@ Tagging `v1.0` is not go-live. Budget one more week.
 | **A written runbook** | How to run payroll, what to do when it fails, who to call |
 | **Then switch off the old system** | Not before the parallel month reconciles |
 
-**Items explicitly deferred past v1, so nobody assumes they exist:** computed TDS with declarations and Form 16 · Form 24Q and ECR file generation · camelCase API migration · signed URLs for files · the SaaS phase in [ROADMAP.md](ROADMAP.md).
+**Items explicitly deferred past v1, so nobody assumes they exist:** computed TDS with declarations and Form 16 · Form 24Q and ECR file generation · camelCase API migration · signed URLs for files · the SaaS phase in ROADMAP.md (removed on 30 Sep 2026; it is in git history).
 
 ---
 

@@ -22,6 +22,7 @@ import { companyDocumentsRouter, documentTypesRouter, employeeDocumentsRouter } 
 import { notificationsRouter } from './http/routes/notifications.routes'
 import { reportsRouter } from './http/routes/reports.routes'
 import { auditRouter } from './http/routes/audit.routes'
+import { leaveBalancesRouter } from './http/routes/leaveBalances.routes'
 
 /**
  * Assembles the app but does not listen. main.ts owns the port, so tests can
@@ -68,6 +69,7 @@ export function createApp() {
   app.use('/api/settings', settingsRouter)
   app.use('/api/attendance', attendanceRouter)
   app.use('/api/leave-requests', leaveRouter)
+  app.use('/api/leave-balances', leaveBalancesRouter)
   app.use('/api/dashboard', dashboardRouter)
   app.use('/api/payroll', payrollRouter)
   app.use('/api/payroll-runs', payrollRunsRouter)

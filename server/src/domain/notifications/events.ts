@@ -43,6 +43,11 @@ export const NOTIFICATION_EVENTS = {
     label: 'Approved leave is reversed',
     tells: 'The employee whose leave it was',
   },
+  'leave.balance_changed': {
+    kind: 'leave', group: 'Leave', optional: true,
+    label: 'Leave is added to or taken from a balance',
+    tells: 'The employee whose balance it is',
+  },
   'payroll.awaiting_approval': {
     kind: 'payroll', group: 'Payroll', optional: true,
     label: 'A payroll run is ready to approve',

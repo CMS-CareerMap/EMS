@@ -7,15 +7,13 @@ import { join, relative } from 'node:path'
  *
  *   npm run field-contract
  *
- * The problem this solves is specific. Over the next twelve days each module's
- * data moves from Supabase to our own API, and every one of those swaps is an
+ * The problem this solves is specific. Every change to a serializer is an
  * opportunity to drop a field. The page will not crash — it will render
  * `undefined`, which looks like an empty cell, and nobody notices until the
  * client asks why the designation column is blank.
  *
- * So the field names are pinned NOW, while the old code is still the source of
- * truth about what the UI needs. A serializer written on Day 8 can then be
- * checked against this file rather than against somebody's memory.
+ * So the field names the UI reads are pinned in one file, and a serializer can
+ * be checked against it rather than against somebody's memory.
  *
  * It is a heuristic, not a parser: it looks for snake_case property reads,
  * which in this codebase means a column name coming back from the database.

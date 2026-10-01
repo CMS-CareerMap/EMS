@@ -2,7 +2,7 @@
 
 **Product:** CareerMap Solutions' single-company HR & Payroll system
 **Purpose:** make this product genuinely production-grade and client-delighting, before any multi-tenant/SaaS work is considered
-**Companion docs:** [ROADMAP.md](ROADMAP.md) (strategy) · [EMS_BUILD_GUIDE.md](EMS_BUILD_GUIDE.md) (current architecture + build plan) · [Role_Permission_Documentation.md](Role_Permission_Documentation.md) (intended RBAC)
+**Companion docs:** ROADMAP.md (removed on 30 Sep 2026; it is in git history) (strategy) · [EMS_BUILD_GUIDE.md](EMS_BUILD_GUIDE.md) (current architecture + build plan) · [Role_Permission_Documentation.md](Role_Permission_Documentation.md) (intended RBAC)
 
 ---
 
@@ -398,4 +398,4 @@ Employee self check-in/out · an employee route to their own payslip · real PDF
 
 ## 10. Explicitly out of scope
 
-Multi-tenancy, `company_id`, subscriptions, licensing, billing, a CMS platform-admin portal, country-configurable payroll, custom role builders. Those belong to the future SaaS phase in [ROADMAP.md](ROADMAP.md) §5. Starting any of them before the above is done would be a mistake.
+Multi-tenancy, `company_id`, subscriptions, licensing, billing, a CMS platform-admin portal, country-configurable payroll, custom role builders. Those belong to the future SaaS phase in ROADMAP.md (removed on 30 Sep 2026; it is in git history) §5. Starting any of them before the above is done would be a mistake.

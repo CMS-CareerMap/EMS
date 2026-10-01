@@ -253,3 +253,92 @@ export async function requestFacts(db: TxDb, id: string) {
     },
   })
 }
+
+// ── Balances across people (Leave → Team Balances), and granting a year ──────
+
+function peopleWhere(scope: ScopeContext): Prisma.EmployeeWhereInput {
+  switch (scope.scope) {
+    case 'ORGANIZATION':
+      return {}
+    case 'DIRECT_REPORTS':
+      if (!scope.employeeId) return { id: { in: [] } }
+      return { OR: [{ reportingManagerId: scope.employeeId }, { id: scope.employeeId }] }
+    case 'SELF':
+      if (!scope.employeeId) return { id: { in: [] } }
+      return { id: scope.employeeId }
+    case 'DEPARTMENT':
+      throw new Error('DEPARTMENT scope is not implemented')
+  }
+}
+
+/** Everybody on the payroll whom this person may see, by name. People who have left are archived and not here. */
+export async function peopleInScope(db: ScopedDb | TxDb, scope: ScopeContext) {
+  return db.employee.findMany({
+    where: { AND: [peopleWhere(scope), { archivedAt: null }] },
+    select: {
+      id: true,
+      employeeCode: true,
+      fullName: true,
+      dateOfJoining: true,
+      lastWorkingDate: true,
+      status: true,
+      department: { select: { name: true } },
+    },
+    orderBy: { fullName: 'asc' },
+  })
+}
+
+export async function activeLeaveTypes(db: ScopedDb | TxDb) {
+  return db.leaveType.findMany({
+    where: { archivedAt: null },
+    select: { id: true, code: true, name: true, annualQuota: true, carryForward: true, carryForwardCap: true },
+    orderBy: { code: 'asc' },
+  })
+}
+
+/** Each person's ledger total per type for one leave year. */
+export async function ledgerTotals(db: ScopedDb | TxDb, employeeIds: string[], leaveYear: number) {
+  if (employeeIds.length === 0) return []
+  return db.leaveLedgerEntry.groupBy({
+    by: ['employeeId', 'leaveTypeId'],
+    where: { employeeId: { in: employeeIds }, leaveYear },
+    _sum: { days: true },
+  })
+}
+
+/** Each person's days applied for and not yet decided, per type. */
+export async function pendingTotals(db: ScopedDb | TxDb, employeeIds: string[], leaveYear: number) {
+  if (employeeIds.length === 0) return []
+  return db.leaveRequest.groupBy({
+    by: ['employeeId', 'leaveTypeId'],
+    where: { employeeId: { in: employeeIds }, leaveYear, status: 'pending' },
+    _sum: { days: true },
+  })
+}
+
+/** This year's grants already made — what a new grant must not repeat. */
+export async function grantsMade(db: ScopedDb | TxDb, leaveYear: number) {
+  return db.leaveLedgerEntry.findMany({
+    where: { leaveYear, reason: { in: ['opening_grant', 'carry_forward'] } },
+    select: { employeeId: true, leaveTypeId: true, reason: true },
+  })
+}
+
+export async function addLedgerEntries(db: TxDb, rows: Prisma.LeaveLedgerEntryCreateManyInput[]): Promise<number> {
+  if (rows.length === 0) return 0
+  return (await db.leaveLedgerEntry.createMany({ data: rows })).count
+}
+
+/** One person's ledger total for a type, read on the transaction that is about to add to it. */
+export async function balanceOn(db: TxDb, employeeId: string, leaveTypeId: string, leaveYear: number): Promise<number> {
+  const result = await db.leaveLedgerEntry.aggregate({ where: { employeeId, leaveTypeId, leaveYear }, _sum: { days: true } })
+  return result._sum.days ? Number(result._sum.days) : 0
+}
+
+export async function activeEmployee(db: ScopedDb, id: string) {
+  return db.employee.findFirst({ where: { id, archivedAt: null }, select: { id: true, fullName: true } })
+}
+
+export async function activeLeaveType(db: ScopedDb, id: string) {
+  return db.leaveType.findFirst({ where: { id, archivedAt: null }, select: { id: true, code: true, name: true } })
+}

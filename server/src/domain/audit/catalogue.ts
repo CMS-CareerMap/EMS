@@ -79,6 +79,8 @@ export const AUDIT_ACTIONS = {
   'leave.approved': { label: 'Leave approved', category: 'time' },
   'leave.rejected': { label: 'Leave rejected', category: 'time' },
   'leave.reversed': { label: 'Leave reversed', category: 'time' },
+  'leave.granted': { label: 'Leave year granted', category: 'time' },
+  'leave.balance_adjusted': { label: 'Leave balance corrected', category: 'time' },
   'attendance.marked': { label: 'Attendance marked', category: 'time' },
   'attendance.imported': { label: 'Attendance imported', category: 'time' },
   // Company rules
@@ -435,6 +437,14 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
       return `Approved ${leave()} for ${who()}${d.fromDate ? `, ${day(d.fromDate)} to ${day(d.toDate)}` : ''}`
     case 'leave.rejected':
       return `Rejected ${who()}’s request for ${leave()}`
+    case 'leave.granted':
+      return `Granted the ${text(d.label) ?? 'year’s'} leave: ${count(d.days, 'day')} to ${count(d.people, 'person', 'people')}`
+    case 'leave.balance_adjusted': {
+      const n = Number(d.days)
+      const amount = count(Number.isFinite(n) ? Math.abs(n) : NaN, 'day')
+      const what = text(d.leaveTypeName) ?? 'leave'
+      return `${n < 0 ? 'Took' : 'Added'} ${amount} of ${what} ${n < 0 ? 'from' : 'to'} ${who()}’s balance${typeof d.balanceAfter === 'number' ? `, now ${d.balanceAfter}` : ''}${text(d.note) ? ` — “${text(d.note)}”` : ''}`
+    }
     case 'leave.reversed':
       return `Reversed ${who()}’s approved leave, returning ${count(d.daysReturned, 'day')}`
     case 'attendance.marked':
