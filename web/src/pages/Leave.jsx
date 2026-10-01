@@ -2,9 +2,10 @@ import { createElement, useState, useMemo } from 'react'
 import { toast } from 'sonner'
 import {
   CheckCircle, XCircle, Clock, CalendarDays, Plus,
-  Search, ChevronRight, Palmtree, Filter, Undo2, Ban,
+  Search, ChevronRight, Palmtree, Filter, Undo2, Ban, Users,
 } from 'lucide-react'
 import ApplyLeaveModal from '../features/leave/ApplyLeaveModal'
+import TeamBalances from '../features/leave/TeamBalances'
 import { useLeaveRequests, useLeaveBalances, useHolidays, useApplyLeave, useUpdateLeaveStatus, useWithdrawLeave, useReverseLeave } from '../hooks/useLeave'
 import { useAuthStore } from '../stores/authStore'
 import { calendarDayIn, formatDay, formatDayOf } from '../lib/dates'
@@ -42,8 +43,8 @@ const HOLIDAY_TYPE = {
 }
 
 
-const TABS = ['requests', 'balance', 'holidays']
-const TAB_LABELS = { requests: 'Leave Requests', balance: 'Leave Balance', holidays: 'Holiday Calendar' }
+const TABS = ['requests', 'team', 'balance', 'holidays']
+const TAB_LABELS = { requests: 'Leave Requests', team: 'Team Balances', balance: 'Leave Balance', holidays: 'Holiday Calendar' }
 const STATUS_FILTER = ['all', 'pending', 'approved', 'rejected', 'cancelled']
 
 // ─── Leave Requests tab ───────────────────────────────────────────────────────
@@ -260,11 +261,10 @@ function RequestsTab({ query, onApprove, onReject, onWithdraw, onReverse, isMana
  * company that sets casual leave to fifteen days got bars that were quietly
  * wrong. Every figure below now comes from the server, including the quota.
  *
- * The table also used to list EVERY employee. That view belongs to HR and needs
- * an endpoint that returns balances for many people; today's returns the
- * caller's own. Showing one person's numbers under a heading that says
- * "per employee" would be worse than showing them honestly, so the heading
- * changed too. The HR view is noted for a later day rather than faked.
+ * The table also used to list EVERY employee under a heading that said "per
+ * employee", while showing only the caller's own numbers. This tab is the
+ * person's own; everybody's is the Team Balances tab, for whoever decides
+ * leave, with the year's grant and corrections for HR.
  */
 function BalanceTab() {
   // No arguments: the server decides whose balances these are. Passing a user
@@ -461,7 +461,9 @@ export default function Leave() {
   // page opened.
   const hasEmployee = useAuthStore((state) => Boolean(state.profile))
   const canApply = useAuthStore((state) => state.can('leave:apply')) && hasEmployee
-  const tabs = hasEmployee ? TABS : TABS.filter((t) => t !== 'balance')
+  // Everybody's balances go with deciding leave; the scope narrows a manager to their team.
+  const seesTeam = isManagement
+  const tabs = TABS.filter((t) => (t !== 'balance' || hasEmployee) && (t !== 'team' || seesTeam))
   // Same: scoping moved to the server. HR sees the company, a manager their
   // direct reports, an employee their own.
   const requests = useLeaveRequests()
@@ -528,15 +530,17 @@ export default function Leave() {
         </div>
 
         {/* Tabs */}
-        <div className="flex items-center gap-1 border-b border-gray-200">
+        {/* Scrolls sideways on a phone rather than pushing the page wider. */}
+        <div className="flex items-center gap-1 border-b border-gray-200 overflow-x-auto">
           {tabs.map((t) => (
             <button key={t} onClick={() => setTab(t)}
-              className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px flex items-center gap-2
+              className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px flex items-center gap-2 whitespace-nowrap shrink-0
                 ${tab === t
                   ? 'border-blue-600 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}>
               {t === 'requests' && <CalendarDays className="w-4 h-4" />}
+              {t === 'team' && <Users className="w-4 h-4" />}
               {t === 'balance' && <ChevronRight className="w-4 h-4" />}
               {t === 'holidays' && <Palmtree className="w-4 h-4" />}
               {TAB_LABELS[t]}
@@ -553,6 +557,7 @@ export default function Leave() {
             onWithdraw={setWithdrawing} onReverse={(req) => { setReverseNote(''); setReversing(req) }}
             isManagement={isManagement} myEmployeeId={myEmployeeId} />
         )}
+        {tab === 'team' && seesTeam && <TeamBalances />}
         {tab === 'balance' && hasEmployee && <BalanceTab />}
         {tab === 'holidays' && <HolidaysTab />}
       </div>

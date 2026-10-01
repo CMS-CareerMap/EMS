@@ -164,3 +164,49 @@ export function useHolidays(year) {
       (await api.get(year ? `/holidays?year=${year}` : '/holidays')).data,
   })
 }
+
+// ── Leave → Team Balances ─────────────────────────────────────────────────────
+
+/**
+ * Everybody's balances this person may see — the company for HR and the Super
+ * Admin, their team for a manager — for one leave year (this one when left out).
+ * `waiting` is how many people have not had the year's grant; null for anybody
+ * who may not grant it.
+ */
+export function useTeamBalances(leaveYear, { enabled = true } = {}) {
+  return useQuery({
+    queryKey: ['leave', 'team-balances', leaveYear ?? 'current'],
+    queryFn: async () => (await api.get(leaveYear ? `/leave-balances?year=${leaveYear}` : '/leave-balances')).data,
+    enabled,
+    // Switching years keeps the table in place until the other year arrives.
+    placeholderData: (previous) => previous,
+  })
+}
+
+/** What "Grant leave" would do, read fresh each time the dialog opens. */
+export function useGrantPreview(leaveYear, { enabled = true } = {}) {
+  return useQuery({
+    queryKey: ['leave', 'grant-preview', leaveYear],
+    queryFn: async () => (await api.get(`/leave-balances/grant-preview?year=${leaveYear}`)).data,
+    enabled: enabled && Boolean(leaveYear),
+    staleTime: 0,
+  })
+}
+
+export function useGrantLeave() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ leaveYear }) => (await api.post('/leave-balances/grant', { leaveYear })).data,
+    onSuccess: () => invalidateAll(queryClient),
+  })
+}
+
+/** One correction: `days` positive adds, negative takes away; `note` is shown to the employee. */
+export function useAdjustBalance() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ employeeId, leaveTypeId, leaveYear, days, note }) =>
+      (await api.post('/leave-balances/adjustments', { employeeId, leaveTypeId, leaveYear, days, note })).data,
+    onSuccess: () => invalidateAll(queryClient),
+  })
+}

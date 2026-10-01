@@ -16,8 +16,10 @@ import Dialog from './Dialog'
  *     Enter does nothing harmful.
  *
  * `onConfirm` returns a promise — usually a mutation's mutateAsync.
+ * `disabled` holds the confirm button — while what it confirms is still
+ * loading, or when there is nothing to do.
  */
-export default function ConfirmDialog({ title, children, confirmLabel = 'Confirm', danger = false, onConfirm, onClose }) {
+export default function ConfirmDialog({ title, children, confirmLabel = 'Confirm', danger = false, disabled = false, onConfirm, onClose }) {
   const [busy, setBusy] = useState(false)
 
   const confirm = async () => {
@@ -43,7 +45,7 @@ export default function ConfirmDialog({ title, children, confirmLabel = 'Confirm
           className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-60">
           Cancel
         </button>
-        <button type="button" onClick={confirm} disabled={busy} autoFocus={!danger}
+        <button type="button" onClick={confirm} disabled={busy || disabled} autoFocus={!danger}
           className={`px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-60 ${danger ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
           {busy ? 'Working…' : confirmLabel}
         </button>

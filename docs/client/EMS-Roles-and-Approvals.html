@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EMS — Roles and Approvals</title>
+<style>
+  :root { --ink: #1f2937; --muted: #6b7280; --line: #e5e7eb; --soft: #f8fafc; --brand: #1d4ed8; --no: #b91c1c; }
+  @page { size: A4; margin: 16mm 14mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #fff; color: var(--ink); font: 14px/1.6 "Segoe UI", Arial, sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 20px 48px; }
+  h1 { font-size: 26px; margin: 0 0 4px; color: #0f172a; }
+  h2 { font-size: 18px; margin: 32px 0 10px; padding-bottom: 6px; border-bottom: 2px solid var(--brand); color: #0f172a; break-after: avoid; }
+  p { margin: 6px 0 10px; }
+  ul, ol { margin: 6px 0 12px; padding-left: 22px; }
+  li { margin: 0 0 6px; }
+  .sub { color: var(--muted); margin: 0 0 18px; }
+  .box { border: 1px solid var(--line); background: var(--soft); border-radius: 10px; padding: 12px 16px; margin: 12px 0; break-inside: avoid; }
+  .box.note { border-color: #bfdbfe; background: #eff6ff; }
+  .box.rule { border-color: #bbf7d0; background: #f0fdf4; }
+  .box.ask { border-color: #fde68a; background: #fffbeb; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; font-size: 13px; break-inside: auto; table-layout: fixed; }
+  th, td { border: 1px solid var(--line); padding: 7px 9px; text-align: left; vertical-align: top; }
+  th { background: #f1f5f9; font-weight: 600; }
+  tr { break-inside: avoid; }
+  .n { color: var(--no); font-weight: 700; }
+  .muted { color: var(--muted); }
+  .keep { break-inside: avoid; }
+  figure { margin: 12px 0 6px; break-inside: avoid; }
+  figure svg { width: 100%; height: auto; display: block; }
+  figcaption { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  .fill td { height: 34px; }
+  footer { margin-top: 36px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+  @media print { main { padding: 0; } h2 { margin-top: 26px; } a { color: inherit; text-decoration: none; } }
+</style>
+</head>
+<body>
+<main>
+
+<h1>EMS — Roles and Approvals</h1>
+<p class="sub">How roles, reporting and approvals work in the CareerMap Solutions Employee Management System · 1 October 2026</p>
+
+<div class="box note">
+  This document explains, in simple words, how EMS handles roles, reporting and approvals.<br><br>
+  It is built the way you described:
+  <ul>
+    <li>everybody works under somebody,</li>
+    <li>the person above approves,</li>
+    <li>and the Super Admin controls all of it.</li>
+  </ul>
+  Please read it, and tell us in the last section if anything should be different.
+</div>
+
+<h2>1. What you wanted, and how EMS does it</h2>
+<table>
+  <tr><th style="width:40%">What you wanted</th><th>How EMS does it</th></tr>
+  <tr><td>The Super Admin controls roles and permissions. Nothing is fixed.</td><td>The Super Admin can create roles, decide what each role can do, and give roles to people, all from one screen (section 7).</td></tr>
+  <tr><td>Everybody works under somebody, and the person above decides.</td><td>The Super Admin sets who reports to whom. Approvals follow that (section 2).</td></tr>
+  <tr><td>Only the reporting manager approves leave. HR does not.</td><td>Leave always goes to the person the employee reports to (section 3).</td></tr>
+  <tr><td>Nobody does their own work, even if they are HR or Accounts.</td><td>Their own work goes to the person above them (section 4).</td></tr>
+  <tr><td>Every person with a role is also an employee, with two separate logins.</td><td>One employee login and one role login, both for the same person (section 5).</td></tr>
+  <tr><td>HR negotiates salaries, so HR should see them.</td><td>HR can see salaries, but not change them, and not see their seniors' salaries. Accounts enters salaries (section 6).</td></tr>
+  <tr><td>The owner does not need anybody's approval.</td><td>The owner's leave is recorded directly (section 3).</td></tr>
+</table>
+
+<h2>2. Everybody works under somebody</h2>
+<p>Every person in the company reports to <strong>one</strong> person. The Super Admin decides who reports to whom. People with a role, like HR, Accounts and managers, are part of this too.</p>
+
+<figure>
+<svg viewBox="0 0 860 345" role="img" aria-label="Example company tree">
+  <g fill="none" stroke="#94a3b8" stroke-width="1.6">
+    <path d="M430 60 V85 M150 85 H710 M150 85 V105 M430 85 V105 M710 85 V105"/>
+    <path d="M150 155 V195 M430 155 V195 M710 155 V195"/>
+    <path d="M710 245 V285"/>
+  </g>
+  <g font-family="Segoe UI, Arial, sans-serif" text-anchor="middle">
+    <rect x="330" y="10" width="200" height="50" rx="8" fill="#eff6ff" stroke="#1d4ed8" stroke-width="1.6"/>
+    <text x="430" y="31" font-size="14" font-weight="700" fill="#0f172a">Owner</text>
+    <text x="430" y="49" font-size="12" fill="#1d4ed8">Super Admin</text>
+
+    <rect x="50" y="105" width="200" height="50" rx="8" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="150" y="126" font-size="14" font-weight="700" fill="#0f172a">HR Head</text>
+    <text x="150" y="144" font-size="12" fill="#6b7280">role: HR</text>
+    <rect x="330" y="105" width="200" height="50" rx="8" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="430" y="126" font-size="14" font-weight="700" fill="#0f172a">Accounts Head</text>
+    <text x="430" y="144" font-size="12" fill="#6b7280">role: Accounts</text>
+    <rect x="610" y="105" width="200" height="50" rx="8" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="710" y="126" font-size="14" font-weight="700" fill="#0f172a">Sales Manager</text>
+    <text x="710" y="144" font-size="12" fill="#6b7280">role: Manager</text>
+
+    <rect x="50" y="195" width="200" height="50" rx="8" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="150" y="216" font-size="14" font-weight="700" fill="#0f172a">HR Executive</text>
+    <text x="150" y="234" font-size="12" fill="#6b7280">role: HR</text>
+    <rect x="330" y="195" width="200" height="50" rx="8" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="430" y="216" font-size="14" font-weight="700" fill="#0f172a">Accountant</text>
+    <text x="430" y="234" font-size="12" fill="#6b7280">role: Accounts</text>
+    <rect x="610" y="195" width="200" height="50" rx="8" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="710" y="216" font-size="14" font-weight="700" fill="#0f172a">Team Lead</text>
+    <text x="710" y="234" font-size="12" fill="#6b7280">role: Reporting Manager</text>
+
+    <rect x="610" y="285" width="200" height="50" rx="8" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="710" y="306" font-size="14" font-weight="700" fill="#0f172a">Agents</text>
+    <text x="710" y="324" font-size="12" fill="#6b7280">role: Employee</text>
+  </g>
+</svg>
+<figcaption>An example. Each line goes up to the person who decides. An agent's leave goes to the Team Lead. The Team Lead's leave goes to the Sales Manager. The Sales Manager's leave goes to the Owner.</figcaption>
+</figure>
+
+<ul>
+  <li><strong>Only one person is marked as the owner.</strong> Somebody whose manager has simply not been set yet is not treated as the owner.</li>
+  <li><strong>Nobody gets missed.</strong> If somebody has nobody above them, they show on a list for the Super Admin. Until the Super Admin places them, the Super Admin handles their requests.</li>
+  <li><strong>The chart cannot go in a loop.</strong> EMS stops “A reports to B” if B already reports to A.</li>
+  <li><strong>Moving people is safe.</strong> If somebody gets a new manager, their waiting requests go to the new manager. If a manager leaves the company, their team shows on the Super Admin's list until they are placed under somebody else.</li>
+</ul>
+
+<h2>3. Who approves leave</h2>
+<table>
+  <tr><th style="width:42%">Whose leave</th><th>Who approves it</th></tr>
+  <tr><td>Any employee</td><td>Their <strong>reporting manager</strong>, the person directly above them</td></tr>
+  <tr><td>A manager</td><td>The person above that manager</td></tr>
+  <tr><td>Somebody with nobody above them</td><td>The Super Admin</td></tr>
+  <tr><td>Somebody whose manager is on leave, or has left</td><td>The Super Admin can approve instead</td></tr>
+  <tr><td>Cancelling leave that was already approved</td><td>The reporting manager, or the Super Admin</td></tr>
+  <tr><td>The owner</td><td>Nobody. It is recorded directly</td></tr>
+</table>
+<ul>
+  <li><strong>HR does not approve leave.</strong> HR can see all leave requests, give everybody their yearly leave, and correct a balance when needed.</li>
+  <li><strong>Any person with people under them approves their leave</strong>, whatever their role. For example, the Accounts Head approves the accountant's leave.</li>
+  <li>Who approves when there is no manager, who stands in when the manager is away, and who can cancel approved leave can all be changed later by the Super Admin.</li>
+</ul>
+
+<h2>4. Nobody does their own work</h2>
+<div class="box rule">
+  <strong>The rule.</strong> A person who does HR, Accounts or Admin work can <strong>never</strong> do that work for themselves. People at the same level or below cannot do it for them either. <strong>Only the people above them can.</strong><br><br>
+  If the person directly above cannot do that kind of work, it goes up to the next person who can, and finally to the Super Admin. Nothing gets stuck.
+</div>
+<table>
+  <tr><th style="width:30%">Work</th><th style="width:28%">For a normal employee</th><th>For somebody who does this work</th></tr>
+  <tr><td>Checking a bank account</td><td>Accounts</td><td>The person above that accountant, e.g. the Accounts Head. <span class="n">Not</span> themselves, <span class="n">not</span> another accountant</td></tr>
+  <tr><td>Correcting a leave balance</td><td>HR</td><td>The person above that HR person. <span class="n">Not</span> another HR person at the same level</td></tr>
+  <tr><td>Checking a document (Aadhaar, PAN…)</td><td>HR or Admin</td><td>The person above them</td></tr>
+  <tr><td>Marking or correcting attendance</td><td>HR</td><td>The person above that HR person</td></tr>
+  <tr><td>Entering the monthly incentive</td><td>HR or Accounts</td><td>The person above them</td></tr>
+  <tr><td>Entering or changing a salary</td><td>Accounts</td><td>The person above that accountant</td></tr>
+  <tr><td>Approving leave</td><td>Their reporting manager</td><td>Their reporting manager</td></tr>
+</table>
+<p class="muted">This rule applies to every role, including new roles the Super Admin creates. It cannot be turned off.</p>
+
+<h2>5. Two logins for people with a role</h2>
+<p>A person with a role (HR, Accounts, Admin, Manager or Reporting Manager) has two logins:</p>
+<table>
+  <tr><th style="width:22%">Login</th><th>What it is for</th></tr>
+  <tr><td><strong>Employee login</strong></td><td>Their own things: punch in and out, see their attendance, apply for leave, upload their documents, download their payslips, give their bank account.</td></tr>
+  <tr><td><strong>Role login</strong></td><td>The work of their role, for example HR work or Accounts work.</td></tr>
+</table>
+<ul>
+  <li><strong>Both logins belong to the same person.</strong> The Super Admin adds the role login on that person's page. This is how EMS knows it is the same person, so the rule in section 4 works from both logins.</li>
+  <li><strong>Each login needs its own email address</strong> and its own password.</li>
+  <li>The top of the screen always shows which login is open, for example “Signed in as HR” or “Signed in as employee”.</li>
+  <li>When somebody leaves the company, <strong>both logins are closed together</strong>.</li>
+  <li>Normal employees have just one login.</li>
+</ul>
+
+<h2>6. Salaries</h2>
+<table>
+  <tr><th style="width:30%">Who</th><th>What they can do</th></tr>
+  <tr><td><strong>HR</strong></td><td>Agrees the salary with the employee. Can <strong>see</strong> salaries, but cannot change them, and cannot see the salaries of the people above them.</td></tr>
+  <tr><td><strong>Accounts</strong></td><td>Enters and changes salaries in EMS.</td></tr>
+  <tr><td><strong>Everybody</strong></td><td>Sees their own salary on their own payslips.</td></tr>
+</table>
+<p>So every salary involves two people: HR agrees it, and Accounts enters it. Nobody can quietly change a salary alone, and nobody can change their own salary.</p>
+
+<h2>7. The Super Admin controls roles</h2>
+<p>The Super Admin has a <strong>Roles &amp; Permissions</strong> screen in Settings. From there, the Super Admin can:</p>
+<ul>
+  <li><strong>Create a new role</strong> with any name, for example “Finance Head” or “Team Lead”.</li>
+  <li><strong>Decide what each role can do</strong> by ticking boxes, grouped by area: Employees, Attendance, Leave, Payroll, Documents, Reports and Settings.</li>
+  <li><strong>Decide whose information each role can see</strong>, for each area:</li>
+</ul>
+<table>
+  <tr><th style="width:32%">Choice</th><th>The role can see</th></tr>
+  <tr><td>Only their own</td><td>Only their own information</td></tr>
+  <tr><td>Their team</td><td>The people directly under them</td></tr>
+  <tr><td>Everybody under them</td><td>Everybody below them, at every level</td></tr>
+  <tr><td>Their department</td><td>Everybody in their department</td></tr>
+  <tr><td>Whole company, except seniors</td><td>Everybody, except the people above them. Useful for salaries</td></tr>
+  <tr><td>Whole company</td><td>Everybody</td></tr>
+</table>
+<ul>
+  <li><strong>Give any role to any person.</strong></li>
+  <li><strong>Set the order of roles</strong>, for example HR comes under the Super Admin. A person can only give roles that are below their own.</li>
+  <li><strong>Changes work straight away.</strong> Nobody needs to log in again. Before saving, the screen shows what the role will be able to do.</li>
+  <li><strong>“Reset to default”</strong> puts a role back to how it started.</li>
+</ul>
+<div class="box">
+  <strong>Built-in safety.</strong> These are always on:
+  <ul>
+    <li>The Super Admin role cannot be changed or deleted, and there is always at least one Super Admin.</li>
+    <li>Nobody can change a role they have themselves.</li>
+    <li>A role that somebody still has cannot be deleted.</li>
+    <li>EMS warns if one role could both prepare and approve the payroll.</li>
+    <li>Every change is saved in the audit log: who changed what, and when.</li>
+  </ul>
+</div>
+
+<h2>8. The roles EMS starts with</h2>
+<p>EMS starts with these seven roles. The Super Admin can change any of them, except the Super Admin role itself.</p>
+<table>
+  <tr><th style="width:22%">Role</th><th>What they do</th></tr>
+  <tr><td><strong>Super Admin</strong></td><td>Everything: approves the payroll, sees reports and the audit log, manages settings, users, roles and who reports to whom.</td></tr>
+  <tr><td><strong>Admin</strong></td><td>Looks after employee records and documents.</td></tr>
+  <tr><td><strong>HR</strong></td><td>Employees, attendance, documents and holidays. Sees all leave, gives the yearly leave and corrects balances, but does not approve leave. Enters monthly incentives. Sees salaries, except seniors' salaries.</td></tr>
+  <tr><td><strong>Manager</strong></td><td>Sees their team's attendance and leave, and approves their team's leave.</td></tr>
+  <tr><td><strong>Reporting Manager</strong></td><td>The same as Manager.</td></tr>
+  <tr><td><strong>Accounts</strong></td><td>Enters salaries, prepares the monthly payroll, checks bank accounts, and downloads the bank transfer file.</td></tr>
+  <tr><td><strong>Employee</strong></td><td>Their own attendance, leave, payslips, documents and bank account.</td></tr>
+</table>
+<p class="muted">Everybody with a role also has an employee login for their own things (section 5). Anybody with people under them approves those people's leave.</p>
+
+<h2>9. Other safety rules</h2>
+<ul>
+  <li><strong>Everything important is recorded.</strong> Sign-ins, role changes, salary changes, payroll steps, documents opened and files downloaded all go into the audit log. Nobody can edit or delete it.</li>
+  <li><strong>Everybody sets their own password.</strong> There are no shared passwords. Each person gets a one-time link, valid for 72 hours, to set theirs.</li>
+  <li><strong>Yearly leave is given in one step.</strong> New joiners get leave for the months left in the year. People who have left get none. Unused leave carries forward, up to the limit set for each leave type.</li>
+  <li><strong>Payroll needs two people.</strong> Accounts prepares it, and the Super Admin approves it.</li>
+  <li><strong>Bank accounts are checked</strong> against a cheque or passbook photo before any salary is paid into them.</li>
+</ul>
+
+<div class="keep">
+<h2>10. What happens next</h2>
+<ol>
+  <li>We build everything in this document.</li>
+  <li>We test it for every role, on computer and on phone.</li>
+  <li>EMS goes live. The Super Admin then sets up who reports to whom, and the roles, directly in EMS. You do not need to send us any data.</li>
+</ol>
+
+<div class="box ask" id="changes">
+  <strong>Is this what you wanted?</strong> If yes, please just confirm. If anything should be different, write it below, even small things.
+  <table class="fill">
+    <tr><th style="width:18%">Section</th><th>What should change</th></tr>
+    <tr><td></td><td></td></tr>
+    <tr><td></td><td></td></tr>
+    <tr><td></td><td></td></tr>
+    <tr><td></td><td></td></tr>
+  </table>
+</div>
+</div>
+
+<footer>EMS — CareerMap Solutions Pvt. Ltd. · Roles and approvals · 1 October 2026</footer>
+</main>
+</body>
+</html>

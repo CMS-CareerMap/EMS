@@ -1,6 +1,7 @@
 import type { AppContext } from '../../platform/context'
 import { Conflict, Forbidden, NotFound } from '../../platform/errors/AppError'
 import { withTransaction } from '../../platform/db/transaction'
+import { lockFor } from '../../platform/db/locks'
 import { logger } from '../../platform/logger'
 import { toDateColumn, fromDateColumn, type CalendarDate } from '../../domain/shared/dates'
 import { workingDays, type Weekday } from '../../domain/leave/leaveDays'
@@ -75,6 +76,11 @@ export async function approveLeave(
   const settings = await leaveSettings(ctx, from, to)
 
   await withTransaction(ctx.db, async (tx) => {
+    // The person's leave lock, which applications and balance corrections take
+    // too: a correction reading balance and days applied for must not see this
+    // request half-way from one to the other.
+    await lockFor(tx, `leave-apply:${request.employeeId}`)
+
     // Approved only if still pending, compared and changed in one statement.
     // Two approvers clicking at the same moment — or one double click — would
     // otherwise both see `pending` and both write a ledger entry, taking the

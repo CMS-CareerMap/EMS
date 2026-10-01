@@ -63,6 +63,7 @@ This document defines who can access what in the Employee Management System (EMS
 | Edit/delete attendance | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
 | Apply for leave | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ |
 | Approve/reject leave | ✅ | ❌ | ✅ | 🟡 Team | ❌ | ❌ |
+| Grant the leave year / correct a balance | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
 | Manage salary structures | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ |
 | Run payroll | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ |
 | Approve / reopen payroll | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
@@ -244,6 +245,12 @@ Employee applies → Manager/RM/HR reviews → Approve or Reject
 - **Withdraw:** a person can withdraw their own request while it is still pending. It shows as *Cancelled*, and the approvers are told.
 - **Reverse:** once approved, leave can only be reversed by an approver, **never by the person it belongs to**, whatever their role. Reversing puts the days back in the balance and takes the leave days off the attendance. A month whose payroll is already approved cannot be changed.
 - Nobody approves, rejects or reverses their own leave. On their own request an approver sees only Withdraw.
+- **Granting the year:** HR or the Super Admin grants each leave year under Leave → Team Balances. Until they do, balances are zero and nobody can apply.
+  - Joiners get the months that are left, to the nearest half day. Anybody who has already left gets nothing.
+  - Unused days carry into the new year up to each type's cap, once the old year has ended; the same days leave the old year.
+  - Nothing is granted twice, so pressing Grant again reaches only the people added since.
+- **Correcting a balance:** HR or the Super Admin can add or take away whole or half days, with a reason the employee is shown. Days already applied for cannot be taken away, and nobody corrects their own balance.
+- **Seeing balances:** HR and the Super Admin see everybody's. A manager or RM sees their own team's, without grant or correct.
 
 ### Document Verification
 

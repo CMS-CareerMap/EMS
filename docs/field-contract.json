@@ -1,7 +1,7 @@
 {
   "generatedAt": "2026-09-30",
   "note": "Field names the frontend reads, pinned so the API cannot quietly stop sending one. A serializer that stops sending one of these will render an empty cell rather than an error, so check new serializers against this list. Regenerate with: cd server && npm run field-contract",
-  "fieldCount": 156,
+  "fieldCount": 160,
   "allFields": [
     "absent_days",
     "absent_today",
@@ -28,6 +28,7 @@
     "calculated_at",
     "carry_forward",
     "carry_forward_cap",
+    "carry_later",
     "category_label",
     "check_in",
     "check_out",
@@ -87,6 +88,7 @@
     "leave_type",
     "leave_type_id",
     "leave_type_name",
+    "leave_year",
     "leave_year_start_month",
     "legal_name",
     "lop_basis",
@@ -98,6 +100,7 @@
     "min_gross",
     "monthly_amount",
     "net_payable",
+    "no_joining_date",
     "not_marked_today",
     "on_leave",
     "on_leave_today",
@@ -122,6 +125,7 @@
     "pf_wage_ceiling",
     "present_days",
     "present_today",
+    "pro_rated",
     "pt_state",
     "radius_meters",
     "recent_joiners",
@@ -288,6 +292,18 @@
       "from_date",
       "leave_type_id",
       "to_date"
+    ],
+    "web/src/features/leave/TeamBalances.jsx": [
+      "carry_later",
+      "date_of_joining",
+      "employee_code",
+      "employee_id",
+      "full_name",
+      "leave_type",
+      "leave_type_id",
+      "leave_year",
+      "no_joining_date",
+      "pro_rated"
     ],
     "web/src/features/payroll/BankAccounts.jsx": [
       "account_holder_name",

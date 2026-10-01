@@ -1,5 +1,26 @@
 # Deploying EMS to the Hostinger VPS
 
+> ⚠️ **Do not follow this runbook as it stands — the target changed on 30 Sep 2026.**
+> EMS goes onto the client's existing Hostinger box (`187.77.96.52`, Ubuntu 26.04), which already runs another project. That box uses **Docker**, and one shared **Caddy** container owns ports 80/443 and the certificates. There is no Nginx, no PM2 and no Postgres installed on the host. Instead:
+> - EMS lives in `/srv/ems` as its own containers: API, web and PostgreSQL. It publishes no ports and joins the shared `edge` network.
+> - The box owner adds one site block to the shared Caddyfile, pointing the EMS domain at our web container.
+> - The box is already hardened (the `deploy` user, keys-only SSH, ufw, updates), so steps 1–2 below are done.
+>
+> This file will be rewritten for that setup together with the Dockerfile and compose files. What still applies unchanged: the backup, restore and drill scripts, the R2 notes, and the security headers (they move into our web container).
+
+## Still to build, in this order
+
+> **Days 21–23 come first** (the Super Admin's Roles & Permissions screen; the company tree with approvals that follow it; two logins per person; see `.claude/CLAUDE.md`). They change the database schema, so they are done before the first deploy. That way the production database starts with the final shape.
+
+| # | What | Needs |
+|---|---|---|
+| 1 | **Docker packaging:** an API image (Node 22, Prisma, `pg_dump` for backups), a web container (serves the built app with the security headers, passes `/api` on), and `/srv/ems/compose.yml` (api + web + postgres, `name: ems`, no `ports:`, memory limits, networks `default` + `edge`). Inside the API container, `HOST=0.0.0.0`, and `trust proxy` set for two hops. | Docker Desktop on the laptop, to test it before the server |
+| 2 | **CI** (GitHub Actions) on every push and pull request: server typecheck, §A5 lint and the full test suite against a Postgres service; web lint and build; the field-contract check. A red check blocks the merge. | Admin access to the GitHub repo |
+| 3 | **The Caddy site block** for the EMS domain (root + `www` redirect), handed to the box owner to add and `caddy reload` | The domain name |
+| 4 | **First deploy, by hand:** images streamed over SSH (`docker save \| ssh \| docker load`), `.env`, migrations, the first Super Admin, cron jobs, then the first backup and restore drill, a reboot test, and the §10 smoke test. Then tag `v1.0`. | SSH access as `deploy`, R2 keys, the backup passphrase kept by the client |
+| 5 | **CD** (GitHub Actions), triggered by a version tag (`v*`), never by an ordinary push, optionally behind a GitHub "production" approval. Steps: build the images and push them to GHCR (private); SSH to the box; **back up first**; pull; run the migrations; switch the containers; health check. Rollback means pointing `.env.tag` back at the previous tag. | Repo secrets `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY` (a separate deploy key, held only by GitHub), and a `read:packages` token on the box for GHCR |
+| 6 | **Rewrite this file** for the Docker + Caddy setup, including updates, rollback and restores | — |
+
 This runbook covers putting EMS on the client's server, updating it, backing it up and restoring it. The commands are for **Ubuntu 24.04** on a **VPS with root access**. Shared hosting cannot run this app: it needs Node, PostgreSQL and scheduled jobs.
 
 The target, as the build guide sets it (§A7), is **one address**. Nginx serves the React build and passes `/api` to Node on the same machine. Because everything is on one origin, there is no CORS, and the refresh cookie works as designed.
@@ -289,7 +310,7 @@ The files (documents, payslip PDFs, bank proofs) live in R2, not on the server, 
 - **The bucket** is **private** and belongs to the **company's** Cloudflare account, not a developer's. It holds employees' documents.
 - **The API token** should have **Object Read & Write** on that one bucket only.
 - **Backups** are kept in the same bucket, under `backups/db/`. The orphan-file sweeper only ever looks under `org/`, so it never touches them.
-- **Optional extra safety:** add a bucket lock rule on the `backups/` prefix for 35 days. Then not even the app's own key can delete a recent backup. This fits with keeping 30 daily and 12 monthly backups.
+- **Optional extra safety:** add a bucket lock rule on the `backups/` prefix for **28 days**. Then not even the app's own key can delete a recent backup. Keep the lock shorter than the 30 daily backups the job keeps: the job deletes each backup once it is 30 days old, and a longer lock would make that delete fail and the job report itself failed.
 
 ## What protects what
 

@@ -53,6 +53,8 @@ const HR: readonly Permission[] = [
   'leave:read',
   'leave:apply',
   'leave:approve',
+  // Grants the leave year and corrects balances — HR runs leave day to day.
+  'leave:balance:manage',
   'leave:type:manage',
   'holiday:manage',
   // Incentive, entered per employee per month (§A1.5). The amount they enter,

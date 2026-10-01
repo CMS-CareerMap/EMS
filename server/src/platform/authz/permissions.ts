@@ -45,6 +45,9 @@ export const PERMISSIONS = [
   'leave:read',
   'leave:apply',
   'leave:approve',
+  // Granting a leave year and correcting a balance. The balance is a ledger:
+  // both add entries with a reason, never edit a number.
+  'leave:balance:manage',
   // Configuring leave TYPES — quotas, carry-forward, adding a new kind of
   // leave. Separate from settings:update because the client wants the people
   // who run leave to manage it, without also handing them company identity,

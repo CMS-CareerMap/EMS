@@ -86,6 +86,10 @@ const MATRIX: Record<string, { permission: Permission; allowed: Role[] }> = {
     permission: 'document:type:manage',
     allowed: ['super_admin', 'admin', 'hr'],
   },
+  'Grant the leave year / correct a balance': {
+    permission: 'leave:balance:manage',
+    allowed: ['super_admin', 'hr'],
+  },
   'View reports': {
     permission: 'report:read',
     allowed: ['super_admin'],
