@@ -39,16 +39,26 @@ Work follows the build guide's day plan.
 - **Days 21–23** are the client's requests after reviewing the first roles document (30 Sep 2026, since deleted). The design agreed is written up for the client in `docs/client/EMS-Roles-and-Approvals.pdf` (1 Oct 2026; its HTML source sits beside it); keep the two in step. The client's idea in one line: **a hierarchy. Everybody sits under somebody, the person above decides, and the Super Admin sets all of it. Nothing about roles or approvals stays hardcoded.** All three days change the database schema, so all three are **done before the first deploy**.
   - **Every day goes through every layer: database → server → API → screens.** A rule that lives only in the server is not done until a screen shows it. A screen is not done until the server enforces what it shows. Each day ends with E2E runs for every role, on desktop and on a phone, and an independent review (Definition of done).
   - **The web hardcodes the role list in four places:** `lib/roles.js` (labels), `UsersSettings.jsx` (ROLES and colours), `UserAccess.jsx` (INVITABLE_ROLES) and `AddEmployeeModal.jsx` (LOGIN_ROLES). Day 21 replaces all four with the roles from the API. Permissions already come from the server (`authStore.can()`).
-- [ ] **Day 21 ← next** — **Roles & Permissions, for the Super Admin.**
+- [x] **Day 21** — **Roles & Permissions, for the Super Admin.** Built 1 Oct 2026 on `phase/8-roles-hierarchy` (migration `20261001062620_roles_table`). What follows is the plan as written. Beyond it:
+  - One scope definition for every module (`platform/authz/scopeWhere.ts`), with DEPARTMENT implemented.
+  - Attendance mark and import, leave on someone's behalf, leave balances, documents compliance and payslips all honour the scope.
+  - Notifications go only to holders whose scope reaches the person.
+  - `GET /users` opens to any of the four user permissions.
+  - `employee:delete` (checked by nothing) is kept off the Roles screen.
+  - Payslips offer only own or company.
+  - Every audit row keeps the role's name at the time.
+  - A role edit ends its holders' access tokens, so their screen refreshes at once.
+  - Review fixes (core): a role change ends access tokens, not sessions, and a refresh with an ended (never rotated) token is a plain 401, not a reuse alarm; user actions check the target is in the actor's employee reach (`assertTargetInReach`, 404 outside) and `GET /users` is filtered by it (`meta.reach` tells the screen whose logins they are); nobody moves themselves, and nobody moves a person INTO their team/department scope (`assertNoNewReach`); roster import and every invite need an ORGANIZATION employee scope (invite reads it from the role re-read under the lock); import logins must be givable (Employee role), checked in the preview too; `audit:read` gets a warning like payroll prepare+approve, and the Audit Log's filter lists come from `GET /api/audit-log/people` (audit:read), not /users or /employees; audit summaries for role created/deleted say whose information it reaches; reach refusals are 403, out-of-reach targets 404 (checked before status or role-key errors); a role without `dashboard:read` lands on its first permitted area (`pages/Dashboard.jsx`).
   - **Database.** A `Role` table per organization holds each role's name, the role it comes under, its permissions, and a scope per module. `Membership.role` (the Prisma enum) becomes a link to that table. The migration maps every existing login to its seeded role, so nobody's access changes.
-  - **Seeds.** The seven current roles, as they are today, with "reset to default". The seeds carry the client's changes:
-    - HR loses `leave:approve` (Day 22 moves approving to the tree).
-    - Entering and changing salaries stays with Accounts (`payroll:structure:manage`). One person agrees a salary and another enters it.
+  - **Seeds.** The seven current roles, exactly as they are today, with "reset to default". Two of the client's changes wait for Day 22, which brings what they depend on:
+    - HR loses `leave:approve` on Day 22, in the same change that moves approving to the tree. Taking it on Day 21 would leave days in which nobody approved for HR's own team.
     - HR's salary view (Devesh, 1 Oct 2026: HR negotiates salaries) is seeded on Day 22, together with the "company, except people above me" scope it needs. No build in between shows a senior's pay.
+    - Entering and changing salaries stays with Accounts (`payroll:structure:manage`). One person agrees a salary and another enters it.
+    - Day 22 changes these defaults with a migration that replaces the seeding function and updates the HR rows still at their default.
   - **Server.**
     - **Permissions and scopes are read from the role table on every request.** The server already reads the current role there (`authenticate.ts`), so a change applies at once, without a fresh login.
     - **API** to list, create, edit, reset and delete roles, and to give a role to a login.
-    - **Role order.** Each role says which role it comes under, and the Super Admin is always at the top. A user can give only a role below their own. They can manage (reset a password, deactivate) only accounts whose role is below their own. This replaces today's "more access than your own" comparison.
+    - **Role order.** Each role says which role it comes under, and the Super Admin is always at the top. A user can give only a role below their own. They can manage (reset a password, deactivate) only accounts whose role is below their own. The old "more access than your own" comparison is KEPT alongside it (it now compares scopes as well), so a role placed below yours by mistake, but holding payroll, still cannot be handed out through you.
     - **Guards.** The Super Admin role cannot be edited or removed, and at least one Super Admin always remains. Nobody edits a role they hold themselves. A role in use cannot be deleted. A warning appears when one role would both prepare and approve payroll. Every change is written to the audit log (new catalogue entries).
     - Salary becomes a scoped module of its own. Today `employee:compensation:read` is unscoped.
   - **Screens.** Settings → Roles & Permissions:
@@ -58,12 +68,12 @@ Work follows the build guide's day plan.
     - Reset to default, delete (refused while the role is in use), and every guard's message in plain words.
     - The four hardcoded role lists read from the API. A custom role shows its own name everywhere: top bar, sidebar, profile, Users and the audit log.
   - **Tests.** `authz.test` keeps testing the seven defaults. The whole server and E2E suite must pass against the seeded roles before any custom role is tried. New tests cover custom roles, scopes, the role order and every guard, plus E2E for the editor.
-- [ ] **Day 22** — **The company tree, approvals that follow it, and "your own work goes up".**
+- [ ] **Day 22 ← next** — **The company tree, approvals that follow it, and "your own work goes up".**
   - **Database.** The owner mark, on exactly one person. The approval settings, with the client's defaults. (`reportingManagerId` already exists.)
   - **Server — the rules:**
   1. **The company tree.** Each person reports to exactly one person, and the Super Admin sits at the top and sets the tree. Role holders sit in it like everybody else. The tree cannot loop (A under B under A). People with nobody above them are listed, so the Super Admin can place them.
-     - Two new scopes: everybody under me at every level, and company except people above me.
-     - HR's salary view is seeded now, with the "company, except people above me" scope.
+     - Two new scopes: everybody under me at every level, and company except people above me. Add them in `platform/authz/scopeWhere.ts`, which ALL modules use since Day 21: `employeesInScope`, `ownedRowsInScope` and `isInScope`. They will need the caller's place in the tree (their subtree, their ancestors), so ScopeContext grows. Notifications (`notify.service` `reaching`) and the create/edit reach check (`employee.service` `assertWithinReach`) go through `isInScope` and must keep working.
+     - HR's salary view is seeded now, with the "company, except people above me" scope. **Keep HR without `payroll:structure:read`.** Payroll and Reports show every salary to whoever opens them (the editor says so). The salary scope governs employee records only, so HR seeing Payroll would show the seniors' pay the scope hides.
   2. **Approvals come from the tree, not from the role.**
      - A leave request goes to the requester's reporting manager, whatever that person's role. Anybody with people under them gets their team's requests automatically, even an Accounts head whose role has no leave rights.
      - HR no longer approves leave. HR still sees every request, grants the leave year and corrects balances.
@@ -194,12 +204,13 @@ Direction is one-way: `http` → `modules` → `domain`. Never the reverse.
 - A screen renders a query through `components/DataState.jsx` (`DataState`, `DataRows`, `QueryError`): an error is never shown as an empty list or a zero. A `<select>` fed by a query uses `lib/optionsNote.js`
 - "Are you sure?" is `components/ConfirmDialog.jsx`, never `window.confirm`. Days are formatted by `lib/dates.js` (`formatDay`, `formatDayOf`, `formatInstant`), whose fixed month table always gives "Sep", never "Sept"
 - A mutation's `onSuccess` **returns** its invalidation promise, so a dialog closes only after the list shows the change
+- A role is shown by the name the server sends (`roleName` in the session, `role_name` on users and employees) through `lib/roles.js` `roleLabel(key, name)`. A role picker offers `GET /api/roles/assignable` (`hooks/useRoles.js`), never a list typed into the page
 
 ---
 
 ## Domain notes
 
-7 roles: `super_admin · admin · hr · manager · rm · accounts · employee` — see [Role_Permission_Documentation.md](../Role_Permission_Documentation.md) §3 for the matrix (§10 is a manual QA checklist, not the matrix).
+7 built-in roles: `super_admin · admin · hr · manager · rm · accounts · employee` — see [Role_Permission_Documentation.md](../Role_Permission_Documentation.md) §3 for the matrix (§10 is a manual QA checklist, not the matrix). Since Day 21 roles are rows in the `Role` table: the Super Admin edits them and adds more, so code never assumes the list. The starting definitions are `platform/authz/defaultRoles.ts`; a database trigger copies them into every new company, and `roles.test.ts` checks that the two match. A new permission reaches no company's roles until a migration gives it.
 
 India payroll: PF 12% with the ₹15,000 wage ceiling and the EPS split · ESI 0.75%/3.25% with eligibility **locked per contribution period**, not re-tested monthly · PT is **per-state, per-employee** · TDS is manual-entry for v1.
 

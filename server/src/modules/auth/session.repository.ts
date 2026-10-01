@@ -1,5 +1,6 @@
-import type { AccountStatus, Role } from '@prisma/client'
+import type { AccountStatus } from '@prisma/client'
 import { unsafeDb } from '../../platform/db/unsafe'
+import { toGrant, type RoleGrant } from '../../platform/authz/grant'
 
 /**
  * Refresh tokens and the User row they belong to are both GLOBAL models, so
@@ -13,7 +14,11 @@ export interface StoredToken {
   familyId: string
   expiresAt: Date
   revokedAt: Date | null
+  /** Set when the token was ROTATED away — the only kind whose return means a copy. */
+  replacedById: string | null
 }
+
+const storedSelect = { id: true, userId: true, familyId: true, expiresAt: true, revokedAt: true, replacedById: true } as const
 
 export interface IssueInput {
   userId: string
@@ -34,14 +39,14 @@ export async function storeToken(input: IssueInput): Promise<StoredToken> {
       userAgent: input.userAgent ?? null,
       ip: input.ip ?? null,
     },
-    select: { id: true, userId: true, familyId: true, expiresAt: true, revokedAt: true },
+    select: storedSelect,
   })
 }
 
 export async function findByHash(tokenHash: string): Promise<StoredToken | null> {
   return unsafeDb.refreshToken.findUnique({
     where: { tokenHash },
-    select: { id: true, userId: true, familyId: true, expiresAt: true, revokedAt: true },
+    select: storedSelect,
   })
 }
 
@@ -73,7 +78,7 @@ export async function rotate(input: {
         userAgent: input.next.userAgent ?? null,
         ip: input.next.ip ?? null,
       },
-      select: { id: true, userId: true, familyId: true, expiresAt: true, revokedAt: true },
+      select: storedSelect,
     })
 
     const retired = await tx.refreshToken.updateMany({
@@ -152,9 +157,10 @@ export async function findUserCredentials(
 export interface AuthState {
   userId: string
   tokenVersion: number
-  role: Role
+  grant: RoleGrant
   status: AccountStatus
   employeeId: string | null
+  departmentId: string | null
 }
 
 /**
@@ -166,15 +172,19 @@ export interface AuthState {
  * access token does not carry — and must not, because an employee record
  * created after the token was minted would leave the claim stale for fifteen
  * minutes, exactly when a new joiner is trying to use the system.
+ *
+ * Since Day 21 it also reads the ROLE ROW — its permissions and scopes — in
+ * the same query, so a role edited on the Roles screen applies to the holder's
+ * very next request.
  */
 export async function findAuthState(membershipId: string): Promise<AuthState | null> {
   const membership = await unsafeDb.membership.findUnique({
     where: { id: membershipId },
     select: {
-      role: true,
       status: true,
+      roleDef: { select: roleForGrant },
       user: { select: { id: true, tokenVersion: true } },
-      employee: { select: { id: true } },
+      employee: { select: { id: true, departmentId: true } },
     },
   })
 
@@ -183,8 +193,12 @@ export async function findAuthState(membershipId: string): Promise<AuthState | n
   return {
     userId: membership.user.id,
     tokenVersion: membership.user.tokenVersion,
-    role: membership.role,
+    grant: toGrant(membership.roleDef),
     status: membership.status,
     employeeId: membership.employee?.id ?? null,
+    departmentId: membership.employee?.departmentId ?? null,
   }
 }
+
+/** The columns of a Role row a grant is made from. */
+export const roleForGrant = { key: true, name: true, permissions: true, scopes: true } as const

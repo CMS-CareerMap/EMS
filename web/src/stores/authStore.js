@@ -38,6 +38,8 @@ export const useAuthStore = create((set, get) => ({
   user: null,
   profile: null,
   role: null,
+  /** The role as people read it. Since Day 21 a role can be one the Super Admin made, with no other name. */
+  roleName: null,
   permissions: [],
   organization: null,
   /** True until the session is either confirmed or ruled out. */
@@ -50,6 +52,7 @@ export const useAuthStore = create((set, get) => ({
       user: session ? { id: session.id, email: session.email } : null,
       profile: toProfile(session),
       role: session?.role ?? null,
+      roleName: session?.roleName ?? null,
       permissions: session?.permissions ?? [],
       organization: session
         ? { id: session.organizationId, name: session.organizationName, timezone: session.organizationTimezone }
@@ -62,6 +65,7 @@ export const useAuthStore = create((set, get) => ({
       user: null,
       profile: null,
       role: null,
+      roleName: null,
       permissions: [],
       organization: null,
       loading: false,

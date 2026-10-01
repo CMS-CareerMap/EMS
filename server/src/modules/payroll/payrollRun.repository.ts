@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto'
 import type { Prisma, LopBasis } from '@prisma/client'
 import type { ScopedDb } from '../../platform/db/scoped'
 import type { TxDb } from '../../platform/db/transaction'
+import type { ScopeContext } from '../../platform/authz/scope'
+import { ownedRowsInScope } from '../../platform/authz/scopeWhere'
 
 /**
  * Payroll runs and the payslips inside them.
@@ -375,17 +377,13 @@ export async function paidPayslipsOf(db: ScopedDb, employeeId: string) {
 }
 
 /**
- * A paid payslip, if it is within the caller's scope. SELF finds only their
- * own; ORGANIZATION finds any in the company. Anything else is not found.
+ * A paid payslip, if it is within the caller's scope — their own, their
+ * team's, their department's or the company's, as their role says.
+ * Anything else is not found.
  */
-export async function findPaidPayslip(db: ScopedDb, scope: { scope: string; employeeId: string | null }, id: string) {
-  if (scope.scope !== 'ORGANIZATION' && !scope.employeeId) return null
+export async function findPaidPayslip(db: ScopedDb, scope: ScopeContext, id: string) {
   return db.payslip.findFirst({
-    where: {
-      id,
-      run: { status: 'paid' },
-      ...(scope.scope === 'ORGANIZATION' ? {} : { employeeId: scope.employeeId ?? '' }),
-    },
+    where: { AND: [ownedRowsInScope(scope), { id, run: { status: 'paid' } }] },
     select: { ...payslipSummarySelect, pdfSha256: true, pdfBytes: true },
   })
 }

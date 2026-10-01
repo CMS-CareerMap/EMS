@@ -1,5 +1,4 @@
 import type { AuthIdentity } from '../../modules/auth/auth.repository'
-import { permissionsFor } from '../../platform/authz/roles'
 
 /**
  * What a session looks like to the client.
@@ -25,7 +24,10 @@ export function serializeSessionUser(identity: AuthIdentity) {
     id: identity.userId,
     email: identity.email,
     role: identity.role,
-    permissions: permissionsFor(identity.role),
+    // The role as people read it — a custom role has no other name the
+    // interface could know (Day 21).
+    roleName: identity.grant.name,
+    permissions: [...identity.grant.permissions],
     organizationId: identity.organizationId,
     organizationName: identity.organizationName,
     // The company's zone, so the browser can tell which calendar day it is

@@ -1,4 +1,4 @@
-import { useInfiniteQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { api, saveFromApi } from '../api/http'
 
 /**
@@ -44,6 +44,18 @@ export function useAuditLog(filters, { enabled = true } = {}) {
   })
 
   return query
+}
+
+/**
+ * Who the log can be filtered by — `actors` (logins) and `employees`, archived
+ * ones included — from the log's own permission. Not the Users and Employees
+ * lists: whoever reads the log may hold neither, or reach only some of them.
+ */
+export function useAuditPeople() {
+  return useQuery({
+    queryKey: ['audit-log', 'people'],
+    queryFn: async () => (await api.get('/audit-log/people')).data,
+  })
 }
 
 /** The same filters, as a CSV. Taking it is itself recorded in the log. */

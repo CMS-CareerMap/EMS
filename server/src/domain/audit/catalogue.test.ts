@@ -26,6 +26,7 @@ const names: AuditNames = {
   documentType: (code) => (code === 'AADHAAR' ? 'Aadhaar Card' : null),
   component: (code) => (code === 'INCENTIVE' ? 'Incentive' : null),
   leaveType: (code) => (code === 'CL' ? 'Casual Leave' : null),
+  role: (key) => (key === 'team_lead' ? 'Team Lead' : null),
   report: (id) => (id === 'leave-taken' ? 'Leave taken' : null),
 }
 
@@ -118,6 +119,40 @@ describe('a row as a sentence', () => {
   it('shows a refused request with the role in words', () => {
     expect(row('permission.denied', { permission: 'payroll:run:create', method: 'POST', path: '/api/payroll-runs', role: 'employee' }))
       .toBe('Was refused POST /api/payroll-runs — not allowed for Employee')
+  })
+
+  it('names a custom role — by the name kept with the row, then by the company’s name for it today', () => {
+    // Day 21: roles are the company's own. A row keeps the name it was written
+    // with; without one, today's name; for a key the company no longer has, the
+    // key in words — never the raw key.
+    expect(row('user.role_changed', { from: 'employee', to: 'team_lead' }, { type: 'membership', id: 'm-ravi' }))
+      .toBe('Changed Ravi Patil’s role from Employee to Team Lead')
+    expect(row('user.role_changed', { from: 'hr', to: 'team_lead', fromName: 'People Team', toName: 'Squad Lead' }, { type: 'membership', id: 'm-ravi' }))
+      .toBe('Changed Ravi Patil’s role from People Team to Squad Lead')
+    expect(row('user.invited', { email: 'a@b.co', role: 'gone_role' })).toBe('Invited a@b.co as gone role')
+  })
+
+  it('reads a built-in role on an older row by what it was called then, not by a later rename', () => {
+    // A row from before Day 21 has no stored name. If HR has since been renamed
+    // "People Team", the row still happened to somebody in "HR".
+    const renamed = { ...names, role: (key: unknown) => (key === 'hr' ? 'People Team' : null) }
+    expect(summarise({ action: 'user.role_changed', entityType: 'membership', entityId: 'm-ravi', details: { from: 'employee', to: 'hr' } }, renamed))
+      .toBe('Changed Ravi Patil’s role from Employee to HR')
+  })
+
+  it('reads a change to a role as what it can now do, and no longer do', () => {
+    expect(row('role.created', { name: 'Team Lead', parentName: 'HR', permissions: ['See leave requests and balances', 'Approve, reject or cancel leave'] }))
+      .toBe('Created the role “Team Lead” under HR, which can: See leave requests and balances and Approve, reject or cancel leave')
+    expect(row('role.updated', {
+      name: 'Team Lead',
+      previousName: 'Lead',
+      added: ['See attendance'],
+      removed: ['Approve, reject or cancel leave'],
+      scopeChanges: ['Leave: Their team → Whole company'],
+    })).toBe('Changed the role “Team Lead”: renamed from “Lead”; can now: See attendance; can no longer: Approve, reject or cancel leave; reaches Leave: Their team → Whole company')
+    expect(row('role.reset', { name: 'HR', added: ['Approve, reject or cancel leave'] }))
+      .toBe('Reset the role “HR” to how it started: can now: Approve, reject or cancel leave')
+    expect(row('role.deleted', { name: 'Team Lead' })).toBe('Deleted the role “Team Lead”')
   })
 })
 

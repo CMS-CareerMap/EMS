@@ -1,42 +1,60 @@
-import type { Role } from '@prisma/client'
-import { permissionsFor } from '../../platform/authz/roles'
+import { grantsMoreThan, type RoleGrant } from '../../platform/authz/grant'
+import { isBelow, type RoleNode } from '../../platform/authz/roleOrder'
 
 /**
  * The rules that stop role assignment from becoming a way to seize the system.
  *
  * Pure functions, no database, no context object — so every one of them can be
- * tested exhaustively across all seven roles in milliseconds, which is what
- * makes it reasonable to check every combination rather than the two somebody
- * thought of.
+ * tested exhaustively across every combination of roles in milliseconds, which
+ * is what makes it reasonable to check every combination rather than the two
+ * somebody thought of.
+ *
+ * Since Day 21 roles are rows the Super Admin edits, so each rule is handed the
+ * roles as they stand (their grants and their order) rather than looking a
+ * name up in code.
  */
 
-/**
- * Is `candidate` a strictly wider set of powers than `actor` holds?
- *
- * Defined by PERMISSIONS, not by a hand-written ranking of roles. A ranking
- * (super_admin > admin > hr > …) looks tidy and is wrong the moment roles stop
- * being a straight line — accounts can run payroll and hr cannot, so neither
- * one is "above" the other. Comparing the actual permission sets asks the
- * question that matters: would this grant hand out something the grantor does
- * not have?
- */
-export function grantsMoreThan(candidate: Role, actor: Role): boolean {
-  const held = new Set<string>(permissionsFor(actor))
-  return permissionsFor(candidate).some((permission) => !held.has(permission))
+/** A role as these rules need it: what it allows, where it sits, whether it is the Super Admin's. */
+export interface PolicyRole extends RoleNode {
+  grant: RoleGrant
+  /** The Super Admin role: the top of the order, edited by nobody. */
+  locked: boolean
 }
 
-export type RoleChangeRefusal =
-  | 'own_role'
-  | 'broader_than_actor'
-  | 'last_super_admin'
+/**
+ * May `actor` hand out `candidate`?
+ *
+ * Two tests, and both must pass:
+ *
+ *   ORDER  the candidate comes below the actor's role, as the Super Admin
+ *          arranged them. The Super Admin may also make another Super Admin —
+ *          handing over before leaving is exactly what that is for.
+ *   POWERS the candidate holds nothing the actor does not, over nobody the
+ *          actor does not reach. The order is what somebody chose; this is
+ *          what the roles really do. Without it a role placed below yours by
+ *          mistake, but holding payroll, would hand payroll out through you.
+ */
+export function mayGive(actor: PolicyRole, candidate: PolicyRole, order: ReadonlyMap<string, RoleNode>): boolean {
+  if (actor.locked) return true
+  return isBelow(candidate.key, actor.key, order) && !grantsMoreThan(candidate.grant, actor.grant)
+}
+
+/** May `actor` manage — change the role of, switch off, reset — a login holding `target`? Only one below their own. */
+export function mayManage(actor: PolicyRole, target: PolicyRole, order: ReadonlyMap<string, RoleNode>): boolean {
+  if (actor.locked) return true
+  return isBelow(target.key, actor.key, order) && !grantsMoreThan(target.grant, actor.grant)
+}
+
+export type RoleChangeRefusal = 'own_role' | 'target_not_below' | 'not_below' | 'last_super_admin'
 
 export interface RoleChangeInput {
   actorMembershipId: string
-  actorRole: Role
+  actor: PolicyRole
   targetMembershipId: string
-  targetCurrentRole: Role
-  newRole: Role
-  /** Active super_admins in this organization, counted including the target. */
+  targetCurrent: PolicyRole
+  next: PolicyRole
+  order: ReadonlyMap<string, RoleNode>
+  /** Active logins holding the Super Admin role in this organization, counted including the target. */
   activeSuperAdminCount: number
 }
 
@@ -58,26 +76,28 @@ export function refuseRoleChange(input: RoleChangeInput): RoleChangeRefusal | nu
     return 'own_role'
   }
 
-  // 2. You cannot grant powers you do not hold.
+  // 2. You manage only people whose role is below yours. Without this, anybody
+  // who could assign roles could demote the person above them.
+  if (!mayManage(input.actor, input.targetCurrent, input.order)) {
+    return 'target_not_below'
+  }
+
+  // 3. You cannot grant a role above your own, or powers you do not hold.
   //
   // Without this, any role that could assign roles could assign super_admin and
   // then log in as that person — or simply create one. Privilege escalation by
   // proxy rather than by self-promotion, and it looks like ordinary admin work
   // in the audit log.
-  if (grantsMoreThan(input.newRole, input.actorRole)) {
-    return 'broader_than_actor'
+  if (!mayGive(input.actor, input.next, input.order)) {
+    return 'not_below'
   }
 
-  // 3. The last active super_admin cannot be demoted.
+  // 4. The last active super_admin cannot be demoted.
   //
   // The company would be left with nobody who can manage users or settings, and
   // no route back — bootstrap refuses to run a second time by design. This is
   // the one rule that protects against a mistake rather than an attack.
-  if (
-    input.targetCurrentRole === 'super_admin' &&
-    input.newRole !== 'super_admin' &&
-    input.activeSuperAdminCount <= 1
-  ) {
+  if (input.targetCurrent.locked && !input.next.locked && input.activeSuperAdminCount <= 1) {
     return 'last_super_admin'
   }
 
@@ -86,28 +106,36 @@ export function refuseRoleChange(input: RoleChangeInput): RoleChangeRefusal | nu
 
 export const REFUSAL_MESSAGES: Record<RoleChangeRefusal, string> = {
   own_role: 'You cannot change your own role. Ask another administrator.',
-  broader_than_actor: 'You cannot grant a role with more access than your own.',
+  target_not_below: 'You can change the role only of people whose role is below yours.',
+  not_below: 'You can give only a role below your own, with nothing you cannot do yourself.',
   last_super_admin:
     'This is the last active super admin. Promote someone else first, or the company will have no administrator.',
 }
 
 /**
  * The same protection for deactivation and termination: the last active super
- * admin must not be removed, and nobody may lock themselves out.
+ * admin must not be removed, nobody may lock themselves out, and nobody may
+ * switch off somebody whose role is not below their own.
  */
-export type AccountChangeRefusal = 'own_account' | 'last_super_admin'
+export type AccountChangeRefusal = 'own_account' | 'target_not_below' | 'last_super_admin'
 
 export function refuseAccountChange(input: {
   actorMembershipId: string
+  actor: PolicyRole
   targetMembershipId: string
-  targetRole: Role
+  target: PolicyRole
+  order: ReadonlyMap<string, RoleNode>
   activeSuperAdminCount: number
 }): AccountChangeRefusal | null {
   if (input.actorMembershipId === input.targetMembershipId) {
     return 'own_account'
   }
 
-  if (input.targetRole === 'super_admin' && input.activeSuperAdminCount <= 1) {
+  if (!mayManage(input.actor, input.target, input.order)) {
+    return 'target_not_below'
+  }
+
+  if (input.target.locked && input.activeSuperAdminCount <= 1) {
     return 'last_super_admin'
   }
 
@@ -116,6 +144,7 @@ export function refuseAccountChange(input: {
 
 export const ACCOUNT_REFUSAL_MESSAGES: Record<AccountChangeRefusal, string> = {
   own_account: 'You cannot deactivate or remove your own account.',
+  target_not_below: 'You can switch off only the logins of people whose role is below yours.',
   last_super_admin:
     'This is the last active super admin. Promote someone else first, or the company will have no administrator.',
 }

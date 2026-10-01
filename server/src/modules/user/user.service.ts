@@ -1,19 +1,83 @@
-import type { Role } from '@prisma/client'
 import type { AppContext } from '../../platform/context'
 import { BadRequest, Conflict, Forbidden, NotFound } from '../../platform/errors/AppError'
 import { withTransaction, type TxDb } from '../../platform/db/transaction'
+import { lockFor } from '../../platform/db/locks'
 import { generateToken, hashInviteToken } from '../../platform/auth/tokenHash'
 import { logger } from '../../platform/logger'
 import {
   refuseRoleChange,
   refuseAccountChange,
-  grantsMoreThan,
+  mayGive,
+  mayManage,
   REFUSAL_MESSAGES,
   ACCOUNT_REFUSAL_MESSAGES,
+  type PolicyRole,
 } from './user.policy'
 import * as repo from './user.repository'
+import * as roleRepo from '../roles/roles.repository'
+import type { Permission } from '../../platform/authz/permissions'
+import { employeesInScope, isInScope } from '../../platform/authz/scopeWhere'
 import * as employeeRepo from '../employee/employee.repository'
 import { audit } from '../audit/audit.service'
+
+/**
+ * The lock every change to roles or to who holds them takes (Day 21), so a
+ * role being edited on the Roles screen and the same role being handed out at
+ * that moment are decided one after the other, never on a half-changed role.
+ */
+export const rolesLock = (organizationId: string) => `roles:${organizationId}`
+
+/**
+ * The caller's role and the one asked for, as the rules see them; a key that
+ * is not a role is refused.
+ *
+ * The caller's role is READ AGAIN here, under the roles lock, and the
+ * permission the action needs is checked against it. The request was let in
+ * on the role as it stood when it arrived; a demotion, or the permission
+ * being taken off the role, that committed while this request waited for the
+ * lock must stop it.
+ */
+export async function rolesForGrant(
+  tx: TxDb,
+  ctx: AppContext,
+  wanted: string,
+  needs: readonly Permission[],
+): Promise<{ actor: PolicyRole; next: PolicyRole; order: Awaited<ReturnType<typeof roleRepo.policyRoles>>['order']; roles: Map<string, PolicyRole> }> {
+  const [{ roles, order }, me] = await Promise.all([roleRepo.policyRoles(tx), repo.findMembershipForChange(tx, ctx.membershipId)])
+  if (!me || me.status !== 'active') throw Forbidden('Your access has changed. Sign in again.')
+  const actor = roles.get(me.role)
+  if (!actor) throw Forbidden('Your role has changed. Sign in again.')
+  if (!needs.some((p) => actor.grant.permissions.has(p))) throw Forbidden('Your role no longer allows this. Reload the page.')
+  const next = roles.get(wanted)
+  if (!next) throw BadRequest('That is not one of the company’s roles')
+  return { actor, next, order, roles }
+}
+
+/**
+ * The people a caller may act on as users: everybody for a company-wide
+ * reach, else only those whose employee record the caller's employee scope
+ * reaches (Day 21). A department head who may switch logins off switches off
+ * their department's, not Finance's.
+ */
+async function assertTargetInReach(tx: TxDb, ctx: AppContext, actor: PolicyRole, targetMembershipId: string): Promise<void> {
+  if (actor.locked) return
+  const scope = { ...ctx.scopeFor('employee'), scope: actor.grant.scopes.employee }
+  if (scope.scope === 'ORGANIZATION') return
+  const place = await repo.employeePlaceOf(tx, targetMembershipId)
+  // Out of reach reads as absent, never as forbidden: existence is not told.
+  if (!place || !isInScope(scope, place)) throw NotFound('User not found')
+}
+
+/**
+ * Refuses handing out a role above the caller's own, or one holding powers they
+ * lack. The rule for invitations and for logins made with an employee record —
+ * the role endpoint applies it inside refuseRoleChange.
+ */
+export async function assertMayGive(tx: TxDb, ctx: AppContext, wanted: string, needs: readonly Permission[]): Promise<PolicyRole> {
+  const { actor, next, order } = await rolesForGrant(tx, ctx, wanted, needs)
+  if (!mayGive(actor, next, order)) throw Forbidden(REFUSAL_MESSAGES.not_below)
+  return next
+}
 
 /**
  * The four things the original backend's edge functions used to do, and nothing else
@@ -27,13 +91,20 @@ import { audit } from '../audit/audit.service'
 
 const INVITE_VALID_FOR_HOURS = 72
 
+/**
+ * Everybody's login — for a caller whose employee scope is the company. A
+ * narrower one (Day 21) sees the logins of the people it reaches, and not the
+ * logins with no employee record (operators), which nobody narrower may manage.
+ */
 export async function listUsers(ctx: AppContext): Promise<repo.MembershipRow[]> {
-  return repo.listMemberships(ctx.db)
+  const scope = ctx.scopeFor('employee')
+  return repo.listMemberships(ctx.db, scope.scope === 'ORGANIZATION' ? null : employeesInScope(scope))
 }
 
 export interface InviteInput {
   email: string
-  role: Role
+  /** A role key of this company. */
+  role: string
   fullName?: string | undefined
   employeeCode?: string | undefined
 }
@@ -67,14 +138,21 @@ export async function inviteUser(ctx: AppContext, input: InviteInput): Promise<I
     throw Conflict('Someone with that email address already has access to this company')
   }
 
-  // The policy applies to invitations too: an inviter cannot hand out a role
-  // they do not hold, or they could invite a super_admin and then sign in as
-  // them. Reused rather than re-written, so the rule cannot drift.
-  if (grantsMoreThan(input.role, ctx.role)) {
-    throw Forbidden(REFUSAL_MESSAGES.broader_than_actor)
-  }
-
   const login = await withTransaction(ctx.db, async (tx) => {
+    await lockFor(tx, rolesLock(ctx.organizationId))
+    // The policy applies to invitations too: an inviter cannot hand out a role
+    // above their own, or they could invite a super_admin and then sign in as
+    // them. Reused rather than re-written, so the rule cannot drift.
+    const { actor, next: given, order } = await rolesForGrant(tx, ctx, input.role, ['user:invite'])
+    if (!mayGive(actor, given, order)) throw Forbidden(REFUSAL_MESSAGES.not_below)
+    // An invitation makes a login with no team and no department — and its
+    // employee record, if any, with no manager and no department. Only a
+    // company-wide reach could see either afterwards, or send its link again.
+    // Read from the role as it stands under the lock, not as the request found it.
+    if (!actor.locked && actor.grant.scopes.employee !== 'ORGANIZATION') {
+      throw Forbidden('Inviting adds somebody outside any team or department, so it needs a company-wide reach. Add them under Employees instead, with yourself as their reporting manager, and give them a login there.')
+    }
+
     const created = await createLoginInTransaction(tx, {
       email,
       role: input.role,
@@ -95,7 +173,7 @@ export async function inviteUser(ctx: AppContext, input: InviteInput): Promise<I
       action: 'user.invited',
       entityType: 'membership',
       entityId: created.membershipId,
-      details: { email, role: input.role, withEmployeeRecord: Boolean(input.employeeCode) },
+      details: { email, role: input.role, roleName: given.grant.name, withEmployeeRecord: Boolean(input.employeeCode) },
     }, tx)
 
     return created
@@ -122,20 +200,28 @@ export async function inviteUser(ctx: AppContext, input: InviteInput): Promise<I
 export async function changeRole(
   ctx: AppContext,
   membershipId: string,
-  newRole: Role,
+  newRole: string,
 ): Promise<repo.MembershipRow> {
   await withTransaction(ctx.db, async (tx) => {
+    await lockFor(tx, rolesLock(ctx.organizationId))
     const target = await repo.findMembershipForChange(tx, membershipId)
     if (!target) throw NotFound('User not found')
 
+    // Read with the target's own role, so reach is checked before the role
+    // asked for: outside it, any request is "not found", a bad key included.
+    const { actor, next: targetCurrent, order, roles } = await rolesForGrant(tx, ctx, target.role, ['membership:role:assign'])
+    await assertTargetInReach(tx, ctx, actor, membershipId)
+    const next = roles.get(newRole)
+    if (!next) throw BadRequest('That is not one of the company’s roles')
     const activeSuperAdminCount = await repo.countActiveSuperAdmins(tx)
 
     const refusal = refuseRoleChange({
       actorMembershipId: ctx.membershipId,
-      actorRole: ctx.role,
+      actor,
       targetMembershipId: target.id,
-      targetCurrentRole: target.role,
-      newRole,
+      targetCurrent,
+      next,
+      order,
       activeSuperAdminCount,
     })
 
@@ -146,17 +232,21 @@ export async function changeRole(
       action: 'user.role_changed',
       entityType: 'membership',
       entityId: membershipId,
-      details: { from: target.role, to: newRole },
+      // The names as they read today, kept with the row: a custom role
+      // deleted later still reads by name in the log.
+      details: { from: target.role, to: newRole, fromName: targetCurrent.grant.name, toName: next.grant.name },
     }, tx)
   })
 
   // A role change must take effect NOW, not in fifteen minutes. The middleware
-  // reads the role from the database on every request, but their access token
-  // still carries the old tokenVersion — bumping it forces a refresh, which
-  // rebuilds the session and the permission list the UI draws from.
+  // reads the role from the database on every request; ending their access
+  // tokens (not their sessions) makes their browser refresh at its next
+  // request and redraw with the new role. Ending the sessions too, as this
+  // used to, signed them out — and their browser's next refresh was then
+  // logged as a copied session.
   const updated = await repo.findMembership(ctx.db, membershipId)
   if (!updated) throw NotFound('User not found')
-  await repo.revokeSessions(updated.userId)
+  await roleRepo.endAccessTokens([updated.userId])
 
   logger.info('Role changed', {
     by: ctx.userId,
@@ -176,17 +266,13 @@ export async function changeStatus(
   const target = await repo.findMembership(ctx.db, membershipId)
   if (!target) throw NotFound('User not found')
 
-  if (status === 'inactive') {
-    const refusal = refuseAccountChange({
-      actorMembershipId: ctx.membershipId,
-      targetMembershipId: membershipId,
-      targetRole: target.role,
-      activeSuperAdminCount: await repo.countActiveSuperAdmins(ctx.db),
-    })
-    if (refusal) throw Forbidden(ACCOUNT_REFUSAL_MESSAGES[refusal])
-  }
-
   await withTransaction(ctx.db, async (tx) => {
+    await lockFor(tx, rolesLock(ctx.organizationId))
+    // Read again under the lock: their role may have changed since.
+    const current = await repo.findMembershipForChange(tx, membershipId)
+    if (!current) throw NotFound('User not found')
+    // Switching somebody on is as much "managing" them as switching them off.
+    await assertMayManage(tx, ctx, membershipId, current.role, status === 'inactive', ['user:status:update'])
     await repo.setStatus(tx, membershipId, status)
     await audit(ctx, {
       action: 'user.status_changed',
@@ -228,15 +314,11 @@ export async function terminateUser(ctx: AppContext, membershipId: string): Prom
   const target = await repo.findMembership(ctx.db, membershipId)
   if (!target) throw NotFound('User not found')
 
-  const refusal = refuseAccountChange({
-    actorMembershipId: ctx.membershipId,
-    targetMembershipId: membershipId,
-    targetRole: target.role,
-    activeSuperAdminCount: await repo.countActiveSuperAdmins(ctx.db),
-  })
-  if (refusal) throw Forbidden(ACCOUNT_REFUSAL_MESSAGES[refusal])
-
   await withTransaction(ctx.db, async (tx) => {
+    await lockFor(tx, rolesLock(ctx.organizationId))
+    const current = await repo.findMembershipForChange(tx, membershipId)
+    if (!current) throw NotFound('User not found')
+    await assertMayManage(tx, ctx, membershipId, current.role, true, ['user:delete'])
     await repo.setStatus(tx, membershipId, 'inactive')
     if (target.employeeId) await employeeRepo.archiveEmployee(tx, target.employeeId, new Date())
     await audit(ctx, {
@@ -256,15 +338,38 @@ export async function terminateUser(ctx: AppContext, membershipId: string): Prom
   })
 }
 
-/** Guards against a caller passing a role string the enum does not contain. */
-export function assertAssignableRole(role: string): asserts role is Role {
-  const assignable: string[] = ['super_admin', 'admin', 'hr', 'manager', 'rm', 'accounts', 'employee']
-  if (!assignable.includes(role)) throw BadRequest('That is not a role')
+/**
+ * Refuses switching off (or back on) a login the caller may not manage: their
+ * own, one whose role is not below theirs, or the last Super Admin. Inside the
+ * caller's transaction and under the roles lock, so the count of Super Admins
+ * cannot change between the check and the write.
+ */
+async function assertMayManage(
+  tx: TxDb,
+  ctx: AppContext,
+  targetMembershipId: string,
+  targetRoleKey: string,
+  removingAccess: boolean,
+  needs: readonly Permission[],
+): Promise<void> {
+  const { actor, next: target, order } = await rolesForGrant(tx, ctx, targetRoleKey, needs)
+  await assertTargetInReach(tx, ctx, actor, targetMembershipId)
+  const refusal = refuseAccountChange({
+    actorMembershipId: ctx.membershipId,
+    actor,
+    targetMembershipId,
+    target,
+    order,
+    // Only switching OFF can leave the company without a Super Admin.
+    activeSuperAdminCount: removingAccess ? await repo.countActiveSuperAdmins(tx) : Number.POSITIVE_INFINITY,
+  })
+  if (refusal) throw Forbidden(ACCOUNT_REFUSAL_MESSAGES[refusal])
 }
 
 export interface LoginSeed {
   email: string
-  role: Role
+  /** A role key of this company, already checked by the caller. */
+  role: string
   organizationId: string
   invitedByUserId: string
 }
@@ -320,7 +425,7 @@ export interface PasswordLinkResult {
  *
  * A reset link is a key to somebody else's account: whoever holds it can set
  * the password and sign in as them. So the same rule as handing out roles
- * applies — not for an account with more access than your own — and the log
+ * applies — only for an account whose role is below your own — and the log
  * records who issued it. Their current sessions are NOT ended here, only when
  * the link is used; otherwise issuing a link would sign somebody out whether or
  * not they ever needed it.
@@ -336,20 +441,26 @@ export async function issuePasswordLink(
     throw BadRequest('Use Change password to change your own password.')
   }
 
-  if (target.status === 'inactive') {
-    throw Conflict('This account is deactivated. Reactivate it before issuing a link.')
-  }
-
-  if (grantsMoreThan(target.role, ctx.role)) {
-    throw Forbidden('You cannot issue a link for an account with more access than your own.')
-  }
-
-  const purpose = target.status === 'invited' ? 'invite' : 'reset'
   const token = generateToken()
   const expiresAt = new Date(Date.now() + INVITE_VALID_FOR_HOURS * 60 * 60 * 1000)
 
   // A reset link is a key to somebody's account; who handed one out is on record.
-  await withTransaction(ctx.db, async (tx) => {
+  const purpose = await withTransaction(ctx.db, async (tx) => {
+    await lockFor(tx, rolesLock(ctx.organizationId))
+    const current = await repo.findMembershipForChange(tx, membershipId)
+    if (!current) throw NotFound('User not found')
+    const { actor, next: targetRole, order } = await rolesForGrant(tx, ctx, current.role, ['user:invite'])
+    // Reach first: somebody outside it is not found, whatever their status —
+    // a 409 would tell that the login exists and is switched off.
+    await assertTargetInReach(tx, ctx, actor, membershipId)
+    if (!mayManage(actor, targetRole, order)) {
+      throw Forbidden('You can issue a link only for people whose role is below yours.')
+    }
+    // Their status as it stands under the lock, not as first read.
+    if (current.status === 'inactive') {
+      throw Conflict('This account is deactivated. Reactivate it before issuing a link.')
+    }
+    const purpose: 'invite' | 'reset' = current.status === 'invited' ? 'invite' : 'reset'
     await repo.replacePasswordLink(tx, {
       userId: target.userId,
       tokenHash: hashInviteToken(token),
@@ -363,6 +474,7 @@ export async function issuePasswordLink(
       entityId: target.id,
       details: { purpose, email: target.email },
     }, tx)
+    return purpose
   })
 
   logger.warn('Password link issued', {

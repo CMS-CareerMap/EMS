@@ -1,6 +1,23 @@
 # Role & Permission Documentation
 
-**EMS — CareerMap Solutions** | Version 1.2 | 30 September 2026
+**EMS — CareerMap Solutions** | Version 1.3 | 1 October 2026
+
+> **Since Day 21 these are the roles every company STARTS with.** Roles are now the company's own rows, and the Super Admin can change any of them on **Settings → Roles & Permissions**. There the Super Admin can create new roles, tick what each role may do, choose whose information it reaches (only their own, their team, their department, or the whole company), and set which role it comes under. The matrix below is what a new company is given, and what "Reset to default" puts back. `authz.test.ts` checks it against `server/src/platform/authz/defaultRoles.ts`, and `roles.test.ts` checks that file against what a new company actually receives.
+>
+> Fixed, whatever the Super Admin chooses:
+> - The Super Admin role cannot be edited or deleted.
+> - Managing roles (`role:manage`) cannot be given to another role.
+> - Nobody edits a role they hold themselves.
+> - A role somebody holds, a role other roles come under, and the seven built-in roles cannot be deleted.
+> - A person may give only a role below their own, holding nothing they cannot do themselves. The same applies to changing, switching off or resetting the password of somebody else's login.
+> - Managing logins (invite, switch on/off, remove, change role) works within the role's "Whose records" reach under Employees. A role reaching one department sees and manages only that department's logins.
+> - Nobody moves themselves to another manager or department, and nobody moves a person into their own team or department when that would show them more (salaries, for example). Somebody above makes such a move.
+> - Inviting somebody (Settings → Users) and importing a roster (CSV) need a company-wide "Whose records" reach: both add people outside any team or department. A narrower role adds people under Employees, with itself as their reporting manager, and gives the login there.
+> - A roster with an email column gives each person an Employee login, so only a role that may give the Employee role can import it. The preview says so before anything is saved.
+> - A role without "Open the dashboard" signs in to the first area it can open.
+> - The screen warns, and asks once more, before saving a role that both prepares and approves the payroll, or one that can read the audit log (which shows the whole company, salary changes included).
+>
+> The full rewrite for the client's hierarchy model (Days 22–23) follows `docs/client/EMS-Roles-and-Approvals.pdf`.
 
 ---
 
@@ -80,6 +97,7 @@ This document defines who can access what in the Employee Management System (EMS
 | Edit the document checklist | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | View reports | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Read the audit log (and export it) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Manage roles and permissions (Day 21; cannot be given to another role) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Read own notifications | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Turn notification events on/off | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Invite users | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
@@ -269,7 +287,7 @@ Employee uploads a file against the checklist → HR/Admin is notified
 ### Audit log
 
 - **What it records:** every sign-in, refused sign-in and sign-out; every request the system turned down; every change to a user's role or status; every salary change; each step of a payroll (calculated, approved, reopened, paid); every document or proof opened; and every file that leaves the system (reports, the employee list, attendance, payslips, the bank file, the audit log itself).
-- **Where to read it:** Settings → Audit Log, **Super Admin only**. It can be filtered by dates on the company's clock, by area, by who did it, or by whom it was about (people who have left included). It can be exported as a CSV, and the export is itself recorded.
+- **Where to read it:** Settings → Audit Log. In a new company that is the **Super Admin only**; the Super Admin can give `audit:read` to another role, after a warning that the log shows the whole company. It can be filtered by dates on the company's clock, by area, by who did it, or by whom it was about (people who have left included). It can be exported as a CSV, and the export is itself recorded.
 - **What it shows:** each entry says in words what happened, with the names of the people involved. It also shows the role the person held **at the time**. An entry from before roles were recorded is marked "(now)".
 - **What nobody can do:** change or delete an entry. There is no way to do either, anywhere in the system.
 - **Backups:** the nightly backup and the monthly restore drill write their outcome here too, under *System jobs*. A failure shows up where Super Admin looks.
@@ -353,7 +371,7 @@ Settings → Invite → the server checks the caller holds user:invite
 | Self-protection | Nobody changes their own role or status, deletes their own account, or verifies their own document or bank account |
 | Role validation | One list of permissions per role (`server/src/platform/authz/roles.ts`), checked against this document by an automated test |
 | Files | Checked by content on upload, kept in private storage, opened only through the app, each download recorded |
-| Audit log | Append-only; read by Super Admin only (`audit:read`); every entry says who, as what role, from which device and address |
+| Audit log | Append-only; read with `audit:read` (Super Admin by default; can be given to a role, with a warning); every entry says who, as what role, from which device and address |
 | Browser | Content-Security-Policy, HSTS, X-Frame-Options DENY, nosniff, Referrer-Policy and Permissions-Policy on the app; helmet's headers on the API |
 | Sign-in limits | 10 tries per account and 100 per address per 15 minutes on sign-in and password links. Refreshing a session has its own, much higher limit, so an office on one address is never locked out by it. |
 | Backups | Nightly, sealed (AES-256-GCM), stored off the server; restored and checked every month (`deploy/DEPLOY.md`) |

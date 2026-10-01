@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client'
 import type { EmployeeRow } from '../../modules/employee/employee.repository'
 import type { FieldAccess } from '../../modules/employee/employee.repository'
 import { fromDateColumn, isoInstant } from '../../domain/shared/dates'
+import { isInScope } from '../../platform/authz/scopeWhere'
 
 /**
  * What an employee looks like over the wire.
@@ -85,6 +86,7 @@ function base(employee: EmployeeRow) {
 
     // Access-related, not HR data: whether this person can sign in, and as what.
     role: employee.membership?.role ?? null,
+    role_name: employee.membership?.roleDef.name ?? null,
     account_status: employee.membership?.status ?? null,
 
     archived_at: isoInstant(employee.archivedAt),
@@ -203,9 +205,12 @@ function identity(employee: EmployeeRow) {
 }
 
 export function serializeEmployee(employee: EmployeeRow, access: FieldAccess) {
+  // A salary outside the caller's salary scope is left OUT, never sent as
+  // nulls — nulls would read as "no salary recorded", which is not the truth.
+  const seesSalary = access.includeCompensation && isInScope(access.compensationScope, employee)
   return {
     ...base(employee),
-    ...(access.includeCompensation ? compensation(employee) : {}),
+    ...(seesSalary ? compensation(employee) : {}),
     ...(access.includeBank ? bank(employee) : {}),
     ...(access.includeIdentity ? identity(employee) : {}),
   }

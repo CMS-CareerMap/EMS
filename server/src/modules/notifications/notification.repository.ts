@@ -1,6 +1,7 @@
-import type { NotificationKind, Prisma, Role } from '@prisma/client'
+import type { NotificationKind, Prisma } from '@prisma/client'
 import type { ScopedDb } from '../../platform/db/scoped'
 import type { TxDb } from '../../platform/db/transaction'
+import type { PersonPlace } from '../../platform/authz/scopeWhere'
 
 /**
  * Notifications and the people they go to.
@@ -13,16 +14,6 @@ import type { TxDb } from '../../platform/db/transaction'
 type Db = ScopedDb | TxDb
 
 const REACHABLE: Prisma.MembershipWhereInput = { status: { not: 'inactive' } }
-
-/** Everybody whose role is one of these. */
-export async function usersWithRoles(db: Db, roles: readonly Role[]): Promise<string[]> {
-  if (roles.length === 0) return []
-  const rows = await db.membership.findMany({
-    where: { ...REACHABLE, role: { in: [...roles] } },
-    select: { userId: true },
-  })
-  return rows.map((r) => r.userId)
-}
 
 /** Everybody with a login. */
 export async function allUsers(db: Db): Promise<string[]> {
@@ -50,15 +41,9 @@ export async function usersOfEmployees(db: Db, employeeIds: readonly string[]): 
   return new Map(rows.flatMap((r) => (r.membership ? [[r.id, r.membership.userId] as const] : [])))
 }
 
-/** An employee's reporting manager, with the role their login carries. */
-export async function managerOf(db: Db, employeeId: string): Promise<{ userId: string; role: Role } | null> {
-  const row = await db.employee.findFirst({
-    where: { id: employeeId },
-    select: { reportingManager: { select: { membership: { select: { userId: true, role: true, status: true } } } } },
-  })
-  const membership = row?.reportingManager?.membership
-  if (!membership || membership.status === 'inactive') return null
-  return { userId: membership.userId, role: membership.role }
+/** Where a person sits — who they report to, which department — for deciding whose scope reaches them. */
+export async function placeOf(db: Db, employeeId: string): Promise<PersonPlace | null> {
+  return db.employee.findFirst({ where: { id: employeeId }, select: { id: true, reportingManagerId: true, departmentId: true } })
 }
 
 export async function savedSettings(db: Db): Promise<Map<string, boolean>> {

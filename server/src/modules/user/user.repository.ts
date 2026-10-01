@@ -1,7 +1,9 @@
-import type { Role, AccountStatus } from '@prisma/client'
+import type { AccountStatus, Prisma } from '@prisma/client'
+import type { PersonPlace } from '../../platform/authz/scopeWhere'
 import type { ScopedDb } from '../../platform/db/scoped'
 import type { TxDb } from '../../platform/db/transaction'
 import { unsafeDb } from '../../platform/db/unsafe'
+import { SUPER_ADMIN_ROLE } from '../../platform/authz/defaultRoles'
 
 /**
  * Memberships — who may sign in to this company, and as what.
@@ -15,7 +17,9 @@ import { unsafeDb } from '../../platform/db/unsafe'
 export interface MembershipRow {
   id: string
   userId: string
-  role: Role
+  /** The role's key. Its name, for the screen, is `roleName`. */
+  role: string
+  roleName: string
   status: AccountStatus
   email: string
   fullName: string | null
@@ -28,6 +32,7 @@ const membershipSelect = {
   id: true,
   userId: true,
   role: true,
+  roleDef: { select: { name: true } },
   status: true,
   createdAt: true,
   user: { select: { email: true } },
@@ -37,7 +42,8 @@ const membershipSelect = {
 type RawMembership = {
   id: string
   userId: string
-  role: Role
+  role: string
+  roleDef: { name: string }
   status: AccountStatus
   createdAt: Date
   user: { email: string }
@@ -49,6 +55,7 @@ function flatten(row: RawMembership): MembershipRow {
     id: row.id,
     userId: row.userId,
     role: row.role,
+    roleName: row.roleDef.name,
     status: row.status,
     email: row.user.email,
     fullName: row.employee?.fullName ?? null,
@@ -58,12 +65,23 @@ function flatten(row: RawMembership): MembershipRow {
   }
 }
 
-export async function listMemberships(db: ScopedDb): Promise<MembershipRow[]> {
+/** Every login — or, given an employee filter, only the logins of the people it matches. */
+export async function listMemberships(db: ScopedDb, employees: Prisma.EmployeeWhereInput | null = null): Promise<MembershipRow[]> {
   const rows = (await db.membership.findMany({
+    ...(employees ? { where: { employee: employees } } : {}),
     select: membershipSelect,
     orderBy: { createdAt: 'asc' },
   })) as RawMembership[]
   return rows.map(flatten)
+}
+
+/** Where a login's person sits — for whether a narrower reach covers them. Null for a login with no employee record. */
+export async function employeePlaceOf(db: TxDb, membershipId: string): Promise<PersonPlace | null> {
+  const row = await db.membership.findFirst({
+    where: { id: membershipId },
+    select: { employee: { select: { id: true, reportingManagerId: true, departmentId: true } } },
+  })
+  return row?.employee ?? null
 }
 
 export async function findMembership(db: ScopedDb, id: string): Promise<MembershipRow | null> {
@@ -98,10 +116,10 @@ export async function findMembershipByEmail(
  * leaving the company with none.
  */
 export async function countActiveSuperAdmins(db: TxDb): Promise<number> {
-  return db.membership.count({ where: { role: 'super_admin', status: 'active' } })
+  return db.membership.count({ where: { role: SUPER_ADMIN_ROLE, status: 'active' } })
 }
 
-export async function setRole(db: TxDb, membershipId: string, role: Role): Promise<void> {
+export async function setRole(db: TxDb, membershipId: string, role: string): Promise<void> {
   await db.membership.update({ where: { id: membershipId }, data: { role } })
 }
 
@@ -131,7 +149,7 @@ export async function createInvitedLogin(
   input: {
     email: string
     organizationId: string
-    role: Role
+    role: string
     tokenHash: string
     expiresAt: Date
     createdByUserId: string

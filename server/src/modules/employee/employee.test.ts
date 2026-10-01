@@ -20,6 +20,9 @@ import * as repo from './employee.repository'
 const PREFIX = 'emptest'
 const PASSWORD = 'CorrectHorseBattery1'
 
+/** None of the three sensitive blocks — what the scope tests read with. */
+const NO_SENSITIVE = { includeCompensation: false, includeBank: false, includeIdentity: false } as const
+
 const app = createApp()
 
 let orgId = ''
@@ -270,7 +273,7 @@ describe('the data scope itself', () => {
     const rows = await repo.list(
       forOrg(orgId),
       { scope: 'DIRECT_REPORTS', employeeId: managerEmpId },
-      { includeCompensation: false, includeBank: false, includeIdentity: false },
+      { ...NO_SENSITIVE, compensationScope: { scope: 'SELF', employeeId: null } },
     )
 
     const codes = rows.map((r) => r.employeeCode)
@@ -283,7 +286,7 @@ describe('the data scope itself', () => {
     const rows = await repo.list(
       forOrg(orgId),
       { scope: 'SELF', employeeId: reportEmpId },
-      { includeCompensation: false, includeBank: false, includeIdentity: false },
+      { ...NO_SENSITIVE, compensationScope: { scope: 'SELF', employeeId: null } },
     )
 
     expect(rows).toHaveLength(1)
@@ -297,20 +300,21 @@ describe('the data scope itself', () => {
     const rows = await repo.list(
       forOrg(orgId),
       { scope: 'DIRECT_REPORTS', employeeId: null },
-      { includeCompensation: false, includeBank: false, includeIdentity: false },
+      { ...NO_SENSITIVE, compensationScope: { scope: 'SELF', employeeId: null } },
     )
 
     expect(rows).toEqual([])
   })
 
-  it('refuses a scope it does not implement rather than returning everything', async () => {
-    await expect(
-      repo.list(
-        forOrg(orgId),
-        { scope: 'DEPARTMENT', employeeId: managerEmpId },
-        { includeCompensation: false, includeBank: false, includeIdentity: false },
-      ),
-    ).rejects.toThrow(/not implemented/)
+  it('gives a department scope with no department of their own only themselves, never everybody without one', async () => {
+    // Day 21 implemented DEPARTMENT, which used to throw. The failure it must
+    // never have is "no department" matching every other person with none.
+    const rows = await repo.list(
+      forOrg(orgId),
+      { scope: 'DEPARTMENT', employeeId: managerEmpId, departmentId: null },
+      { ...NO_SENSITIVE, compensationScope: { scope: 'SELF', employeeId: managerEmpId } },
+    )
+    expect(rows.map((r) => r.id)).toEqual([managerEmpId])
   })
 })
 

@@ -14,6 +14,7 @@ export const GLOBAL_MODELS = ['User', 'Organization', 'RefreshToken', 'PasswordR
 /** Owned by exactly one company. Every row carries organizationId. */
 export const TENANT_MODELS = [
   'Membership',
+  'Role',
   'Employee',
   'Department',
   'Designation',

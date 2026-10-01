@@ -42,10 +42,19 @@ export interface AuditEntry {
 /**
  * `actorRole` is the role the person held AT THE TIME, kept with the facts:
  * somebody who approved leave as HR in June and was moved to Employee in
- * August must still read as HR on June's rows.
+ * August must still read as HR on June's rows. Its name is kept beside the
+ * key when it is known (Day 21): a custom role can be renamed or deleted
+ * later, and June's rows should still say what it was called in June.
  */
-function row(organizationId: string, actorUserId: string | null, requestId: string | undefined, entry: AuditEntry, actorRole?: string): repo.AuditRow {
-  const details = actorRole ? { ...entry.details, actorRole } : entry.details
+function row(
+  organizationId: string,
+  actorUserId: string | null,
+  requestId: string | undefined,
+  entry: AuditEntry,
+  actorRole?: string,
+  actorRoleName?: string,
+): repo.AuditRow {
+  const details = actorRole ? { ...entry.details, actorRole, ...(actorRoleName ? { actorRoleName } : {}) } : entry.details
   return {
     organizationId,
     actorUserId,
@@ -59,7 +68,7 @@ function row(organizationId: string, actorUserId: string | null, requestId: stri
 
 /** A change, recorded on the transaction making it. Pass `tx` whenever there is one. */
 export async function audit(ctx: AppContext, entry: AuditEntry, db: TxDb = ctx.db): Promise<void> {
-  await repo.append(db, row(ctx.organizationId, ctx.userId, ctx.requestId, entry, ctx.role))
+  await repo.append(db, row(ctx.organizationId, ctx.userId, ctx.requestId, entry, ctx.role, ctx.roleName))
 }
 
 /**
@@ -84,13 +93,19 @@ export interface SecurityEvent extends AuditEntry {
   actorUserId: string | null
   /** The actor's role at the time, when it is known. */
   actorRole?: string | undefined
+  /** …and what it was called then. */
+  actorRoleName?: string | undefined
   requestId?: string | undefined
 }
 
 /** A security event, written now, never at the cost of the request it describes. */
 export async function recordSecurityEvent(event: SecurityEvent): Promise<void> {
   try {
-    await repo.appendUnscoped(row(event.organizationId, event.actorUserId, event.requestId, event, event.actorRole))
+    // The role's name as it is now, when the caller did not say: a sign-in or
+    // a download should read by the name the role had that day, whatever it
+    // is renamed to later.
+    const roleName = event.actorRoleName ?? (event.actorRole ? await repo.roleNameOf(event.organizationId, event.actorRole) : null)
+    await repo.appendUnscoped(row(event.organizationId, event.actorUserId, event.requestId, event, event.actorRole, roleName ?? undefined))
   } catch (err) {
     logger.error('Audit row could not be written', {
       action: event.action,

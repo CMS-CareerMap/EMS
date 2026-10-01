@@ -50,8 +50,9 @@ export const authenticate: RequestHandler = async (req, res, next) => {
     userId: state.userId,
     organizationId: claims.org,
     membershipId: claims.mem,
-    role: state.role,
+    grant: state.grant,
     employeeId: state.employeeId,
+    departmentId: state.departmentId,
   })
 
   next()

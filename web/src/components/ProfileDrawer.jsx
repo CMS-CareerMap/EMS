@@ -8,7 +8,7 @@ import { useAuthStore } from '../stores/authStore'
 import MyBankAccount from '../features/payroll/MyBankAccount'
 import { useEscape } from '../hooks/useEscape'
 import { useMyDashboardStats } from '../hooks/useDashboard'
-import { ROLE_LABELS } from '../lib/roles'
+import { roleLabel } from '../lib/roles'
 import DataState from './DataState'
 import { formatDay } from '../lib/dates'
 
@@ -31,7 +31,7 @@ function getPasswordStrength(password) {
 }
 
 export default function ProfileDrawer() {
-  const { user, profile, role, profileDrawerOpen, setProfileDrawerOpen, setSession, can } = useAuthStore()
+  const { user, profile, role, roleName, profileDrawerOpen, setProfileDrawerOpen, setSession, can } = useAuthStore()
   // The session carries who somebody is, not their HR record. Department,
   // designation, joining date, phone and manager come from their own summary,
   // asked for only when the drawer is open — so the rows show what HR holds
@@ -127,7 +127,7 @@ export default function ProfileDrawer() {
   }
 
   const displayName = profile?.full_name || user?.email?.split('@')[0] || 'User'
-  const displayRole = ROLE_LABELS[role] || role || 'Employee'
+  const displayRole = roleLabel(role, roleName) || 'Employee'
   const initials = displayName
     .split(' ')
     .slice(0, 2)

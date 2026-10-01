@@ -19,12 +19,17 @@ import { api } from '../api/http'
 
 const KEY = ['users']
 
+/**
+ * The logins this person may see: `rows`, and `reach` — whose they are, the
+ * caller's employee scope (Day 21). Somebody whose role reaches one department
+ * gets that department's logins, and the screen says so.
+ */
 export function useUsers() {
   return useQuery({
     queryKey: KEY,
     queryFn: async () => {
       const payload = await api.get('/users')
-      return payload.data
+      return { rows: payload.data, reach: payload.meta?.reach ?? 'ORGANIZATION' }
     },
   })
 }

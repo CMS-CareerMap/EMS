@@ -1,8 +1,6 @@
 import type { Response } from 'express'
-import type { Role } from '@prisma/client'
 import { Unauthorized } from '../platform/errors/AppError'
-import { roleCan } from '../platform/authz/roles'
-import { scopeFor } from '../platform/authz/scope'
+import type { RoleGrant } from '../platform/authz/grant'
 import { forOrg } from '../platform/db/scoped'
 import type { AppContext } from '../platform/context'
 
@@ -23,17 +21,27 @@ export interface AuthContextInput {
   userId: string
   organizationId: string
   membershipId: string
-  role: Role
+  /** The caller's role, read from its row on this request (findAuthState). */
+  grant: RoleGrant
   employeeId: string | null
+  departmentId: string | null
 }
 
 export function setAuthContext(res: Response, input: AuthContextInput): void {
+  const { grant } = input
   const ctx: AppContext = {
-    ...input,
-    can: (permission) => roleCan(input.role, permission),
+    userId: input.userId,
+    organizationId: input.organizationId,
+    membershipId: input.membershipId,
+    role: grant.key,
+    roleName: grant.name,
+    grant,
+    employeeId: input.employeeId,
+    can: (permission) => grant.permissions.has(permission),
     scopeFor: (resource) => ({
-      scope: scopeFor(input.role, resource),
+      scope: grant.scopes[resource],
       employeeId: input.employeeId,
+      departmentId: input.departmentId,
     }),
     db: forOrg(input.organizationId),
     requestId: res.locals.requestId as string | undefined,

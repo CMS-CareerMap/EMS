@@ -1,5 +1,5 @@
 import type { RequestHandler } from 'express'
-import { CATEGORY_OPTIONS, exportAuditLog, listAuditLog, type AuditEntryView, type AuditQuery } from '../../modules/audit/auditLog.service'
+import { CATEGORY_OPTIONS, auditFilterPeople, exportAuditLog, listAuditLog, type AuditEntryView, type AuditQuery } from '../../modules/audit/auditLog.service'
 import { toCsv } from '../../domain/shared/csv'
 import { isoInstant, zonedDateTime, zonedToday } from '../../domain/shared/dates'
 import { auditExportQuerySchema, auditListQuerySchema } from '../validators/audit.validator'
@@ -10,6 +10,7 @@ import { sendFile } from '../download'
 /**
  * GET /api/audit-log          a page of the log, in words
  * GET /api/audit-log/export   the same filters, as a CSV
+ * GET /api/audit-log/people   who the log can be filtered by
  *
  * Read-only. There is no route anywhere that changes or removes a row.
  */
@@ -42,6 +43,18 @@ export const getAuditLog: RequestHandler = async (req, res) => {
   res.status(200).json({
     data: result.rows.map(payload),
     meta: { requestId: res.locals.requestId, more: result.more, categories: CATEGORY_OPTIONS },
+  })
+}
+
+export const getAuditLogPeople: RequestHandler = async (_req, res) => {
+  const ctx = appContext(res)
+  const people = await auditFilterPeople(ctx)
+  res.status(200).json({
+    data: {
+      actors: people.actors.map((a) => ({ user_id: a.userId, name: a.name })),
+      employees: people.employees.map((e) => ({ id: e.id, name: e.name, code: e.code })),
+    },
+    meta: { requestId: res.locals.requestId },
   })
 }
 

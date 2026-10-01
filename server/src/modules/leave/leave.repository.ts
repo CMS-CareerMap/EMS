@@ -2,6 +2,7 @@ import type { Prisma, LeaveStatus } from '@prisma/client'
 import type { ScopedDb } from '../../platform/db/scoped'
 import type { TxDb } from '../../platform/db/transaction'
 import type { ScopeContext } from '../../platform/authz/scope'
+import { employeesInScope, ownedRowsInScope } from '../../platform/authz/scopeWhere'
 
 /**
  * Leave requests and balances.
@@ -11,31 +12,9 @@ import type { ScopeContext } from '../../platform/authz/scope'
  * direct reports for a manager, their own for an employee.
  */
 
+/** The data scope on leave requests — one definition for every module (platform/authz/scopeWhere). */
 function scopeWhere(scope: ScopeContext): Prisma.LeaveRequestWhereInput {
-  switch (scope.scope) {
-    case 'ORGANIZATION':
-      return {}
-
-    case 'DIRECT_REPORTS':
-      if (!scope.employeeId) return IMPOSSIBLE
-      return {
-        OR: [
-          { employee: { reportingManagerId: scope.employeeId } },
-          { employeeId: scope.employeeId },
-        ],
-      }
-
-    case 'SELF':
-      if (!scope.employeeId) return IMPOSSIBLE
-      return { employeeId: scope.employeeId }
-
-    case 'DEPARTMENT':
-      throw new Error('DEPARTMENT scope is not implemented')
-  }
-}
-
-const IMPOSSIBLE: Prisma.LeaveRequestWhereInput = {
-  employeeId: { equals: '00000000-0000-0000-0000-000000000000' },
+  return ownedRowsInScope(scope)
 }
 
 const requestInclude = {
@@ -256,20 +235,7 @@ export async function requestFacts(db: TxDb, id: string) {
 
 // ── Balances across people (Leave → Team Balances), and granting a year ──────
 
-function peopleWhere(scope: ScopeContext): Prisma.EmployeeWhereInput {
-  switch (scope.scope) {
-    case 'ORGANIZATION':
-      return {}
-    case 'DIRECT_REPORTS':
-      if (!scope.employeeId) return { id: { in: [] } }
-      return { OR: [{ reportingManagerId: scope.employeeId }, { id: scope.employeeId }] }
-    case 'SELF':
-      if (!scope.employeeId) return { id: { in: [] } }
-      return { id: scope.employeeId }
-    case 'DEPARTMENT':
-      throw new Error('DEPARTMENT scope is not implemented')
-  }
-}
+const peopleWhere = employeesInScope
 
 /** Everybody on the payroll whom this person may see, by name. People who have left are archived and not here. */
 export async function peopleInScope(db: ScopedDb | TxDb, scope: ScopeContext) {
@@ -335,8 +301,9 @@ export async function balanceOn(db: TxDb, employeeId: string, leaveTypeId: strin
   return result._sum.days ? Number(result._sum.days) : 0
 }
 
-export async function activeEmployee(db: ScopedDb, id: string) {
-  return db.employee.findFirst({ where: { id, archivedAt: null }, select: { id: true, fullName: true } })
+/** An employee still on the books, if the caller's leave scope reaches them. */
+export async function activeEmployee(db: ScopedDb, scope: ScopeContext, id: string) {
+  return db.employee.findFirst({ where: { AND: [employeesInScope(scope), { id, archivedAt: null }] }, select: { id: true, fullName: true } })
 }
 
 export async function activeLeaveType(db: ScopedDb, id: string) {

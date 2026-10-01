@@ -1,11 +1,15 @@
 import Papa from 'papaparse'
 import type { AppContext } from '../../platform/context'
-import { BadRequest } from '../../platform/errors/AppError'
+import { BadRequest, Forbidden } from '../../platform/errors/AppError'
 import { withTransaction } from '../../platform/db/transaction'
 import { logger } from '../../platform/logger'
 import { importRowSchema } from '../../http/validators/employeeImport.validator'
 import { isCalendarDate, isoInstant, toDateColumn } from '../../domain/shared/dates'
-import { createLoginInTransaction } from '../user/user.service'
+import { createLoginInTransaction, rolesForGrant, rolesLock } from '../user/user.service'
+import { mayGive } from '../user/user.policy'
+import { lockFor } from '../../platform/db/locks'
+import type { TxDb } from '../../platform/db/transaction'
+import { EMPLOYEE_ROLE } from '../../platform/authz/defaultRoles'
 import { listDepartments, listDesignations } from '../organization/masterData.repository'
 import * as repo from './employee.repository'
 import { audit } from '../audit/audit.service'
@@ -147,10 +151,30 @@ export interface ImportInput {
   dryRun: boolean
 }
 
+/**
+ * The logins a roster makes are Employee logins, so the importer must be one
+ * who may give that role — the rule for adding one employee with a login.
+ * Said in the import's words: nobody chose a role here, they chose a file.
+ */
+async function assertMayGiveLogins(tx: TxDb, ctx: AppContext): Promise<void> {
+  const { actor, next, order } = await rolesForGrant(tx, ctx, EMPLOYEE_ROLE, ['employee:create'])
+  if (!mayGive(actor, next, order)) {
+    throw Forbidden(
+      'Your role cannot give Employee logins, so this file cannot be imported with its email column. Remove the email column to add the records without logins, or ask somebody who gives logins, such as HR, to import it.',
+    )
+  }
+}
+
 export async function importEmployees(
   ctx: AppContext,
   input: ImportInput,
 ): Promise<ImportResult> {
+  // A roster names departments and no managers, so the people it adds are
+  // placed company-wide. Importing one is therefore for a company-wide reach
+  // (Day 21): somebody who adds people only to their team adds them one by one.
+  if (ctx.scopeFor('employee').scope !== 'ORGANIZATION') {
+    throw Forbidden('Importing a roster adds people anywhere in the company, so it needs a company-wide reach. Add people one at a time under Employees instead.')
+  }
   if (Buffer.byteLength(input.csv, 'utf8') > MAX_BYTES) {
     throw BadRequest('That file is larger than 1 MB. Split the roster and import it in parts.')
   }
@@ -307,6 +331,12 @@ export async function importEmployees(
     imported: 0,
   }
 
+  // The preview promises what the commit will do, so it refuses the logins
+  // the commit would refuse. Read only; the commit checks again under the lock.
+  if (input.dryRun && withLogin > 0) {
+    await withTransaction(ctx.db, (tx) => assertMayGiveLogins(tx, ctx))
+  }
+
   if (input.dryRun) {
     return { dryRun: true, summary, rows, invites: [] }
   }
@@ -322,6 +352,10 @@ export async function importEmployees(
   const invites: ImportResult['invites'] = []
 
   await withTransaction(ctx.db, async (tx) => {
+    if (withLogin > 0) {
+      await lockFor(tx, rolesLock(ctx.organizationId))
+      await assertMayGiveLogins(tx, ctx)
+    }
     for (const row of prepared) {
       const data = row.data as Record<string, string | undefined>
       let membershipId: string | null = null
@@ -332,7 +366,7 @@ export async function importEmployees(
           // Always `employee`. The CSV has no role column, and promoting
           // anyone is a separate deliberate act through the role endpoint —
           // not something that happens because of a spreadsheet.
-          role: 'employee',
+          role: EMPLOYEE_ROLE,
           organizationId: ctx.organizationId,
           invitedByUserId: ctx.userId,
         })

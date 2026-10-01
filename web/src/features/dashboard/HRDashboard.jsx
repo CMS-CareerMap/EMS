@@ -11,6 +11,7 @@ import { useDashboardStats, useApproveLeaveDashboard } from '../../hooks/useDash
 import { useAuthStore } from '../../stores/authStore'
 import DataState from '../../components/DataState'
 import { typeColourOf } from '../../lib/leaveTypes'
+import { ROLE_LABELS } from '../../lib/roles'
 import { calendarDayIn, formatCalendarDay, formatDayOf } from '../../lib/dates'
 
 
@@ -79,7 +80,7 @@ function StatCard({ label, value, change, icon, iconBg, iconColor }) {
 }
 
 export default function HRDashboard() {
-  const { role } = useAuthStore()
+  const { role, roleName } = useAuthStore()
   const stats = useDashboardStats()
   const approveLeave = useApproveLeaveDashboard()
   const myEmployeeId = useAuthStore((state) => state.profile?.id ?? null)
@@ -93,7 +94,10 @@ export default function HRDashboard() {
     accounts: 'Finance Dashboard',
   }
 
-  const dashboardTitle = roleTitles[role] || 'Dashboard'
+  // A built-in role still under its own name keeps its usual title; one the
+  // Super Admin made, or renamed (Day 21), is called by the name it has now.
+  const renamed = roleName && roleName !== ROLE_LABELS[role]
+  const dashboardTitle = (!renamed && roleTitles[role]) || (roleName ? `${roleName} Dashboard` : 'Dashboard')
 
   const timezone = useAuthStore((state) => state.organization?.timezone)
   const today = formatCalendarDay(calendarDayIn(timezone))

@@ -1,7 +1,7 @@
 import { useEffect, useState, lazy } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { restoreSession } from './api/auth'
-import { ApiError, onSessionEnded } from './api/http'
+import { ApiError, onSessionEnded, onSessionRefreshed } from './api/http'
 import { useAuthStore } from './stores/authStore'
 import { ROUTE_PERMISSIONS } from './config/navigation'
 import Layout from './components/Layout'
@@ -64,10 +64,14 @@ export default function App() {
     // server revoked the family because a token was reused. Either way this
     // person is no longer signed in, and the guard in Layout sends them out.
     const stopListening = onSessionEnded(() => clearAuth())
+    // Every later refresh brings the session as it is now — a role changed on
+    // the Roles screen redraws this person's menus without a reload.
+    const stopRefreshing = onSessionRefreshed((user) => setSession(user))
 
     return () => {
       cancelled = true
       stopListening()
+      stopRefreshing()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

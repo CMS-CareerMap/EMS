@@ -1,5 +1,7 @@
-import type { AccountStatus, Role } from '@prisma/client'
+import type { AccountStatus } from '@prisma/client'
 import { unsafeDb } from '../../platform/db/unsafe'
+import { toGrant, type RoleGrant } from '../../platform/authz/grant'
+import { roleForGrant } from './session.repository'
 
 /**
  * Login is the one read that runs before an organization is known, so it is one
@@ -20,7 +22,9 @@ export interface AuthIdentity {
   organizationName: string
   /** IANA zone, e.g. Asia/Kolkata. Decides which calendar day "today" is. */
   organizationTimezone: string
-  role: Role
+  /** The role's key; what it allows is `grant`, read from the role's row. */
+  role: string
+  grant: RoleGrant
   status: AccountStatus
 
   employee: { id: string; fullName: string; employeeCode: string; attendanceMode: string } | null
@@ -28,6 +32,7 @@ export interface AuthIdentity {
 
 const membershipInclude = {
   organization: { select: { id: true, name: true, timezone: true } },
+  roleDef: { select: roleForGrant },
   employee: { select: { id: true, fullName: true, employeeCode: true, attendanceMode: true } },
 } as const
 
@@ -52,6 +57,7 @@ export async function findIdentityByEmail(email: string): Promise<AuthIdentity |
     organizationName: membership.organization.name,
     organizationTimezone: membership.organization.timezone,
     role: membership.role,
+    grant: toGrant(membership.roleDef),
     status: membership.status,
     employee: membership.employee,
   }
@@ -98,6 +104,7 @@ export async function findIdentityByEmployeeCode(code: string): Promise<AuthIden
     organizationName: membership.organization.name,
     organizationTimezone: membership.organization.timezone,
     role: membership.role,
+    grant: toGrant(membership.roleDef),
     status: membership.status,
     employee: {
       id: employee.id,
@@ -135,6 +142,7 @@ export async function findIdentityByUserId(userId: string): Promise<AuthIdentity
     organizationName: membership.organization.name,
     organizationTimezone: membership.organization.timezone,
     role: membership.role,
+    grant: toGrant(membership.roleDef),
     status: membership.status,
     employee: membership.employee,
   }

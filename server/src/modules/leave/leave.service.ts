@@ -83,8 +83,8 @@ export interface PreviewResult {
 }
 
 /** Whose leave this is. An employee may only ever act on their own. */
-function resolveEmployee(ctx: AppContext, requested?: string): string {
-  if (!requested) {
+async function resolveEmployee(ctx: AppContext, requested?: string): Promise<string> {
+  if (!requested || requested === ctx.employeeId) {
     if (!ctx.employeeId) {
       throw Forbidden('Your account has no employee record, so leave does not apply to you.')
     }
@@ -94,9 +94,15 @@ function resolveEmployee(ctx: AppContext, requested?: string): string {
   // Applying on somebody else's behalf is HR's job, and needs the permission
   // that says so. Without this an employee could apply as anybody by sending
   // an id — the request would be theirs in every respect except the name.
-  if (requested !== ctx.employeeId && !ctx.can('leave:approve')) {
+  if (!ctx.can('leave:approve')) {
     throw Forbidden('You can only apply for your own leave.')
   }
+
+  // …and only for somebody the caller's leave scope reaches. Checked BEFORE
+  // anything is written: a manager filing leave for a person outside their
+  // team used to have it saved and then be told it was not found.
+  const target = await repo.activeEmployee(ctx.db, ctx.scopeFor('leave'), requested)
+  if (!target) throw NotFound('Employee not found')
 
   return requested
 }
@@ -109,7 +115,7 @@ function resolveEmployee(ctx: AppContext, requested?: string): string {
  * days should see that before they commit, not after.
  */
 export async function previewLeave(ctx: AppContext, input: PreviewInput): Promise<PreviewResult> {
-  const employeeId = resolveEmployee(ctx, input.employeeId)
+  const employeeId = await resolveEmployee(ctx, input.employeeId)
   const context = await leaveContext(ctx, input.fromDate, input.toDate)
 
   let counted: WorkingDaysResult
@@ -196,7 +202,7 @@ export interface ApplyInput extends PreviewInput {
 }
 
 export async function applyForLeave(ctx: AppContext, input: ApplyInput): Promise<repo.LeaveRequestRow> {
-  const employeeId = resolveEmployee(ctx, input.employeeId)
+  const employeeId = await resolveEmployee(ctx, input.employeeId)
   const context = await leaveContext(ctx, input.fromDate, input.toDate)
 
   const today = zonedToday(new Date(), context.timezone)
@@ -295,7 +301,7 @@ export async function listLeave(ctx: AppContext, filters: repo.LeaveFilters = {}
 }
 
 export async function myBalances(ctx: AppContext, employeeId?: string) {
-  const target = resolveEmployee(ctx, employeeId)
+  const target = await resolveEmployee(ctx, employeeId)
 
   const [policy, timezone] = await Promise.all([getCurrentPolicy(ctx.db), companyTimezone(ctx)])
 

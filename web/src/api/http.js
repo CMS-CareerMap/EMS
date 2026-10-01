@@ -44,6 +44,14 @@ export class ApiError extends Error {
 }
 
 let accessToken = null
+/**
+ * Raised on every sign-out. A refresh that set off before it and answers after
+ * it is about a session that has ended: its token is dropped and its user is
+ * not handed to the app, or a slow refresh could sign somebody back in a moment
+ * after they pressed Sign out — on a shared computer, as them, for the next
+ * person to use.
+ */
+let generation = 0
 
 export function setAccessToken(token) {
   accessToken = token
@@ -51,6 +59,7 @@ export function setAccessToken(token) {
 
 export function clearAccessToken() {
   accessToken = null
+  generation += 1
 }
 
 /** Listeners for "the session is gone" — App.jsx uses this to send you to /signin. */
@@ -156,15 +165,33 @@ function afterFailedRefresh(error) {
 }
 
 /**
+ * Who hears about the session a refresh brings back. The app registers one, so
+ * a role the Super Admin changed a moment ago (Day 21) redraws the menus at
+ * once: the server ends the holder's access token, this refresh follows, and
+ * its answer carries the role as it is now.
+ */
+let sessionListener = null
+export function onSessionRefreshed(listener) {
+  sessionListener = listener
+  return () => {
+    if (sessionListener === listener) sessionListener = null
+  }
+}
+
+/**
  * Trades the refresh cookie for a new access token. Concurrent callers share
  * one request — see note 3 above.
  */
 export function refreshSession() {
   if (!refreshInFlight) {
+    const startedIn = generation
     refreshInFlight = send('POST', '/auth/refresh', {}, { withAuth: false })
       .then(toResult)
       .then((payload) => {
+        // Signed out while this was on its way: it belongs to an ended session.
+        if (startedIn !== generation) throw new ApiError({ status: 401, code: 'SIGNED_OUT', message: 'You have signed out.' })
         setAccessToken(payload.data.accessToken)
+        if (payload.data.user) sessionListener?.(payload.data.user)
         return payload.data
       })
       .finally(() => {

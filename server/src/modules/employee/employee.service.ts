@@ -1,12 +1,14 @@
-import type { Role } from '@prisma/client'
 import type { AppContext } from '../../platform/context'
-import { NotFound, Conflict, Forbidden, BadRequest } from '../../platform/errors/AppError'
+import { NotFound, Conflict, BadRequest, Forbidden } from '../../platform/errors/AppError'
 import { fromDateColumn, toDateColumn } from '../../domain/shared/dates'
 import { withTransaction } from '../../platform/db/transaction'
+import { lockFor } from '../../platform/db/locks'
 import { isUniqueViolation } from '../../platform/db/errors'
 import { logger } from '../../platform/logger'
-import { grantsMoreThan } from '../user/user.policy'
-import { createLoginInTransaction } from '../user/user.service'
+import { assertMayGive, createLoginInTransaction, rolesLock } from '../user/user.service'
+import { isInScope, type PersonPlace } from '../../platform/authz/scopeWhere'
+import { SCOPED_RESOURCES } from '../../platform/authz/scope'
+import { RESOURCE_LABELS } from '../../platform/authz/catalogue'
 import * as repo from './employee.repository'
 import { audit } from '../audit/audit.service'
 
@@ -29,6 +31,7 @@ import { audit } from '../audit/audit.service'
 function accessFor(ctx: AppContext): repo.FieldAccess {
   return {
     includeCompensation: ctx.can('employee:compensation:read'),
+    compensationScope: ctx.scopeFor('compensation'),
     includeBank: ctx.can('employee:bank:read'),
     includeIdentity: ctx.can('employee:identity:read'),
   }
@@ -116,7 +119,8 @@ export interface CreateEmployeeInput {
         hasPriorPfMembership?: boolean | null | undefined
       }
     | undefined
-  login?: { email: string; role: Role } | undefined
+  /** `role` is a role key of this company. */
+  login?: { email: string; role: string } | undefined
 }
 
 export interface CreateEmployeeResult {
@@ -152,6 +156,48 @@ function asConflict(err: unknown): never {
   throw err
 }
 
+/**
+ * Refuses a record that would land outside the people the caller can see.
+ *
+ * Checked BEFORE anything is written. A role that adds or edits people over
+ * its team or department (Day 21) used to have the change saved and then be
+ * told "not found" when it was read back — and a new login's one-time link,
+ * returned only in that answer, was lost with it.
+ */
+function assertWithinReach(ctx: AppContext, place: PersonPlace, adding: boolean): void {
+  const scope = ctx.scopeFor('employee')
+  if (isInScope(scope, place)) return
+  const where =
+    scope.scope === 'DIRECT_REPORTS'
+      ? 'Set yourself as their reporting manager'
+      : scope.scope === 'DEPARTMENT'
+        ? 'Keep them in your own department'
+        : 'You can only see your own record'
+  throw BadRequest(`${adding ? 'You can add only people you will be able to see.' : 'That change would take this person out of the people you can see.'} ${where}.`)
+}
+
+/**
+ * Refuses moving somebody INTO the caller's reach (Day 21).
+ *
+ * Every team and department scope is measured from a person's manager and
+ * department — the two fields this edit can change. Without this, somebody
+ * who edits records company-wide but sees salaries only for their team could
+ * make the managing director report to them and read the MD's pay. Moving
+ * people between teams and departments is still done; by somebody above, or
+ * by somebody whose reach the move does not change.
+ */
+function assertNoNewReach(ctx: AppContext, before: PersonPlace, after: PersonPlace): void {
+  for (const resource of SCOPED_RESOURCES) {
+    const scope = ctx.scopeFor(resource)
+    if (scope.scope !== 'DIRECT_REPORTS' && scope.scope !== 'DEPARTMENT') continue
+    if (!isInScope(scope, before) && isInScope(scope, after)) {
+      throw Forbidden(
+        `That change would put this person in ${scope.scope === 'DIRECT_REPORTS' ? 'your team' : 'your department'}, which would show you more of their information (${RESOURCE_LABELS[resource].toLowerCase()}). Ask somebody above you to make it.`,
+      )
+    }
+  }
+}
+
 export async function createEmployee(
   ctx: AppContext,
   input: CreateEmployeeInput,
@@ -159,16 +205,18 @@ export async function createEmployee(
   let invite: { token: string; expiresAt: Date } | undefined
 
   assertLeavesAfterJoining(input.dateOfJoining ?? null, input.lastWorkingDate ?? null)
+  // A new record has no id yet, so it is in reach only by its manager or department.
+  assertWithinReach(ctx, { id: '', reportingManagerId: input.reportingManagerId ?? null, departmentId: input.departmentId ?? null }, true)
 
   const employeeId = await withTransaction(ctx.db, async (tx) => {
     let membershipId: string | null = null
+    let roleName: string | null = null
 
     if (input.login) {
-      // An inviter cannot hand out a role they do not hold — the same rule the
+      // An inviter cannot hand out a role above their own — the same rule the
       // invite endpoint applies, reused rather than restated.
-      if (grantsMoreThan(input.login.role, ctx.role)) {
-        throw Forbidden('You cannot grant a role with more access than your own.')
-      }
+      await lockFor(tx, rolesLock(ctx.organizationId))
+      roleName = (await assertMayGive(tx, ctx, input.login.role, ['employee:create'])).grant.name
 
       const created = await createLoginInTransaction(tx, {
         email: input.login.email,
@@ -221,7 +269,7 @@ export async function createEmployee(
       action: 'employee.created',
       entityType: 'employee',
       entityId: employee.id,
-      details: { employeeCode: employee.employeeCode, withLogin: Boolean(input.login), role: input.login?.role ?? null },
+      details: { employeeCode: employee.employeeCode, withLogin: Boolean(input.login), role: input.login?.role ?? null, roleName },
     }, tx)
 
     return employee.id
@@ -265,6 +313,23 @@ export async function updateEmployee(
         ? fromDateColumn(existing.lastWorkingDate)
         : null,
   )
+
+  // Whichever of manager and department the body leaves out stays as stored.
+  const before: PersonPlace = { id: existing.id, reportingManagerId: existing.reportingManagerId, departmentId: existing.departmentId }
+  const after: PersonPlace = {
+    id: existing.id,
+    reportingManagerId: input.reportingManagerId !== undefined ? input.reportingManagerId : existing.reportingManagerId,
+    departmentId: input.departmentId !== undefined ? input.departmentId : existing.departmentId,
+  }
+  const moved = after.reportingManagerId !== before.reportingManagerId || after.departmentId !== before.departmentId
+  // Nobody decides where they themselves sit: their team and department are
+  // what other people's scopes — and their own — are measured from. The Super
+  // Admin, with nobody above, is the exception (role:manage is theirs alone).
+  if (moved && existing.id === ctx.employeeId && !ctx.can('role:manage')) {
+    throw Forbidden('You cannot change your own reporting manager or department. Ask somebody above you.')
+  }
+  assertWithinReach(ctx, after, false)
+  if (moved) assertNoNewReach(ctx, before, after)
 
   await withTransaction(ctx.db, async (tx) => {
     const data: Record<string, unknown> = {}

@@ -1,7 +1,9 @@
+import { useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Building2, Users, CalendarDays, Bell, IndianRupee, Network, FolderOpen, ScrollText } from 'lucide-react'
+import { Building2, Users, CalendarDays, Bell, IndianRupee, Network, FolderOpen, ScrollText, ShieldCheck } from 'lucide-react'
 import CompanySettings from '../features/settings/CompanySettings'
 import UsersSettings from '../features/settings/UsersSettings'
+import RolesSettings from '../features/settings/RolesSettings'
 import OrganisationSettings from '../features/settings/OrganisationSettings'
 import LeaveSettings from '../features/settings/LeaveSettings'
 import PayrollSettings from '../features/settings/PayrollSettings'
@@ -23,7 +25,10 @@ import { useAuthStore } from '../stores/authStore'
  */
 const TABS = [
   { id: 'company', label: 'Company', icon: Building2, permission: 'settings:read', Component: CompanySettings },
-  { id: 'users', label: 'Users & Roles', icon: Users, permission: 'user:invite', Component: UsersSettings },
+  // Any of the four: since Day 21 a role can hold some of them and not others,
+  // and the tab draws only the buttons each one allows.
+  { id: 'users', label: 'Users & Roles', icon: Users, permission: ['user:invite', 'membership:role:assign', 'user:status:update', 'user:delete'], Component: UsersSettings },
+  { id: 'roles', label: 'Roles & Permissions', icon: ShieldCheck, permission: 'role:manage', Component: RolesSettings },
   { id: 'organisation', label: 'Organisation', icon: Network, permission: 'settings:read', Component: OrganisationSettings },
   {
     id: 'leave',
@@ -47,6 +52,14 @@ export default function Settings() {
   const [params, setParams] = useSearchParams()
   const tab = tabs.find((t) => t.id === params.get('tab')) ?? tabs[0]
   const choose = (id) => setParams({ tab: id }, { replace: true })
+
+  // On a phone the tabs are a strip wider than the screen; the open one is
+  // scrolled into view, so a link to ?tab=audit does not open on a tab cut off
+  // at the edge.
+  const activeChip = useRef(null)
+  useEffect(() => {
+    activeChip.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [tab?.id])
 
   return (
     <div className="space-y-5">
@@ -75,7 +88,7 @@ export default function Settings() {
 
         <div className="lg:hidden flex gap-1 overflow-x-auto pb-1">
           {tabs.map((item) => (
-            <button key={item.id} type="button" onClick={() => choose(item.id)}
+            <button key={item.id} type="button" onClick={() => choose(item.id)} ref={tab?.id === item.id ? activeChip : undefined}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors shrink-0
                 ${tab?.id === item.id ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
               <item.icon className="w-3.5 h-3.5" />

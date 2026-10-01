@@ -52,6 +52,11 @@ export const AUDIT_ACTIONS = {
   'user.status_changed': { label: 'Login turned on or off', category: 'users' },
   'user.terminated': { label: 'User removed', category: 'users' },
   'user.password_link_issued': { label: 'Password link issued', category: 'users' },
+  // Roles themselves (Day 21): what each one may do is the Super Admin's choice.
+  'role.created': { label: 'Role created', category: 'users' },
+  'role.updated': { label: 'Role changed', category: 'users' },
+  'role.reset': { label: 'Role reset to default', category: 'users' },
+  'role.deleted': { label: 'Role deleted', category: 'users' },
   // People
   'employee.created': { label: 'Employee added', category: 'people' },
   'employee.updated': { label: 'Employee record changed', category: 'people' },
@@ -159,7 +164,11 @@ export function categoryOf(action: string): AuditCategory | null {
 
 // ── Words for the values the rows carry ──────────────────────────────────────
 
-const ROLE_LABELS: Record<string, string> = {
+/**
+ * What the seven built-in roles were called when they were the only ones —
+ * for rows written before roles had their names stored with them (Day 21).
+ */
+const BUILT_IN_ROLE_LABELS: Record<string, string> = {
   super_admin: 'Super Admin',
   admin: 'Admin',
   hr: 'HR',
@@ -169,8 +178,20 @@ const ROLE_LABELS: Record<string, string> = {
   employee: 'Employee',
 }
 
-export function roleLabel(role: unknown): string {
-  return typeof role === 'string' ? ROLE_LABELS[role] ?? humanise(role) : 'no role'
+/**
+ * A role in words, AS IT WAS when the row was written:
+ *
+ *   1. the name stored with the row — every row since Day 21 has one;
+ *   2. for a built-in role on an older row, what it was always called then,
+ *      not what the Super Admin may have renamed it to since;
+ *   3. the company's name for the role today;
+ *   4. only then the key itself, tidied.
+ */
+export function roleLabel(role: unknown, names?: Pick<AuditNames, 'role'>, storedName?: unknown): string {
+  const stored = typeof storedName === 'string' && storedName.trim() ? storedName : null
+  if (stored) return stored
+  if (typeof role !== 'string') return 'no role'
+  return BUILT_IN_ROLE_LABELS[role] ?? names?.role(role) ?? humanise(role)
 }
 
 const ATTENDANCE_WORDS: Record<string, string> = {
@@ -302,6 +323,31 @@ export interface AuditNames {
   component(code: unknown): string | null
   leaveType(code: unknown): string | null
   report(id: unknown): string | null
+  /** What the company calls a role key today, or null for one it no longer has. */
+  role(key: unknown): string | null
+}
+
+/** "A, B and C" — the first few of a list of words, then how many more. */
+function wordsOf(value: unknown, most = 5): string {
+  const items = Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string' && v.trim() !== '') : []
+  if (items.length === 0) return ''
+  const shown = items.slice(0, most)
+  const rest = items.length - shown.length
+  if (rest > 0) return `${shown.join(', ')} and ${rest} more`
+  if (shown.length === 1) return shown[0]!
+  return `${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]}`
+}
+
+/** What a role change did, in clauses: renamed, moved, given, taken, widened. */
+function roleChanges(d: Details): string {
+  const parts: string[] = []
+  if (text(d.previousName) && text(d.previousName) !== text(d.name)) parts.push(`renamed from “${text(d.previousName)}”`)
+  if (d.parentChanged && text(d.parentName)) parts.push(`now under ${text(d.parentName)}`)
+  if (wordsOf(d.added)) parts.push(`can now: ${wordsOf(d.added)}`)
+  if (wordsOf(d.removed)) parts.push(`can no longer: ${wordsOf(d.removed)}`)
+  if (wordsOf(d.scopeChanges)) parts.push(`reaches ${wordsOf(d.scopeChanges)}`)
+  if (d.descriptionChanged) parts.push('description changed')
+  return parts.join('; ')
 }
 
 export interface AuditRowIn {
@@ -373,12 +419,30 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
       return d.purpose === 'reset' ? 'Set a new password from a reset link' : 'Set a password from an invitation and activated the login'
 
     case 'permission.denied':
-      return `Was refused ${text(d.method) ?? ''} ${text(d.path) ?? 'a request'} — not allowed for ${roleLabel(d.role)}`.replace(/\s+/g, ' ')
+      return `Was refused ${text(d.method) ?? ''} ${text(d.path) ?? 'a request'} — not allowed for ${roleLabel(d.role, names, d.roleName)}`.replace(/\s+/g, ' ')
 
     case 'user.invited':
-      return `Invited ${text(d.email) ?? who()} as ${roleLabel(d.role)}`
+      return `Invited ${text(d.email) ?? who()} as ${roleLabel(d.role, names, d.roleName)}`
     case 'user.role_changed':
-      return `Changed ${who()}’s role from ${roleLabel(d.from)} to ${roleLabel(d.to)}`
+      return `Changed ${who()}’s role from ${roleLabel(d.from, names, d.fromName)} to ${roleLabel(d.to, names, d.toName)}`
+
+    case 'role.created': {
+      const what = wordsOf(d.permissions, 4)
+      const reach = wordsOf(d.reach, 6)
+      return `Created the role “${text(d.name) ?? 'a role'}”${text(d.parentName) ? ` under ${text(d.parentName)}` : ''}${what ? `, which can: ${what}` : ', which can do nothing yet'}${reach ? `; reaches ${reach}` : ''}`
+    }
+    case 'role.updated': {
+      const changes = roleChanges(d)
+      return `Changed the role “${text(d.name) ?? 'a role'}”${changes ? `: ${changes}` : ''}`
+    }
+    case 'role.reset': {
+      const changes = roleChanges(d)
+      return `Reset the role “${text(d.name) ?? 'a role'}” to how it started${changes ? `: ${changes}` : ''}`
+    }
+    case 'role.deleted': {
+      const reach = wordsOf(d.reach, 6)
+      return `Deleted the role “${text(d.name) ?? 'a role'}”${reach ? `, which reached ${reach}` : ''}`
+    }
     case 'user.status_changed':
       return `Changed ${who()}’s login from ${ACCOUNT_STATUS_WORDS[String(d.from)] ?? 'before'} to ${ACCOUNT_STATUS_WORDS[String(d.to)] ?? 'changed'}`
     case 'user.terminated':
@@ -387,7 +451,7 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
       return `Issued ${d.purpose === 'reset' ? 'a password reset' : 'an invitation'} link for ${text(d.email) ?? who()}${d.via === 'terminal' ? ', from the server terminal' : ''}`
 
     case 'employee.created':
-      return d.withLogin ? `Added ${who()} with a ${roleLabel(d.role)} login` : `Added ${who()}`
+      return d.withLogin ? `Added ${who()} with a ${roleLabel(d.role, names, d.roleName)} login` : `Added ${who()}`
     case 'employee.updated': {
       const fields = fieldsOf([d.fields, d.statutoryFields].flatMap((f) => (Array.isArray(f) ? f : [])))
       return fields ? `Changed ${who()}’s ${fields}` : `Changed ${who()}’s record`

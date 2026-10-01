@@ -48,7 +48,8 @@ async function loadSelf(ctx: AppContext) {
     throw Forbidden('Your account has no employee record, so attendance does not apply to you.')
   }
 
-  const employee = await repo.findEmployeeWithShift(ctx.db, ctx.employeeId)
+  // A punch is always one's own day.
+  const employee = await repo.findEmployeeWithShift(ctx.db, { scope: 'SELF', employeeId: ctx.employeeId }, ctx.employeeId)
   if (!employee) throw NotFound('Employee record not found')
   return employee
 }

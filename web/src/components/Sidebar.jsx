@@ -3,12 +3,12 @@ import { LogOut, ChevronRight } from 'lucide-react'
 import { logout } from '../api/auth'
 import { NAV_GROUPS } from '../config/navigation'
 import { useAuthStore } from '../stores/authStore'
-import { ROLE_LABELS } from '../lib/roles'
+import { roleLabel } from '../lib/roles'
 
 
 export default function Sidebar({ mobile = false, onClose }) {
   const navigate = useNavigate()
-  const { user, profile, role, clearAuth, canAny } = useAuthStore()
+  const { user, profile, role, roleName, clearAuth, canAny } = useAuthStore()
 
   async function handleLogout() {
     // Clear locally whichever way the request goes. A network error is not a
@@ -28,7 +28,7 @@ export default function Sidebar({ mobile = false, onClose }) {
   })).filter((group) => group.items.length > 0)
 
   const displayName = profile?.full_name || user?.email?.split('@')[0] || 'User'
-  const displayRole = ROLE_LABELS[role] ?? role ?? 'User'
+  const displayRole = roleLabel(role, roleName) || 'User'
   const avatarText = (displayName || '')
     .split(' ')
     .slice(0, 2)

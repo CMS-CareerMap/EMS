@@ -163,7 +163,7 @@ export default function EmployeeDrawer({ employee, onClose, onEdit }) {
                   : '—'} />
               <InfoRow icon={UserRound} label="Gender" value={GENDER[employee.gender] ?? 'Not recorded'} />
               <InfoRow icon={KeyRound} label="Access"
-                value={employee.account_status ? `${ACCOUNT[employee.account_status] ?? employee.account_status}${employee.role ? ` · ${roleLabel(employee.role)}` : ''}` : 'No login'} />
+                value={employee.account_status ? `${ACCOUNT[employee.account_status] ?? employee.account_status}${employee.role ? ` · ${roleLabel(employee.role, employee.role_name)}` : ''}` : 'No login'} />
             </Section>
 
             {checksDocuments && (
@@ -172,7 +172,10 @@ export default function EmployeeDrawer({ employee, onClose, onEdit }) {
               </Section>
             )}
 
-            {can('employee:compensation:read') && (
+            {/* Only when the server sent this person's salary at all: since Day 21 a
+                salary outside the caller's salary scope is left out, and saying
+                "no salary is recorded" would not be the truth. */}
+            {can('employee:compensation:read') && Object.hasOwn(employee, 'ctc') && (
               <Section title="Salary">
                 {employee.ctc == null ? (
                   // Null is "not recorded". Zero would say they earn nothing.

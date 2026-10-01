@@ -97,8 +97,33 @@ export const PERMISSIONS = [
   // Reading the audit log: who did what, including every salary change and
   // every document opened. Super Admin only.
   'audit:read',
+
+  // Settings → Roles & Permissions: creating roles and deciding what each one
+  // may do (Day 21). Held by the Super Admin and nobody else, and it cannot be
+  // given to another role — see SUPER_ADMIN_ONLY below.
+  'role:manage',
 ] as const
 
 export type Permission = (typeof PERMISSIONS)[number]
 
 export const PERMISSION_SET: ReadonlySet<string> = new Set(PERMISSIONS)
+
+export function isPermission(value: unknown): value is Permission {
+  return typeof value === 'string' && PERMISSION_SET.has(value)
+}
+
+/**
+ * Permissions the Roles screen will not let anybody give to another role.
+ *
+ * Whoever edits roles decides what every other role may do, so a second role
+ * holding it would be a second Super Admin in all but name — able to write
+ * itself any permission through a role it creates for the purpose. The client
+ * put role control with the Super Admin; this keeps it there.
+ */
+export const SUPER_ADMIN_ONLY: ReadonlySet<Permission> = new Set<Permission>([
+  'role:manage',
+  // Nothing in EMS checks this one: removing somebody is `user:delete`, which
+  // closes their login and archives their record. Offering it on the Roles
+  // screen would be a tick that does nothing, so it stays where it is.
+  'employee:delete',
+])

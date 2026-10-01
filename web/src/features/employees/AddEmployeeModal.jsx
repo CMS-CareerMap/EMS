@@ -3,6 +3,7 @@ import { X, Info } from 'lucide-react'
 import { useEmployees, useMasterData, useCreateEmployee, useUpdateEmployee } from '../../hooks/useEmployees'
 import { useAuthStore } from '../../stores/authStore'
 import { PasswordLinkPanel } from '../settings/UserAccess'
+import { useInvitableRoles } from '../../hooks/useRoles'
 import { optionsNote } from '../../lib/optionsNote'
 
 /**
@@ -39,15 +40,6 @@ const ATTENDANCE_MODES = [
   ['manual', 'Marked by HR'],
 ]
 
-/** super_admin is not offered: handing over the top role is its own deliberate step. */
-const LOGIN_ROLES = [
-  ['employee', 'Employee'],
-  ['manager', 'Manager'],
-  ['rm', 'Reporting Manager'],
-  ['hr', 'HR'],
-  ['accounts', 'Accounts'],
-  ['admin', 'Admin'],
-]
 
 function priorToForm(value) {
   if (value === true) return 'yes'
@@ -126,6 +118,12 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
   // Set once an employee with a login has been created: the link is shown here,
   // once, before the modal closes.
   const [issued, setIssued] = useState(null)
+  // The roles this person may give, asked for only once a login is wanted.
+  const loginRoles = useInvitableRoles({ enabled: open && !isEdit && form.withLogin })
+  // The Employee role unless somebody chose another; one they may not give is never sent.
+  const loginRole = loginRoles.roles.some((r) => r.key === form.loginRole)
+    ? form.loginRole
+    : loginRoles.roles.some((r) => r.key === 'employee') ? 'employee' : (loginRoles.roles[0]?.key ?? '')
 
   if (!open) return null
 
@@ -145,6 +143,15 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
       e.lastWorkingDate = 'Cannot be before the joining date'
     }
     if (form.withLogin && !/\S+@\S+\.\S+/.test(form.loginEmail)) e.loginEmail = 'A valid work email is needed for a login'
+    // Why there is no role to send, told truthfully: still loading, failed to
+    // load, or genuinely none this person may give.
+    if (form.withLogin && !loginRole) {
+      e.loginRole = loginRoles.query.isError
+        ? 'The list of roles could not be loaded. Try again below.'
+        : loginRoles.query.isSuccess
+          ? 'There is no role you may give. Ask the Super Admin.'
+          : 'The list of roles is still loading.'
+    }
     return e
   }
 
@@ -178,7 +185,7 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
     }
 
     if (!isEdit && form.withLogin) {
-      body.login = { email: form.loginEmail.trim().toLowerCase(), role: form.loginRole }
+      body.login = { email: form.loginEmail.trim().toLowerCase(), role: loginRole }
     }
 
     return body
@@ -378,10 +385,21 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
                       <input type="email" placeholder="priya@company.in" value={form.loginEmail}
                         onChange={(e) => set('loginEmail', e.target.value)} className={inp(errors.loginEmail)} />
                     </Field>
-                    <Field label="Role">
-                      <select value={form.loginRole} onChange={(e) => set('loginRole', e.target.value)} className={inp()}>
-                        {LOGIN_ROLES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                    <Field label="Role" error={errors.loginRole}>
+                      {/* Only roles below the person adding them (Day 21), never the
+                          Super Admin's — handing that over is its own deliberate step. */}
+                      <select value={loginRole} onChange={(e) => set('loginRole', e.target.value)}
+                        disabled={!loginRoles.query.isSuccess || loginRoles.roles.length === 0} className={inp(errors.loginRole)}>
+                        {loginRoles.query.isSuccess && loginRoles.roles.length > 0
+                          ? loginRoles.roles.map((r) => <option key={r.key} value={r.key}>{r.name}</option>)
+                          : <option value="">{optionsNote(loginRoles.query, 'No role you may give')}</option>}
                       </select>
+                      {loginRoles.query.isError && (
+                        <button type="button" onClick={() => loginRoles.query.refetch()}
+                          className="mt-1 text-xs font-medium text-blue-700 hover:underline">
+                          Try loading the roles again
+                        </button>
+                      )}
                     </Field>
                     <p className="sm:col-span-2 text-xs text-gray-500">
                       No password is set here. After saving you get a one-time link to send them, and they choose their own.

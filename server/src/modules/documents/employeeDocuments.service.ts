@@ -74,13 +74,17 @@ export async function checklist(ctx: AppContext, employeeId?: string) {
  * missing, per person — and the queue of files waiting to be checked.
  */
 export async function compliance(ctx: AppContext) {
-  if (ctx.scopeFor('document').scope !== 'ORGANIZATION') throw Forbidden('Not permitted')
+  // An overview of other people. Somebody who reaches only their own documents
+  // has their checklist instead; anybody wider sees the people their role
+  // reaches — the whole company, or since Day 21 a team or a department.
+  const scope = ctx.scopeFor('document')
+  if (scope.scope === 'SELF') throw Forbidden('Not permitted')
 
   const [employees, types, counts, waiting] = await Promise.all([
-    repo.activeEmployees(ctx.db),
+    repo.activeEmployees(ctx.db, scope),
     repo.listTypes(ctx.db),
-    repo.currentStatusCounts(ctx.db),
-    repo.waitingForDecision(ctx.db),
+    repo.currentStatusCounts(ctx.db, scope),
+    repo.waitingForDecision(ctx.db, scope),
   ])
 
   const required = types.filter((t) => t.required)
@@ -182,7 +186,8 @@ export async function upload(ctx: AppContext, input: UploadInput, file: Incoming
       if (own && !input.markVerified) {
         await notify(ctx, tx, {
           event: 'document.submitted',
-          to: { holding: 'document:verify' },
+          // Only checkers whose document scope reaches this person (Day 21).
+          to: { reaching: { permission: 'document:verify', resource: 'document', employeeId: target } },
           title: 'A document to check',
           message: `${employee.fullName} uploaded their ${type.label}.`,
           link: `/documents?tab=employees&employee=${target}`,
@@ -312,7 +317,9 @@ export async function remove(ctx: AppContext, id: string) {
   if (!doc) throw NotFound('Document not found')
 
   const own = ownOf(ctx, doc.employeeId)
-  const reviewer = ctx.can('document:verify') && ctx.scopeFor('document').scope === 'ORGANIZATION'
+  // The document is already known to be within the caller's scope (found
+  // above); a reviewer is somebody who checks documents for more than themselves.
+  const reviewer = ctx.can('document:verify') && ctx.scopeFor('document').scope !== 'SELF'
   if (!reviewer) {
     if (!own) throw NotFound('Document not found')
     if (doc.status !== 'pending' || doc.supersededAt) {

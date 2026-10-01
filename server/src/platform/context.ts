@@ -1,6 +1,6 @@
-import type { Role } from '@prisma/client'
 import type { Permission } from './authz/permissions'
 import type { ScopedResource, ScopeContext } from './authz/scope'
+import type { RoleGrant } from './authz/grant'
 import type { ScopedDb } from './db/scoped'
 
 /**
@@ -20,7 +20,16 @@ export interface AppContext {
   userId: string
   organizationId: string
   membershipId: string
-  role: Role
+  /**
+   * The key of the caller's role — for the audit log and for logging. Never
+   * for a decision: since Day 21 roles are whatever the Super Admin makes them,
+   * and a name says nothing about what a role may do. Ask `can()`.
+   */
+  role: string
+  /** The role as it reads on screen, e.g. "Reporting Manager". */
+  roleName: string
+  /** What the role allows, read from its row on this very request. */
+  grant: RoleGrant
   /** The caller's own Employee row, when they have one. Null for an operator. */
   employeeId: string | null
 

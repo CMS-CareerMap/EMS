@@ -43,6 +43,7 @@ model Organization {
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   memberships Membership[]
+  roles       Role[]
   employees   Employee[]
 
   departments  Department[]
