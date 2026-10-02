@@ -113,10 +113,18 @@ export function downloadRunPayslip(runId, payslipId) {
 
 // ── What people enter for a month ───────────────────────────────────────────
 
+/**
+ * The month's entries — `rows` — and `blocked`: the people whose amounts the
+ * caller may not enter, by employee id, with whom to ask (Day 22: your own work
+ * goes up the company tree).
+ */
 export function useMonthlyEntries(year, month) {
   return useQuery({
     queryKey: keys.entries(year, month),
-    queryFn: async () => (await api.get(`/payroll/monthly-entries?year=${year}&month=${month}`)).data,
+    queryFn: async () => {
+      const payload = await api.get(`/payroll/monthly-entries?year=${year}&month=${month}`)
+      return { rows: payload.data, blocked: new Map((payload.meta?.blocked ?? []).map((b) => [b.employee_id, b])) }
+    },
     enabled: Boolean(year && month),
   })
 }

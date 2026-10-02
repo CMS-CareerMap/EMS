@@ -101,10 +101,10 @@ export const PERMISSION_MODULES: readonly PermissionModule[] = [
     label: 'Leave',
     resource: 'leave',
     scopeQuestion: 'Whose leave',
+    note: 'Approving leave needs no tick: it follows the company tree. Whoever people report to decides their leave, whatever their role.',
     permissions: [
       { key: 'leave:read', label: 'See leave requests and balances' },
       { key: 'leave:apply', label: 'Apply for their own leave', requires: ['leave:read'] },
-      { key: 'leave:approve', label: 'Approve, reject or cancel leave', requires: ['leave:read'] },
       { key: 'leave:balance:manage', label: 'Give the yearly leave and correct balances', requires: ['leave:read'] },
       { key: 'leave:type:manage', label: 'Set up leave types', unscoped: true },
       { key: 'holiday:manage', label: 'Keep the holiday calendar', unscoped: true },
@@ -175,8 +175,20 @@ export const PERMISSION_MODULES: readonly PermissionModule[] = [
 export const SCOPE_LABELS: Readonly<Record<DataScope, string>> = {
   SELF: 'Only their own',
   DIRECT_REPORTS: 'Their team',
+  ALL_REPORTS: 'Everybody under them',
   DEPARTMENT: 'Their department',
+  ORGANIZATION_EXCEPT_ABOVE: 'Whole company, except seniors',
   ORGANIZATION: 'Whole company',
+}
+
+/** What each scope means, said under the choice on the Roles screen. */
+export const SCOPE_HINTS: Readonly<Record<DataScope, string>> = {
+  SELF: 'Only their own information',
+  DIRECT_REPORTS: 'The people directly under them, and themselves',
+  ALL_REPORTS: 'Everybody below them in the company tree, at every level, and themselves',
+  DEPARTMENT: 'Everybody in their department',
+  ORGANIZATION_EXCEPT_ABOVE: 'Everybody, except the people above them in the company tree',
+  ORGANIZATION: 'Everybody',
 }
 
 export const RESOURCE_LABELS: Readonly<Record<ScopedResource, string>> = {

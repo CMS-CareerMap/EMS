@@ -170,7 +170,7 @@ export const getSalaryRoster: RequestHandler = async (_req, res) => {
 
   ok(
     res,
-    rows.map((employee) => {
+    rows.map(({ row: employee, check }) => {
       const current = employee.financials[0]
       return {
         employee_id: employee.id,
@@ -181,6 +181,11 @@ export const getSalaryRoster: RequestHandler = async (_req, res) => {
         date_of_joining: employee.dateOfJoining ? fromDateColumn(employee.dateOfJoining) : null,
         last_working_date: employee.lastWorkingDate ? fromDateColumn(employee.lastWorkingDate) : null,
         salary: current ? salaryPayload(salary.toRecord(current)) : null,
+        // Whether the caller may enter this salary (Day 22: own work goes up the
+        // tree), and if not, whom to ask.
+        may_enter: check.allowed,
+        own: check.own,
+        entry_goes_to: check.allowed ? null : check.ask,
       }
     }),
   )

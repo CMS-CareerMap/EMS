@@ -23,11 +23,18 @@
  * the role (Settings → Roles & Permissions); the starting values are in
  * defaultRoles.ts. Every choice offered there is implemented in scopeWhere.ts.
  * None is approximated.
+ *
+ * Two follow the company tree (Day 22): everybody under the person at every
+ * level, and the whole company except the people above them — the second is
+ * how HR sees salaries but never a senior's.
  */
-export type DataScope = 'SELF' | 'DIRECT_REPORTS' | 'DEPARTMENT' | 'ORGANIZATION'
+export type DataScope = 'SELF' | 'DIRECT_REPORTS' | 'ALL_REPORTS' | 'DEPARTMENT' | 'ORGANIZATION_EXCEPT_ABOVE' | 'ORGANIZATION'
 
 /** Every scope, widest last — the order the Roles screen offers them in. */
-export const DATA_SCOPES: readonly DataScope[] = ['SELF', 'DIRECT_REPORTS', 'DEPARTMENT', 'ORGANIZATION']
+export const DATA_SCOPES: readonly DataScope[] = ['SELF', 'DIRECT_REPORTS', 'ALL_REPORTS', 'DEPARTMENT', 'ORGANIZATION_EXCEPT_ABOVE', 'ORGANIZATION']
+
+/** The scopes decided by where the person sits in the company tree, beyond their direct reports. */
+export const TREE_SCOPES: ReadonlySet<DataScope> = new Set<DataScope>(['ALL_REPORTS', 'ORGANIZATION_EXCEPT_ABOVE'])
 
 export function isDataScope(value: unknown): value is DataScope {
   return typeof value === 'string' && (DATA_SCOPES as readonly string[]).includes(value)
@@ -59,4 +66,16 @@ export interface ScopeContext {
    * absent means "no department", which DEPARTMENT treats as their own rows.
    */
   departmentId?: string | null | undefined
+  /**
+   * The caller's place in the company tree, for ALL_REPORTS and
+   * ORGANIZATION_EXCEPT_ABOVE: everybody under them at every level, and
+   * everybody above them up to the top. Loaded only when the scope needs it;
+   * absent, those two scopes reach the caller's own rows and nobody else's.
+   */
+  tree?: TreePlace | undefined
+}
+
+export interface TreePlace {
+  below: readonly string[]
+  above: readonly string[]
 }

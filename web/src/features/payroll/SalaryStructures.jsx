@@ -94,8 +94,12 @@ export default function SalaryStructures() {
                   <td className="px-4 py-3.5 text-right">
                     <button onClick={() => setEditing(emp)}
                       className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-semibold">
-                      {canManage ? (emp.salary ? 'Change' : 'Set salary') : 'History'}
+                      {canManage && emp.may_enter !== false ? (emp.salary ? 'Change' : 'Set salary') : 'History'}
                     </button>
+                    {/* Own work goes up the company tree (Day 22): whom it goes to instead. */}
+                    {canManage && emp.may_enter === false && (
+                      <p className="text-xs text-gray-400 mt-1">Entered by {emp.entry_goes_to}</p>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -106,7 +110,7 @@ export default function SalaryStructures() {
       </div>
 
       {editing && (
-        <SalaryModal key={editing.employee_id} employee={editing} canManage={canManage} onClose={() => setEditing(null)} />
+        <SalaryModal key={editing.employee_id} employee={editing} canManage={canManage && editing.may_enter !== false} onClose={() => setEditing(null)} />
       )}
     </div>
   )

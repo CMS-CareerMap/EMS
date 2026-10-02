@@ -12,7 +12,7 @@ import { useUploadDocument } from '../../hooks/useDocuments'
  * `employee` is set when HR files somebody else's document — then, and only
  * then, "I have checked this against the original" is offered.
  */
-export default function UploadDialog({ types, type, employee, limits, onClose }) {
+export default function UploadDialog({ types, type, employee, limits, onClose, canVerify = true }) {
   const upload = useUploadDocument()
   const [typeId, setTypeId] = useState(type?.id ?? types[0]?.id ?? '')
   const [file, setFile] = useState(null)
@@ -39,7 +39,7 @@ export default function UploadDialog({ types, type, employee, limits, onClose })
       file: ready,
       documentTypeId: typeId,
       employeeId: employee?.id,
-      markVerified: Boolean(employee) && checked,
+      markVerified: Boolean(employee) && canVerify && checked,
     }).then(() => true, (err) => {
       setProblem(err.message)
       return false
@@ -72,7 +72,8 @@ export default function UploadDialog({ types, type, employee, limits, onClose })
           </span>
         </label>
 
-        {employee && (
+        {/* Filing it as verified is checking it — which, for somebody who checks documents too, goes up the company tree (Day 22). */}
+        {employee && canVerify && (
           <label className="flex items-start gap-2 text-sm text-gray-700">
             <input type="checkbox" className="mt-0.5" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
             <span>I have checked this against the original — file it as verified.</span>

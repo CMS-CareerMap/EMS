@@ -10,6 +10,7 @@ import { audit, recordSecurityEvent } from '../audit/audit.service'
 import { notify } from '../notifications/notify.service'
 import { uploadLimitMb } from '../organization/organization.service'
 import * as repo from './documents.repository'
+import { assertWorkGoesUp, checkWork, loadWork } from '../organization/workRules.service'
 
 /**
  * Each employee's documents — Aadhaar, PAN, the offer letter — and their
@@ -55,9 +56,14 @@ export async function checklist(ctx: AppContext, employeeId?: string) {
   )
 
   const activeTypeIds = new Set(types.map((t) => t.id))
+  // Whether the caller may check these documents (Day 22: own work goes up the
+  // tree), and if not, whom to ask.
+  const check = ctx.can('document:verify') ? checkWork(ctx, await loadWork(ctx.db, ctx.organizationId, 'documents'), target) : null
   return {
     employee,
     own: ownOf(ctx, target),
+    mayCheck: Boolean(check?.allowed),
+    checkGoesTo: check && !check.allowed ? check.ask : null,
     names,
     items: types.map((type) => ({
       type,
@@ -142,8 +148,10 @@ export async function upload(ctx: AppContext, input: UploadInput, file: Incoming
   if (!type || type.archivedAt) throw BadRequest('Choose one of the document types the company asks for.')
 
   if (input.markVerified) {
-    if (own) throw Forbidden('You cannot verify your own document. Somebody else in HR has to.')
     if (!ctx.can('document:verify')) throw Forbidden('You cannot verify documents.')
+    // Your own documents — or those of somebody who checks documents too — are
+    // checked by the people above them in the company tree (Day 22).
+    await assertWorkGoesUp(ctx, ctx.db, 'documents', target)
   }
 
   const stored = await storeUpload(
@@ -250,9 +258,7 @@ export async function decide(ctx: AppContext, id: string, input: DecisionInput) 
   const doc = await repo.findDocument(ctx.db, ctx.scopeFor('document'), id)
   if (!doc) throw NotFound('Document not found')
 
-  if (ownOf(ctx, doc.employeeId)) {
-    throw Forbidden('You cannot verify or reject your own document. Somebody else in HR has to.')
-  }
+  await assertWorkGoesUp(ctx, ctx.db, 'documents', doc.employeeId)
 
   const remarks = input.remarks?.trim() || null
   if (input.decision === 'rejected' && !remarks) {
@@ -325,6 +331,12 @@ export async function remove(ctx: AppContext, id: string) {
     if (doc.status !== 'pending' || doc.supersededAt) {
       throw Conflict('This document has already been checked. Ask HR if it needs to be removed.')
     }
+  } else if (!(own && doc.status === 'pending' && !doc.supersededAt)) {
+    // Taking a checked file off — or anybody's file but one's own still
+    // waiting — is checker's work: for one's own, or a fellow checker's, it
+    // goes up the company tree (Day 22). Otherwise a rejection could be made
+    // to disappear by the person it was about.
+    await assertWorkGoesUp(ctx, ctx.db, 'documents', doc.employeeId)
   }
 
   await withTransaction(ctx.db, async (tx) => {

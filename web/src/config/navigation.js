@@ -9,6 +9,7 @@ import {
   BarChart2,
   Settings,
 } from 'lucide-react'
+import { DECIDES_LEAVE } from '../stores/authStore'
 
 /**
  * Which permission each page needs — named once, read by both the router and
@@ -29,7 +30,9 @@ export const NAV_GROUPS = [
       { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', permission: 'dashboard:read' },
       { to: '/employees', icon: Users, label: 'Employees', permission: 'employee:read' },
       { to: '/attendance', icon: Clock, label: 'Attendance', permission: 'attendance:read' },
-      { to: '/leave', icon: CalendarDays, label: 'Leave', permission: 'leave:read' },
+      // Or deciding somebody's leave (Day 22): whoever has people under them
+      // approves their leave, whatever their role's leave rights.
+      { to: '/leave', icon: CalendarDays, label: 'Leave', permission: ['leave:read', DECIDES_LEAVE] },
       // Any of these: HR enters Incentive here without seeing anybody's pay.
       { to: '/payroll', icon: Wallet, label: 'Payroll', permission: ['payroll:structure:read', 'payroll:entry:manage'] },
       { to: '/payslips', icon: Receipt, label: 'My Payslips', permission: 'payslip:read' },
@@ -64,6 +67,7 @@ export const NAV_GROUPS = [
           'user:status:update',
           'user:delete',
           'membership:role:assign',
+          // Roles & Permissions, the Company tree and Approvals (Days 21–22).
           'role:manage',
         ],
       },

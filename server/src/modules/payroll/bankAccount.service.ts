@@ -10,6 +10,7 @@ import { audit, recordSecurityEvent } from '../audit/audit.service'
 import { notify } from '../notifications/notify.service'
 import { uploadLimitMb } from '../organization/organization.service'
 import * as repo from './bankAccount.repository'
+import { assertWorkGoesUp, checkWork, loadWork } from '../organization/workRules.service'
 
 /**
  * Bank accounts for salary.
@@ -37,8 +38,10 @@ const lastFour = (accountNumber: string) => accountNumber.slice(-4)
 /** A cheque or passbook page: a photo or a PDF. */
 const PROOF_KINDS = ['pdf', 'jpeg', 'png', 'webp'] as const
 
+/** Everybody's account, each with whether the caller may check it — or whom to ask (Day 22). */
 export async function listBankAccounts(ctx: AppContext) {
-  return repo.bankRoster(ctx.db)
+  const [rows, work] = await Promise.all([repo.bankRoster(ctx.db), loadWork(ctx.db, ctx.organizationId, 'bank')])
+  return rows.map((row) => ({ row, check: checkWork(ctx, work, row.id) }))
 }
 
 /** Where the signed-in person's own salary goes; null with no account, or no employee record. */
@@ -66,10 +69,13 @@ export interface BankAccountInput {
   accountUpdatedAt?: string | undefined
 }
 
-function refuseOwn(ctx: AppContext, employeeId: string, what: string): void {
-  if (ctx.employeeId && ctx.employeeId === employeeId) {
-    throw Conflict(`You cannot ${what} your own bank account — ask someone else in Accounts, or the Super Admin.`)
-  }
+/**
+ * Checking a bank account goes up the company tree (Day 22): nobody checks
+ * their own, and an accountant's is checked by the people above them — not by
+ * another accountant.
+ */
+async function refuseOwn(ctx: AppContext, employeeId: string): Promise<void> {
+  await assertWorkGoesUp(ctx, ctx.db, 'bank', employeeId)
 }
 
 function proofValues(stored: StoredFile | null) {
@@ -103,7 +109,7 @@ export async function saveBankAccount(ctx: AppContext, employeeId: string, input
   const employee = await repo.findEmployeeWithAccount(ctx.db, employeeId)
   if (!employee) throw NotFound('Employee not found')
 
-  if (input.markVerified) refuseOwn(ctx, employeeId, 'verify')
+  if (input.markVerified) await refuseOwn(ctx, employeeId)
 
   const accountNumber = input.accountNumber.trim()
   const ifsc = input.ifsc.trim().toUpperCase()
@@ -285,7 +291,7 @@ export async function verifyBankAccount(ctx: AppContext, employeeId: string, inp
   if (!employee) throw NotFound('Employee not found')
   if (!employee.bankAccount) throw Conflict(`${employee.fullName} has no bank account recorded yet.`)
 
-  refuseOwn(ctx, employeeId, input.decision === 'verified' ? 'verify' : 'reject')
+  await refuseOwn(ctx, employeeId)
 
   const remarks = input.remarks?.trim() || null
   if (input.decision === 'rejected' && !remarks) {

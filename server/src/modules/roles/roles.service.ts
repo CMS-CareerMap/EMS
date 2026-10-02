@@ -6,7 +6,7 @@ import { logger } from '../../platform/logger'
 import { effectiveScopes, readScopes, toGrant } from '../../platform/authz/grant'
 import { wouldLoop } from '../../platform/authz/roleOrder'
 import { defaultRole } from '../../platform/authz/defaultRoles'
-import { PERMISSION_MODULES, SCOPE_LABELS, permissionLabel } from '../../platform/authz/catalogue'
+import { PERMISSION_MODULES, SCOPE_HINTS, SCOPE_LABELS, permissionLabel } from '../../platform/authz/catalogue'
 import { DATA_SCOPES } from '../../platform/authz/scope'
 import { audit } from '../audit/audit.service'
 import { mayGive } from '../user/user.policy'
@@ -101,7 +101,7 @@ export async function listRoles(ctx: AppContext) {
         note: m.note ?? null,
         permissions: m.permissions.map((p) => ({ key: p.key, label: p.label, requires: p.requires ?? [] })),
       })),
-      scopes: DATA_SCOPES.map((s) => ({ key: s, label: SCOPE_LABELS[s] })),
+      scopes: DATA_SCOPES.map((s) => ({ key: s, label: SCOPE_LABELS[s], hint: SCOPE_HINTS[s] })),
     },
   }
 }

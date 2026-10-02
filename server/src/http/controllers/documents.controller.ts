@@ -129,6 +129,9 @@ export const getEmployeeDocuments: RequestHandler = async (req, res) => {
       status: result.employee.status,
     },
     own: result.own,
+    // Whether the caller may check these documents, and if not, whom to ask (Day 22).
+    may_check: result.mayCheck,
+    check_goes_to: result.checkGoesTo,
     items: result.items.map((item) => ({
       type: typePayload(item.type),
       current: item.current ? documentPayload(item.current, result.names) : null,

@@ -31,7 +31,10 @@ export const getCompanySummary: RequestHandler = async (_req, res) => {
       weekly_off_today: summary.weeklyOffToday,
 
       pending_leave_count: summary.pendingLeaveCount,
+      // Of those, the ones the caller decides in the company tree (Day 22).
+      pending_for_me: summary.pendingForMe,
       pending_leaves: summary.pendingLeaves.map((l) => ({
+        can_decide: l.canDecide,
         id: l.id,
         employee_id: l.employeeId,
         employee_code: l.employeeCode,
@@ -120,6 +123,8 @@ export const getMySummary: RequestHandler = async (_req, res) => {
         balance: b.balance,
         pending: b.pending,
       })),
+      // Leave waiting for them to decide (Day 22: people report to them).
+      waiting_for_me: summary.waitingForMe,
       recent_leaves: summary.recentLeaves.map((l) => ({
         id: l.id,
         leave_type: l.leaveType,

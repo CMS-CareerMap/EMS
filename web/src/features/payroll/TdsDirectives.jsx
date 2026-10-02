@@ -136,7 +136,12 @@ function DirectiveDialog({ fy, onClose }) {
           <span className="text-sm font-medium text-gray-600">Employee</span>
           <select className={inputCls} value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} required disabled={staff.isLoading}>
             <option value="">{optionsNote(staff, 'Choose a person')}</option>
-            {staff.people.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.code})</option>)}
+            {/* Tax on one's own pay, or a fellow salary-enterer's, goes up the company tree (Day 22). */}
+            {staff.people.map((p) => (
+              <option key={p.id} value={p.id} disabled={Boolean(p.salaryGoesTo)}>
+                {p.name} ({p.code}){p.salaryGoesTo ? ` — goes to ${p.salaryGoesTo}` : ''}
+              </option>
+            ))}
           </select>
         </label>
         <div className="grid grid-cols-2 gap-3">

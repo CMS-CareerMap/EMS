@@ -28,6 +28,9 @@ export const getTeamBalances: RequestHandler = async (req, res) => {
         department: p.department,
         date_of_joining: p.dateOfJoining,
         own: p.own,
+        // Whether the caller may correct this balance, and if not, whom to ask (Day 22).
+        may_correct: p.mayCorrect,
+        correction_goes_to: p.correctionGoesTo,
         balances: p.balances.map((b) => ({ leave_type_id: b.leaveTypeId, balance: b.balance, pending: b.pending, available: b.available })),
       })),
       waiting: r.waiting ? { entries: r.waiting.entries, people: r.waiting.people, days: r.waiting.days } : null,

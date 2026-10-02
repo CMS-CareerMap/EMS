@@ -127,11 +127,14 @@ export default function BankAccounts() {
                     <td className="px-4 py-3">
                       {canManage && (
                         <div className="flex justify-end gap-1.5">
-                          {a && !own && a.verification_status !== 'verified' && (
+                          {a && a.verification_status !== 'verified' && (row.may_check === false ? (
+                            // Own work goes up the company tree (Day 22): whom it goes to instead.
+                            <span className="self-center text-xs text-gray-400 italic">Check goes to {row.check_goes_to}</span>
+                          ) : (
                             <button onClick={() => setReviewing(row)} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold">
                               <ShieldCheck className="w-3.5 h-3.5" /> Check
                             </button>
-                          )}
+                          ))}
                           <button onClick={() => setEditing(row)} aria-label={`${a ? 'Edit' : 'Add'} ${row.full_name}'s bank account`}
                             className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-700 text-xs font-medium">
                             {a ? <Pencil className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />} {a ? 'Edit' : 'Add'}
@@ -149,6 +152,7 @@ export default function BankAccounts() {
       </div>
 
       {editing && <AccountDialog row={editing} own={editing.employee_id === ownEmployeeId} maxUploadMb={maxUploadMb} onClose={() => setEditing(null)} />}
+      {/* `own` above is only "(you)"; whether the caller may check comes from the server. */}
       {reviewing && <ReviewDialog row={reviewing} onClose={() => setReviewing(null)} />}
     </div>
   )
@@ -202,7 +206,7 @@ function AccountDialog({ row, own, maxUploadMb, onClose }) {
       ifsc: form.ifsc.toUpperCase(),
       branch: form.branch || null,
       accountType: form.accountType || null,
-      markVerified: !own && form.markVerified,
+      markVerified: row.may_check !== false && form.markVerified,
     }).then(() => true, (err) => {
       // Changed meanwhile: the toast says so, and the list now shows the latest.
       if (err?.status === 409) onClose()
@@ -248,9 +252,11 @@ function AccountDialog({ row, own, maxUploadMb, onClose }) {
           </Field>
         </div>
 
-        {own ? (
+        {row.may_check === false ? (
           <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg p-3">
-            This is your own account, so somebody else in Accounts, or the Super Admin, has to check it.
+            {own
+              ? `This is your own account, so the person above you checks it: ${row.check_goes_to}.`
+              : `${row.full_name} checks bank accounts too, so the people above them check theirs: ${row.check_goes_to}.`}
           </p>
         ) : (
           <label className="flex items-start gap-2 text-sm text-gray-700">

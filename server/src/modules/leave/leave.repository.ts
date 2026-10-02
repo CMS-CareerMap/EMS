@@ -70,6 +70,48 @@ export async function findRequest(
 }
 
 /**
+ * A request anywhere in the company, whoever's it is — for deciding one
+ * (Day 22). Who decides comes from the company tree, not from the caller's
+ * leave scope: an Accounts head approves their accountant's leave with a leave
+ * scope of their own rows only. leaveApprover.service decides whether the
+ * caller may act on it before anything of it is shown.
+ */
+export async function findRequestInCompany(db: ScopedDb, id: string): Promise<LeaveRequestRow | null> {
+  return db.leaveRequest.findFirst({ where: { id }, include: requestInclude }) as Promise<LeaveRequestRow | null>
+}
+
+/** The requests of these people, for the ones whose leave the caller decides. */
+export async function requestsOf(
+  db: ScopedDb,
+  employeeIds: readonly string[],
+  filters: Pick<LeaveFilters, 'status'> = {},
+): Promise<LeaveRequestRow[]> {
+  if (employeeIds.length === 0) return []
+  return db.leaveRequest.findMany({
+    where: { employeeId: { in: [...employeeIds] }, ...(filters.status ? { status: filters.status } : {}) },
+    include: requestInclude,
+    orderBy: [{ appliedAt: 'desc' }],
+    take: 500,
+  }) as Promise<LeaveRequestRow[]>
+}
+
+/** How many of these people's requests are waiting — a count, not a capped list. */
+export async function countPendingOf(db: ScopedDb, employeeIds: readonly string[]): Promise<number> {
+  if (employeeIds.length === 0) return 0
+  return db.leaveRequest.count({ where: { status: 'pending', employeeId: { in: [...employeeIds] } } })
+}
+
+/** Waiting requests of anybody but these, for a Super Admin who may decide as the backup. */
+export async function pendingExcept(db: ScopedDb, employeeIds: readonly string[]): Promise<LeaveRequestRow[]> {
+  return db.leaveRequest.findMany({
+    where: { status: 'pending', employeeId: { notIn: [...employeeIds] } },
+    include: requestInclude,
+    orderBy: [{ appliedAt: 'desc' }],
+    take: 500,
+  }) as Promise<LeaveRequestRow[]>
+}
+
+/**
  * Days already committed but not yet decided.
  *
  * Counted against the balance when somebody applies, or they could apply for
@@ -238,9 +280,15 @@ export async function requestFacts(db: TxDb, id: string) {
 const peopleWhere = employeesInScope
 
 /** Everybody on the payroll whom this person may see, by name. People who have left are archived and not here. */
-export async function peopleInScope(db: ScopedDb | TxDb, scope: ScopeContext) {
+/**
+ * Everybody still here the scope reaches — and, when given, the people whose
+ * leave the caller decides in the company tree (Day 22): a team lead on the
+ * Employee role sees their team's balances though their leave scope is their own.
+ */
+export async function peopleInScope(db: ScopedDb | TxDb, scope: ScopeContext, alsoIds: readonly string[] = []) {
+  const reach = alsoIds.length ? { OR: [peopleWhere(scope), { id: { in: [...alsoIds] } }] } : peopleWhere(scope)
   return db.employee.findMany({
-    where: { AND: [peopleWhere(scope), { archivedAt: null }] },
+    where: { AND: [reach, { archivedAt: null }] },
     select: {
       id: true,
       employeeCode: true,

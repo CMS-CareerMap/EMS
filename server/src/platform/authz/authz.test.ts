@@ -5,6 +5,7 @@ import {
   defaultPermissionsFor as permissionsFor,
   defaultRoleCan as roleCan,
   defaultScopeFor as scopeFor,
+  defaultScopeFor,
 } from './defaultRoles'
 
 /**
@@ -60,9 +61,11 @@ const MATRIX: Record<string, { permission: Permission; allowed: Role[] }> = {
     permission: 'leave:apply',
     allowed: ['super_admin', 'hr', 'manager', 'rm', 'employee'],
   },
-  'Approve/reject leave': {
-    permission: 'leave:approve',
-    allowed: ['super_admin', 'hr', 'manager', 'rm'],
+  // "Approve/reject leave" is no permission since Day 22: the company tree
+  // decides it (domain/leave/approval.test.ts) — whoever people report to.
+  'Correct leave balances': {
+    permission: 'leave:balance:manage',
+    allowed: ['super_admin', 'hr'],
   },
   'Manage salary structures': {
     permission: 'payroll:structure:manage',
@@ -183,7 +186,15 @@ describe('registry integrity', () => {
     expect(roleCan('manager', 'employee:read')).toBe(true)
     expect(roleCan('manager', 'employee:compensation:read')).toBe(false)
     expect(roleCan('manager', 'employee:bank:read')).toBe(false)
-    expect(roleCan('hr', 'employee:compensation:read')).toBe(false)
+  })
+
+  it('shows HR salaries on employee records except the seniors’, and no Payroll (Day 22)', () => {
+    // HR agrees salaries with the employee, so sees them — but never those of
+    // the people above them, and never through Payroll, which shows them all.
+    expect(roleCan('hr', 'employee:compensation:read')).toBe(true)
+    expect(defaultScopeFor('hr', 'compensation')).toBe('ORGANIZATION_EXCEPT_ABOVE')
+    expect(roleCan('hr', 'payroll:structure:read')).toBe(false)
+    expect(roleCan('hr', 'payroll:structure:manage')).toBe(false)
   })
 
   it('does not let the payroll role touch the records payroll is computed from', () => {
@@ -191,7 +202,7 @@ describe('registry integrity', () => {
     // adjust the attendance and leave the amount is derived from.
     expect(roleCan('accounts', 'attendance:mark')).toBe(false)
     expect(roleCan('accounts', 'attendance:update')).toBe(false)
-    expect(roleCan('accounts', 'leave:approve')).toBe(false)
+    expect(roleCan('accounts', 'leave:balance:manage')).toBe(false)
   })
 
   it('gives an ordinary employee nothing that reaches another person', () => {
@@ -201,7 +212,7 @@ describe('registry integrity', () => {
       'employee:update',
       'employee:delete',
       'attendance:mark',
-      'leave:approve',
+      'leave:balance:manage',
       'payroll:run:create',
       'report:read',
       'settings:update',
@@ -324,11 +335,11 @@ describe('leave configuration, delegated by the client', () => {
 
   it('is NOT held by a manager who approves the requests', () => {
     // A manager raising the quota for the same people whose requests they
-    // approve would be on both sides of the decision.
+    // approve would be on both sides of the decision. (They approve because
+    // their team reports to them — the company tree — not by a permission.)
     expect(roleCan('manager', 'leave:type:manage')).toBe(false)
     expect(roleCan('rm', 'leave:type:manage')).toBe(false)
-    // They can still approve; only the configuration is out of reach.
-    expect(roleCan('manager', 'leave:approve')).toBe(true)
+    expect(roleCan('manager', 'leave:read')).toBe(true)
   })
 
   it('does not drag company settings along with it', () => {
@@ -365,7 +376,8 @@ describe('monthly entries — Incentive', () => {
     // opening the Payroll module.
     expect(roleCan('hr', 'payroll:structure:read')).toBe(false)
     expect(roleCan('hr', 'payroll:run:create')).toBe(false)
-    expect(roleCan('hr', 'employee:compensation:read')).toBe(false)
+    // HR sees salaries on employee records since Day 22 — never through Payroll.
+    expect(roleCan('hr', 'payroll:structure:manage')).toBe(false)
   })
 })
 

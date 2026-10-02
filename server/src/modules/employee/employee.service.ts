@@ -11,6 +11,10 @@ import { SCOPED_RESOURCES } from '../../platform/authz/scope'
 import { RESOURCE_LABELS } from '../../platform/authz/catalogue'
 import * as repo from './employee.repository'
 import { audit } from '../audit/audit.service'
+import type { TxDb } from '../../platform/db/transaction'
+import { buildTree } from '../../domain/org/companyTree'
+import { namesOf, treePeople } from '../organization/tree.repository'
+import { findApprovalRules } from '../organization/organization.repository'
 
 /**
  * Employee reads and writes.
@@ -170,9 +174,13 @@ function assertWithinReach(ctx: AppContext, place: PersonPlace, adding: boolean)
   const where =
     scope.scope === 'DIRECT_REPORTS'
       ? 'Set yourself as their reporting manager'
-      : scope.scope === 'DEPARTMENT'
-        ? 'Keep them in your own department'
-        : 'You can only see your own record'
+      : scope.scope === 'ALL_REPORTS'
+        ? 'Set yourself, or somebody under you, as their reporting manager'
+        : scope.scope === 'DEPARTMENT'
+          ? 'Keep them in your own department'
+          : scope.scope === 'ORGANIZATION_EXCEPT_ABOVE'
+            ? 'Somebody above you in the company tree is not in your reach'
+            : 'You can only see your own record'
   throw BadRequest(`${adding ? 'You can add only people you will be able to see.' : 'That change would take this person out of the people you can see.'} ${where}.`)
 }
 
@@ -189,10 +197,63 @@ function assertWithinReach(ctx: AppContext, place: PersonPlace, adding: boolean)
 function assertNoNewReach(ctx: AppContext, before: PersonPlace, after: PersonPlace): void {
   for (const resource of SCOPED_RESOURCES) {
     const scope = ctx.scopeFor(resource)
-    if (scope.scope !== 'DIRECT_REPORTS' && scope.scope !== 'DEPARTMENT') continue
-    if (!isInScope(scope, before) && isInScope(scope, after)) {
+    // Moving one of your seniors can take them, and everybody above them, out
+    // of "the people above you" — and their information into your reach. A
+    // senior's place is for somebody above you to change.
+    if (scope.scope === 'ORGANIZATION_EXCEPT_ABOVE' && scope.tree?.above.includes(before.id)) {
       throw Forbidden(
-        `That change would put this person in ${scope.scope === 'DIRECT_REPORTS' ? 'your team' : 'your department'}, which would show you more of their information (${RESOURCE_LABELS[resource].toLowerCase()}). Ask somebody above you to make it.`,
+        `This person is above you in the company tree, and moving them could show you their information (${RESOURCE_LABELS[resource].toLowerCase()}). Ask somebody above you to make the change.`,
+      )
+    }
+    if (scope.scope !== 'DIRECT_REPORTS' && scope.scope !== 'DEPARTMENT' && scope.scope !== 'ALL_REPORTS') continue
+    if (!isInScope(scope, before) && isInScope(scope, after)) {
+      const where = scope.scope === 'DIRECT_REPORTS' ? 'your team' : scope.scope === 'ALL_REPORTS' ? 'the part of the company tree under you' : 'your department'
+      throw Forbidden(
+        `That change would put this person in ${where}, which would show you more of their information (${RESOURCE_LABELS[resource].toLowerCase()}). Ask somebody above you to make it.`,
+      )
+    }
+  }
+}
+
+/** Every change to who reports to whom waits for the one before it: two moves at once could otherwise make a loop neither saw. */
+export const treeLock = (organizationId: string) => `tree:${organizationId}`
+
+/**
+ * Refuses a reporting line the company tree cannot hold (Day 22): nobody
+ * reports to themselves, to somebody who has left, or to somebody under
+ * them — the tree cannot loop — and nobody is placed above the owner.
+ * Under the tree lock, so the tree it reads is the tree that is changed.
+ */
+export async function assertManagerFits(tx: TxDb, ctx: AppContext, personId: string | null, managerId: string | null): Promise<void> {
+  if (personId) {
+    const owner = (await findApprovalRules(tx, ctx.organizationId))?.ownerEmployeeId ?? null
+    if (managerId && owner === personId) {
+      throw BadRequest('This person is the owner, at the top of the company tree: nobody is above them.')
+    }
+  }
+  if (!managerId) return
+  if (managerId === personId) throw BadRequest('Somebody cannot report to themselves.')
+
+  const manager = await repo.managerCandidate(tx, managerId)
+  if (!manager) throw BadRequest('That reporting manager was not found.')
+  if (manager.archivedAt) throw BadRequest(`${manager.fullName} has left the company, so nobody can report to them.`)
+
+  if (personId) {
+    const tree = buildTree(await treePeople(tx))
+    // Whoever somebody reports to decides their leave and does the work they
+    // cannot do on their own record. Moving a person under yourself — or under
+    // anybody below you — would hand you those decisions over somebody already
+    // here: the Super Admin, who sets the company tree, may; nobody else. (A
+    // new joiner added straight into your own team is a hire, not a takeover.)
+    if (!ctx.can('role:manage') && ctx.employeeId && (managerId === ctx.employeeId || tree.below(ctx.employeeId).includes(managerId))) {
+      throw Forbidden(
+        'Moving somebody under you, or under somebody below you, would make their leave and their work yours to decide. Ask the Super Admin, who sets the company tree.',
+      )
+    }
+    if (tree.wouldLoop(personId, managerId)) {
+      const names = await namesOf(tx, [personId])
+      throw BadRequest(
+        `${manager.fullName} already reports to ${names.get(personId) ?? 'this person'}, directly or through others, so this would make the company tree go in a loop.`,
       )
     }
   }
@@ -211,6 +272,11 @@ export async function createEmployee(
   const employeeId = await withTransaction(ctx.db, async (tx) => {
     let membershipId: string | null = null
     let roleName: string | null = null
+
+    if (input.reportingManagerId) {
+      await lockFor(tx, treeLock(ctx.organizationId))
+      await assertManagerFits(tx, ctx, null, input.reportingManagerId)
+    }
 
     if (input.login) {
       // An inviter cannot hand out a role above their own — the same rule the
@@ -331,8 +397,15 @@ export async function updateEmployee(
   assertWithinReach(ctx, after, false)
   if (moved) assertNoNewReach(ctx, before, after)
 
+  const managerChanged = after.reportingManagerId !== before.reportingManagerId
+
   await withTransaction(ctx.db, async (tx) => {
     const data: Record<string, unknown> = {}
+
+    if (managerChanged) {
+      await lockFor(tx, treeLock(ctx.organizationId))
+      await assertManagerFits(tx, ctx, existing.id, after.reportingManagerId)
+    }
 
     if (input.employeeCode !== undefined) data.employeeCode = input.employeeCode.trim()
     if (input.fullName !== undefined) data.fullName = input.fullName.trim()
@@ -349,7 +422,7 @@ export async function updateEmployee(
     if (input.departmentId !== undefined) data.departmentId = input.departmentId
     if (input.designationId !== undefined) data.designationId = input.designationId
     if (input.shiftId !== undefined) data.shiftId = input.shiftId
-    if (input.reportingManagerId !== undefined) data.reportingManagerId = input.reportingManagerId
+    if (managerChanged) data.reportingManagerId = after.reportingManagerId
     if (input.attendanceMode !== undefined) data.attendanceMode = input.attendanceMode
     if (input.country !== undefined) data.country = input.country?.toUpperCase()
     if (input.currency !== undefined) data.currency = input.currency?.toUpperCase()
@@ -396,7 +469,12 @@ export async function updateEmployee(
         action: 'employee.updated',
         entityType: 'employee',
         entityId: id,
-        details: { fields: Object.keys(data), statutoryFields },
+        details: {
+          fields: Object.keys(data),
+          statutoryFields,
+          // Who they reported to before and after: the company tree's history (Day 22).
+          ...(managerChanged ? { managerFrom: before.reportingManagerId, managerTo: after.reportingManagerId } : {}),
+        },
       }, tx)
     }
   }).catch(asConflict)

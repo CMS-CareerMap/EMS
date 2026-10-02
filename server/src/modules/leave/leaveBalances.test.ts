@@ -119,7 +119,11 @@ describe('who may see and change balances', () => {
     // A manager is not told what a grant would do — it is not theirs to do.
     expect(mgr.body.data.waiting).toBeNull()
 
-    expect((await list('priya')).status).toBe(403)
+    // Seeing balances goes with seeing leave (Day 22): an employee sees their own
+    // and nobody else's; Accounts, with no leave right, nothing.
+    const own = await list('priya')
+    expect(own.status).toBe(200)
+    expect(own.body.data.people.map((p: { full_name: string }) => p.full_name)).toEqual(['Priya Test'])
     expect((await list('anil')).status).toBe(403)
   })
 

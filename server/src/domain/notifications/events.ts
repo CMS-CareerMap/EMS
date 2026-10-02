@@ -26,7 +26,7 @@ export const NOTIFICATION_EVENTS = {
   'leave.submitted': {
     kind: 'leave', group: 'Leave', optional: true,
     label: 'A leave request is submitted',
-    tells: 'Whoever can approve it — the reporting manager, HR and the Super Admin',
+    tells: 'The person who decides it — their reporting manager, or the Super Admin when they have nobody above',
   },
   'leave.decided': {
     kind: 'leave', group: 'Leave', optional: true,

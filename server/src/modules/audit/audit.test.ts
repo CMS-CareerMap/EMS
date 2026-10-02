@@ -170,12 +170,13 @@ describe('changes', () => {
     expect(applied.status, JSON.stringify(applied.body)).toBe(201)
     const id = applied.body.data.id
 
-    expect((await request(app).post(`/api/leave-requests/${id}/approve`).set('Authorization', as('hr')).send({})).status).toBe(200)
-    expect((await request(app).post(`/api/leave-requests/${id}/approve`).set('Authorization', as('hr')).send({})).status).toBe(409)
+    // She has nobody above her, so the Super Admin decides (Day 22: the company tree).
+    expect((await request(app).post(`/api/leave-requests/${id}/approve`).set('Authorization', as('boss')).send({})).status).toBe(200)
+    expect((await request(app).post(`/api/leave-requests/${id}/approve`).set('Authorization', as('boss')).send({})).status).toBe(409)
 
     const decided = await rows({ action: 'leave.approved', entityId: id })
     expect(decided).toHaveLength(1)
-    expect(decided[0]).toMatchObject({ actorUserId: users.hr!.userId, details: expect.objectContaining({ days: 1 }) })
+    expect(decided[0]).toMatchObject({ actorUserId: users.boss!.userId, details: expect.objectContaining({ days: 1 }) })
     // Her own application is the request itself, not an audit row.
     expect(await rows({ action: 'leave.applied_for', entityId: id })).toHaveLength(0)
   })

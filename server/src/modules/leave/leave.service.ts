@@ -17,6 +17,11 @@ import { companyTimezone } from '../organization/organization.service'
 import { getCurrentPolicy, findLeaveType } from '../settings/settings.repository'
 import { listDaysOff } from '../holidays/holidays.repository'
 import { audit } from '../audit/audit.service'
+import { findApprovalRules } from '../organization/organization.repository'
+import { assertMonthsOpen, monthsBetween } from '../payroll/payrollLock.service'
+import { mayDecide } from '../../domain/leave/approval'
+import { approvalWorld, approverNames, assertSomebodyDecides, deciderOf, peopleDecidedBy, rightsOn, type ApprovalWorld, type RequestRights } from './leaveApprover.service'
+import { recordApproval } from './leaveApproval.service'
 
 /**
  * Applying for leave.
@@ -91,18 +96,20 @@ async function resolveEmployee(ctx: AppContext, requested?: string): Promise<str
     return ctx.employeeId
   }
 
-  // Applying on somebody else's behalf is HR's job, and needs the permission
-  // that says so. Without this an employee could apply as anybody by sending
-  // an id — the request would be theirs in every respect except the name.
-  if (!ctx.can('leave:approve')) {
-    throw Forbidden('You can only apply for your own leave.')
+  // Acting on somebody else's leave is for whoever decides it (Day 22: the
+  // company tree — their reporting manager, or the Super Admin). Without this
+  // an employee could apply as anybody by sending an id — the request would be
+  // theirs in every respect except the name. Checked BEFORE anything is
+  // written.
+  const target = await repo.activeEmployee(ctx.db, { scope: 'ORGANIZATION', employeeId: ctx.employeeId }, requested)
+  const world = target ? await approvalWorld(ctx.db, ctx.organizationId) : null
+  if (!target || !world || !mayDecide(world.tree, world.rules, requested, deciderOf(ctx)).allowed) {
+    // Out of reach reads as absent to anybody whose leave scope does not show
+    // the person; to the rest, the reason.
+    const visible = await repo.activeEmployee(ctx.db, ctx.scopeFor('leave'), requested)
+    if (!visible) throw NotFound('Employee not found')
+    throw Forbidden('You can act on the leave of the people whose leave you decide, and your own.')
   }
-
-  // …and only for somebody the caller's leave scope reaches. Checked BEFORE
-  // anything is written: a manager filing leave for a person outside their
-  // team used to have it saved and then be told it was not found.
-  const target = await repo.activeEmployee(ctx.db, ctx.scopeFor('leave'), requested)
-  if (!target) throw NotFound('Employee not found')
 
   return requested
 }
@@ -230,6 +237,16 @@ export async function applyForLeave(ctx: AppContext, input: ApplyInput): Promise
       : BadRequest(preview.problem.message)
   }
 
+  const rules = await findApprovalRules(ctx.db, ctx.organizationId)
+  const ownerApplying = Boolean(rules?.ownerEmployeeId) && rules?.ownerEmployeeId === employeeId
+  // Recording the owner's leave approves it, which changes a month's pay:
+  // refused, like any approval, once that month is signed off.
+  if (ownerApplying) {
+    await assertMonthsOpen(ctx, monthsBetween(input.fromDate, input.toDate), 'recording this leave')
+  } else {
+    await assertSomebodyDecides(ctx.db, await approvalWorld(ctx.db, ctx.organizationId), employeeId)
+  }
+
   const created = await withTransaction(ctx.db, async (tx) => {
     // One application per person at a time. Re-checking inside a transaction
     // was not enough on its own: two requests sent together each read the
@@ -268,8 +285,8 @@ export async function applyForLeave(ctx: AppContext, input: ApplyInput): Promise
     })
 
     // Somebody's own application is the request itself. One made FOR them —
-    // HR applying on their behalf — is a decision about their leave by
-    // somebody else, and is recorded as one.
+    // their manager applying on their behalf — is a decision about their
+    // leave by somebody else, and is recorded as one.
     if (employeeId !== ctx.employeeId) {
       await audit(ctx, {
         action: 'leave.applied_for',
@@ -279,7 +296,13 @@ export async function applyForLeave(ctx: AppContext, input: ApplyInput): Promise
       }, tx)
     }
 
-    await tellApprovers(ctx, tx, request.id, 'leave.submitted')
+    // The owner's leave needs nobody's approval (Devesh, 1 Oct 2026): it is
+    // recorded directly, in this transaction, and the log says so.
+    if (ownerApplying) {
+      await recordApproval(ctx, tx, { ...request, halfDayDates: input.halfDayDates ?? [] }, { direct: true })
+    } else {
+      await tellApprovers(ctx, tx, request.id, 'leave.submitted')
+    }
 
     return request
   })
@@ -289,15 +312,66 @@ export async function applyForLeave(ctx: AppContext, input: ApplyInput): Promise
     employeeId,
     days: preview.days,
     leaveYear: preview.leaveYear,
+    recordedDirectly: ownerApplying,
   })
 
-  const row = await repo.findRequest(ctx.db, ctx.scopeFor('leave'), created.id)
+  // Read back whatever the caller's leave scope: a manager filing for their
+  // team member may hold a leave scope of their own rows only.
+  const row = await repo.findRequestInCompany(ctx.db, created.id)
   if (!row) throw NotFound('Leave request was created but could not be read back')
   return row
 }
 
-export async function listLeave(ctx: AppContext, filters: repo.LeaveFilters = {}) {
-  return repo.listRequests(ctx.db, ctx.scopeFor('leave'), filters)
+/** Requests, each with what the caller may do with it and who decides it — for the buttons a screen draws. */
+export interface LeaveList {
+  rows: repo.LeaveRequestRow[]
+  rights: Map<string, RequestRights>
+  approvers: Map<string, string>
+}
+
+async function withRights(ctx: AppContext, world: ApprovalWorld, rows: repo.LeaveRequestRow[]): Promise<LeaveList> {
+  const decider = deciderOf(ctx)
+  return {
+    rows,
+    rights: new Map(rows.map((r) => [r.id, rightsOn(world, decider, r)])),
+    approvers: await approverNames(ctx.db, world, rows.map((r) => r.employeeId)),
+  }
+}
+
+/** The requests the caller's leave scope shows — HR sees every one, and decides none of them. */
+export async function listLeave(ctx: AppContext, filters: repo.LeaveFilters = {}): Promise<LeaveList> {
+  const [rows, world] = await Promise.all([repo.listRequests(ctx.db, ctx.scopeFor('leave'), filters), approvalWorld(ctx.db, ctx.organizationId)])
+  return withRights(ctx, world, rows)
+}
+
+/**
+ * Team requests (Day 22): the leave of the people whose leave the caller
+ * decides in the company tree — their direct reports, and for the Super Admin
+ * the people with nobody above — whatever the caller's role or leave scope. An
+ * Accounts head with an accountant under them gets the accountant's requests.
+ *
+ * `backup` is the waiting requests the caller may decide only as the stand-in
+ * (Settings → Approvals), kept apart so nobody decides one by mistake.
+ */
+export async function teamLeave(ctx: AppContext, status?: repo.LeaveFilters['status']): Promise<LeaveList & { backup: repo.LeaveRequestRow[]; decidesFor: number }> {
+  const world = await approvalWorld(ctx.db, ctx.organizationId)
+  const decider = deciderOf(ctx)
+  const people = peopleDecidedBy(world, decider)
+  const rows = await repo.requestsOf(ctx.db, people, { status })
+
+  let backup: repo.LeaveRequestRow[] = []
+  // Read only for somebody who could stand in at all: a Super Admin, or — for
+  // "the manager's own manager" — somebody with managers under them.
+  const mayStandIn =
+    (world.rules.backup === 'super_admin' && decider.isSuperAdmin) ||
+    (world.rules.backup === 'next_up' && Boolean(ctx.employeeId) && world.tree.below(ctx.employeeId!).length > people.length)
+  if (mayStandIn) {
+    const others = await repo.pendingExcept(ctx.db, [...people, ...(ctx.employeeId ? [ctx.employeeId] : [])])
+    backup = others.filter((r) => rightsOn(world, decider, r).canDecide)
+  }
+
+  const listed = await withRights(ctx, world, [...rows, ...backup])
+  return { ...listed, rows, backup, decidesFor: people.length }
 }
 
 export async function myBalances(ctx: AppContext, employeeId?: string) {
@@ -319,11 +393,17 @@ export async function myBalances(ctx: AppContext, employeeId?: string) {
  * that has already been taken and the attendance rows stop matching.
  */
 export async function cancelLeave(ctx: AppContext, id: string): Promise<repo.LeaveRequestRow> {
-  const request = await repo.findRequest(ctx.db, ctx.scopeFor('leave'), id)
+  // Your own, or one you may decide (Day 22: the company tree) — withdrawing a
+  // request for somebody is their approver's call, not their scope's.
+  const request = await repo.findRequestInCompany(ctx.db, id)
   if (!request) throw NotFound('Leave request not found')
 
-  if (request.employeeId !== ctx.employeeId && !ctx.can('leave:approve')) {
-    throw Forbidden('You can only withdraw your own leave.')
+  if (request.employeeId !== ctx.employeeId) {
+    const world = await approvalWorld(ctx.db, ctx.organizationId)
+    if (!mayDecide(world.tree, world.rules, request.employeeId, deciderOf(ctx)).allowed) {
+      if (!(await repo.findRequest(ctx.db, ctx.scopeFor('leave'), id))) throw NotFound('Leave request not found')
+      throw Forbidden('You can only withdraw your own leave.')
+    }
   }
 
   if (request.status !== 'pending') {
@@ -350,7 +430,7 @@ export async function cancelLeave(ctx: AppContext, id: string): Promise<repo.Lea
 
   logger.info('Leave withdrawn', { by: ctx.userId, requestId: id })
 
-  const updated = await repo.findRequest(ctx.db, ctx.scopeFor('leave'), id)
+  const updated = await repo.findRequestInCompany(ctx.db, id)
   if (!updated) throw NotFound('Leave request not found')
   return updated
 }

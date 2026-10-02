@@ -1,4 +1,5 @@
 import { createElement, useState, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
   CheckCircle, XCircle, Clock, CalendarDays, Plus,
@@ -6,7 +7,7 @@ import {
 } from 'lucide-react'
 import ApplyLeaveModal from '../features/leave/ApplyLeaveModal'
 import TeamBalances from '../features/leave/TeamBalances'
-import { useLeaveRequests, useLeaveBalances, useHolidays, useApplyLeave, useUpdateLeaveStatus, useWithdrawLeave, useReverseLeave } from '../hooks/useLeave'
+import { useLeaveRequests, useTeamLeave, useLeaveBalances, useHolidays, useApplyLeave, useUpdateLeaveStatus, useWithdrawLeave, useReverseLeave } from '../hooks/useLeave'
 import { useAuthStore } from '../stores/authStore'
 import { calendarDayIn, formatDay, formatDayOf } from '../lib/dates'
 import { typeColourOf } from '../lib/leaveTypes'
@@ -43,8 +44,8 @@ const HOLIDAY_TYPE = {
 }
 
 
-const TABS = ['requests', 'team', 'balance', 'holidays']
-const TAB_LABELS = { requests: 'Leave Requests', team: 'Team Balances', balance: 'Leave Balance', holidays: 'Holiday Calendar' }
+const TABS = ['requests', 'decide', 'team', 'balance', 'holidays']
+const TAB_LABELS = { requests: 'Leave Requests', decide: 'Team Requests', team: 'Team Balances', balance: 'Leave Balance', holidays: 'Holiday Calendar' }
 const STATUS_FILTER = ['all', 'pending', 'approved', 'rejected', 'cancelled']
 
 // ─── Leave Requests tab ───────────────────────────────────────────────────────
@@ -56,7 +57,13 @@ function initials(name) {
 /** One empty list, so the filters below are not recomputed on every render. */
 const NO_REQUESTS = []
 
-function RequestsTab({ query, onApprove, onReject, onWithdraw, onReverse, isManagement, myEmployeeId }) {
+/**
+ * A list of requests, each with the buttons the server says the caller may
+ * use on it (Day 22: `can_decide`, `can_reverse` — who decides is the company
+ * tree, not a role). Everybody else sees who decides it. `note` is said above
+ * the list — the backup list explains itself.
+ */
+function RequestsTab({ query, onApprove, onReject, onWithdraw, onReverse, myEmployeeId, note = null, emptyText = 'No leave requests found.' }) {
   const timezone = useAuthStore((state) => state.organization?.timezone)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -94,6 +101,7 @@ function RequestsTab({ query, onApprove, onReject, onWithdraw, onReverse, isMana
 
   return (
     <div className="space-y-4">
+      {note}
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">
@@ -160,7 +168,7 @@ function RequestsTab({ query, onApprove, onReject, onWithdraw, onReverse, isMana
             <tbody>
               {/* Empty means none match the filters — and only once the list has
                   loaded; a list that failed shows the error instead. */}
-              <DataRows query={query} colSpan={6} empty="No leave requests found." isEmpty={() => filtered.length === 0}>
+              <DataRows query={query} colSpan={6} empty={emptyText} isEmpty={() => filtered.length === 0}>
                 {() => filtered.map((req) => {
                   const stMeta = STATUS_META[req.status] ?? STATUS_META.cancelled
                   const StIcon = stMeta.icon
@@ -196,31 +204,38 @@ function RequestsTab({ query, onApprove, onReject, onWithdraw, onReverse, isMana
                           <StIcon className="w-3 h-3" />
                           {stMeta.label}
                         </span>
+                        {/* Who decides it, from the company tree — said wherever the decision is not the caller's. */}
+                        {req.status === 'pending' && !req.can_decide && req.decided_by && (
+                          <p className="text-xs text-gray-400 mt-1">Goes to {req.decided_by}</p>
+                        )}
                       </td>
                       <td className="px-5 py-3.5">
                         <div className="flex items-center justify-end gap-2">
                           {/*
-                            Nobody decides their own leave (the server refuses it too):
-                            their own pending request can only be withdrawn, and their
-                            own approved leave reversed by somebody else.
+                            The buttons the server says this caller may use. Nobody
+                            decides their own leave: their own pending request can
+                            only be withdrawn.
                           */}
-                          {own && req.status === 'pending' ? (
+                          {own && req.status === 'pending' && !req.can_decide ? (
                             <button onClick={() => onWithdraw(req)}
                               className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium transition-colors">
                               <Undo2 className="w-3.5 h-3.5" /> Withdraw
                             </button>
-                          ) : isManagement && req.status === 'pending' ? (
+                          ) : req.can_decide ? (
+                            // (The owner may settle their own request from before they were marked.)
                             <>
                               <button onClick={() => onApprove(req.id)}
+                                title={req.as_backup ? `Standing in for ${req.decided_by}` : undefined}
                                 className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-green-50 hover:bg-green-100 text-green-700 text-xs font-medium transition-colors">
                                 <CheckCircle className="w-3.5 h-3.5" /> Approve
                               </button>
                               <button onClick={() => onReject(req.id)}
+                                title={req.as_backup ? `Standing in for ${req.decided_by}` : undefined}
                                 className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 text-xs font-medium transition-colors">
                                 <XCircle className="w-3.5 h-3.5" /> Reject
                               </button>
                             </>
-                          ) : isManagement && !own && req.status === 'approved' ? (
+                          ) : req.can_reverse ? (
                             <button onClick={() => onReverse(req)}
                               className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium transition-colors">
                               <Undo2 className="w-3.5 h-3.5" /> Reverse
@@ -451,28 +466,42 @@ function HolidayRow({ holiday, next = false, past = false }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function Leave() {
-  // Who sees Approve and Reject is a PERMISSION, not a list of role names. The
-  // list this replaced included admin, whom the client's matrix bars from leave
-  // decisions — so admin got buttons that could only ever return 403.
-  const isManagement = useAuthStore((state) => state.can('leave:approve'))
+  // Who sees Approve and Reject is the company tree (Day 22), not a role: the
+  // server says on every request whether the caller decides it. Somebody with
+  // people under them gets Team Requests whatever their role's leave rights —
+  // an Accounts head approves the accountant's leave.
+  const readsLeave = useAuthStore((state) => state.can('leave:read'))
+  const decidesLeave = useAuthStore((state) => state.decidesLeave)
   // Leave belongs to an employee record. An account without one — the Super
   // Admin the installer creates is the usual case — has no balance and cannot
   // apply, and asking the server anyway put an error on screen every time this
   // page opened.
   const hasEmployee = useAuthStore((state) => Boolean(state.profile))
   const canApply = useAuthStore((state) => state.can('leave:apply')) && hasEmployee
-  // Everybody's balances go with deciding leave; the scope narrows a manager to their team.
-  const seesTeam = isManagement
-  const tabs = TABS.filter((t) => (t !== 'balance' || hasEmployee) && (t !== 'team' || seesTeam))
+  // Everybody's balances: for whoever corrects them, and for whoever decides
+  // leave and may see it — the leave scope narrows a manager to their team.
+  const seesTeam = useAuthStore((state) => state.can('leave:balance:manage')) || (decidesLeave && readsLeave)
+  const tabs = TABS.filter((t) => {
+    if (t === 'decide') return decidesLeave
+    if (t === 'team') return seesTeam
+    if (t === 'balance') return hasEmployee && readsLeave
+    return readsLeave
+  })
   // Same: scoping moved to the server. HR sees the company, a manager their
   // direct reports, an employee their own.
-  const requests = useLeaveRequests()
+  const requests = useLeaveRequests({}, { enabled: readsLeave })
+  const team = useTeamLeave({ enabled: decidesLeave })
   const updateLeaveStatus = useUpdateLeaveStatus()
   const applyLeave = useApplyLeave()
   const withdrawLeave = useWithdrawLeave()
   const reverseLeave = useReverseLeave()
   const myEmployeeId = useAuthStore((state) => state.profile?.id ?? null)
-  const [tab, setTab] = useState('requests')
+  // ?tab=decide opens Team Requests — the link a "waiting for you" notice carries.
+  const [params] = useSearchParams()
+  const [chosenTab, setTab] = useState(() => params.get('tab'))
+  // The first tab there is, unless one was chosen — an Accounts head with a
+  // team has Team Requests and nothing else.
+  const tab = chosenTab && tabs.includes(chosenTab) ? chosenTab : tabs[0]
   const [applyOpen, setApplyOpen] = useState(false)
   const [withdrawing, setWithdrawing] = useState(null)
   const [reversing, setReversing] = useState(null)
@@ -500,10 +529,16 @@ export default function Leave() {
   }
 
   // Null until the list has loaded: a list that failed is not "all requests
-  // are up to date".
-  const pendingCount = requests.data === undefined || requests.isError
-    ? null
-    : requests.data.filter((r) => r.status === 'pending').length
+  // are up to date". Counted from the requests the caller decides: HR sees
+  // every request, and is waited on for none of them.
+  const pendingCount = (() => {
+    if (decidesLeave) {
+      if (team.data === undefined || team.isError) return null
+      return team.data.requests.filter((r) => r.status === 'pending' && r.can_decide).length
+    }
+    return null
+  })()
+  const backupCount = team.data?.backup?.length ?? 0
 
   return (
     <>
@@ -516,8 +551,8 @@ export default function Leave() {
             <p className="text-sm text-gray-500 mt-0.5">
               {pendingCount === null ? null
                 : pendingCount > 0
-                  ? <span className="text-amber-600 font-medium">{pendingCount} request{pendingCount !== 1 ? 's' : ''} pending approval</span>
-                  : 'All requests are up to date'}
+                  ? <span className="text-amber-600 font-medium">{pendingCount} request{pendingCount !== 1 ? 's' : ''} waiting for you</span>
+                  : 'Nothing is waiting for you'}
             </p>
           </div>
           {canApply && (
@@ -540,11 +575,12 @@ export default function Leave() {
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}>
               {t === 'requests' && <CalendarDays className="w-4 h-4" />}
+              {t === 'decide' && <CheckCircle className="w-4 h-4" />}
               {t === 'team' && <Users className="w-4 h-4" />}
               {t === 'balance' && <ChevronRight className="w-4 h-4" />}
               {t === 'holidays' && <Palmtree className="w-4 h-4" />}
               {TAB_LABELS[t]}
-              {t === 'requests' && pendingCount > 0 && (
+              {t === 'decide' && pendingCount > 0 && (
                 <span className="px-1.5 py-0.5 rounded-full text-xs bg-amber-100 text-amber-700 font-medium">{pendingCount}</span>
               )}
             </button>
@@ -555,7 +591,33 @@ export default function Leave() {
         {tab === 'requests' && (
           <RequestsTab query={requests} onApprove={handleApprove} onReject={handleReject}
             onWithdraw={setWithdrawing} onReverse={(req) => { setReverseNote(''); setReversing(req) }}
-            isManagement={isManagement} myEmployeeId={myEmployeeId} />
+            myEmployeeId={myEmployeeId} />
+        )}
+        {tab === 'decide' && (
+          <div className="space-y-8">
+            <RequestsTab query={{ ...team, data: team.data?.requests }} onApprove={handleApprove} onReject={handleReject}
+              onWithdraw={setWithdrawing} onReverse={(req) => { setReverseNote(''); setReversing(req) }}
+              myEmployeeId={myEmployeeId}
+              emptyText="Nobody whose leave you decide has asked for any."
+              note={
+                <p className="text-sm text-gray-600">
+                  The leave of the people who report to you in the company tree. You decide it whatever your role.
+                </p>
+              } />
+            {backupCount > 0 && (
+              <RequestsTab query={{ ...team, data: team.data?.backup }} onApprove={handleApprove} onReject={handleReject}
+                onWithdraw={setWithdrawing} onReverse={(req) => { setReverseNote(''); setReversing(req) }}
+                myEmployeeId={myEmployeeId}
+                note={
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+                    <p className="text-sm font-semibold text-amber-900">Waiting for somebody else — you may stand in</p>
+                    <p className="text-sm text-amber-800 mt-0.5">
+                      These are other managers&rsquo; to decide. Settings → Approvals lets you decide instead when they are away; the log records that you stood in.
+                    </p>
+                  </div>
+                } />
+            )}
+          </div>
         )}
         {tab === 'team' && seesTeam && <TeamBalances />}
         {tab === 'balance' && hasEmployee && <BalanceTab />}

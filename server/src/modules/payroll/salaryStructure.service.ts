@@ -12,6 +12,7 @@ import { lockFor } from '../../platform/db/locks'
 import * as repo from './salaryStructure.repository'
 import { audit } from '../audit/audit.service'
 import { assertOpenFrom } from './payrollLock.service'
+import { assertWorkGoesUp, checkWork, loadWork } from '../organization/workRules.service'
 
 /**
  * Setting what somebody is paid.
@@ -82,8 +83,10 @@ async function visibleEmployee(ctx: AppContext, employeeId: string) {
   return employee
 }
 
+/** Everybody's salary — and whether the caller may enter each one, or whom to ask (Day 22). */
 export async function roster(ctx: AppContext) {
-  return repo.listRoster(ctx.db)
+  const [rows, work] = await Promise.all([repo.listRoster(ctx.db), loadWork(ctx.db, ctx.organizationId, 'salary')])
+  return rows.map((row) => ({ row, check: checkWork(ctx, work, row.id) }))
 }
 
 export async function history(ctx: AppContext, employeeId: string) {
@@ -94,6 +97,10 @@ export async function history(ctx: AppContext, employeeId: string) {
 
 export async function setSalary(ctx: AppContext, employeeId: string, input: SalaryInput) {
   const employee = await visibleEmployee(ctx, employeeId)
+  // Your own salary — or that of somebody who enters salaries too — is entered
+  // by the people above them in the company tree (Day 22). One person agreeing
+  // a salary and another entering it means nobody quietly changes their own.
+  await assertWorkGoesUp(ctx, ctx.db, 'salary', employeeId)
 
   const catalogue = new Map(
     (await repo.listActiveComponents(ctx.db)).map((component) => [component.code, component]),

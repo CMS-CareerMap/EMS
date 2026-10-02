@@ -7,6 +7,7 @@ import * as employeeRepo from '../employee/employee.repository'
 import { leaveYearOf } from '../leave/leave.service'
 import { companyTimezone } from '../organization/organization.service'
 import { getCurrentPolicy } from '../settings/settings.repository'
+import { approvalWorld, deciderOf, peopleDecidedBy, rightsOn } from '../leave/leaveApprover.service'
 
 /**
  * The first screen every role sees.
@@ -40,7 +41,11 @@ export interface CompanySummary {
   weeklyOffToday: number
   notMarkedToday: number
   pendingLeaveCount: number
+  /** Of those, the ones the caller decides in the company tree (Day 22). */
+  pendingForMe: number
   pendingLeaves: {
+    /** Theirs to decide — the screen draws Approve and Reject only on these. */
+    canDecide: boolean
     id: string
     employeeId: string
     employeeCode: string
@@ -86,11 +91,26 @@ export async function companySummary(ctx: AppContext): Promise<CompanySummary> {
   const weeklyOffDays = policy?.weeklyOffDays ?? [0]
   const isWeeklyOffToday = weeklyOffDays.includes(new Date(`${today}T00:00:00Z`).getUTCDay())
 
-  const [employees, weekRows, pending] = await Promise.all([
+  const [employees, weekRows, seen, world] = await Promise.all([
     attendanceRepo.peopleInScope(ctx.db, scope),
     attendanceRepo.statusesBetween(ctx.db, scope, toDateColumn(weekStart), toDateColumn(today)),
     leaveRepo.listRequests(ctx.db, ctx.scopeFor('leave'), { status: 'pending' }),
+    approvalWorld(ctx.db, ctx.organizationId),
   ])
+  // Waiting leave: what the leave scope shows (all of it for HR, who decides
+  // none), and the requests the caller decides in the company tree (Day 22)
+  // whatever their scope — those first, each saying whether it is theirs.
+  const decider = deciderOf(ctx)
+  const decides = await leaveRepo.requestsOf(ctx.db, peopleDecidedBy(world, decider), { status: 'pending' })
+  const byId = new Map([...decides, ...seen].map((r) => [r.id, r]))
+  const pending = [...byId.values()]
+    .map((r) => {
+      const rights = rightsOn(world, decider, r)
+      // "Yours" is the requests asked of the caller — not every one they could
+      // decide as the stand-in, which for a Super Admin is all of them.
+      return { request: r, canDecide: rights.canDecide, mine: rights.canDecide && !rights.asBackup }
+    })
+    .sort((a, b) => Number(b.mine) - Number(a.mine) || b.request.appliedAt.getTime() - a.request.appliedAt.getTime())
 
   // Today's counts are of the people on the headcount, so the two agree.
   const visible = new Set(employees.map((e) => e.id))
@@ -141,7 +161,9 @@ export async function companySummary(ctx: AppContext): Promise<CompanySummary> {
     // not a gap — it is the day working as intended.
     notMarkedToday: isWeeklyOffToday ? 0 : Math.max(0, employees.length - mine.length),
     pendingLeaveCount: pending.length,
-    pendingLeaves: pending.slice(0, 5).map((request) => ({
+    pendingForMe: pending.filter((p) => p.mine).length,
+    pendingLeaves: pending.slice(0, 5).map(({ request, canDecide }) => ({
+      canDecide,
       id: request.id,
       employeeId: request.employeeId,
       employeeCode: request.employee.employeeCode,
@@ -197,6 +219,8 @@ export interface MySummary {
   }
   today: { status: string | null; checkIn: string | null; checkOut: string | null; hoursWorked: number | null }
   leaveBalances: { code: string; name: string; annualQuota: number; balance: number; pending: number; available: number }[]
+  /** Leave requests waiting for this person to decide (Day 22: they have people under them). */
+  waitingForMe: number
   recentLeaves: {
     id: string
     leaveType: string
@@ -222,12 +246,14 @@ export async function mySummary(ctx: AppContext): Promise<MySummary> {
   const policy = await getCurrentPolicy(ctx.db)
   const leaveYear = leaveYearOf(today, policy?.leaveYearStartMonth ?? 4)
 
-  const [employee, monthRows, balances, leaves] = await Promise.all([
+  const [employee, monthRows, balances, leaves, world] = await Promise.all([
     employeeRepo.findCard(ctx.db, ctx.employeeId),
     attendanceRepo.daysFor(ctx.db, ctx.employeeId, toDateColumn(monthStart), toDateColumn(today)),
     leaveRepo.balancesFor(ctx.db, ctx.employeeId, leaveYear),
     leaveRepo.listRequests(ctx.db, { scope: 'SELF', employeeId: ctx.employeeId }, {}),
+    approvalWorld(ctx.db, ctx.organizationId),
   ])
+  const waitingForMe = await leaveRepo.countPendingOf(ctx.db, peopleDecidedBy(world, deciderOf(ctx)))
 
   const countOf = (status: string) => monthRows.filter((r) => r.status === status).length
   const todayRow = monthRows.find((r) => fromDateColumn(r.date) === today)
@@ -253,7 +279,8 @@ export async function mySummary(ctx: AppContext): Promise<MySummary> {
       dateOfJoining: fromDateColumn(employee?.dateOfJoining),
       attendanceMode: employee?.attendanceMode ?? 'app',
       phone: employee?.phone ?? null,
-      reportingManagerName: employee?.reportingManager?.fullName ?? null,
+      // One who has left decides nothing (Day 22): nobody is above them until placed.
+      reportingManagerName: employee?.reportingManager && !employee.reportingManager.archivedAt ? employee.reportingManager.fullName : null,
       reportingManagerDesignation: employee?.reportingManager?.designation?.name ?? null,
     },
     thisMonth: {
@@ -286,6 +313,7 @@ export async function mySummary(ctx: AppContext): Promise<MySummary> {
       pending: b.pending,
       available: b.available,
     })),
+    waitingForMe,
     recentLeaves: leaves.slice(0, 5).map((request) => ({
       id: request.id,
       leaveType: request.leaveType.code,

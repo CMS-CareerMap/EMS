@@ -28,6 +28,9 @@ export function serializeSessionUser(identity: AuthIdentity) {
     // interface could know (Day 21).
     roleName: identity.grant.name,
     permissions: [...identity.grant.permissions],
+    // Decides somebody's leave in the company tree (Day 22): the menu shows
+    // Leave and its Team tab on it, whatever the role's leave rights.
+    decidesLeave: identity.decidesLeave,
     organizationId: identity.organizationId,
     organizationName: identity.organizationName,
     // The company's zone, so the browser can tell which calendar day it is

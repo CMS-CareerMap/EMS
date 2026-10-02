@@ -41,6 +41,7 @@ export const SUPER_ADMIN_ROLE = 'super_admin'
 export const EMPLOYEE_ROLE = 'employee'
 
 const ORG: DataScope = 'ORGANIZATION'
+const EXCEPT_SENIORS: DataScope = 'ORGANIZATION_EXCEPT_ABOVE'
 const TEAM: DataScope = 'DIRECT_REPORTS'
 const SELF: DataScope = 'SELF'
 
@@ -68,13 +69,22 @@ const ADMIN: readonly Permission[] = [
   'notification:read',
 ]
 
-/** Runs the people side day to day. No payroll, no settings. */
+/**
+ * Runs the people side day to day. No payroll, no settings.
+ *
+ * Since Day 22 (the client's model): HR sees every leave request but approves
+ * none — the person each employee reports to does. And HR sees salaries,
+ * because HR agrees them with the employee, on the employee's record only and
+ * never a senior's (compensation scope "Whole company, except seniors"). HR
+ * still has no Payroll: Payroll shows every salary to whoever opens it.
+ */
 const HR: readonly Permission[] = [
   'dashboard:read',
   'employee:read',
   'employee:create',
   'employee:update',
   'employee:identity:read',
+  'employee:compensation:read',
   'attendance:read',
   'attendance:punch',
   'attendance:mark',
@@ -82,7 +92,6 @@ const HR: readonly Permission[] = [
   'attendance:delete',
   'leave:read',
   'leave:apply',
-  'leave:approve',
   // Grants the leave year and corrects balances — HR runs leave day to day.
   'leave:balance:manage',
   'leave:type:manage',
@@ -102,9 +111,10 @@ const HR: readonly Permission[] = [
 ]
 
 /**
- * Sees their own team and approves its leave. The same permission strings as
- * HR for reading — what differs is the DATA SCOPE, which limits them to direct
- * reports.
+ * Sees their own team. The same permission strings as HR for reading — what
+ * differs is the DATA SCOPE, which limits them to direct reports. Approving
+ * the team's leave needs no permission since Day 22: it comes from the team
+ * reporting to them.
  */
 const MANAGER: readonly Permission[] = [
   'dashboard:read',
@@ -113,7 +123,6 @@ const MANAGER: readonly Permission[] = [
   'attendance:punch',
   'leave:read',
   'leave:apply',
-  'leave:approve',
   // Their own payslips. Scope SELF: a manager does not see their team's pay.
   'payslip:read',
   // No employee documents: §3.1 marks Documents ❌ for Manager and RM, and
@@ -224,11 +233,11 @@ export const DEFAULT_ROLES: readonly RoleDefinition[] = [
   {
     key: 'hr',
     name: 'HR',
-    description: 'Runs people operations day to day: employees, attendance, leave, documents, holidays and monthly incentives.',
+    description: 'Runs people operations day to day: employees, attendance, documents, holidays and monthly incentives. Sees all leave, gives the yearly leave and corrects balances. Sees salaries, except those of the people above them.',
     parentKey: SUPER_ADMIN_ROLE,
     locked: false,
     permissions: HR,
-    scopes: scopes({ employee: ORG, compensation: SELF, attendance: ORG, leave: ORG, payslip: SELF, document: ORG }),
+    scopes: scopes({ employee: ORG, compensation: EXCEPT_SENIORS, attendance: ORG, leave: ORG, payslip: SELF, document: ORG }),
   },
   {
     key: 'accounts',
@@ -242,7 +251,7 @@ export const DEFAULT_ROLES: readonly RoleDefinition[] = [
   {
     key: 'manager',
     name: 'Manager',
-    description: "Leads a team: sees the team's attendance and leave, and approves the team's leave.",
+    description: "Leads a team: sees the team's attendance and leave.",
     parentKey: 'hr',
     locked: false,
     permissions: MANAGER,

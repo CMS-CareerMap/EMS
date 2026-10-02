@@ -24,6 +24,9 @@ let clId = ''
 let aliceId = ''
 let strangerId = ''
 let managerEmpId = ''
+let bossId = ''
+let acHeadId = ''
+let accountantId = ''
 const tokens: Record<string, string> = {}
 
 /** A Monday at least two weeks out, so nothing here rots. */
@@ -60,7 +63,7 @@ async function cleanup(): Promise<void> {
 
 async function makeUser(
   key: string,
-  role: 'hr' | 'manager' | 'employee',
+  role: 'hr' | 'manager' | 'employee' | 'super_admin' | 'accounts',
   options: { reportsTo?: string } = {},
 ): Promise<string> {
   const email = `${PREFIX}-${key}@example.com`
@@ -140,9 +143,13 @@ beforeAll(async () => {
   clId = cl.id
 
   await makeUser('hr', 'hr')
+  bossId = await makeUser('boss', 'super_admin')
   managerEmpId = await makeUser('mgr', 'manager')
   aliceId = await makeUser('alice', 'employee', { reportsTo: managerEmpId })
   strangerId = await makeUser('stranger', 'employee')
+  // An Accounts head with an accountant under them: no leave right in the role at all.
+  acHeadId = await makeUser('achead', 'accounts')
+  accountantId = await makeUser('accountant', 'employee', { reportsTo: acHeadId })
 })
 
 beforeEach(async () => {
@@ -274,13 +281,14 @@ describe('who may decide', () => {
   it('refuses reversing one’s own approved leave, which would hand the days back to oneself', async () => {
     await grant(managerEmpId, 12)
     const id = await applyAs('mgr', D(7), D(8))
-    expect((await decide('approve', id, 'hr')).status).toBe(200)
+    // The manager has nobody above them, so the Super Admin decides.
+    expect((await decide('approve', id, 'boss')).status).toBe(200)
 
     const res = await decide('reverse', id, 'mgr')
     expect(res.status).toBe(403)
     expect(res.body.error.message).toMatch(/your own leave/i)
     // Somebody else still may.
-    expect((await decide('reverse', id, 'hr')).status).toBe(200)
+    expect((await decide('reverse', id, 'boss')).status).toBe(200)
   })
 
   it('answers 404 — not 403 — for somebody outside the team', async () => {
@@ -295,11 +303,22 @@ describe('who may decide', () => {
     expect(res.body.error.code).toBe('NOT_FOUND')
   })
 
-  it('lets HR decide on anybody', async () => {
+  it('gives HR no decision — HR sees every request and is told who decides it (Day 22)', async () => {
+    await grant(aliceId, 12)
+    const id = await applyAs('alice')
+
+    const refused = await decide('approve', id, 'hr')
+    expect(refused.status).toBe(403)
+    expect(refused.body.error.message).toBe('alice person\'s leave is decided by mgr person, the person they report to in the company tree.')
+    const seen = await request(app).get('/api/leave-requests?status=pending').set('Authorization', as('hr'))
+    const row = (seen.body.data as { id: string; can_decide: boolean; decided_by: string }[]).find((r) => r.id === id)
+    expect(row).toMatchObject({ can_decide: false, decided_by: 'mgr person' })
+  })
+
+  it('sends somebody with nobody above them to the Super Admin', async () => {
     await grant(strangerId, 12)
     const id = await applyAs('stranger')
-
-    expect((await decide('approve', id, 'hr')).status).toBe(200)
+    expect((await decide('approve', id, 'boss')).status).toBe(200)
   })
 
   it('refuses an employee approving anything', async () => {
@@ -429,7 +448,8 @@ describe('decisions arriving together', () => {
     await grant(aliceId, 12)
     const id = await applyAs('alice')
 
-    const results = await Promise.all([decide('approve', id, 'mgr'), decide('approve', id, 'hr')])
+    // The manager, and the Super Admin standing in as the backup.
+    const results = await Promise.all([decide('approve', id, 'mgr'), decide('approve', id, 'boss')])
 
     expect(results.map((r) => r.status).sort()).toEqual([200, 409])
     expect(await consumed()).toBe(1)
@@ -439,7 +459,7 @@ describe('decisions arriving together', () => {
     await grant(aliceId, 12)
     const id = await applyAs('alice')
 
-    const results = await Promise.all([decide('approve', id, 'mgr'), decide('reject', id, 'hr')])
+    const results = await Promise.all([decide('approve', id, 'mgr'), decide('reject', id, 'boss')])
     expect(results.map((r) => r.status).sort()).toEqual([200, 409])
 
     // Whichever won, the record tells one story: approved with the days taken,
@@ -453,10 +473,182 @@ describe('decisions arriving together', () => {
     const id = await applyAs('alice')
     expect((await decide('approve', id, 'mgr')).status).toBe(200)
 
-    const results = await Promise.all([decide('reverse', id, 'mgr'), decide('reverse', id, 'hr')])
+    const results = await Promise.all([decide('reverse', id, 'mgr'), decide('reverse', id, 'boss')])
 
     expect(results.map((r) => r.status).sort()).toEqual([200, 409])
     expect(await prisma.leaveLedgerEntry.count({ where: { employeeId: aliceId, reason: 'reversal' } })).toBe(1)
+  })
+})
+
+describe('the company tree decides (Day 22)', () => {
+  const rules = (data: Record<string, unknown>) => prisma.organization.update({ where: { id: orgId }, data })
+  const audited = (id: string) => prisma.auditLog.findFirst({ where: { entityId: id, action: { in: ['leave.approved', 'leave.recorded_directly', 'leave.rejected'] } }, orderBy: { createdAt: 'desc' } })
+
+  it('lets an Accounts head, whose role has no leave right, decide the accountant’s leave from Team requests', async () => {
+    await grant(accountantId, 12)
+    const id = await applyAs('accountant')
+    const team = await request(app).get('/api/leave-requests/team?status=pending').set('Authorization', as('achead'))
+    expect(team.status).toBe(200)
+    expect(team.body.meta.decides_for).toBe(1)
+    expect(team.body.data.requests.map((r: { id: string }) => r.id)).toEqual([id])
+    expect(team.body.data.requests[0]).toMatchObject({ can_decide: true, as_backup: false })
+    const res = await decide('approve', id, 'achead')
+    expect(res.status, JSON.stringify(res.body)).toBe(200)
+    expect(res.body.data.status).toBe('approved')
+  })
+
+  it('follows a person to their new manager, and drops the old one', async () => {
+    await grant(aliceId, 12)
+    const id = await applyAs('alice')
+    await prisma.employee.update({ where: { id: aliceId }, data: { reportingManagerId: acHeadId } })
+    try {
+      // The old manager no longer has her in their team: not found to them.
+      expect((await decide('approve', id, 'mgr')).status).toBe(404)
+      expect((await decide('approve', id, 'achead')).status).toBe(200)
+    } finally {
+      await prisma.employee.update({ where: { id: aliceId }, data: { reportingManagerId: managerEmpId } })
+    }
+  })
+
+  it('sends the team of a manager who has left to the Super Admin', async () => {
+    await grant(aliceId, 12)
+    const id = await applyAs('alice')
+    await prisma.employee.update({ where: { id: managerEmpId }, data: { archivedAt: new Date() } })
+    try {
+      const team = await request(app).get('/api/leave-requests/team?status=pending').set('Authorization', as('boss'))
+      const row = (team.body.data.requests as { id: string; as_backup: boolean }[]).find((r) => r.id === id)
+      expect(row?.as_backup).toBe(false)
+      expect((await decide('approve', id, 'boss')).status).toBe(200)
+      expect((await audited(id))?.details).not.toHaveProperty('asBackup')
+    } finally {
+      await prisma.employee.update({ where: { id: managerEmpId }, data: { archivedAt: null } })
+    }
+  })
+
+  it('lets the Super Admin stand in for a manager, and says so in the log', async () => {
+    await grant(aliceId, 12)
+    const id = await applyAs('alice')
+    const team = await request(app).get('/api/leave-requests/team').set('Authorization', as('boss'))
+    expect((team.body.data.backup as { id: string }[]).map((r) => r.id)).toContain(id)
+    expect((await decide('reject', id, 'boss', 'Short-staffed')).status).toBe(200)
+    expect((await audited(id))?.details).toMatchObject({ asBackup: true })
+  })
+
+  it('keeps the request waiting for the manager when Settings → Approvals says nobody stands in', async () => {
+    await grant(aliceId, 12)
+    const id = await applyAs('alice')
+    await rules({ leaveBackup: 'none' })
+    try {
+      const res = await decide('approve', id, 'boss')
+      expect(res.status).toBe(403)
+      expect(res.body.error.message).toMatch(/decided by mgr person/)
+      expect((await decide('approve', id, 'mgr')).status).toBe(200)
+    } finally {
+      await rules({ leaveBackup: 'super_admin' })
+    }
+  })
+
+  it('lets only the Super Admin cancel approved leave when Settings → Approvals says so', async () => {
+    await grant(aliceId, 12)
+    const id = await applyAs('alice')
+    expect((await decide('approve', id, 'mgr')).status).toBe(200)
+    await rules({ leaveReversal: 'super_admin_only' })
+    try {
+      const res = await decide('reverse', id, 'mgr')
+      expect(res.status).toBe(403)
+      expect(res.body.error.message).toBe('Only the Super Admin can cancel approved leave.')
+      expect((await decide('reverse', id, 'boss')).status).toBe(200)
+    } finally {
+      await rules({ leaveReversal: 'manager_or_super_admin' })
+    }
+  })
+
+  it('sends nobody-above to the person Settings → Approvals names', async () => {
+    await grant(strangerId, 12)
+    const id = await applyAs('stranger')
+    await rules({ leaveNoManagerApproverId: acHeadId })
+    try {
+      expect((await decide('approve', id, 'achead')).status).toBe(200)
+    } finally {
+      await rules({ leaveNoManagerApproverId: null })
+    }
+  })
+
+  it('records the owner’s leave directly — nobody approves it — and says so in the log', async () => {
+    await grant(bossId, 12)
+    await rules({ ownerEmployeeId: bossId })
+    try {
+      const res = await request(app)
+        .post('/api/leave-requests')
+        .set('Authorization', as('boss'))
+        .send({ leaveTypeId: clId, fromDate: D(7), toDate: D(8), reason: 'Travel' })
+      expect(res.status, JSON.stringify(res.body)).toBe(201)
+      expect(res.body.data.status).toBe('approved')
+      const log = await audited(res.body.data.id)
+      expect(log?.action).toBe('leave.recorded_directly')
+      expect(await prisma.leaveLedgerEntry.count({ where: { employeeId: bossId, reason: 'consumed' } })).toBe(1)
+    } finally {
+      await rules({ ownerEmployeeId: null })
+    }
+  })
+
+  it('sends the team of a manager who cannot sign in to the Super Admin, rather than waiting', async () => {
+    await grant(aliceId, 12)
+    const id = await applyAs('alice')
+    const mgr = await prisma.employee.findUniqueOrThrow({ where: { id: managerEmpId }, select: { membershipId: true } })
+    await prisma.membership.update({ where: { id: mgr.membershipId! }, data: { status: 'inactive' } })
+    await rules({ leaveBackup: 'none' })
+    try {
+      // Not standing in: with the manager unable to act, it is the Super Admin's own.
+      const res = await decide('approve', id, 'boss')
+      expect(res.status, JSON.stringify(res.body)).toBe(200)
+      expect((await audited(id))?.details).not.toHaveProperty('asBackup')
+    } finally {
+      await prisma.membership.update({ where: { id: mgr.membershipId! }, data: { status: 'active' } })
+      await rules({ leaveBackup: 'super_admin' })
+    }
+  })
+
+  it('stops treating a marked owner as the owner once they no longer hold the Super Admin panel', async () => {
+    await grant(bossId, 12)
+    const boss = await prisma.employee.findUniqueOrThrow({ where: { id: bossId }, select: { membershipId: true } })
+    await rules({ ownerEmployeeId: bossId })
+    await prisma.membership.update({ where: { id: boss.membershipId! }, data: { role: 'hr' } })
+    try {
+      const res = await request(app).post('/api/leave-requests').set('Authorization', as('boss'))
+        .send({ leaveTypeId: clId, fromDate: D(14), toDate: D(14), reason: 'Travel' })
+      // Not recorded directly any more — and with nobody above and no other
+      // Super Admin, refused rather than left waiting for nobody.
+      expect(res.status, JSON.stringify(res.body)).toBe(400)
+      expect(res.body.error.message).toMatch(/Nobody could decide this request/)
+    } finally {
+      await prisma.membership.update({ where: { id: boss.membershipId! }, data: { role: 'super_admin' } })
+      await rules({ ownerEmployeeId: null })
+    }
+  })
+
+  it('refuses the only Super Admin’s own leave while no owner is marked — nobody could decide it', async () => {
+    await grant(bossId, 12)
+    const res = await request(app).post('/api/leave-requests').set('Authorization', as('boss'))
+      .send({ leaveTypeId: clId, fromDate: D(15), toDate: D(15), reason: 'Travel' })
+    expect(res.status).toBe(400)
+    expect(res.body.error.message).toMatch(/Mark the owner in Settings → Company tree/)
+  })
+
+  it('lets a manager file and withdraw leave for their team, and nobody else', async () => {
+    await grant(aliceId, 12)
+    const filed = await request(app)
+      .post('/api/leave-requests')
+      .set('Authorization', as('mgr'))
+      .send({ employeeId: aliceId, leaveTypeId: clId, fromDate: D(0), toDate: D(1), reason: 'Called in sick' })
+    expect(filed.status, JSON.stringify(filed.body)).toBe(201)
+    // HR sees Alice, and may not file for her: her leave is her manager's.
+    const hr = await request(app)
+      .post('/api/leave-requests')
+      .set('Authorization', as('hr'))
+      .send({ employeeId: aliceId, leaveTypeId: clId, fromDate: D(7), toDate: D(7), reason: 'Called in sick' })
+    expect(hr.status).toBe(403)
+    expect((await request(app).delete(`/api/leave-requests/${filed.body.data.id}`).set('Authorization', as('mgr'))).status).toBe(200)
   })
 })
 
@@ -544,9 +736,9 @@ describe('the dashboard, and the numbers it used to invent', () => {
 
     expect(res.status).toBe(200)
     expect(res.body.data.absent_today).toBe(0)
-    // Four employees, nobody marked. The old dashboard called that four
+    // Seven employees, nobody marked. The old dashboard called that seven
     // absences every morning.
-    expect(res.body.data.not_marked_today).toBe(4)
+    expect(res.body.data.not_marked_today).toBe(7)
   })
 
   it('expects nobody on the weekly off', async () => {

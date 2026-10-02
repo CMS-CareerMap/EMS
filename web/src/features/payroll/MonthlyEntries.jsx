@@ -32,8 +32,11 @@ export default function MonthlyEntries() {
 
   const components = usePayrollComponents()
   const monthly = (components.data ?? []).filter((c) => c.entry === 'monthly')
-  const entries = useMonthlyEntries(selected.year, selected.month)
+  const entriesQuery = useMonthlyEntries(selected.year, selected.month)
+  const entries = { ...entriesQuery, data: entriesQuery.data?.rows }
   const entryList = entries.data ?? []
+  // People whose amounts go to somebody above them (Day 22), and whom to ask.
+  const blocked = entriesQuery.data?.blocked ?? new Map()
   const canSeeRuns = can('payroll:structure:read')
   const runs = usePayrollRuns({ enabled: canSeeRuns })
   const run = (runs.data ?? []).find((r) => r.year === selected.year && r.month === selected.month)
@@ -106,12 +109,16 @@ export default function MonthlyEntries() {
                   <td className="px-4 py-3 text-right font-medium text-gray-900">{money(entry.amount)}</td>
                   <td className="px-4 py-3 text-gray-500">{entry.note || '—'}</td>
                   <td className="px-4 py-3">
-                    {!locked && <div className="flex justify-end gap-1">
-                      <button onClick={() => setEditing(entry)} aria-label={`Change ${entry.full_name}'s ${entry.component_label}`}
-                        className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100"><Pencil className="w-4 h-4" /></button>
-                      <button onClick={() => setRemoving(entry)} aria-label={`Remove ${entry.full_name}'s ${entry.component_label}`}
-                        className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50"><Trash2 className="w-4 h-4" /></button>
-                    </div>}
+                    {!locked && (blocked.has(entry.employee_id) ? (
+                      <p className="text-right text-xs text-gray-400 italic">Goes to {blocked.get(entry.employee_id).ask}</p>
+                    ) : (
+                      <div className="flex justify-end gap-1">
+                        <button onClick={() => setEditing(entry)} aria-label={`Change ${entry.full_name}'s ${entry.component_label}`}
+                          className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100"><Pencil className="w-4 h-4" /></button>
+                        <button onClick={() => setRemoving(entry)} aria-label={`Remove ${entry.full_name}'s ${entry.component_label}`}
+                          className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50"><Trash2 className="w-4 h-4" /></button>
+                      </div>
+                    ))}
                   </td>
                 </tr>
               ))}
@@ -121,7 +128,7 @@ export default function MonthlyEntries() {
         </div>
       </div>
 
-      {editing && <EntryDialog entry={editing} entries={entryList} month={selected} components={monthly} onClose={() => setEditing(null)} />}
+      {editing && <EntryDialog entry={editing} entries={entryList} blocked={blocked} month={selected} components={monthly} onClose={() => setEditing(null)} />}
       {removing && <RemoveDialog entry={removing} onClose={() => setRemoving(null)} />}
     </div>
   )
@@ -135,7 +142,7 @@ function Hint({ children }) {
   )
 }
 
-function EntryDialog({ entry, entries, month, components, onClose }) {
+function EntryDialog({ entry, entries, blocked, month, components, onClose }) {
   const staff = usePayrollPeople()
   const save = useSetMonthlyEntry()
   const existing = Boolean(entry.id)
@@ -170,7 +177,12 @@ function EntryDialog({ entry, entries, month, components, onClose }) {
           ) : (
             <select className={inputCls} value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} required disabled={staff.isLoading}>
               <option value="">{optionsNote(staff, 'Choose a person')}</option>
-              {staff.people.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.code})</option>)}
+              {/* Somebody whose amount goes up the company tree is offered, but cannot be chosen. */}
+              {staff.people.map((p) => (
+                <option key={p.id} value={p.id} disabled={blocked.has(p.id)}>
+                  {p.name} ({p.code}){blocked.has(p.id) ? ` — goes to ${blocked.get(p.id).ask}` : ''}
+                </option>
+              ))}
             </select>
           )}
         </label>

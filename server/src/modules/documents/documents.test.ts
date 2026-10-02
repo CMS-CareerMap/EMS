@@ -299,12 +299,18 @@ describe('deciding', () => {
     expect(notice?.message).toBe('Your Aadhaar Card was rejected: Photo is blurred. Upload a corrected copy.')
   })
 
-  it('never lets anybody decide their own document — somebody else must', async () => {
+  it('never lets anybody decide their own document — it goes up the company tree (Day 22)', async () => {
     const own = await upload('hr', pdf('aadhaar.pdf'), { documentTypeId: type.aadhaar })
     expect(own.status).toBe(201)
     const refused = await post('hr', `/api/employee-documents/${own.body.data.id}/decision`, { decision: 'verified' })
     expect(refused.status).toBe(403)
-    expect((await post('admin', `/api/employee-documents/${own.body.data.id}/decision`, { decision: 'verified' })).status).toBe(200)
+    expect(refused.body.error.message).toBe('You cannot check your own documents. It goes to the person above you: the Super Admin.')
+    // Admin checks documents too, and is not above HR: not theirs either.
+    const peer = await post('admin', `/api/employee-documents/${own.body.data.id}/decision`, { decision: 'verified' })
+    expect(peer.status).toBe(403)
+    expect(peer.body.error.message).toMatch(/does this kind of work too, so their documents is done by the people above them/)
+    // Nobody is above HR here, so it ends with the Super Admin.
+    expect((await post('super_admin', `/api/employee-documents/${own.body.data.id}/decision`, { decision: 'verified' })).status).toBe(200)
   })
 
   it('is not an employee’s to do', async () => {

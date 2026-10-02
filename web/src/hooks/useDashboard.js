@@ -56,6 +56,8 @@ export function useDashboardStats() {
         weeklyOffToday: data.weekly_off_today,
 
         pendingLeaveCount: data.pending_leave_count,
+        // Of those, the ones the caller decides in the company tree (Day 22).
+        pendingForMe: data.pending_for_me ?? 0,
         pendingLeaves: data.pending_leaves,
 
         // Each department its own colour, for the chart and its legend. The
@@ -135,6 +137,8 @@ export function useMyDashboardStats({ enabled = true } = {}) {
         today: data.today,
 
         recentLeaves: data.recent_leaves,
+        // Leave waiting for them to decide (Day 22: people report to them).
+        waitingForMe: data.waiting_for_me ?? 0,
 
         // Straight from the ledger. No `?? 12`.
         leaveBalances: data.leave_balances,

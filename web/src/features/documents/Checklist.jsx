@@ -25,12 +25,15 @@ export default function Checklist({ data, types, limits, reviewer, canUpload }) 
   const [open, setOpen] = useState({})
   const { busy, start } = useDownload()
 
-  const decides = reviewer && !data.own
+  // Reviewing somebody else's — and allowed to check theirs: somebody who
+  // checks documents too has theirs checked by the people above them (Day 22).
+  const reviews = reviewer && !data.own
+  const decides = reviews && data.may_check !== false
   const required = data.items.filter((i) => i.type.required)
   const verified = required.filter((i) => i.current?.status === 'verified').length
   const employee = data.employee
 
-  const canRemove = (doc) => (decides ? true : data.own && doc.status === 'pending' && !doc.replaced_at)
+  const canRemove = (doc) => (reviews ? true : data.own && doc.status === 'pending' && !doc.replaced_at)
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -48,6 +51,17 @@ export default function Checklist({ data, types, limits, reviewer, canUpload }) 
           <p className="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Required verified</p>
         </div>
       </div>
+
+      {reviews && data.may_check === false && (
+        <p className="px-5 py-2.5 text-xs text-gray-600 bg-amber-50 border-b border-amber-100">
+          {employee.full_name} checks documents too, so the people above them check theirs: {data.check_goes_to}.
+        </p>
+      )}
+      {data.own && reviewer && data.check_goes_to && (
+        <p className="px-5 py-2.5 text-xs text-gray-600 bg-gray-50 border-b border-gray-100">
+          Your own documents are checked by the person above you: {data.check_goes_to}.
+        </p>
+      )}
 
       <div className="divide-y divide-gray-100">
         {data.items.map((item) => {
@@ -149,7 +163,7 @@ export default function Checklist({ data, types, limits, reviewer, canUpload }) 
       </div>
 
       {uploading && (
-        <UploadDialog types={types} type={uploading} limits={limits} employee={data.own ? null : employee} onClose={() => setUploading(null)} />
+        <UploadDialog types={types} type={uploading} limits={limits} employee={data.own ? null : employee} canVerify={decides} onClose={() => setUploading(null)} />
       )}
       {viewing && (
         <DocumentPreview doc={viewing} employee={employee} decides={decides} onDecide={(decision) => { setDeciding({ doc: viewing, decision }); setViewing(null) }} onClose={() => setViewing(null)} />

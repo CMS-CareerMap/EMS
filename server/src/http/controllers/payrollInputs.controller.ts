@@ -77,7 +77,15 @@ export const putTdsDirective: RequestHandler = async (req, res) => {
 export const getMonthlyEntries: RequestHandler = async (req, res) => {
   const ctx = appContext(res)
   const { year, month } = parseBody(payrollMonthSchema, req.query)
-  reply(res, 200, (await inputs.listMonthlyEntries(ctx, year, month)).map(entryPayload))
+  const { entries, blocked } = await inputs.listMonthlyEntries(ctx, year, month)
+  res.status(200).json({
+    data: entries.map(entryPayload),
+    meta: {
+      requestId: res.locals.requestId,
+      // People whose amounts go to somebody above them (Day 22), and whom to ask.
+      blocked: blocked.map((b) => ({ employee_id: b.employeeId, own: b.own, ask: b.ask })),
+    },
+  })
 }
 
 /** PUT /api/payroll/monthly-entries — sets this month's amount; replaces, never adds. */

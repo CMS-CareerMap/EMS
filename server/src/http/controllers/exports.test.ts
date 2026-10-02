@@ -86,10 +86,13 @@ describe('the employee export', () => {
     expect(lines.find((l) => l.includes('EX-2'))).toMatch(/^"'=HYPERLINK\(""http:\/\/evil\.example""\)",EX-2/)
   })
 
-  it('carries the salary column only for somebody who may see salaries', async () => {
+  it('shows HR every salary but the seniors’ — for a login with no place in the tree, all but the Super Admins’', async () => {
+    // HR sees salaries except their seniors' (Day 22). The owner and the Super
+    // Admins are always seniors, so an HR login with no employee record sees
+    // everybody else's, and theirs never.
     const lines = linesOf((await csv('hr', '/api/employees/export')).body as Buffer)
-    expect(lines[0]!.endsWith(',Status')).toBe(true)
-    expect(lines.join('\n')).not.toContain('480000')
+    expect(lines[0]!.endsWith(',CTC')).toBe(true)
+    expect(lines.find((l) => l.includes('EX-1'))).toMatch(/,480000$/)
   })
 
   it('follows the page’s filters, and is recorded', async () => {

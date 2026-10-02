@@ -122,7 +122,7 @@ export default function HRDashboard() {
 function Overview({ data, approveLeave, myEmployeeId }) {
   const {
     totalEmployees, presentToday, onLeaveToday, weeklyOffToday, deptWeeklyOff,
-    pendingLeaveCount, pendingLeaves, deptData, weekData, recentJoiners,
+    pendingLeaveCount, pendingForMe, pendingLeaves, deptData, weekData, recentJoiners,
   } = data
 
   const attendancePct = totalEmployees > 0 ? Math.round(presentToday / totalEmployees * 100) : 0
@@ -168,9 +168,10 @@ function Overview({ data, approveLeave, myEmployeeId }) {
           iconColor="text-indigo-600"
         />
         <StatCard
-          label="Pending Approvals"
+          label="Pending Leave"
           value={pendingLeaveCount}
-          change={`${pendingLeaveCount} leave request${pendingLeaveCount !== 1 ? 's' : ''}`}
+          // Who decides is the company tree: of the waiting requests, the ones that are the caller's.
+          change={`${pendingForMe} waiting for you`}
           icon={Clock}
           iconBg="bg-red-100"
           iconColor="text-red-600"
@@ -266,9 +267,13 @@ function Overview({ data, approveLeave, myEmployeeId }) {
         <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
             <div>
-              <p className="text-base font-semibold text-gray-900">Pending Approvals</p>
+              <p className="text-base font-semibold text-gray-900">Pending Leave</p>
               <p className="text-xs text-gray-400 mt-0.5">
-                {pendingLeaves.length} request{pendingLeaves.length !== 1 ? 's' : ''} awaiting action
+                {pendingForMe > 0
+                  ? `${pendingForMe} waiting for you, first`
+                  : pendingLeaveCount > 0
+                    ? `${pendingLeaveCount} waiting, none of them yours to decide`
+                    : 'Nothing is waiting'}
               </p>
             </div>
           </div>
@@ -308,9 +313,12 @@ function Overview({ data, approveLeave, myEmployeeId }) {
                         <span className="text-xs text-gray-400">({req.days}d)</span>
                       </div>
                     </div>
-                    {/* Nobody decides their own leave; the server refuses it too. */}
-                    {req.employee_id === myEmployeeId ? (
-                      <span className="text-xs text-gray-400 italic shrink-0">Your own — another approver decides</span>
+                    {/* Who decides is the company tree (Day 22): the server says, per request,
+                        whether it is the caller's. HR sees every request and decides none. */}
+                    {!req.can_decide ? (
+                      <span className="text-xs text-gray-400 italic shrink-0">
+                        {req.employee_id === myEmployeeId ? 'Your own — the person above you decides' : 'Not yours to decide'}
+                      </span>
                     ) : (
                     <div className="flex items-center gap-2 shrink-0">
                       <button

@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Building2, Users, CalendarDays, Bell, IndianRupee, Network, FolderOpen, ScrollText, ShieldCheck } from 'lucide-react'
+import { Building2, Users, CalendarDays, Bell, IndianRupee, Network, FolderOpen, ScrollText, ShieldCheck, GitBranch, CheckSquare } from 'lucide-react'
+import CompanyTree from '../features/settings/CompanyTree'
+import ApprovalsSettings from '../features/settings/ApprovalsSettings'
 import CompanySettings from '../features/settings/CompanySettings'
 import UsersSettings from '../features/settings/UsersSettings'
 import RolesSettings from '../features/settings/RolesSettings'
@@ -29,6 +31,9 @@ const TABS = [
   // and the tab draws only the buttons each one allows.
   { id: 'users', label: 'Users & Roles', icon: Users, permission: ['user:invite', 'membership:role:assign', 'user:status:update', 'user:delete'], Component: UsersSettings },
   { id: 'roles', label: 'Roles & Permissions', icon: ShieldCheck, permission: 'role:manage', Component: RolesSettings },
+  // Who reports to whom, the owner, and who decides when the tree has no answer (Day 22).
+  { id: 'tree', label: 'Company Tree', icon: GitBranch, permission: 'role:manage', Component: CompanyTree },
+  { id: 'approvals', label: 'Approvals', icon: CheckSquare, permission: 'role:manage', Component: ApprovalsSettings },
   { id: 'organisation', label: 'Organisation', icon: Network, permission: 'settings:read', Component: OrganisationSettings },
   {
     id: 'leave',

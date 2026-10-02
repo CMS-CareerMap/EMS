@@ -4,13 +4,16 @@ import {
   previewLeave,
   applyForLeave,
   listLeave,
+  teamLeave,
   myBalances,
   cancelLeave,
+  type LeaveList,
 } from '../../modules/leave/leave.service'
 import {
   leavePreviewSchema,
   leaveApplySchema,
   leaveQuerySchema,
+  teamLeaveQuerySchema,
   balanceQuerySchema,
   leaveIdSchema,
   leaveDecisionSchema,
@@ -23,9 +26,23 @@ import { fromDateColumn, isoInstant } from '../../domain/shared/dates'
 
 const num = (value: Prisma.Decimal | null) => (value == null ? null : Number(value))
 
-/** Snake_case out, matching the names the Leave page already reads. */
-function request(row: LeaveRequestRow) {
+/**
+ * Snake_case out, matching the names the Leave page already reads. A list
+ * says, for each request, what the caller may do with it and who decides it
+ * (Day 22: the company tree) — so a screen draws Approve only where the
+ * server would take it.
+ */
+function request(row: LeaveRequestRow, list?: LeaveList) {
+  const rights = list?.rights.get(row.id)
   return {
+    ...(rights
+      ? {
+          can_decide: rights.canDecide,
+          can_reverse: rights.canReverse,
+          as_backup: rights.asBackup,
+          decided_by: list?.approvers.get(row.employeeId) ?? null,
+        }
+      : {}),
     id: row.id,
     employee_id: row.employeeId,
     employee_code: row.employee.employeeCode,
@@ -105,11 +122,32 @@ export const getLeave: RequestHandler = async (req, res) => {
   const ctx = appContext(res)
   const filters = parseBody(leaveQuerySchema, req.query)
 
-  const rows = await listLeave(ctx, filters)
+  const list = await listLeave(ctx, filters)
 
   res.status(200).json({
-    data: rows.map(request),
-    meta: { requestId: res.locals.requestId, total: rows.length },
+    data: list.rows.map((row) => request(row, list)),
+    meta: { requestId: res.locals.requestId, total: list.rows.length },
+  })
+}
+
+/**
+ * GET /api/leave-requests/team — the leave of the people whose leave the
+ * caller decides in the company tree, whatever their role; and, apart, the
+ * waiting requests they may decide only as the backup.
+ */
+export const getTeamLeave: RequestHandler = async (req, res) => {
+  const ctx = appContext(res)
+  const { status } = parseBody(teamLeaveQuerySchema, req.query)
+
+  const team = await teamLeave(ctx, status)
+
+  res.status(200).json({
+    data: {
+      requests: team.rows.map((row) => request(row, team)),
+      backup: team.backup.map((row) => request(row, team)),
+    },
+    // How many people's leave they decide: none, and the screen offers no Team tab.
+    meta: { requestId: res.locals.requestId, decides_for: team.decidesFor },
   })
 }
 

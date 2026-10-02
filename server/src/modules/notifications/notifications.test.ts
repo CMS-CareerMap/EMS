@@ -97,15 +97,14 @@ afterAll(async () => {
 describe('leave notices', () => {
   let requestId = ''
 
-  it('go to whoever can approve — the reporting manager and HR — and not to anybody else', async () => {
+  it('go to the person who decides — the reporting manager in the company tree — and not to anybody else (Day 22)', async () => {
     requestId = await apply('asha', '2026-10-12', '2026-10-13')
 
-    for (const who of ['manager', 'hr', 'super_admin'] as const) {
-      const [notice] = await noticesOf(who, 'leave.submitted')
-      expect(notice).toMatchObject({ kind: 'leave', title: 'Leave request to approve', link: '/leave', entityId: requestId })
-      expect(notice?.message).toBe('Asha Kulkarni asked for 2 days of Casual Leave: 12 Oct 2026 to 13 Oct 2026.')
-    }
-    for (const who of ['other_manager', 'accounts', 'ravi', 'asha'] as const) {
+    const [notice] = await noticesOf('manager', 'leave.submitted')
+    expect(notice).toMatchObject({ kind: 'leave', title: 'Leave request to approve', link: '/leave?tab=decide', entityId: requestId })
+    expect(notice?.message).toBe('Asha Kulkarni asked for 2 days of Casual Leave: 12 Oct 2026 to 13 Oct 2026.')
+    // HR sees every request but decides none; the Super Admin only stands in.
+    for (const who of ['hr', 'super_admin', 'other_manager', 'accounts', 'ravi', 'asha'] as const) {
       expect(await noticesOf(who, 'leave.submitted')).toHaveLength(0)
     }
   })
@@ -116,7 +115,7 @@ describe('leave notices', () => {
     expect(notice).toMatchObject({ title: 'Leave approved', message: 'Your Casual Leave for 12 Oct 2026 to 13 Oct 2026 was approved: Enjoy.' })
     expect(await noticesOf('manager', 'leave.decided')).toHaveLength(0)
 
-    expect((await post('hr', `/api/leave-requests/${requestId}/reverse`, { note: 'Office closed anyway' })).status).toBe(200)
+    expect((await post('super_admin', `/api/leave-requests/${requestId}/reverse`, { note: 'Office closed anyway' })).status).toBe(200)
     expect((await noticesOf('asha', 'leave.reversed'))[0]?.message).toBe('Your approved Casual Leave for 12 Oct 2026 to 13 Oct 2026 was reversed: Office closed anyway.')
   })
 
@@ -138,10 +137,12 @@ describe('leave notices', () => {
 
   it('say who withdrew a request for somebody else — and tell that somebody', async () => {
     const id = await apply('asha', '2026-11-09', '2026-11-09')
-    expect((await request(app).delete(`/api/leave-requests/${id}`).set('Authorization', as('hr'))).status).toBe(200)
-    expect((await noticesOf('manager', 'leave.withdrawn'))[0]?.message).toBe("Person hr withdrew Asha Kulkarni's request for Casual Leave: 9 Nov 2026.")
+    // HR may not (it is not HR's to decide); the Super Admin, who may stand in, may.
+    expect((await request(app).delete(`/api/leave-requests/${id}`).set('Authorization', as('hr'))).status).toBe(403)
+    expect((await request(app).delete(`/api/leave-requests/${id}`).set('Authorization', as('super_admin'))).status).toBe(200)
+    expect((await noticesOf('manager', 'leave.withdrawn'))[0]?.message).toBe("Person super_admin withdrew Asha Kulkarni's request for Casual Leave: 9 Nov 2026.")
     const [told] = await noticesOf('asha', 'leave.decided')
-    expect(told).toMatchObject({ title: 'Leave request withdrawn', message: 'Person hr withdrew your request for Casual Leave: 9 Nov 2026.' })
+    expect(told).toMatchObject({ title: 'Leave request withdrawn', message: 'Person super_admin withdrew your request for Casual Leave: 9 Nov 2026.' })
   })
 
   it('are not sent when the company switches them off', async () => {
@@ -176,7 +177,8 @@ describe('the bell', () => {
     expect(res.body.data.length).toBeGreaterThan(0)
     expect(res.body.data.every((n: { read: boolean }) => n.read === false)).toBe(true)
     expect(res.body.meta.unread).toBe(res.body.data.length)
-    expect(res.body.data[0]).toMatchObject({ type: 'leave', link: '/leave' })
+    // A request to decide opens straight on Team Requests (Day 22).
+    expect(res.body.data[0]).toMatchObject({ type: 'leave', link: '/leave?tab=decide' })
     expect((await get('manager', '/api/notifications/unread-count')).body.data.unread).toBe(res.body.meta.unread)
   })
 
