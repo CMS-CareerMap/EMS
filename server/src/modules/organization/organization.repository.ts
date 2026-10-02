@@ -1,5 +1,6 @@
 import type { ScopedDb } from '../../platform/db/scoped'
 import type { TxDb } from '../../platform/db/transaction'
+import { holdsSuperAdmin } from '../../domain/org/logins'
 
 /**
  * The company row itself.
@@ -29,7 +30,7 @@ export async function findApprovalRules(db: TxDb, organizationId: string) {
     where: { id: organizationId },
     select: {
       ownerEmployeeId: true,
-      owner: { select: { archivedAt: true, membership: { select: { status: true, roleDef: { select: { locked: true } } } } } },
+      owner: { select: { archivedAt: true, memberships: { select: { status: true, roleDef: { select: { locked: true } } } } } },
       leaveNoManagerApproverId: true,
       leaveBackup: true,
       leaveReversal: true,
@@ -38,7 +39,8 @@ export async function findApprovalRules(db: TxDb, organizationId: string) {
   })
   if (!row) return null
   const { owner, ...rules } = row
-  const stillOwner = Boolean(owner && !owner.archivedAt && owner.membership?.status === 'active' && owner.membership.roleDef.locked)
+  // By either of their logins (Day 23): the owner's employee login is not the Super Admin one.
+  const stillOwner = Boolean(owner && !owner.archivedAt && holdsSuperAdmin(owner.memberships))
   return { ...rules, ownerEmployeeId: stillOwner ? rules.ownerEmployeeId : null }
 }
 

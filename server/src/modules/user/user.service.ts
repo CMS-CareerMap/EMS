@@ -2,6 +2,7 @@ import type { AppContext } from '../../platform/context'
 import { BadRequest, Conflict, Forbidden, NotFound } from '../../platform/errors/AppError'
 import { withTransaction, type TxDb } from '../../platform/db/transaction'
 import { lockFor } from '../../platform/db/locks'
+import { isUniqueViolation } from '../../platform/db/errors'
 import { generateToken, hashInviteToken } from '../../platform/auth/tokenHash'
 import { logger } from '../../platform/logger'
 import {
@@ -153,21 +154,21 @@ export async function inviteUser(ctx: AppContext, input: InviteInput): Promise<I
       throw Forbidden('Inviting adds somebody outside any team or department, so it needs a company-wide reach. Add them under Employees instead, with yourself as their reporting manager, and give them a login there.')
     }
 
+    const employee = input.employeeCode
+      ? await employeeRepo.createEmployee(tx, {
+          organizationId: ctx.organizationId,
+          employeeCode: input.employeeCode.trim(),
+          fullName: input.fullName?.trim() || email,
+        })
+      : null
+
     const created = await createLoginInTransaction(tx, {
       email,
       role: input.role,
       organizationId: ctx.organizationId,
       invitedByUserId: ctx.userId,
+      employeeId: employee?.id ?? null,
     })
-
-    if (input.employeeCode) {
-      await employeeRepo.createEmployee(tx, {
-        organizationId: ctx.organizationId,
-        membershipId: created.membershipId,
-        employeeCode: input.employeeCode.trim(),
-        fullName: input.fullName?.trim() || email,
-      })
-    }
 
     await audit(ctx, {
       action: 'user.invited',
@@ -213,12 +214,16 @@ export async function changeRole(
     await assertTargetInReach(tx, ctx, actor, membershipId)
     const next = roles.get(newRole)
     if (!next) throw BadRequest('That is not one of the company’s roles')
-    const activeSuperAdminCount = await repo.countActiveSuperAdmins(tx)
+    // Only a login that can sign in is one of the "active" Super Admins: an
+    // invitation nobody has used yet can be changed whatever the count.
+    const activeSuperAdminCount = target.status === 'active' ? await repo.countActiveSuperAdmins(tx) : Number.POSITIVE_INFINITY
 
     const refusal = refuseRoleChange({
       actorMembershipId: ctx.membershipId,
+      actorEmployeeId: ctx.employeeId,
       actor,
       targetMembershipId: target.id,
+      targetEmployeeId: target.employeeId,
       targetCurrent,
       next,
       order,
@@ -226,6 +231,14 @@ export async function changeRole(
     })
 
     if (refusal) throw Forbidden(REFUSAL_MESSAGES[refusal])
+    await assertOtherLoginsBelow(tx, actor, order, roles, target)
+    // One login per role per person (Day 23): their other login already holds it.
+    if (target.employeeId && newRole !== target.role) {
+      const others = await repo.loginsOfPerson(tx, target.employeeId)
+      if (others.some((l) => l.id !== target.id && l.role === newRole)) {
+        throw Conflict(`This person already has a ${next.grant.name} login. Each of their logins holds a different role.`)
+      }
+    }
 
     await repo.setRole(tx, membershipId, newRole)
     await audit(ctx, {
@@ -272,13 +285,28 @@ export async function changeStatus(
     const current = await repo.findMembershipForChange(tx, membershipId)
     if (!current) throw NotFound('User not found')
     // Switching somebody on is as much "managing" them as switching them off.
-    await assertMayManage(tx, ctx, membershipId, current.role, status === 'inactive', ['user:status:update'])
+    // One login only: their other one, if they have two, stays as it is. Only
+    // switching off a login that can sign in removes a Super Admin.
+    await assertMayManage(tx, ctx, current, status === 'inactive' && current.status === 'active', ['user:status:update'])
+    // Leaving closed every login of theirs; turning one back on would let
+    // somebody who has left sign in again.
+    if (status === 'active' && current.employee?.archivedAt) {
+      throw BadRequest(`${current.employee.fullName} has left the company, so their logins stay closed.`)
+    }
     await repo.setStatus(tx, membershipId, status)
     await audit(ctx, {
       action: 'user.status_changed',
       entityType: 'membership',
       entityId: membershipId,
-      details: { from: target.status, to: status },
+      // Which login, for somebody with two (Day 23) — and about whom.
+      details: {
+        from: target.status,
+        to: status,
+        email: target.email,
+        role: current.role,
+        roleName: target.roleName,
+        ...(current.employeeId ? { employeeId: current.employeeId } : {}),
+      },
     }, tx)
   })
 
@@ -309,33 +337,111 @@ export async function changeStatus(
  * So: the membership goes inactive, every session dies, the employee row is
  * archived out of the active list, and everything attached to it remains
  * exactly where it was.
+ *
+ * Leaving is the PERSON's (Day 23): somebody with an employee login and a role
+ * login leaves by either one, and both close together, with every session of
+ * both. The caller must be allowed to close each — removing an HR head through
+ * their employee login still needs a role above HR.
  */
 export async function terminateUser(ctx: AppContext, membershipId: string): Promise<void> {
   const target = await repo.findMembership(ctx.db, membershipId)
   if (!target) throw NotFound('User not found')
 
-  await withTransaction(ctx.db, async (tx) => {
+  const closed = await withTransaction(ctx.db, async (tx) => {
     await lockFor(tx, rolesLock(ctx.organizationId))
     const current = await repo.findMembershipForChange(tx, membershipId)
     if (!current) throw NotFound('User not found')
-    await assertMayManage(tx, ctx, membershipId, current.role, true, ['user:delete'])
-    await repo.setStatus(tx, membershipId, 'inactive')
-    if (target.employeeId) await employeeRepo.archiveEmployee(tx, target.employeeId, new Date())
+    const logins = current.employeeId ? await repo.loginsOfPerson(tx, current.employeeId) : [{ ...current, userId: target.userId }]
+    // Only a login that can sign in is "the last Super Admin": one switched
+    // off, or an invitation nobody used, loses nothing.
+    for (const login of logins) await assertMayManage(tx, ctx, login, login.status === 'active', ['user:delete'])
+    for (const login of logins) await repo.setStatus(tx, login.id, 'inactive')
+    // Somebody removed twice keeps the day they left.
+    if (current.employeeId && !current.employee?.archivedAt) await employeeRepo.archiveEmployee(tx, current.employeeId, new Date())
     await audit(ctx, {
       action: 'user.terminated',
       entityType: 'membership',
       entityId: membershipId,
-      details: { role: target.role, employeeArchived: Boolean(target.employeeId) },
+      details: {
+        role: target.role,
+        employeeArchived: Boolean(current.employeeId),
+        ...(current.employeeId ? { employeeId: current.employeeId } : {}),
+        loginsClosed: logins.length,
+      },
     }, tx)
+    return logins
   })
 
-  await repo.revokeSessions(target.userId)
+  for (const login of closed) await repo.revokeSessions(login.userId)
 
   logger.info('User terminated', {
     by: ctx.userId,
     membershipId,
     employeeArchived: Boolean(target.employeeId),
+    loginsClosed: closed.length,
   })
+}
+
+export interface AddLoginInput {
+  email: string
+  /** A role key of this company, different from every login the person has. */
+  role: string
+}
+
+/**
+ * Gives somebody already here another login (Day 23) — a role login beside
+ * their employee login, with its own email and its own invitation link. Never
+ * a new person: it is the same employee record, the same place in the company
+ * tree, and every rule about "your own" applies to both logins alike.
+ *
+ * The Super Admin's, as the route says (role:manage): a second way into the
+ * system for somebody is a decision about the company's roles.
+ */
+export async function addLogin(ctx: AppContext, employeeId: string, input: AddLoginInput): Promise<InviteResult> {
+  const email = input.email.toLowerCase().trim()
+
+  if (await repo.findMembershipByEmail(ctx.db, email)) {
+    throw Conflict('Someone with that email address already has access to this company. Each login needs an email of its own.')
+  }
+
+  const login = await withTransaction(ctx.db, async (tx) => {
+    await lockFor(tx, rolesLock(ctx.organizationId))
+    const { actor, next: given, order } = await rolesForGrant(tx, ctx, input.role, ['role:manage'])
+    if (!mayGive(actor, given, order)) throw Forbidden(REFUSAL_MESSAGES.not_below)
+
+    const person = await repo.personForLogin(tx, employeeId)
+    if (!person) throw NotFound('Employee not found')
+    if (person.archivedAt) throw BadRequest(`${person.fullName} has left the company.`)
+    if (person.memberships.some((m) => m.role === input.role)) {
+      throw Conflict(`${person.fullName} already has a ${given.grant.name} login. Choose a different role for this one.`)
+    }
+
+    const created = await createLoginInTransaction(tx, {
+      email,
+      role: input.role,
+      organizationId: ctx.organizationId,
+      invitedByUserId: ctx.userId,
+      employeeId: person.id,
+    })
+    await audit(ctx, {
+      action: 'user.login_added',
+      entityType: 'membership',
+      entityId: created.membershipId,
+      details: { employeeId: person.id, email, role: input.role, roleName: given.grant.name, logins: person.memberships.length + 1 },
+    }, tx)
+    return created
+  }).catch((err: unknown) => {
+    // The same email added a moment ago by somebody else, past the check above.
+    if (isUniqueViolation(err)) throw Conflict('Someone with that email address already has access to this company. Each login needs an email of its own.')
+    throw err
+  })
+
+  const membership = await repo.findMembership(ctx.db, login.membershipId)
+  if (!membership) throw NotFound('The login was created but could not be read back')
+
+  logger.info('Login added', { by: ctx.userId, employeeId, role: input.role })
+
+  return { membership, inviteToken: login.inviteToken, expiresAt: login.expiresAt }
 }
 
 /**
@@ -347,23 +453,51 @@ export async function terminateUser(ctx: AppContext, membershipId: string): Prom
 async function assertMayManage(
   tx: TxDb,
   ctx: AppContext,
-  targetMembershipId: string,
-  targetRoleKey: string,
+  login: { id: string; role: string; employeeId: string | null },
   removingAccess: boolean,
   needs: readonly Permission[],
 ): Promise<void> {
-  const { actor, next: target, order } = await rolesForGrant(tx, ctx, targetRoleKey, needs)
-  await assertTargetInReach(tx, ctx, actor, targetMembershipId)
+  const { actor, next: target, order, roles } = await rolesForGrant(tx, ctx, login.role, needs)
+  await assertTargetInReach(tx, ctx, actor, login.id)
   const refusal = refuseAccountChange({
     actorMembershipId: ctx.membershipId,
+    actorEmployeeId: ctx.employeeId,
     actor,
-    targetMembershipId,
+    targetMembershipId: login.id,
+    targetEmployeeId: login.employeeId,
     target,
     order,
     // Only switching OFF can leave the company without a Super Admin.
     activeSuperAdminCount: removingAccess ? await repo.countActiveSuperAdmins(tx) : Number.POSITIVE_INFINITY,
   })
   if (refusal) throw Forbidden(ACCOUNT_REFUSAL_MESSAGES[refusal])
+  await assertOtherLoginsBelow(tx, actor, order, roles, login)
+}
+
+const OTHER_LOGIN_NOT_BELOW =
+  'This person has another login whose role is not below yours, so their logins are managed by somebody above that role.'
+
+/**
+ * Refuses acting on one login of a person whose OTHER login the caller could
+ * not manage (Day 23). A login is the person — every rule about "your own"
+ * keys on them — so a senior's employee login, whose role is low, is as much
+ * the senior as their Super Admin login: resetting its password, switching it
+ * on or off or giving it a role is acting on the senior. Somebody's rank is
+ * that of their highest login, switched off or not.
+ */
+async function assertOtherLoginsBelow(
+  tx: TxDb,
+  actor: PolicyRole,
+  order: Awaited<ReturnType<typeof roleRepo.policyRoles>>['order'],
+  roles: Map<string, PolicyRole>,
+  login: { id: string; employeeId: string | null },
+): Promise<void> {
+  if (actor.locked || !login.employeeId) return
+  for (const other of await repo.loginsOfPerson(tx, login.employeeId)) {
+    if (other.id === login.id) continue
+    const role = roles.get(other.role)
+    if (!role || !mayManage(actor, role, order)) throw Forbidden(OTHER_LOGIN_NOT_BELOW)
+  }
 }
 
 export interface LoginSeed {
@@ -372,6 +506,8 @@ export interface LoginSeed {
   role: string
   organizationId: string
   invitedByUserId: string
+  /** The person the login belongs to; null for an operator with no employee record. */
+  employeeId: string | null
 }
 
 export interface CreatedLogin {
@@ -403,6 +539,7 @@ export async function createLoginInTransaction(tx: TxDb, seed: LoginSeed): Promi
     tokenHash: hashInviteToken(rawToken),
     expiresAt,
     createdByUserId: seed.invitedByUserId,
+    employeeId: seed.employeeId,
   })
 
   return { membershipId, inviteToken: rawToken, expiresAt }
@@ -449,13 +586,15 @@ export async function issuePasswordLink(
     await lockFor(tx, rolesLock(ctx.organizationId))
     const current = await repo.findMembershipForChange(tx, membershipId)
     if (!current) throw NotFound('User not found')
-    const { actor, next: targetRole, order } = await rolesForGrant(tx, ctx, current.role, ['user:invite'])
+    const { actor, next: targetRole, order, roles } = await rolesForGrant(tx, ctx, current.role, ['user:invite'])
     // Reach first: somebody outside it is not found, whatever their status —
     // a 409 would tell that the login exists and is switched off.
     await assertTargetInReach(tx, ctx, actor, membershipId)
     if (!mayManage(actor, targetRole, order)) {
       throw Forbidden('You can issue a link only for people whose role is below yours.')
     }
+    // A key to a senior's employee login is a key to the senior (Day 23).
+    await assertOtherLoginsBelow(tx, actor, order, roles, current)
     // Their status as it stands under the lock, not as first read.
     if (current.status === 'inactive') {
       throw Conflict('This account is deactivated. Reactivate it before issuing a link.')

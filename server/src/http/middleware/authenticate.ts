@@ -59,6 +59,7 @@ export const authenticate: RequestHandler = async (req, res, next) => {
     grant: state.grant,
     employeeId: state.employeeId,
     departmentId: state.departmentId,
+    selfServiceOnly: state.selfServiceOnly,
     tree,
   })
 

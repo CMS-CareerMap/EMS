@@ -76,7 +76,7 @@ async function hire(name: string, basic: number, membershipId: string | null = n
       fullName: name,
       dateOfJoining: day('2021-01-01'),
       gender: 'male',
-      membershipId,
+      ...(membershipId ? { memberships: { connect: { id: membershipId } } } : {}),
     },
   })
   await prisma.employeeStatutoryIdentity.create({

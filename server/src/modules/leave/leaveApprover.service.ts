@@ -43,7 +43,15 @@ export async function approvalWorld(db: TxDb, organizationId: string): Promise<A
 }
 
 /** "The Super Admin" here is whoever holds the Super Admin panel — `role:manage` is theirs alone. */
-export const deciderOf = (ctx: AppContext): Decider => ({ employeeId: ctx.employeeId, isSuperAdmin: ctx.can('role:manage') })
+/**
+ * The caller as somebody who decides. The employee login of a person with a
+ * live role login (Day 23) decides nothing for others: it is for their own
+ * things, and their team's leave is decided from the role login.
+ */
+export const deciderOf = (ctx: AppContext): Decider => ({
+  employeeId: ctx.selfServiceOnly ? null : ctx.employeeId,
+  isSuperAdmin: ctx.can('role:manage'),
+})
 
 export interface RequestRights {
   canDecide: boolean
@@ -136,12 +144,14 @@ export async function approverUsers(tx: TxDb, organizationId: string, employeeId
   const route = routeOf(world.tree, world.rules, employeeId)
   if (route.kind === 'owner') return []
   const primary = primaryApprover(route)
-  const primaryUser = primary ? await notificationRepo.userOfEmployee(tx, primary) : null
-  const users = primaryUser
-    ? [primaryUser]
+  // The logins they decide from: their employee login is left out when they have a live role login (Day 23).
+  const primaryUsers = primary ? await notificationRepo.decidingUsersOfEmployee(tx, primary) : []
+  const users = primaryUsers.length > 0
+    ? primaryUsers
     : (await roleRepo.membershipsHolding(tx, 'role:manage')).filter((m) => m.status === 'active').map((m) => m.userId)
-  const applicant = await notificationRepo.userOfEmployee(tx, employeeId)
-  return users.filter((user) => user !== applicant)
+  // None of the applicant's own logins — a Super Admin applying from their employee login is not told by their other one.
+  const applicant = new Set(await notificationRepo.usersOfEmployee(tx, employeeId))
+  return users.filter((user) => !applicant.has(user))
 }
 
 /**

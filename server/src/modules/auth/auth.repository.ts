@@ -2,6 +2,8 @@ import type { AccountStatus } from '@prisma/client'
 import { unsafeDb } from '../../platform/db/unsafe'
 import { toGrant, type RoleGrant } from '../../platform/authz/grant'
 import { roleForGrant } from './session.repository'
+import { isSelfServiceLogin } from '../../domain/org/logins'
+import { EMPLOYEE_ROLE } from '../../platform/authz/defaultRoles'
 
 /**
  * Login is the one read that runs before an organization is known, so it is one
@@ -48,23 +50,27 @@ const membershipInclude = {
       employeeCode: true,
       attendanceMode: true,
       _count: { select: { directReports: { where: { archivedAt: null } } } },
+      // Their logins: the employee login of somebody with a live role login decides nothing (Day 23).
+      memberships: { select: { id: true, role: true, status: true } },
     },
   },
 } as const
 
-type IncludedMembership = {
+type LoginRow = { id: string; role: string; status: AccountStatus }
+type IncludedMembership = LoginRow & {
   organization: { leaveNoManagerApproverId: string | null }
-  employee: { id: string; fullName: string; employeeCode: string; attendanceMode: string; _count: { directReports: number } } | null
+  employee: { id: string; fullName: string; employeeCode: string; attendanceMode: string; _count: { directReports: number }; memberships: LoginRow[] } | null
 }
 
 /** The employee as the session shows it, and whether they decide anybody's leave. */
 function personOf(membership: IncludedMembership, grant: RoleGrant) {
   const e = membership.employee
+  const ownThingsOnly = Boolean(e && isSelfServiceLogin(membership, e.memberships, EMPLOYEE_ROLE))
   return {
     employee: e ? { id: e.id, fullName: e.fullName, employeeCode: e.employeeCode, attendanceMode: e.attendanceMode } : null,
     decidesLeave:
       grant.permissions.has('role:manage') ||
-      Boolean(e && (e._count.directReports > 0 || membership.organization.leaveNoManagerApproverId === e.id)),
+      Boolean(e && !ownThingsOnly && (e._count.directReports > 0 || membership.organization.leaveNoManagerApproverId === e.id)),
   }
 }
 
@@ -106,12 +112,20 @@ export async function findIdentityByEmail(email: string): Promise<AuthIdentity |
  * row ever appears, this returns null and the user is told to log in with their
  * email, instead of being handed somebody else's account. The real fix then is
  * an organization hint (subdomain or a picker), which is noted in the guide.
+ *
+ * An employee code names a PERSON, and since Day 23 a person can have two
+ * logins. The code signs in to their one login that can sign in; a role
+ * login still only invited, or switched off, does not take it away. For
+ * somebody with two that can, the code cannot say which one is meant, so it
+ * signs in to neither — the same null — and the sign-in page says to use the
+ * email of the login wanted. With none that can, the one login there is (or
+ * the one still invited) is read, so its status gives the usual message.
  */
 export async function findIdentityByEmployeeCode(code: string): Promise<AuthIdentity | null> {
   const matches = await unsafeDb.employee.findMany({
     where: { employeeCode: code.trim(), archivedAt: null },
     include: {
-      membership: { include: { user: true, ...membershipInclude } },
+      memberships: { include: { user: true, ...membershipInclude } },
     },
     take: 2,
   })
@@ -122,9 +136,17 @@ export async function findIdentityByEmployeeCode(code: string): Promise<AuthIden
   const [employee, second] = matches
   if (!employee || second) return null
 
-  const membership = employee.membership
   // An employee record with no membership has no login yet — CSV imports on
   // Day 10 create exactly this.
+  const logins = employee.memberships
+  const active = logins.filter((m) => m.status === 'active')
+  const invited = logins.filter((m) => m.status === 'invited')
+  const membership =
+    active.length === 1 ? active[0]
+      : active.length > 1 ? undefined
+        : logins.length === 1 ? logins[0]
+          : invited.length === 1 ? invited[0]
+            : undefined
   if (!membership) return null
 
   const grant = toGrant(membership.roleDef)

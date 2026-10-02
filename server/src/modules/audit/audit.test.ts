@@ -47,7 +47,7 @@ async function makeUser(key: string, role: 'super_admin' | 'accounts' | 'hr' | '
   })
   const employee = withEmployee
     ? await prisma.employee.create({
-        data: { organizationId: orgId, membershipId: membership.id, employeeCode: `${PREFIX}-${key}`, fullName: `${key} person` },
+        data: { organizationId: orgId, memberships: { connect: { id: membership.id } }, employeeCode: `${PREFIX}-${key}`, fullName: `${key} person` },
       })
     : null
   const login = await request(app).post('/api/auth/login').send({ identifier: email, password: PASSWORD })

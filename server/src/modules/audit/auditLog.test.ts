@@ -31,7 +31,7 @@ async function makeUser(key: string, role: 'super_admin' | 'hr' | 'employee', fu
   const user = await prisma.user.create({ data: { email, passwordHash: await hashPassword(PASSWORD) } })
   const membership = await prisma.membership.create({ data: { userId: user.id, organizationId: orgId, role, status: 'active' } })
   const employee = fullName
-    ? await prisma.employee.create({ data: { organizationId: orgId, membershipId: membership.id, employeeCode: `${PREFIX}-${key}`, fullName } })
+    ? await prisma.employee.create({ data: { organizationId: orgId, memberships: { connect: { id: membership.id } }, employeeCode: `${PREFIX}-${key}`, fullName } })
     : null
   const login = await request(app).post('/api/auth/login').send({ identifier: email, password: PASSWORD })
   const cookie = [login.headers['set-cookie']].flat().find((c) => String(c).startsWith('ems_refresh')) ?? ''

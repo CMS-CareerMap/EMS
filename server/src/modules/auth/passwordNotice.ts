@@ -2,6 +2,7 @@ import { forOrg } from '../../platform/db/scoped'
 import { withTransaction } from '../../platform/db/transaction'
 import { logger } from '../../platform/logger'
 import { notify } from '../notifications/notify.service'
+import { otherLoginsOfPerson } from '../notifications/notification.repository'
 
 /**
  * The security notice in the bell: this account's password changed.
@@ -16,8 +17,8 @@ import { notify } from '../notifications/notify.service'
  */
 export async function tellPasswordChanged(organizationId: string, userId: string, how: 'changed' | 'reset'): Promise<void> {
   try {
-    await withTransaction(forOrg(organizationId), (tx) =>
-      notify({ organizationId, userId }, tx, {
+    await withTransaction(forOrg(organizationId), async (tx) => {
+      await notify({ organizationId, userId }, tx, {
         event: 'account.password_changed',
         to: { users: [userId] },
         includeActor: true,
@@ -27,8 +28,21 @@ export async function tellPasswordChanged(organizationId: string, userId: string
             ? 'Your password was reset with a link from your administrator, and every other device was signed out. If this was not you, tell your administrator at once.'
             : 'Your password was changed and every other device was signed out. If this was not you, ask your administrator to reset it at once.',
         link: null,
-      }),
-    )
+      })
+      // Somebody with two logins (Day 23) is told on the other one too: a
+      // reset taken over by somebody else is read where they still get in.
+      const { email, others } = await otherLoginsOfPerson(tx, userId)
+      if (others.length > 0) {
+        await notify({ organizationId, userId }, tx, {
+          event: 'account.password_changed',
+          to: { users: others },
+          includeActor: true,
+          title: 'The password of your other login was changed',
+          message: `The password of ${email} was ${how === 'reset' ? 'reset with a link from your administrator' : 'changed'}. If this was not you, tell your administrator at once.`,
+          link: null,
+        })
+      }
+    })
   } catch (err) {
     logger.error('Password-change notice could not be written', { userId, error: err instanceof Error ? err.message : String(err) })
   }

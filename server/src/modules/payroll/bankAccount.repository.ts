@@ -38,8 +38,9 @@ export async function bankRoster(db: ScopedDb) {
       fullName: true,
       status: true,
       department: { select: { name: true } },
-      // Whose login sent the details in — to tell self-service from Accounts' entry.
-      membership: { select: { userId: true } },
+      // Whose login sent the details in — to tell self-service from Accounts'
+      // entry. Either of the person's logins is the person (Day 23).
+      memberships: { select: { userId: true } },
       bankAccount: { select: accountSelect },
     },
     orderBy: { employeeCode: 'asc' },
@@ -57,8 +58,9 @@ export async function findEmployeeWithAccount(db: ScopedDb, employeeId: string) 
       fullName: true,
       status: true,
       department: { select: { name: true } },
-      // Whose login sent the details in — to tell self-service from Accounts' entry.
-      membership: { select: { userId: true } },
+      // Whose login sent the details in — to tell self-service from Accounts'
+      // entry. Either of the person's logins is the person (Day 23).
+      memberships: { select: { userId: true } },
       bankAccount: { select: accountSelect },
     },
   })

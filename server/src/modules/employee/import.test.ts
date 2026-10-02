@@ -409,12 +409,12 @@ describe('NONE of them can log in until they set a password', () => {
     const noEmail = [HEADER, `${PREFIX}-E3,Site Worker,,,,,,`].join('\n')
     await upload(noEmail, false)
 
-    const employee = await prisma.employee.findFirst({ where: { employeeCode: `${PREFIX}-E3` } })
+    const employee = await prisma.employee.findFirst({ where: { employeeCode: `${PREFIX}-E3` }, include: { memberships: true } })
 
     // A record for someone who does not use the system is a legitimate thing
     // to have — attendance can still be marked for them by HR.
     expect(employee).not.toBeNull()
-    expect(employee?.membershipId).toBeNull()
+    expect(employee?.memberships).toEqual([])
   })
 })
 

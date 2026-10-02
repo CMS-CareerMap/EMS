@@ -61,7 +61,7 @@ async function person(key: string, role: string, options: { reportsTo?: string; 
     await prisma.employee.create({
       data: {
         organizationId: orgId,
-        membershipId: memberships[key],
+        memberships: { connect: { id: memberships[key]! } },
         employeeCode: `${PREFIX}-${key}`,
         fullName: `${key[0]!.toUpperCase()}${key.slice(1)} Test`,
         dateOfJoining: toDateColumn('2024-01-08'),

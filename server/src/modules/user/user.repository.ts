@@ -25,6 +25,8 @@ export interface MembershipRow {
   fullName: string | null
   employeeId: string | null
   employeeCode: string | null
+  /** The person has left the company: their logins are closed for good. */
+  personLeft: boolean
   createdAt: Date
 }
 
@@ -36,7 +38,7 @@ const membershipSelect = {
   status: true,
   createdAt: true,
   user: { select: { email: true } },
-  employee: { select: { id: true, fullName: true, employeeCode: true } },
+  employee: { select: { id: true, fullName: true, employeeCode: true, archivedAt: true } },
 } as const
 
 type RawMembership = {
@@ -47,7 +49,7 @@ type RawMembership = {
   status: AccountStatus
   createdAt: Date
   user: { email: string }
-  employee: { id: string; fullName: string; employeeCode: string } | null
+  employee: { id: string; fullName: string; employeeCode: string; archivedAt: Date | null } | null
 }
 
 function flatten(row: RawMembership): MembershipRow {
@@ -61,6 +63,7 @@ function flatten(row: RawMembership): MembershipRow {
     fullName: row.employee?.fullName ?? null,
     employeeId: row.employee?.id ?? null,
     employeeCode: row.employee?.employeeCode ?? null,
+    personLeft: Boolean(row.employee?.archivedAt),
     createdAt: row.createdAt,
   }
 }
@@ -131,9 +134,29 @@ export async function setStatus(
   await db.membership.update({ where: { id: membershipId }, data: { status } })
 }
 
-/** Role and status only — what the role-change invariants are checked against. */
+/** Role, status and person only — what the role-change invariants are checked against. */
 export async function findMembershipForChange(db: TxDb, id: string) {
-  return db.membership.findFirst({ where: { id }, select: { id: true, role: true, status: true } })
+  return db.membership.findFirst({
+    where: { id },
+    select: { id: true, role: true, status: true, employeeId: true, employee: { select: { fullName: true, archivedAt: true } } },
+  })
+}
+
+/** Every login of one person (Day 23): leaving closes them all together. */
+export async function loginsOfPerson(db: TxDb, employeeId: string) {
+  return db.membership.findMany({
+    where: { employeeId },
+    select: { id: true, userId: true, role: true, status: true, employeeId: true },
+    orderBy: { createdAt: 'asc' },
+  })
+}
+
+/** Somebody already here, and their logins — for giving them another one. */
+export async function personForLogin(db: TxDb, employeeId: string) {
+  return db.employee.findFirst({
+    where: { id: employeeId },
+    select: { id: true, fullName: true, archivedAt: true, memberships: { select: { role: true, status: true } } },
+  })
 }
 
 /**
@@ -153,13 +176,15 @@ export async function createInvitedLogin(
     tokenHash: string
     expiresAt: Date
     createdByUserId: string
+    /** The person it belongs to; null for an operator with no employee record. */
+    employeeId: string | null
   },
 ): Promise<{ userId: string; membershipId: string }> {
   const existing = await db.user.findUnique({ where: { email: input.email }, select: { id: true } })
   const user = existing ?? (await db.user.create({ data: { email: input.email, passwordHash: null } }))
 
   const membership = await db.membership.create({
-    data: { userId: user.id, organizationId: input.organizationId, role: input.role, status: 'invited' },
+    data: { userId: user.id, organizationId: input.organizationId, role: input.role, status: 'invited', employeeId: input.employeeId },
   })
 
   await db.passwordResetToken.create({

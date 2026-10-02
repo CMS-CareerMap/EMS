@@ -32,8 +32,6 @@ import { GLOBAL_MODELS, TENANT_MODELS } from './tenantModels'
  * Every entry needs a reason. If you cannot write one, it does not belong here.
  */
 const ALLOWED_BARE_UNIQUES: Record<string, string> = {
-  'Employee.membershipId':
-    'FK to Membership, which is itself a uuid owned by one organization — cannot collide across companies',
   'EmployeeBankAccount.employeeId':
     'One-to-one with Employee. A uuid FK, so two companies cannot produce the same value; the unique is what enforces one bank account per employee',
   'EmployeeStatutoryIdentity.employeeId':

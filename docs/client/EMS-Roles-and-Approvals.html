@@ -39,7 +39,7 @@
 <main>
 
 <h1>EMS — Roles and Approvals</h1>
-<p class="sub">How roles, reporting and approvals work in the CareerMap Solutions Employee Management System · 1 October 2026</p>
+<p class="sub">How roles, reporting and approvals work in the CareerMap Solutions Employee Management System · 2 October 2026</p>
 
 <div class="box note">
   This document explains, in simple words, how EMS handles roles, reporting and approvals.<br><br>
@@ -55,11 +55,11 @@
 <h2>1. What you wanted, and how EMS does it</h2>
 <table>
   <tr><th style="width:40%">What you wanted</th><th>How EMS does it</th></tr>
-  <tr><td>The Super Admin controls roles and permissions. Nothing is fixed.</td><td>The Super Admin can create roles, decide what each role can do, and give roles to people, all from one screen (section 7).</td></tr>
+  <tr><td>The Super Admin controls roles and permissions. Nothing is fixed.</td><td>The Super Admin creates roles and decides what each role can do on one screen, gives roles to people, and sets who reports to whom (section 7).</td></tr>
   <tr><td>Everybody works under somebody, and the person above decides.</td><td>The Super Admin sets who reports to whom. Approvals follow that (section 2).</td></tr>
   <tr><td>Only the reporting manager approves leave. HR does not.</td><td>Leave always goes to the person the employee reports to (section 3).</td></tr>
   <tr><td>Nobody does their own work, even if they are HR or Accounts.</td><td>Their own work goes to the person above them (section 4).</td></tr>
-  <tr><td>Every person with a role is also an employee, with two separate logins.</td><td>One employee login and one role login, both for the same person (section 5).</td></tr>
+  <tr><td>Every person with a role is also an employee, with two separate logins.</td><td>The Super Admin adds a role login on the employee's page, beside their employee login. Both are the same person (section 5).</td></tr>
   <tr><td>HR negotiates salaries, so HR should see them.</td><td>HR can see salaries, but not change them, and not see their seniors' salaries. Accounts enters salaries (section 6).</td></tr>
   <tr><td>The owner does not need anybody's approval.</td><td>The owner's leave is recorded directly (section 3).</td></tr>
 </table>
@@ -111,7 +111,7 @@
   <li><strong>Only one person is marked as the owner.</strong> Somebody whose manager has simply not been set yet is not treated as the owner.</li>
   <li><strong>Nobody gets missed.</strong> If somebody has nobody above them, they show on a list for the Super Admin. Until the Super Admin places them, the Super Admin handles their requests.</li>
   <li><strong>The chart cannot go in a loop.</strong> EMS stops “A reports to B” if B already reports to A.</li>
-  <li><strong>Moving people is safe.</strong> If somebody gets a new manager, their waiting requests go to the new manager. If a manager leaves the company, their team shows on the Super Admin's list until they are placed under somebody else.</li>
+  <li><strong>Moving people is safe.</strong> If somebody gets a new manager, their waiting requests go to the new manager. If a manager leaves the company, their team shows on the Super Admin's list until they are placed under somebody else. If a manager's login is turned off, their team's requests go to the Super Admin.</li>
 </ul>
 
 <h2>3. Who approves leave</h2>
@@ -119,21 +119,21 @@
   <tr><th style="width:42%">Whose leave</th><th>Who approves it</th></tr>
   <tr><td>Any employee</td><td>Their <strong>reporting manager</strong>, the person directly above them</td></tr>
   <tr><td>A manager</td><td>The person above that manager</td></tr>
-  <tr><td>Somebody with nobody above them</td><td>The Super Admin</td></tr>
-  <tr><td>Somebody whose manager is on leave, or has left</td><td>The Super Admin can approve instead</td></tr>
+  <tr><td>Somebody with nobody above them, or whose manager has left or cannot sign in</td><td>The Super Admin</td></tr>
+  <tr><td>When the manager is away</td><td>The Super Admin can approve instead of the manager, at any time</td></tr>
   <tr><td>Cancelling leave that was already approved</td><td>The reporting manager, or the Super Admin</td></tr>
   <tr><td>The owner</td><td>Nobody. It is recorded directly</td></tr>
 </table>
 <ul>
   <li><strong>HR does not approve leave.</strong> HR can see all leave requests, give everybody their yearly leave, and correct a balance when needed.</li>
   <li><strong>Any person with people under them approves their leave</strong>, whatever their role. For example, the Accounts Head approves the accountant's leave.</li>
-  <li>Who approves when there is no manager, who stands in when the manager is away, and who can cancel approved leave can all be changed later by the Super Admin.</li>
+  <li>Who approves when there is no manager, who stands in for the manager (the Super Admin, the manager's own manager, or nobody), and who can cancel approved leave can all be changed later by the Super Admin.</li>
 </ul>
 
 <h2>4. Nobody does their own work</h2>
 <div class="box rule">
   <strong>The rule.</strong> A person who does HR, Accounts or Admin work can <strong>never</strong> do that work for themselves. People at the same level or below cannot do it for them either. <strong>Only the people above them can.</strong><br><br>
-  If the person directly above cannot do that kind of work, it goes up to the next person who can, and finally to the Super Admin. Nothing gets stuck.
+  If the person directly above cannot do that kind of work, it goes up to the next person who can, and finally to the Super Admin. Nothing gets stuck. The owner's own items need nobody: they are recorded directly.
 </div>
 <table>
   <tr><th style="width:30%">Work</th><th style="width:28%">For a normal employee</th><th>For somebody who does this work</th></tr>
@@ -148,17 +148,18 @@
 <p class="muted">This rule applies to every role, including new roles the Super Admin creates. It cannot be turned off.</p>
 
 <h2>5. Two logins for people with a role</h2>
-<p>A person with a role (HR, Accounts, Admin, Manager or Reporting Manager) has two logins:</p>
+<p>A person with a role (HR, Accounts, Admin, Manager or Reporting Manager) gets two logins:</p>
 <table>
   <tr><th style="width:22%">Login</th><th>What it is for</th></tr>
-  <tr><td><strong>Employee login</strong></td><td>Their own things: punch in and out, see their attendance, apply for leave, upload their documents, download their payslips, give their bank account.</td></tr>
-  <tr><td><strong>Role login</strong></td><td>The work of their role, for example HR work or Accounts work.</td></tr>
+  <tr><td><strong>Employee login</strong></td><td>Their own things only: punch in and out, see their attendance, apply for leave, upload their documents, download their payslips, give their bank account.</td></tr>
+  <tr><td><strong>Role login</strong></td><td>The work of their role, for example HR work or Accounts work. Approving their team's leave is done here too.</td></tr>
 </table>
 <ul>
-  <li><strong>Both logins belong to the same person.</strong> The Super Admin adds the role login on that person's page. This is how EMS knows it is the same person, so the rule in section 4 works from both logins.</li>
-  <li><strong>Each login needs its own email address</strong> and its own password.</li>
-  <li>The top of the screen always shows which login is open, for example “Signed in as HR” or “Signed in as employee”.</li>
-  <li>When somebody leaves the company, <strong>both logins are closed together</strong>.</li>
+  <li><strong>Both logins belong to the same person.</strong> The Super Admin adds the role login on that person's page (Employees → the person → Logins). This is how EMS knows it is the same person, so the rule in section 4 works from both logins.</li>
+  <li><strong>Each login needs its own email address</strong> and its own password. The person gets a one-time link to set it.</li>
+  <li><strong>Signing in:</strong> somebody with two logins signs in with the email of the login they want. Their Employee ID cannot choose between the two.</li>
+  <li>The top of the screen always shows which login is open, for example “Signed in as HR” or “Signed in as Employee”. On a phone it shows the role as a small label.</li>
+  <li>The Super Admin can turn one login off; the other keeps working. When somebody leaves the company, <strong>both logins are closed together</strong>, and they stay closed.</li>
   <li>Normal employees have just one login.</li>
 </ul>
 
@@ -169,14 +170,14 @@
   <tr><td><strong>Accounts</strong></td><td>Enters and changes salaries in EMS.</td></tr>
   <tr><td><strong>Everybody</strong></td><td>Sees their own salary on their own payslips.</td></tr>
 </table>
-<p>So every salary involves two people: HR agrees it, and Accounts enters it. Nobody can quietly change a salary alone, and nobody can change their own salary.</p>
+<p>HR agrees a salary with the employee, and Accounts enters it. Every change is recorded in the audit log, and nobody can change their own salary.</p>
 
 <h2>7. The Super Admin controls roles</h2>
 <p>The Super Admin has a <strong>Roles &amp; Permissions</strong> screen in Settings. From there, the Super Admin can:</p>
 <ul>
   <li><strong>Create a new role</strong> with any name, for example “Finance Head” or “Team Lead”.</li>
-  <li><strong>Decide what each role can do</strong> by ticking boxes, grouped by area: Employees, Attendance, Leave, Payroll, Documents, Reports and Settings.</li>
-  <li><strong>Decide whose information each role can see</strong>, for each area:</li>
+  <li><strong>Decide what each role can do</strong> by ticking boxes, grouped by area: Employees, Salaries, Attendance, Leave, Payroll, Payslips, Documents, Reports, and Settings and users.</li>
+  <li><strong>Decide whose information each role can see</strong>, for employee records, salaries, attendance, leave, documents and payslips:</li>
 </ul>
 <table>
   <tr><th style="width:32%">Choice</th><th>The role can see</th></tr>
@@ -187,18 +188,20 @@
   <tr><td>Whole company, except seniors</td><td>Everybody, except the people above them. Useful for salaries</td></tr>
   <tr><td>Whole company</td><td>Everybody</td></tr>
 </table>
+<p class="muted">Payslips offer “Only their own” or “Whole company”. Payroll and Reports always show the whole company, every salary included, so give them only to roles that should see every salary.</p>
 <ul>
-  <li><strong>Give any role to any person.</strong></li>
+  <li><strong>Give any role to any person</strong>, in Settings → Users &amp; Roles. A second login is added on the person's page (section 5).</li>
+  <li><strong>Set who reports to whom</strong> on the Company Tree screen, and the approval choices on the Approvals screen.</li>
   <li><strong>Set the order of roles</strong>, for example HR comes under the Super Admin. A person can only give roles that are below their own.</li>
   <li><strong>Changes work straight away.</strong> Nobody needs to log in again. Before saving, the screen shows what the role will be able to do.</li>
-  <li><strong>“Reset to default”</strong> puts a role back to how it started.</li>
+  <li><strong>“Reset to default”</strong> puts one of the seven starting roles back to how it started.</li>
 </ul>
 <div class="box">
   <strong>Built-in safety.</strong> These are always on:
   <ul>
     <li>The Super Admin role cannot be changed or deleted, and there is always at least one Super Admin.</li>
     <li>Nobody can change a role they have themselves.</li>
-    <li>A role that somebody still has cannot be deleted.</li>
+    <li>The seven starting roles cannot be deleted, only changed or reset. A role that somebody still has, or that other roles come under, cannot be deleted.</li>
     <li>EMS warns if one role could both prepare and approve the payroll.</li>
     <li>Every change is saved in the audit log: who changed what, and when.</li>
   </ul>
@@ -211,28 +214,27 @@
   <tr><td><strong>Super Admin</strong></td><td>Everything: approves the payroll, sees reports and the audit log, manages settings, users, roles and who reports to whom.</td></tr>
   <tr><td><strong>Admin</strong></td><td>Looks after employee records and documents.</td></tr>
   <tr><td><strong>HR</strong></td><td>Employees, attendance, documents and holidays. Sees all leave, gives the yearly leave and corrects balances, but does not approve leave. Enters monthly incentives. Sees salaries, except seniors' salaries.</td></tr>
-  <tr><td><strong>Manager</strong></td><td>Sees their team's attendance and leave, and approves their team's leave.</td></tr>
+  <tr><td><strong>Manager</strong></td><td>Sees their team's attendance and leave. Approves the leave of the people under them, as everybody with people under them does.</td></tr>
   <tr><td><strong>Reporting Manager</strong></td><td>The same as Manager.</td></tr>
   <tr><td><strong>Accounts</strong></td><td>Enters salaries, prepares the monthly payroll, checks bank accounts, and downloads the bank transfer file.</td></tr>
   <tr><td><strong>Employee</strong></td><td>Their own attendance, leave, payslips, documents and bank account.</td></tr>
 </table>
-<p class="muted">Everybody with a role also has an employee login for their own things (section 5). Anybody with people under them approves those people's leave.</p>
+<p class="muted">Everybody with a role also gets an employee login for their own things (section 5). Anybody with people under them approves those people's leave. A login for somebody who is not on the staff, for example an outside administrator, can be made in Settings → Users; it is not part of the company tree.</p>
 
 <h2>9. Other safety rules</h2>
 <ul>
   <li><strong>Everything important is recorded.</strong> Sign-ins, role changes, salary changes, payroll steps, documents opened and files downloaded all go into the audit log. Nobody can edit or delete it.</li>
   <li><strong>Everybody sets their own password.</strong> There are no shared passwords. Each person gets a one-time link, valid for 72 hours, to set theirs.</li>
   <li><strong>Yearly leave is given in one step.</strong> New joiners get leave for the months left in the year. People who have left get none. Unused leave carries forward, up to the limit set for each leave type.</li>
-  <li><strong>Payroll needs two people.</strong> Accounts prepares it, and the Super Admin approves it.</li>
-  <li><strong>Bank accounts are checked</strong> against a cheque or passbook photo before any salary is paid into them.</li>
+  <li><strong>Payroll is approved by the Super Admin.</strong> Accounts prepares it; only the Super Admin approves it. Once approved, that month cannot be changed.</li>
+  <li><strong>Bank accounts are checked</strong> before any salary is paid into them (a setting, on to start). An account an employee sends in needs a photo of a cancelled cheque or passbook page.</li>
 </ul>
 
 <div class="keep">
 <h2>10. What happens next</h2>
 <ol>
-  <li>We build everything in this document.</li>
-  <li>We test it for every role, on computer and on phone.</li>
-  <li>EMS goes live. The Super Admin then sets up who reports to whom, and the roles, directly in EMS. You do not need to send us any data.</li>
+  <li>Everything in this document is built, and tested for every role, on computer and on phone.</li>
+  <li>EMS goes live. The Super Admin then sets up who reports to whom, the roles, and the role logins, directly in EMS. You do not need to send us any data.</li>
 </ol>
 
 <div class="box ask" id="changes">
@@ -247,7 +249,7 @@
 </div>
 </div>
 
-<footer>EMS — CareerMap Solutions Pvt. Ltd. · Roles and approvals · 1 October 2026</footer>
+<footer>EMS — CareerMap Solutions Pvt. Ltd. · Roles and approvals · 2 October 2026</footer>
 </main>
 </body>
 </html>

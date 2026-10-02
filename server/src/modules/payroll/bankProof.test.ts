@@ -59,7 +59,7 @@ beforeAll(async () => {
     const m = await prisma.membership.create({ data: { userId: user.id, organizationId: orgId, role, status: 'active' } })
     userId[who] = user.id
     if (who !== 'super_admin') {
-      const e = await prisma.employee.create({ data: { organizationId: orgId, employeeCode: `PK-${who}`, fullName: who === 'esha' ? 'Esha Iyer' : 'Anil Accountant', dateOfJoining: day('2025-01-01'), membershipId: m.id } })
+      const e = await prisma.employee.create({ data: { organizationId: orgId, employeeCode: `PK-${who}`, fullName: who === 'esha' ? 'Esha Iyer' : 'Anil Accountant', dateOfJoining: day('2025-01-01'), memberships: { connect: { id: m.id } } } })
       employee[who === 'esha' ? 'esha' : 'anil'] = e.id
     }
     token[who] = (await request(app).post('/api/auth/login').send({ identifier: email, password: PASSWORD })).body.data.accessToken

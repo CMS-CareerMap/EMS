@@ -27,7 +27,29 @@ import ConfirmDialog from '../../components/ConfirmDialog'
  * would let them act on: never their own, and only people whose role is one
  * they could give (below their own, with nothing they cannot do). That is the
  * same rule the server applies, read from the same list.
+ *
+ * Since Day 23 a person can have two logins — an employee login and a role
+ * login, each with its own email — and they are listed together, the person's
+ * name once. Each login is turned on or off by itself; removing the person
+ * closes all of them, so Remove sits on the person and needs every one of
+ * their logins to be one you could manage. Your own other login is yours too.
  */
+
+/** Logins in the list's order, each person's together under their first. */
+function byPerson(rows) {
+  const groups = []
+  const seen = new Map()
+  for (const row of rows) {
+    const group = row.person_id ? seen.get(row.person_id) : undefined
+    if (group) group.push(row)
+    else {
+      const fresh = [row]
+      groups.push(fresh)
+      if (row.person_id) seen.set(row.person_id, fresh)
+    }
+  }
+  return groups
+}
 
 export default function UsersSettings() {
   const [editId, setEditId] = useState(null)
@@ -35,6 +57,7 @@ export default function UsersSettings() {
 
   const permissions = useAuthStore((state) => state.permissions)
   const myEmail = useAuthStore((state) => state.user?.email ?? null)
+  const myPersonId = useAuthStore((state) => state.profile?.id ?? null)
   const mayAssign = permissions.includes('membership:role:assign')
   const mayInvite = permissions.includes('user:invite')
   const mayToggle = permissions.includes('user:status:update')
@@ -42,9 +65,16 @@ export default function UsersSettings() {
 
   const users = useUsers()
   const assignable = useAssignableRoles({ enabled: mayAssign || mayInvite || mayToggle || mayRemove })
-  // Whom this person may act on. Until the list of roles is in, nobody.
+  // Whom this person may act on: not their own logins — this one or their
+  // other — and only a role they could give. Until the roles are in, nobody.
+  const own = (user) => user.email === myEmail || (myPersonId !== null && user.person_id === myPersonId)
   const manageable = (user) =>
-    user.email !== myEmail && assignable.isSuccess && assignable.data.some((r) => r.key === user.role)
+    !own(user) && assignable.isSuccess && assignable.data.some((r) => r.key === user.role)
+  // Acting on one login of a person is acting on the person (Day 23): every
+  // login of theirs must be one you could manage, as the server checks. And
+  // somebody who has left keeps their logins closed.
+  const groups = users.isSuccess ? byPerson(users.data.rows) : []
+  const mayActOn = (group) => !group[0].person_left && group.every(manageable)
   const updateRole = useUpdateUserRole()
   const toggleStatus = useToggleUserStatus()
   const deleteUser = useDeleteUser()
@@ -94,12 +124,15 @@ export default function UsersSettings() {
 
   // A count only from an answer; a failed load says so below, not "0 users".
   const count = users.isSuccess ? users.data.rows.length : null
-  const someone = (n) => `${n} user${n !== 1 ? 's' : ''}`
+  // Logins, not people: somebody with a role has two (Day 23).
+  const someone = (n) => `${n} login${n !== 1 ? 's' : ''}`
   // Whose logins these are: a role reaching one department lists that
   // department's, and saying "in your organisation" would not be true.
   const REACH_WORDS = {
     ORGANIZATION: (n) => `${someone(n)} in your organisation.`,
+    ORGANIZATION_EXCEPT_ABOVE: (n) => `${someone(n)} in your organisation — everybody but the people above you.`,
     DEPARTMENT: (n) => `${someone(n)} in your department — the people your role reaches.`,
+    ALL_REPORTS: (n) => `${someone(n)}: you and everybody under you in the company tree.`,
     DIRECT_REPORTS: (n) => `${someone(n)}: you and the people who report to you.`,
     SELF: () => 'Only your own login — your role reaches nobody else’s.',
   }
@@ -112,7 +145,7 @@ export default function UsersSettings() {
   // instead of a column of empty Actions cells.
   const mayAct = mayAssign || mayInvite || mayToggle || mayRemove
   const actsOnNobody = mayAct && users.isSuccess && assignable.isSuccess &&
-    users.data.rows.some((u) => u.email !== myEmail) && !users.data.rows.some(manageable)
+    users.data.rows.some((u) => !own(u) && !u.person_left) && !groups.some(mayActOn)
 
   return (
     <div className="space-y-6">
@@ -163,20 +196,33 @@ export default function UsersSettings() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((user) => (
-                  <tr key={user.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">
+                {byPerson(rows).flatMap((group) => group.map((user, index) => (
+                  <tr key={user.id} data-person={user.person_id ?? undefined}
+                    className={`hover:bg-gray-50 transition-colors ${index === group.length - 1 ? 'border-b border-gray-100 last:border-0' : ''}`}>
                     <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
-                          <span className="text-blue-700 text-xs font-semibold">{initials(user.full_name)}</span>
+                      {index === 0 ? (
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
+                            <span className="text-blue-700 text-xs font-semibold">{initials(user.full_name)}</span>
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">
+                              {user.full_name || '—'}
+                              {group.length > 1 && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 text-[11px] font-medium text-slate-600">{group.length} logins</span>}
+                              {user.person_left && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded bg-rose-50 text-[11px] font-medium text-rose-700">Left</span>}
+                            </p>
+                            {/* The address the link belongs to — for an invited
+                                person, often the only thing anybody knows yet. */}
+                            <p className="text-xs text-gray-500">{user.email}</p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-sm font-medium text-gray-900">{user.full_name || '—'}</p>
-                          {/* The address the link belongs to — for an invited
-                              person, often the only thing anybody knows yet. */}
+                      ) : (
+                        // The same person's other login: its own email, under their name.
+                        <div className="pl-11">
+                          <p className="text-xs text-gray-400">{group.length > 2 ? 'Another login of theirs' : 'Their other login'}</p>
                           <p className="text-xs text-gray-500">{user.email}</p>
                         </div>
-                      </div>
+                      )}
                     </td>
 
                     <td className="px-4 py-3.5">
@@ -196,8 +242,11 @@ export default function UsersSettings() {
                               {!(assignable.data ?? []).some((r) => r.key === user.role) && (
                                 <option value={user.role} disabled>{roleLabel(user.role, user.role_name)}</option>
                               )}
+                              {/* Less the roles their other logins hold: one login per role per person. */}
                               {assignable.isSuccess
-                                ? assignable.data.map((r) => <option key={r.key} value={r.key}>{r.name}</option>)
+                                ? assignable.data
+                                  .filter((r) => !group.some((other) => other.id !== user.id && other.role === r.key))
+                                  .map((r) => <option key={r.key} value={r.key}>{r.name}</option>)
                                 : <option value="" disabled>{optionsNote(assignable, '')}</option>}
                             </select>
                             <button
@@ -233,7 +282,7 @@ export default function UsersSettings() {
 
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-1">
-                        {mayAssign && manageable(user) && (
+                        {mayAssign && mayActOn(group) && (
                           <button
                             onClick={() => startEdit(user)}
                             className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors"
@@ -242,7 +291,7 @@ export default function UsersSettings() {
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
                         )}
-                        {mayInvite && manageable(user) && user.status !== 'inactive' && (
+                        {mayInvite && mayActOn(group) && user.status !== 'inactive' && (
                           <button
                             onClick={() => handleIssueLink(user)}
                             disabled={issueLink.isPending}
@@ -252,7 +301,7 @@ export default function UsersSettings() {
                             <KeyRound className="w-3.5 h-3.5" />
                           </button>
                         )}
-                        {mayToggle && manageable(user) && user.status !== 'invited' && (
+                        {mayToggle && mayActOn(group) && user.status !== 'invited' && (
                           <button
                             onClick={() => handleToggleStatus(user)}
                             disabled={toggleStatus.isPending}
@@ -263,9 +312,10 @@ export default function UsersSettings() {
                             {user.status === 'active' ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
                           </button>
                         )}
-                        {mayRemove && manageable(user) && (
+                        {/* Removing is the person's: on their first row, when every login of theirs is one you could close. */}
+                        {mayRemove && index === 0 && mayActOn(group) && (
                           <button
-                            onClick={() => setRemoving(user)}
+                            onClick={() => setRemoving(group)}
                             disabled={deleteUser.isPending}
                             className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
                             title="Remove user"
@@ -276,7 +326,7 @@ export default function UsersSettings() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                )))}
               </tbody>
             </table>
           </div>
@@ -293,10 +343,15 @@ export default function UsersSettings() {
         )}
 
         {removing && (
-          <ConfirmDialog title={`Remove ${removing.full_name || removing.email}?`} confirmLabel="Remove" danger
-            onConfirm={() => deleteUser.mutateAsync({ user_id: removing.id })}
+          <ConfirmDialog title={`Remove ${removing[0].full_name || removing[0].email}?`} confirmLabel="Remove" danger
+            onConfirm={() => deleteUser.mutateAsync({ user_id: removing[0].id })}
             onClose={() => setRemoving(null)}>
-            <p><strong>{removing.email}</strong> will lose all access immediately.</p>
+            {removing.length > 1 ? (
+              <p>All {removing.length} of their logins close together — {removing.map((u, i) => <span key={u.id}>{i > 0 && ' and '}<strong>{u.email}</strong></span>)} — and lose all access immediately.</p>
+            ) : (
+              <p><strong>{removing[0].email}</strong> will lose all access immediately.</p>
+            )}
+            {removing[0].person_id && <p>Their employee record is kept, marked as left.</p>}
           </ConfirmDialog>
         )}
       </Section>

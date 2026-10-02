@@ -72,7 +72,7 @@ beforeAll(async () => {
     const m = await prisma.membership.create({ data: { userId: user.id, organizationId: orgId, role: ROLE[who], status: 'active' } })
     userId[who] = user.id
     const e = await prisma.employee.create({
-      data: { organizationId: orgId, employeeCode: `NT-${who}`, fullName: who === 'asha' ? 'Asha Kulkarni' : `Person ${who}`, dateOfJoining: day('2024-01-01'), membershipId: m.id },
+      data: { organizationId: orgId, employeeCode: `NT-${who}`, fullName: who === 'asha' ? 'Asha Kulkarni' : `Person ${who}`, dateOfJoining: day('2024-01-01'), memberships: { connect: { id: m.id } } },
     })
     employeeId[who] = e.id
   }

@@ -4,6 +4,7 @@ import { withTransaction } from '../../platform/db/transaction'
 import { lockFor } from '../../platform/db/locks'
 import { logger } from '../../platform/logger'
 import { buildTree } from '../../domain/org/companyTree'
+import { canSignIn, holdsSuperAdmin } from '../../domain/org/logins'
 import type { BackupApprover, ReversalBy } from '../../domain/leave/approval'
 import { audit } from '../audit/audit.service'
 import { treeLock } from '../employee/employee.service'
@@ -26,7 +27,7 @@ export interface TreeNode {
   code: string
   department: string | null
   designation: string | null
-  /** The role their login holds, by name; null with no login. */
+  /** The roles their logins hold, by name — "Employee, HR" for somebody with two; null with none. */
   role: string | null
   /** Who they report to in effect. */
   managerId: string | null
@@ -48,6 +49,12 @@ export interface CompanyTreeView {
   version: string
 }
 
+/** The roles of somebody's logins, switched-off ones left out, oldest first. */
+function rolesShown(logins: { status: string; roleDef: { name: string } }[]): string | null {
+  const names = logins.filter((l) => l.status !== 'inactive').map((l) => l.roleDef.name)
+  return names.length > 0 ? names.join(', ') : null
+}
+
 export async function companyTree(ctx: AppContext): Promise<CompanyTreeView> {
   const [people, everybody, rules] = await Promise.all([
     treeRepo.chartPeople(ctx.db),
@@ -66,15 +73,15 @@ export async function companyTree(ctx: AppContext): Promise<CompanyTreeView> {
       code: p.employeeCode,
       department: p.department?.name ?? null,
       designation: p.designation?.name ?? null,
-      role: p.membership && p.membership.status !== 'inactive' ? p.membership.roleDef.name : null,
+      role: rolesShown(p.memberships),
       managerId: tree.managerOf(p.id),
       managerWhoLeft: (() => {
         const left = leftManagers.get(p.id)
         return left ? (names.get(left) ?? null) : null
       })(),
       isOwner: p.id === ownerId,
-      canBeOwner: Boolean(p.membership && p.membership.status === 'active' && p.membership.roleDef.locked),
-      canSignIn: p.membership?.status === 'active',
+      canBeOwner: holdsSuperAdmin(p.memberships),
+      canSignIn: canSignIn(p.memberships),
     })),
     ownerId,
     unplaced: tree.unplaced().map((u) => u.id).filter((id) => id !== ownerId),
@@ -99,7 +106,7 @@ export async function markOwner(ctx: AppContext, employeeId: string, version: st
     const person = await treeRepo.personForTree(tx, employeeId)
     if (!person) throw NotFound('Employee not found')
     if (person.archivedAt) throw BadRequest(`${person.fullName} has left the company.`)
-    if (!person.membership || person.membership.status !== 'active' || !person.membership.roleDef.locked) {
+    if (!holdsSuperAdmin(person.memberships)) {
       throw BadRequest(`The owner must hold the Super Admin panel. Give ${person.fullName} the Super Admin role first.`)
     }
     if (rules.ownerEmployeeId === employeeId) return
@@ -159,7 +166,7 @@ export async function updateApprovalSettings(ctx: AppContext, input: ApprovalSet
       if (!person) throw BadRequest('That person was not found.')
       if (person.archivedAt) throw BadRequest(`${person.fullName} has left the company.`)
       // A login to decide with — or the requests would wait for somebody who cannot sign in.
-      if (!person.membership || person.membership.status !== 'active') {
+      if (!canSignIn(person.memberships)) {
         throw BadRequest(`${person.fullName} has no active login, so they could not decide anything.`)
       }
     }

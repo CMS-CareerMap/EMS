@@ -5,7 +5,8 @@ import { useNotifications } from '../hooks/useNotifications'
 import NotificationPanel from './NotificationPanel'
 import { roleLabel } from '../lib/roles'
 
-// The server's role names — the same labels as the sidebar.
+// The server's role names — the same labels as the sidebar. "Signed in as HR":
+// somebody with two logins (Day 23) sees at a glance which one is open.
 export default function TopBar({ title, onMenuClick }) {
   const { user, profile, role, roleName, setProfileDrawerOpen } = useAuthStore()
   const [dropdownOpen, setDropdownOpen] = useState(false)
@@ -74,12 +75,16 @@ export default function TopBar({ title, onMenuClick }) {
             onClick={() => setDropdownOpen(!dropdownOpen)}
             className="flex items-center gap-2.5 pl-2 pr-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
           >
+            {/* On a phone the name does not fit: which login is open still shows. */}
+            <span className="sm:hidden max-w-24 truncate rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700" title={`Signed in as ${displayRole}`}>
+              <span className="sr-only">Signed in as </span>{displayRole}
+            </span>
             <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center shrink-0">
               <span className="text-white text-xs font-semibold">{initials}</span>
             </div>
             <div className="hidden sm:block text-left">
               <p className="text-sm font-medium text-gray-900 leading-none">{displayName}</p>
-              <p className="text-xs text-gray-500 mt-0.5">{displayRole}</p>
+              <p className="text-xs text-gray-500 mt-0.5" data-signed-in-as>Signed in as {displayRole}</p>
             </div>
             <ChevronDown className="w-4 h-4 text-gray-400 hidden sm:block" />
           </button>
@@ -91,7 +96,8 @@ export default function TopBar({ title, onMenuClick }) {
               <div className="absolute right-0 top-full mt-1 w-56 bg-white rounded-xl border border-gray-200 shadow-lg z-20 overflow-hidden">
                 <div className="px-4 py-3 border-b border-gray-100">
                   <p className="text-sm font-medium text-gray-900 truncate">{displayEmail}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">{displayRole}</p>
+                  {/* Shown here too: on a phone the bar has room for the initials only. */}
+                  <p className="text-xs text-gray-500 mt-0.5">Signed in as {displayRole}</p>
                 </div>
                 <div className="p-1">
                   <button

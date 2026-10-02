@@ -270,7 +270,6 @@ export async function createEmployee(
   assertWithinReach(ctx, { id: '', reportingManagerId: input.reportingManagerId ?? null, departmentId: input.departmentId ?? null }, true)
 
   const employeeId = await withTransaction(ctx.db, async (tx) => {
-    let membershipId: string | null = null
     let roleName: string | null = null
 
     if (input.reportingManagerId) {
@@ -283,21 +282,10 @@ export async function createEmployee(
       // invite endpoint applies, reused rather than restated.
       await lockFor(tx, rolesLock(ctx.organizationId))
       roleName = (await assertMayGive(tx, ctx, input.login.role, ['employee:create'])).grant.name
-
-      const created = await createLoginInTransaction(tx, {
-        email: input.login.email,
-        role: input.login.role,
-        organizationId: ctx.organizationId,
-        invitedByUserId: ctx.userId,
-      })
-
-      membershipId = created.membershipId
-      invite = { token: created.inviteToken, expiresAt: created.expiresAt }
     }
 
     const employee = await repo.createEmployee(tx, {
       organizationId: ctx.organizationId,
-      membershipId,
       employeeCode: input.employeeCode.trim(),
       fullName: input.fullName.trim(),
       personalEmail: input.personalEmail ?? null,
@@ -314,6 +302,17 @@ export async function createEmployee(
       ...(input.country ? { country: input.country.toUpperCase() } : {}),
       ...(input.currency ? { currency: input.currency.toUpperCase() } : {}),
     })
+
+    if (input.login) {
+      const created = await createLoginInTransaction(tx, {
+        email: input.login.email,
+        role: input.login.role,
+        organizationId: ctx.organizationId,
+        invitedByUserId: ctx.userId,
+        employeeId: employee.id,
+      })
+      invite = { token: created.inviteToken, expiresAt: created.expiresAt }
+    }
 
     if (input.statutory) {
       await repo.createStatutoryIdentity(tx, {

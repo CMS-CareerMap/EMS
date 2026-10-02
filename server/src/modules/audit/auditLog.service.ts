@@ -68,9 +68,9 @@ async function filterOf(ctx: AppContext, q: AuditQuery): Promise<repo.AuditFilte
 
   let about: repo.AuditFilter['about']
   if (q.employeeId) {
-    const person = await repo.loginOf(ctx.db, q.employeeId)
+    const person = await repo.loginsOf(ctx.db, q.employeeId)
     if (!person) throw NotFound('No such employee')
-    about = { employeeId: person.id, membershipId: person.membership?.id ?? null, userId: person.membership?.userId ?? null }
+    about = { employeeId: person.id, membershipIds: person.memberships.map((m) => m.id), userIds: person.memberships.map((m) => m.userId) }
   }
 
   return {
@@ -193,8 +193,15 @@ async function describe(ctx: AppContext, rows: repo.AuditLogRow[]): Promise<Audi
 export async function auditFilterPeople(ctx: AppContext) {
   const { logins, employees } = await repo.filterPeople(ctx.db)
   const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name)
+  // Somebody with two logins (Day 23) is listed once per login, so each says which.
+  const loginsPerPerson = new Map<string, number>()
+  for (const m of logins) if (m.employeeId) loginsPerPerson.set(m.employeeId, (loginsPerPerson.get(m.employeeId) ?? 0) + 1)
+  const actorName = (m: (typeof logins)[number]) => {
+    const name = m.employee?.fullName ?? m.user.email
+    return m.employeeId && (loginsPerPerson.get(m.employeeId) ?? 0) > 1 ? `${name} — ${m.roleDef.name} login` : name
+  }
   return {
-    actors: logins.map((m) => ({ userId: m.userId, name: m.employee?.fullName ?? m.user.email })).sort(byName),
+    actors: logins.map((m) => ({ userId: m.userId, name: actorName(m) })).sort(byName),
     employees: employees.map((e) => ({ id: e.id, name: e.fullName, code: e.employeeCode })).sort(byName),
   }
 }

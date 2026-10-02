@@ -59,7 +59,7 @@ async function makeUser(
     const employee = await prisma.employee.create({
       data: {
         organizationId: orgId,
-        membershipId: membership.id,
+        memberships: { connect: { id: membership.id } },
         employeeCode: `${PREFIX}-${key}`,
         fullName: `${key} person`,
         attendanceMode: options.attendanceMode ?? 'app',

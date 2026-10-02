@@ -58,11 +58,17 @@ const KEYS = [...roles.keys()]
 const ACTOR = 'membership-actor'
 const TARGET = 'membership-target'
 
-function change(overrides: { actor?: string; current?: string; next?: string; target?: string; superAdmins?: number } = {}) {
+/** The two people the logins belong to — the same one for "their other login" (Day 23). */
+const ACTOR_PERSON = 'employee-actor'
+const TARGET_PERSON = 'employee-target'
+
+function change(overrides: { actor?: string; current?: string; next?: string; target?: string; targetPerson?: string | null; actorPerson?: string | null; superAdmins?: number } = {}) {
   return refuseRoleChange({
     actorMembershipId: ACTOR,
+    actorEmployeeId: overrides.actorPerson === undefined ? ACTOR_PERSON : overrides.actorPerson,
     actor: R(overrides.actor ?? 'super_admin'),
     targetMembershipId: overrides.target ?? TARGET,
+    targetEmployeeId: overrides.targetPerson === undefined ? TARGET_PERSON : overrides.targetPerson,
     targetCurrent: R(overrides.current ?? 'employee'),
     next: R(overrides.next ?? 'hr'),
     order,
@@ -73,6 +79,16 @@ function change(overrides: { actor?: string; current?: string; next?: string; ta
 describe('invariant 1 — you cannot change your own role', () => {
   it('refuses when actor and target are the same membership', () => {
     expect(change({ target: ACTOR })).toBe('own_role')
+  })
+
+  it('refuses their other login too — two logins, one person (Day 23)', () => {
+    // From the HR login, giving their own employee login a role is giving themselves one.
+    expect(change({ actor: 'hr', targetPerson: ACTOR_PERSON, current: 'employee', next: 'manager' })).toBe('own_role')
+    expect(change({ actor: 'super_admin', targetPerson: ACTOR_PERSON })).toBe('own_role')
+  })
+
+  it('does not treat two operators with no employee record as one person', () => {
+    expect(change({ actorPerson: null, targetPerson: null })).toBeNull()
   })
 
   it('refuses even a super_admin demoting themselves', () => {
@@ -175,11 +191,13 @@ describe('invariant 4 — the last super_admin cannot be demoted', () => {
 })
 
 describe('deactivation and termination', () => {
-  const account = (actor: string, target: string, targetMembershipId = TARGET, superAdmins = 3) =>
+  const account = (actor: string, target: string, targetMembershipId = TARGET, superAdmins = 3, targetEmployeeId: string | null = TARGET_PERSON) =>
     refuseAccountChange({
       actorMembershipId: ACTOR,
+      actorEmployeeId: ACTOR_PERSON,
       actor: R(actor),
       targetMembershipId,
+      targetEmployeeId,
       target: R(target),
       order,
       activeSuperAdminCount: superAdmins,
@@ -187,6 +205,11 @@ describe('deactivation and termination', () => {
 
   it('refuses to act on your own account', () => {
     expect(account('hr', 'hr', ACTOR)).toBe('own_account')
+  })
+
+  it('refuses to switch off or remove your other login (Day 23)', () => {
+    expect(account('hr', 'employee', TARGET, 3, ACTOR_PERSON)).toBe('own_account')
+    expect(account('super_admin', 'employee', TARGET, 3, ACTOR_PERSON)).toBe('own_account')
   })
 
   it('refuses to remove the last super_admin', () => {

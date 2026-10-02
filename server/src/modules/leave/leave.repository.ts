@@ -286,7 +286,12 @@ const peopleWhere = employeesInScope
  * Employee role sees their team's balances though their leave scope is their own.
  */
 export async function peopleInScope(db: ScopedDb | TxDb, scope: ScopeContext, alsoIds: readonly string[] = []) {
-  const reach = alsoIds.length ? { OR: [peopleWhere(scope), { id: { in: [...alsoIds] } }] } : peopleWhere(scope)
+  const inScope = peopleWhere(scope)
+  // A scope of `{}` is everybody already. Inside an OR Prisma drops an empty
+  // condition, so `OR: [{}, ids]` would have meant ONLY those ids — an HR
+  // head with a team of their own saw nobody's balance but the team's.
+  const everybody = Object.keys(inScope).length === 0
+  const reach = alsoIds.length && !everybody ? { OR: [inScope, { id: { in: [...alsoIds] } }] } : inScope
   return db.employee.findMany({
     where: { AND: [reach, { archivedAt: null }] },
     select: {
