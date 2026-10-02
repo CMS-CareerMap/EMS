@@ -1,0 +1,94 @@
+import { useState } from 'react'
+import { toast } from 'sonner'
+import { Section, Field, SaveBar, inp } from './ui'
+import DataState from '../../components/DataState'
+import { optionsNote } from '../../lib/optionsNote'
+import { useApprovalSettings, useCompanyTree, useSaveApprovalSettings } from '../../hooks/useCompanyTree'
+
+/**
+ * Settings → Approvals (Day 22): the three things the company tree does not
+ * answer by itself. The client's choices are the defaults (30 Sep 2026); the
+ * Super Admin can change any of them.
+ */
+const BACKUP = [
+  { value: 'super_admin', label: 'The Super Admin can decide instead' },
+  { value: 'next_up', label: 'The manager’s own manager can decide instead' },
+  { value: 'none', label: 'Nobody — the request waits for the manager' },
+]
+
+const REVERSAL = [
+  { value: 'manager_or_super_admin', label: 'The reporting manager, or the Super Admin' },
+  { value: 'super_admin_only', label: 'Only the Super Admin' },
+]
+
+export default function ApprovalsSettings() {
+  const settings = useApprovalSettings()
+  return (
+    <DataState query={settings}>
+      {(data) => <ApprovalsForm key={data.version} data={data} />}
+    </DataState>
+  )
+}
+
+function ApprovalsForm({ data }) {
+  const tree = useCompanyTree()
+  const save = useSaveApprovalSettings()
+  const [form, setForm] = useState({
+    noManagerApproverId: data.no_manager_approver_id ?? '',
+    backup: data.backup,
+    reversal: data.reversal,
+  })
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState(null)
+  const set = (key) => (e) => { setSaved(false); setForm((f) => ({ ...f, [key]: e.target.value })) }
+  const changed =
+    (form.noManagerApproverId || null) !== (data.no_manager_approver_id ?? null) || form.backup !== data.backup || form.reversal !== data.reversal
+  // Only somebody who can sign in can decide anything; the server refuses anybody else.
+  const people = [...(tree.data?.people ?? [])].filter((p) => p.can_sign_in).sort((a, b) => a.name.localeCompare(b.name))
+
+  async function handleSave() {
+    setError(null)
+    try {
+      await save.mutateAsync({
+        noManagerApproverId: form.noManagerApproverId || null,
+        backup: form.backup,
+        reversal: form.reversal,
+        version: data.version,
+      })
+      setSaved(true)
+      toast.success('Approval settings saved')
+    } catch (err) {
+      setError(err?.message ?? 'The settings could not be saved.')
+    }
+  }
+
+  return (
+    <Section title="Approvals" desc="Leave goes to the person each employee reports to in the company tree. These settings decide what happens when the tree has no answer.">
+      <Field label="Somebody with nobody above them" hint="Their leave goes to…">
+        <select value={form.noManagerApproverId} onChange={set('noManagerApproverId')} className={inp} aria-label="Who decides for somebody with nobody above them">
+          <option value="">The Super Admin</option>
+          {/* A person who has left decides nothing, and is not offered. */}
+          {tree.isSuccess
+            ? people.map((p) => <option key={p.id} value={p.id}>{p.name}{p.designation ? ` — ${p.designation}` : ''}</option>)
+            : <option value="" disabled>{optionsNote(tree, '')}</option>}
+          {data.no_manager_approver_id && !people.some((p) => p.id === data.no_manager_approver_id) && (
+            <option value={data.no_manager_approver_id}>{data.no_manager_approver_name}</option>
+          )}
+        </select>
+      </Field>
+      <Field label="The reporting manager is away" hint="Who may decide the request instead. Deciding instead is written in the log as standing in.">
+        <select value={form.backup} onChange={set('backup')} className={inp} aria-label="Who may decide when the reporting manager is away">
+          {BACKUP.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      </Field>
+      <Field label="Cancelling approved leave" hint="Who may give the days back once leave is approved. Nobody cancels their own.">
+        <select value={form.reversal} onChange={set('reversal')} className={inp} aria-label="Who may cancel approved leave">
+          {REVERSAL.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      </Field>
+      {error && <p role="alert" className="text-sm text-red-600 pt-2">{error}</p>}
+      <SaveBar onSave={handleSave} saving={save.isPending} saved={saved && !changed} disabled={!changed} />
+      <div className="pb-2" />
+    </Section>
+  )
+}

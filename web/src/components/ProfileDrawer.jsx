@@ -36,7 +36,8 @@ export default function ProfileDrawer() {
   // designation, joining date, phone and manager come from their own summary,
   // asked for only when the drawer is open — so the rows show what HR holds
   // instead of "N/A" for things that are on file.
-  const mine = useMyDashboardStats({ enabled: profileDrawerOpen && Boolean(profile) })
+  // Only for a role that may open its own dashboard — since Day 21 one can be made without.
+  const mine = useMyDashboardStats({ enabled: profileDrawerOpen && Boolean(profile) && can('dashboard:read') })
   const details = !mine.isError && mine.data?.profile ? { ...profile, ...mine.data.profile } : profile
 
   // Form states

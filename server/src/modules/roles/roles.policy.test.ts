@@ -16,7 +16,7 @@ const input = (over: Partial<Parameters<typeof checkRoleInput>[0]> = {}) => ({
   name: 'Team Lead',
   description: '',
   parentKey: 'manager',
-  permissions: ['leave:read', 'leave:approve'],
+  permissions: ['leave:read', 'leave:balance:manage'],
   scopes: { leave: 'DIRECT_REPORTS' },
   ...over,
 })
@@ -36,7 +36,8 @@ describe('the permission catalogue', () => {
 
   it('offers payslips only their own or the whole company, and every other module every scope', () => {
     expect(scopesFor('payslip')).toEqual(['SELF', 'ORGANIZATION'])
-    expect(scopesFor('leave')).toEqual(['SELF', 'DIRECT_REPORTS', 'DEPARTMENT', 'ORGANIZATION'])
+    // With the two that follow the company tree (Day 22).
+    expect(scopesFor('leave')).toEqual(['SELF', 'DIRECT_REPORTS', 'ALL_REPORTS', 'DEPARTMENT', 'ORGANIZATION_EXCEPT_ABOVE', 'ORGANIZATION'])
   })
 
   it('names every permission in words, never twice the same', () => {
@@ -69,9 +70,9 @@ describe('what a role may be saved as', () => {
   })
 
   it('tidies the name and keeps the permissions in a stable order without repeats', () => {
-    const r = checkRoleInput(input({ name: '  Team   Lead ', permissions: ['leave:approve', 'leave:read', 'leave:read'] }), null, others, order)
+    const r = checkRoleInput(input({ name: '  Team   Lead ', permissions: ['leave:balance:manage', 'leave:read', 'leave:read'] }), null, others, order)
     expect(r.ok && r.role.name).toBe('Team Lead')
-    expect(r.ok && r.role.permissions).toEqual(['leave:approve', 'leave:read'])
+    expect(r.ok && r.role.permissions).toEqual(['leave:balance:manage', 'leave:read'])
   })
 
   it.each([
@@ -81,7 +82,8 @@ describe('what a role may be saved as', () => {
     ['no parent', { parentKey: 'nobody' }, /comes under/],
     ['a permission EMS does not know', { permissions: ['leave:read', 'leave:everything'] }, /not one EMS knows/],
     ['the Super Admin’s own', { permissions: ['role:manage'] }, /stays with the Super Admin/],
-    ['missing what it needs', { permissions: ['leave:approve'] }, /needs “See leave requests and balances” ticked too/],
+    ['missing what it needs', { permissions: ['leave:balance:manage'] }, /needs “See leave requests and balances” ticked too/],
+    ['the leave approving that the company tree now decides', { permissions: ['leave:read', 'leave:approve'] }, /not one EMS knows/],
     ['a scope that is not one', { scopes: { leave: 'EVERYONE' } }, /Choose whose leave/],
     ['a module that is not one', { scopes: { payroll: 'ORGANIZATION' } }, /not one EMS knows/],
   ])('refuses %s', (_label, over, message) => {
@@ -137,9 +139,9 @@ describe('keys and words', () => {
 
   it('describes a change in the screen’s own words', () => {
     const before = { permissions: ['leave:read'], scopes: { employee: 'SELF', compensation: 'SELF', attendance: 'SELF', leave: 'DIRECT_REPORTS', payslip: 'SELF', document: 'SELF' } as const }
-    const after = { permissions: ['leave:read', 'leave:approve'], scopes: { ...before.scopes, leave: 'ORGANIZATION' } as const }
+    const after = { permissions: ['leave:read', 'leave:balance:manage'], scopes: { ...before.scopes, leave: 'ORGANIZATION' } as const }
     expect(describeChange(before, after)).toEqual({
-      added: ['Approve, reject or cancel leave'],
+      added: ['Give the yearly leave and correct balances'],
       removed: [],
       scopeChanges: ['Leave: Their team → Whole company'],
     })

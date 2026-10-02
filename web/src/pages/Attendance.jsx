@@ -141,6 +141,8 @@ export default function Attendance() {
     check_out: wallClockIn(timezone, emp.attendance?.check_out),
     hours_worked: emp.attendance?.hours_worked ?? null,
     note: emp.attendance?.note ?? '',
+    // Own work goes up the company tree (Day 22): whom this day goes to, when not the caller.
+    mark_goes_to: emp.mark_goes_to ?? null,
   })), [rosterData, timezone])
 
   // Whether this person sees anybody but themselves decides the default view:
@@ -454,12 +456,16 @@ export default function Attendance() {
                                 </td>
                                 {canMark && (
                                   <td className="px-5 py-3.5 text-right">
-                                    <button onClick={() => setModalEmp(rec)}
-                                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100
-                                        text-xs font-semibold transition-colors ml-auto shadow-2xs">
-                                      <Edit2 className="w-3.5 h-3.5" />
-                                      {rec.status ? 'Edit' : 'Mark'}
-                                    </button>
+                                    {rec.mark_goes_to ? (
+                                      <span className="text-xs text-gray-400 italic">Goes to {rec.mark_goes_to}</span>
+                                    ) : (
+                                      <button onClick={() => setModalEmp(rec)}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100
+                                          text-xs font-semibold transition-colors ml-auto shadow-2xs">
+                                        <Edit2 className="w-3.5 h-3.5" />
+                                        {rec.status ? 'Edit' : 'Mark'}
+                                      </button>
+                                    )}
                                   </td>
                                 )}
                               </tr>

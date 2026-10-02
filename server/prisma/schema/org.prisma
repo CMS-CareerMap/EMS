@@ -39,6 +39,23 @@ model Organization {
   /// server's own ceiling is 10 MB whatever this says.
   maxUploadMb Int @default(2)
 
+  /// The owner (Day 22): the one person at the top of the company tree whose
+  /// own leave, and own items generally, need nobody's approval. Marked by the
+  /// Super Admin, never inferred: somebody left without a manager by mistake
+  /// must not skip approval too. Unique, so there is at most one.
+  ownerEmployeeId String?   @unique
+  owner           Employee? @relation("OrganizationOwner", fields: [ownerEmployeeId], references: [id], onDelete: SetNull)
+
+  /// Settings → Approvals (Day 22), with the client's defaults.
+  /// Who decides for somebody with nobody above them: this person, or — when
+  /// null — the Super Admin.
+  leaveNoManagerApproverId String?
+  leaveNoManagerApprover   Employee?           @relation("NoManagerApprover", fields: [leaveNoManagerApproverId], references: [id], onDelete: SetNull)
+  /// Who may decide instead when the reporting manager is away.
+  leaveBackup              LeaveBackupApprover @default(super_admin)
+  /// Who may cancel leave already approved.
+  leaveReversal            LeaveReversalBy     @default(manager_or_super_admin)
+
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
@@ -82,4 +99,21 @@ model Organization {
   notificationSettings NotificationSetting[]
 
   auditLogs AuditLog[]
+}
+
+/// Who may decide a request instead of a reporting manager who is away.
+enum LeaveBackupApprover {
+  /// Any Super Admin (the client's choice).
+  super_admin
+  /// The manager's own reporting manager, one step further up the tree.
+  next_up
+  /// Nobody: the request waits for the manager.
+  none
+}
+
+/// Who may cancel leave that has already been approved.
+enum LeaveReversalBy {
+  /// The person's reporting manager, or a Super Admin (the client's choice).
+  manager_or_super_admin
+  super_admin_only
 }

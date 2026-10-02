@@ -14,8 +14,10 @@ import EmployeeDashboard from '../features/dashboard/EmployeeDashboard'
  * instead of a dashboard that answers them only with "no permission".
  */
 export default function Dashboard() {
-  const permissions = useAuthStore((state) => state.permissions)
-  const holds = (p) => (Array.isArray(p) ? p : [p]).some((one) => permissions.includes(one))
+  // Subscribed to both, so the page follows a role edit at once.
+  useAuthStore((state) => state.permissions)
+  useAuthStore((state) => state.decidesLeave)
+  const holds = useAuthStore((state) => state.canAny)
 
   if (holds('employee:read')) return <HRDashboard />
   if (holds('dashboard:read')) return <EmployeeDashboard />

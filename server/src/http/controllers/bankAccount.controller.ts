@@ -60,7 +60,18 @@ function accountPayload(row: BankRosterRow) {
 export const getBankAccounts: RequestHandler = async (_req, res) => {
   const ctx = appContext(res)
   const [rows, maxUploadMb] = await Promise.all([bank.listBankAccounts(ctx), uploadLimitMb(ctx)])
-  res.status(200).json({ data: rows.map(accountPayload), meta: { requestId: res.locals.requestId, max_upload_mb: maxUploadMb } })
+  res.status(200).json({
+    data: rows.map(({ row, check }) => ({
+      ...accountPayload(row),
+      // Whether the caller may check this account (Day 22: own work goes up
+      // the tree), and if not, whom to ask — so the screen says it instead of
+      // offering a button the server would refuse.
+      may_check: check.allowed,
+      own: check.own,
+      check_goes_to: check.allowed ? null : check.ask,
+    })),
+    meta: { requestId: res.locals.requestId, max_upload_mb: maxUploadMb },
+  })
 }
 
 /** PUT /api/payroll/employees/:id/bank-account */

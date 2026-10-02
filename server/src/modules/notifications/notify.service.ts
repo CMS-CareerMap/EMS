@@ -3,7 +3,9 @@ import type { TxDb } from '../../platform/db/transaction'
 import type { Permission } from '../../platform/authz/permissions'
 import { readScopes } from '../../platform/authz/grant'
 import { isInScope } from '../../platform/authz/scopeWhere'
-import type { ScopedResource } from '../../platform/authz/scope'
+import { TREE_SCOPES, type ScopedResource } from '../../platform/authz/scope'
+import { buildTree, placeIn } from '../../domain/org/companyTree'
+import { topPeople, treePeople } from '../organization/tree.repository'
 import { isEnabled, NOTIFICATION_EVENTS, type NotificationEvent } from '../../domain/notifications/events'
 import * as repo from './notification.repository'
 import * as roleRepo from '../roles/roles.repository'
@@ -16,8 +18,9 @@ import * as roleRepo from '../roles/roles.repository'
  * approval rolls back, the "your leave was approved" notice rolls back with it;
  * there is never a notice about something that did not happen.
  *
- * Recipients are found by what people may DO — "whoever holds leave:approve"
- * — never by a list of names or hard-coded ids. The old code sent approvals to
+ * Recipients are found by what people may DO — "whoever verifies documents
+ * for this person" — or, for leave, by the company tree (the person it goes
+ * to: leave/leaveApprover.service) — never by a list of names or hard-coded ids. The old code sent approvals to
  * the literal string 'demo-hr-admin-id', so no approver ever heard a thing.
  *
  * The person who did the thing is not told about it. HR approving a request
@@ -36,7 +39,6 @@ export type Recipients =
    * told about another department's uploads.
    */
   | { reaching: { permission: Permission; resource: ScopedResource; employeeId: string } }
-  | { leaveApproversOf: string }
   | { everybody: true }
 
 export interface Notice {
@@ -64,30 +66,32 @@ async function resolve(tx: TxDb, to: Recipients): Promise<string[]> {
     return holders.filter((m) => m.status !== 'inactive').map((m) => m.userId)
   }
   if ('everybody' in to) return repo.allUsers(tx)
-  if ('reaching' in to) return reaching(tx, to.reaching.permission, to.reaching.resource, to.reaching.employeeId)
-
-  // Whoever can decide this person's leave: every approver whose leave scope
-  // reaches them — the whole company, their team (their reporting manager),
-  // or their department. A request somebody cannot open is not one to tell
-  // them about. Never the person the leave is for — they may not decide their
-  // own, even when somebody else filed it for them.
-  const users = await reaching(tx, 'leave:approve', 'leave', to.leaveApproversOf)
-  const applicant = await repo.userOfEmployee(tx, to.leaveApproversOf)
-  return users.filter((user) => user !== applicant)
+  return reaching(tx, to.reaching.permission, to.reaching.resource, to.reaching.employeeId)
 }
 
 /** Live logins holding `permission` whose `resource` scope reaches `employeeId`. */
 async function reaching(tx: TxDb, permission: Permission, resource: ScopedResource, employeeId: string): Promise<string[]> {
   const [holders, place] = await Promise.all([roleRepo.membershipsHolding(tx, permission), repo.placeOf(tx, employeeId)])
   if (!place) return []
-  return holders
-    .filter((m) => m.status !== 'inactive')
-    .filter((m) =>
-      isInScope(
-        { scope: readScopes(m.roleDef.scopes)[resource], employeeId: m.employee?.id ?? null, departmentId: m.employee?.departmentId ?? null },
+  const live = holders.filter((m) => m.status !== 'inactive').map((m) => ({ ...m, scope: readScopes(m.roleDef.scopes)[resource] }))
+  // A holder whose scope follows the company tree (Day 22) is decided on their
+  // place in it; the tree is read once, and only when somebody needs it.
+  const followsTree = live.some((m) => TREE_SCOPES.has(m.scope))
+  const [people, top] = followsTree ? await Promise.all([treePeople(tx), topPeople(tx)]) : [[], []]
+  const tree = followsTree ? buildTree(people) : null
+  return live
+    .filter((m) => {
+      const holderId = m.employee?.id ?? null
+      return isInScope(
+        {
+          scope: m.scope,
+          employeeId: holderId,
+          departmentId: m.employee?.departmentId ?? null,
+          tree: tree ? (holderId ? placeIn(tree, holderId, top) : { below: [], above: top }) : undefined,
+        },
         place,
-      ),
-    )
+      )
+    })
     .map((m) => m.userId)
 }
 

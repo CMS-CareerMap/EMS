@@ -74,7 +74,7 @@ async function cleanup(): Promise<void> {
 
 async function makeUser(
   key: string,
-  role: 'hr' | 'manager' | 'employee',
+  role: 'hr' | 'manager' | 'employee' | 'super_admin',
   options: { reportsTo?: string } = {},
 ): Promise<string> {
   const email = `${PREFIX}-${key}@example.com`
@@ -151,6 +151,8 @@ beforeAll(async () => {
   })
 
   await makeUser('hr', 'hr')
+  // A company always has its Super Admin: who decides for somebody with nobody above (Day 22).
+  await makeUser('boss', 'super_admin')
   const manager = await makeUser('mgr', 'manager')
   aliceId = await makeUser('alice', 'employee', { reportsTo: manager })
   bobId = await makeUser('bob', 'employee', { reportsTo: manager })
@@ -416,20 +418,26 @@ describe('applying on somebody else behalf', () => {
     )
 
     // Otherwise the request is Bob's in every respect except who submitted it.
-    expect(res.status).toBe(403)
-    expect(res.body.error.message).toMatch(/your own leave/i)
+    // An employee who cannot see Bob is not told he exists.
+    expect(res.status).toBe(404)
   })
 
-  it('lets HR apply for somebody', async () => {
+  it('lets the person’s manager apply for them — and not HR, whose leave decisions it is not (Day 22)', async () => {
     await grant(bobId, clId, 12)
 
     const res = await apply(
-      { leaveTypeId: clId, ...validRange, reason: 'Recorded by HR', employeeId: bobId },
+      { leaveTypeId: clId, ...validRange, reason: 'Recorded by his manager', employeeId: bobId },
+      'mgr',
+    )
+    expect(res.status, JSON.stringify(res.body)).toBe(201)
+    expect(res.body.data.employee_code).toBe(`${PREFIX}-bob`)
+
+    const hr = await apply(
+      { leaveTypeId: clId, fromDate: D(14), toDate: D(14), reason: 'Recorded by HR', employeeId: bobId },
       'hr',
     )
-
-    expect(res.status).toBe(201)
-    expect(res.body.data.employee_code).toBe(`${PREFIX}-bob`)
+    expect(hr.status).toBe(403)
+    expect(hr.body.error.message).toMatch(/the people whose leave you decide/)
   })
 })
 

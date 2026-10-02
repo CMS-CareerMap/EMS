@@ -174,8 +174,15 @@ export default function TeamBalances() {
 
 function CorrectButton({ person, canManage, onClick }) {
   if (!canManage) return null
-  // Nobody corrects their own balance; the server refuses it too.
-  if (person.own) return <span className="text-xs text-gray-400 italic">Your own</span>
+  // Your own balance — or that of somebody who corrects balances too — goes
+  // up the company tree (Day 22). The server says, per person, whom it goes to.
+  if (person.may_correct === false) {
+    return (
+      <span className="text-xs text-gray-400 italic" title={`Goes to ${person.correction_goes_to}`}>
+        {person.own ? 'Your own' : 'Not yours'} · goes to {person.correction_goes_to}
+      </span>
+    )
+  }
   return (
     <button type="button" onClick={onClick} aria-label={`Correct ${person.full_name}’s balance`}
       className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium">

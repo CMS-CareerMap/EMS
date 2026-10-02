@@ -17,9 +17,11 @@ export function usePayrollPeople() {
   const directory = useEmployees({ enabled: !fromRoster && can('employee:read') })
 
   const people = useMemo(() => {
+    // From the roster, each person says whether the caller may enter their
+    // salary and tax, and whom it goes to (Day 22: own work goes up the tree).
     const list = fromRoster
-      ? (roster.data ?? []).map((e) => ({ id: e.employee_id, code: e.employee_code, name: e.full_name }))
-      : (directory.data ?? []).map((e) => ({ id: e.id, code: e.employee_id, name: e.full_name }))
+      ? (roster.data ?? []).map((e) => ({ id: e.employee_id, code: e.employee_code, name: e.full_name, salaryGoesTo: e.may_enter === false ? e.entry_goes_to : null }))
+      : (directory.data ?? []).map((e) => ({ id: e.id, code: e.employee_id, name: e.full_name, salaryGoesTo: null }))
     return list.sort((a, b) => a.name.localeCompare(b.name))
   }, [fromRoster, roster.data, directory.data])
 

@@ -1,7 +1,7 @@
 import type { AppContext } from '../../platform/context'
 import { withTransaction, type TxDb } from '../../platform/db/transaction'
 import { lockFor } from '../../platform/db/locks'
-import { BusinessRule, Conflict, Forbidden, NotFound } from '../../platform/errors/AppError'
+import { BusinessRule, Conflict, NotFound } from '../../platform/errors/AppError'
 import { logger } from '../../platform/logger'
 import { dayLabel, fromDateColumn, zonedToday } from '../../domain/shared/dates'
 import { leaveYearBounds, leaveYearLabel, planGrant, toHalfDays, type GrantEntry } from '../../domain/leave/grant'
@@ -11,6 +11,8 @@ import { audit } from '../audit/audit.service'
 import { notify } from '../notifications/notify.service'
 import { leaveYearOf } from './leave.service'
 import * as repo from './leave.repository'
+import { assertWorkGoesUp, checkWork, loadWork } from '../organization/workRules.service'
+import { approvalWorld, deciderOf, peopleDecidedBy } from './leaveApprover.service'
 
 /**
  * Leave → Team Balances: everybody's balances, the year's grant, and
@@ -104,7 +106,9 @@ const dayCount = (n: number) => `${n} day${n === 1 ? '' : 's'}`
 /** Everybody this person may see, with each leave type's balance, days applied for, and what is left to apply for. */
 export async function teamBalances(ctx: AppContext, requestedYear?: number) {
   const year = await yearFor(ctx, requestedYear)
-  const people = await repo.peopleInScope(ctx.db, ctx.scopeFor('leave'))
+  // The people the leave scope reaches, and those whose leave the caller decides.
+  const world = await approvalWorld(ctx.db, ctx.organizationId)
+  const people = await repo.peopleInScope(ctx.db, ctx.scopeFor('leave'), peopleDecidedBy(world, deciderOf(ctx)))
   const ids = people.map((p) => p.id)
   const [types, ledger, pending] = await Promise.all([
     repo.activeLeaveTypes(ctx.db),
@@ -116,6 +120,8 @@ export async function teamBalances(ctx: AppContext, requestedYear?: number) {
 
   const canManage = ctx.can('leave:balance:manage')
   const waiting = canManage ? summaryOf((await planFor(ctx.db, ctx, year)).entries, year.leaveYear) : null
+  // Whose balance the caller may correct (Day 22: own work goes up the tree).
+  const work = canManage ? await loadWork(ctx.db, ctx.organizationId, 'leave_balance') : null
 
   return {
     leaveYear: year.leaveYear,
@@ -129,6 +135,10 @@ export async function teamBalances(ctx: AppContext, requestedYear?: number) {
       department: p.department?.name ?? null,
       dateOfJoining: fromDateColumn(p.dateOfJoining),
       own: p.id === ctx.employeeId,
+      ...(() => {
+        const check = work ? checkWork(ctx, work, p.id) : null
+        return { mayCorrect: Boolean(check?.allowed), correctionGoesTo: check && !check.allowed ? check.ask : null }
+      })(),
       balances: types.map((t) => {
         const key = `${p.id}|${t.id}`
         const b = balance.get(key) ?? 0
@@ -231,9 +241,6 @@ export interface AdjustInput {
  */
 export async function adjustBalance(ctx: AppContext, input: AdjustInput) {
   const year = await yearFor(ctx, input.leaveYear)
-  if (input.employeeId === ctx.employeeId) {
-    throw Forbidden('You cannot change your own leave balance. Ask another person who manages leave.')
-  }
   // Only somebody the caller's leave scope reaches: a role given balance
   // corrections over its team corrects its team's, not the company's.
   const [employee, type] = await Promise.all([
@@ -242,6 +249,9 @@ export async function adjustBalance(ctx: AppContext, input: AdjustInput) {
   ])
   if (!employee) throw NotFound('No such employee')
   if (!type) throw NotFound('No such leave type')
+  // Your own balance — or that of somebody who corrects balances too — is
+  // corrected by the people above them in the company tree (Day 22).
+  await assertWorkGoesUp(ctx, ctx.db, 'leave_balance', input.employeeId)
 
   const note = input.note.trim()
   const label = leaveYearLabel(year.leaveYear, year.startMonth)

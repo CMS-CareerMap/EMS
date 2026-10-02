@@ -358,6 +358,10 @@ function RoleEditor({ data, role, onClose, onSaved }) {
                       </label>
                     )}
                   </div>
+                  {/* What the chosen reach means — the two that follow the company tree (Day 22) need saying. */}
+                  {m.resource && catalogue.scopes.find((s) => s.key === scopeValue)?.hint && (
+                    <p className="text-xs text-gray-400 mt-1 sm:text-right">{catalogue.scopes.find((s) => s.key === scopeValue).hint}</p>
+                  )}
                   {m.note && <p className="text-xs text-gray-500 mt-1">{m.note}</p>}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 mt-2">
                     {m.permissions.map((p) => {

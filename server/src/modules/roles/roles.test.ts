@@ -92,7 +92,7 @@ const TEAM_LEAD = {
   name: 'Team Lead',
   description: 'Leads a small team on the floor.',
   parentKey: 'manager',
-  permissions: ['dashboard:read', 'notification:read', 'leave:read', 'leave:approve', 'attendance:read'],
+  permissions: ['dashboard:read', 'notification:read', 'leave:read', 'leave:apply', 'attendance:read'],
   scopes: { leave: 'DIRECT_REPORTS', attendance: 'DIRECT_REPORTS' },
 }
 
@@ -134,7 +134,7 @@ describe('a new company', () => {
     const user = await signIn('hema')
     expect(user.role).toBe('hr')
     expect(user.roleName).toBe('HR')
-    expect(user.permissions).toContain('leave:approve')
+    expect(user.permissions).toContain('leave:balance:manage')
     expect(user.permissions).not.toContain('role:manage')
   })
 })
@@ -147,7 +147,16 @@ describe('who may see and change roles', () => {
     const modules = res.body.data.catalogue.modules as { permissions: { key: string }[] }[]
     const offered = modules.flatMap((m) => m.permissions.map((p) => p.key))
     expect(offered).not.toContain('role:manage')
-    expect(res.body.data.catalogue.scopes.map((s: { label: string }) => s.label)).toEqual(['Only their own', 'Their team', 'Their department', 'Whole company'])
+    expect(res.body.data.catalogue.scopes.map((s: { label: string }) => s.label)).toEqual([
+      'Only their own',
+      'Their team',
+      'Everybody under them',
+      'Their department',
+      'Whole company, except seniors',
+      'Whole company',
+    ])
+    // Approving leave is the company tree's, not a tick.
+    expect(offered).not.toContain('leave:approve')
   })
 
   it('refuses everybody else', async () => {
@@ -219,9 +228,9 @@ describe('what a role cannot be made into', () => {
   })
 
   it('refuses a permission without what it needs to work', async () => {
-    const res = await create({ ...TEAM_LEAD, name: 'Approver', permissions: ['leave:approve'] })
+    const res = await create({ ...TEAM_LEAD, name: 'Approver', permissions: ['leave:balance:manage'] })
     expect(res.status).toBe(400)
-    expect(res.body.error.message).toBe('“Approve, reject or cancel leave” needs “See leave requests and balances” ticked too.')
+    expect(res.body.error.message).toBe('“Give the yearly leave and correct balances” needs “See leave requests and balances” ticked too.')
   })
 
   it('refuses a name already taken, whatever its case, and a scope EMS does not know', async () => {
@@ -308,14 +317,14 @@ describe('reset to default', () => {
     expect(log.map((r) => r.action)).toEqual(['role.updated', 'role.reset'])
     const resetDetails = log[1]!.details as { previousName: string; added: string[] }
     expect(resetDetails.previousName).toBe('People Team')
-    expect(resetDetails.added).toContain('Approve, reject or cancel leave')
+    expect(resetDetails.added).toContain('Give the yearly leave and correct balances')
   })
 
   it('reads every role change in the audit log as a sentence, with the actor’s role by name', async () => {
     const res = await request(app).get('/api/audit-log?category=users').set('Authorization', as('boss'))
     expect(res.status).toBe(200)
     const summaries = (res.body.data as { summary: string; actor: { role: string } | null }[]).map((r) => r.summary)
-    expect(summaries).toContain('Created the role “Team Lead” under Manager, which can: Open the dashboard, See their own notifications, See leave requests and balances, Approve, reject or cancel leave and 1 more; reaches Attendance: Their team and Leave: Their team')
+    expect(summaries).toContain('Created the role “Team Lead” under Manager, which can: Open the dashboard, See their own notifications, See leave requests and balances, Apply for their own leave and 1 more; reaches Attendance: Their team and Leave: Their team')
     expect(summaries).toContain('Deleted the role “Team Lead”, which reached Attendance: Their team and Leave: Their team')
     expect(summaries.some((s) => s.startsWith('Reset the role “HR” to how it started: renamed from “People Team”'))).toBe(true)
     expect((res.body.data as { actor: { role: string } | null }[]).every((r) => !r.actor || r.actor.role === 'Super Admin')).toBe(true)
@@ -342,15 +351,9 @@ describe('whose information a custom role reaches', () => {
     expect((await request(app).get(`/api/employees/${emp.omar}`).set('Authorization', as('tara'))).status).toBe(404)
   })
 
-  it('tells a custom role that approves leave company-wide about every new request', async () => {
-    await create({
-      name: 'Leave Desk',
-      description: '',
-      parentKey: 'hr',
-      permissions: ['leave:read', 'leave:approve'],
-      scopes: { leave: 'ORGANIZATION' },
-    })
-    await request(app).put(`/api/users/${memberships.tara}/role`).set('Authorization', as('boss')).send({ role: 'leave_desk' })
+  it('sends a request to the person it goes to in the company tree, whatever their role, who decides it (Day 22)', async () => {
+    // Omar reports to Tara, whose role holds no leave right at all.
+    await prisma.employee.update({ where: { id: emp.omar! }, data: { reportingManagerId: emp.tara } })
     const casual = await prisma.leaveType.findFirstOrThrow({ where: { organizationId: orgId } })
     const today = zonedToday(new Date(), 'Asia/Kolkata')
     const year = Number(today.slice(0, 4)) - (Number(today.slice(5, 7)) >= 4 ? 0 : 1)
@@ -361,9 +364,19 @@ describe('whose information a custom role reaches', () => {
       .set('Authorization', as('omar'))
       .send({ leaveTypeId: casual.id, fromDate: `${year + 1}-02-09`, toDate: `${year + 1}-02-10`, reason: 'Family function' })
     expect(applied.status, JSON.stringify(applied.body)).toBe(201)
-    const taraUser = await prisma.membership.findUniqueOrThrow({ where: { id: memberships.tara! }, select: { userId: true } })
-    const notice = await prisma.notification.findFirst({ where: { userId: taraUser.userId, event: 'leave.submitted' } })
-    expect(notice).not.toBeNull()
+    const userOf = async (who: string) => (await prisma.membership.findUniqueOrThrow({ where: { id: memberships[who]! }, select: { userId: true } })).userId
+    const told = (who: string) => userOf(who).then((userId) => prisma.notification.findFirst({ where: { userId, event: 'leave.submitted', entityId: applied.body.data.id } }))
+    expect(await told('tara')).not.toBeNull()
+    // The Super Admin, HR: not told — it is not theirs to decide.
+    expect(await told('boss')).toBeNull()
+    expect(await told('hema')).toBeNull()
+
+    // Tara sees it under Team requests and decides it, though her leave scope is her own rows.
+    const team = await request(app).get('/api/leave-requests/team').set('Authorization', as('tara'))
+    expect(team.status).toBe(200)
+    expect((team.body.data.requests as { id: string; can_decide: boolean }[]).find((r) => r.id === applied.body.data.id)?.can_decide).toBe(true)
+    expect((await request(app).post(`/api/leave-requests/${applied.body.data.id}/approve`).set('Authorization', as('tara')).send({})).status).toBe(200)
+    await prisma.employee.update({ where: { id: emp.omar! }, data: { reportingManagerId: null } })
   })
 })
 
@@ -394,7 +407,7 @@ describe('a custom scope reaches only what the role can open (review fixes)', ()
       request(app).post('/api/attendance/mark').set('Authorization', as('lead')).send({ employeeId, date: yesterday(), status: 'absent' })
     // Somebody in another department, outside the team: not found, and nothing written.
     expect((await mark(emp.omar!)).status).toBe(404)
-    expect(await prisma.attendance.count({ where: { employeeId: emp.omar! } })).toBe(0)
+    expect(await prisma.attendance.count({ where: { employeeId: emp.omar!, date: toDateColumn(yesterday()) } })).toBe(0)
     // Their own report: marked.
     expect([200, 201]).toContain((await mark(emp.member!)).status)
   })
@@ -425,12 +438,12 @@ describe('a custom scope reaches only what the role can open (review fixes)', ()
     expect(payslips.scopes).toEqual(['SELF', 'ORGANIZATION'])
   })
 
-  it('tells a department-scoped leave approver about their department’s requests, and not another’s', async () => {
+  it('sends the request of somebody with nobody above to the Super Admin — not to a role that sees leave', async () => {
     expect((await create({
       name: 'Dept Leave Lead',
       description: '',
       parentKey: 'manager',
-      permissions: ['leave:read', 'leave:approve'],
+      permissions: ['leave:read'],
       scopes: { leave: 'DEPARTMENT' },
     })).status).toBe(201)
     await give('deptlead', 'dept_leave_lead')
@@ -438,17 +451,25 @@ describe('a custom scope reaches only what the role can open (review fixes)', ()
     const today = zonedToday(new Date(), 'Asia/Kolkata')
     const year = Number(today.slice(0, 4)) - (Number(today.slice(5, 7)) >= 4 ? 0 : 1)
     await prisma.leaveLedgerEntry.create({ data: { organizationId: orgId, employeeId: emp.ravi!, leaveTypeId: casual.id, leaveYear: year, days: 5, reason: 'opening_grant' } })
-    const apply = (who: string) =>
-      request(app).post('/api/leave-requests').set('Authorization', as(who))
-        .send({ leaveTypeId: casual.id, fromDate: `${year + 1}-02-16`, toDate: `${year + 1}-02-17`, reason: 'Family function' })
-    const sales = await apply('ravi')
-    const ops = await apply('omar')
+    const sales = await request(app).post('/api/leave-requests').set('Authorization', as('ravi'))
+      .send({ leaveTypeId: casual.id, fromDate: `${year + 1}-02-16`, toDate: `${year + 1}-02-17`, reason: 'Family function' })
     expect(sales.status, JSON.stringify(sales.body)).toBe(201)
-    expect(ops.status, JSON.stringify(ops.body)).toBe(201)
-    const leadUser = (await prisma.membership.findUniqueOrThrow({ where: { id: memberships.deptlead! }, select: { userId: true } })).userId
-    const told = await prisma.notification.findMany({ where: { userId: leadUser, event: 'leave.submitted' }, select: { entityId: true } })
-    expect(told.map((n) => n.entityId)).toContain(sales.body.data.id)
-    expect(told.map((n) => n.entityId)).not.toContain(ops.body.data.id)
+    const toldOf = async (who: string) => {
+      const userId = (await prisma.membership.findUniqueOrThrow({ where: { id: memberships[who]! }, select: { userId: true } })).userId
+      return (await prisma.notification.findMany({ where: { userId, event: 'leave.submitted' }, select: { entityId: true } })).map((n) => n.entityId)
+    }
+    // Ravi has nobody above: the Super Admin decides, and is told.
+    expect(await toldOf('boss')).toContain(sales.body.data.id)
+    // The department's leave lead sees it — and decides none of it.
+    expect(await toldOf('deptlead')).not.toContain(sales.body.data.id)
+    await signIn('deptlead')
+    const seen = await request(app).get('/api/leave-requests?status=pending').set('Authorization', as('deptlead'))
+    const row = (seen.body.data as { id: string; can_decide: boolean; decided_by: string }[]).find((r) => r.id === sales.body.data.id)
+    expect(row?.can_decide).toBe(false)
+    expect(row?.decided_by).toBe('the Super Admin')
+    const refused = await request(app).post(`/api/leave-requests/${sales.body.data.id}/approve`).set('Authorization', as('deptlead')).send({})
+    expect(refused.status).toBe(403)
+    expect(refused.body.error.message).toMatch(/decided by the Super Admin/)
   })
 
   it('opens the Users list to a role that can only switch logins on and off', async () => {

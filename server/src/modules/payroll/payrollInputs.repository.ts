@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client'
 import type { ScopedDb } from '../../platform/db/scoped'
 import type { TxDb } from '../../platform/db/transaction'
 
@@ -10,11 +11,31 @@ import type { TxDb } from '../../platform/db/transaction'
 const briefEmployee = { select: { id: true, employeeCode: true, fullName: true } } as const
 
 /** Enough of an employee to check they can be paid, and to name them. */
-export async function findEmployeeBrief(db: ScopedDb, employeeId: string) {
+export async function findEmployeeBrief(db: ScopedDb, employeeId: string, people: Prisma.EmployeeWhereInput | null = null) {
   return db.employee.findFirst({
-    where: { id: employeeId, archivedAt: null },
+    where: { AND: [{ id: employeeId, archivedAt: null }, people ?? {}] },
     select: { id: true, employeeCode: true, fullName: true, dateOfJoining: true, lastWorkingDate: true },
   })
+}
+
+/** Whether this person is among `people` — for an entry found by its own id. */
+export async function employeeAmong(db: ScopedDb, employeeId: string, people: Prisma.EmployeeWhereInput): Promise<boolean> {
+  return (await db.employee.count({ where: { AND: [{ id: employeeId }, people] } })) > 0
+}
+
+/**
+ * Everybody still here who is not among `people` — whose amounts the caller
+ * may not see or enter. Worked out as all minus those inside, not with NOT:
+ * the scope for "everybody" is `{}`, and NOT of an empty filter is ignored —
+ * it would have put the whole company outside.
+ */
+export async function idsOutside(db: ScopedDb, people: Prisma.EmployeeWhereInput): Promise<string[]> {
+  const [all, inside] = await Promise.all([
+    db.employee.findMany({ where: { archivedAt: null }, select: { id: true } }),
+    db.employee.findMany({ where: { AND: [{ archivedAt: null }, people] }, select: { id: true } }),
+  ])
+  const among = new Set(inside.map((r) => r.id))
+  return all.map((r) => r.id).filter((id) => !among.has(id))
 }
 
 // ── TDS directives ──────────────────────────────────────────────────────────
@@ -68,9 +89,10 @@ export async function saveDirective(
 
 // ── Monthly entries ─────────────────────────────────────────────────────────
 
-export async function entriesForMonth(db: ScopedDb, year: number, month: number) {
+/** The month's entries — only those of `people`, when given (the incentives of the people whose pay the caller may see). */
+export async function entriesForMonth(db: ScopedDb, year: number, month: number, people: Prisma.EmployeeWhereInput | null = null) {
   return db.employeeMonthlyEntry.findMany({
-    where: { year, month },
+    where: { year, month, ...(people ? { employee: people } : {}) },
     include: {
       employee: briefEmployee,
       component: { select: { id: true, code: true, label: true, type: true, entry: true } },

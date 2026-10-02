@@ -109,6 +109,11 @@ async function describe(ctx: AppContext, rows: repo.AuditLogRow[]): Promise<Audi
     if (row.entityType === 'user' && row.entityId) userIds.add(row.entityId)
     const employeeId = str(d.employeeId)
     if (employeeId) employeeIds.add(employeeId)
+    // People named by a change to the company tree (Day 22).
+    for (const key of ['managerTo', 'managerFrom', 'ownerEmployeeId', 'previousOwnerId', 'noManagerApproverId']) {
+      const named = str(d[key])
+      if (named) employeeIds.add(named)
+    }
     if (row.action.startsWith('document.') && str(d.type)) docCodes.add(String(d.type))
     if (row.action.startsWith('document_type.') && str(d.code)) docCodes.add(String(d.code))
     if (row.action.startsWith('payroll.entry_') && str(d.component)) componentCodes.add(String(d.component))

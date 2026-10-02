@@ -44,7 +44,9 @@ export const PERMISSIONS = [
 
   'leave:read',
   'leave:apply',
-  'leave:approve',
+  // No `leave:approve` since Day 22: approving follows the company tree — the
+  // person an employee reports to decides, whatever their role
+  // (leave/leaveApprover.ts). A role cannot be given it, or have it taken away.
   // Granting a leave year and correcting a balance. The balance is a ledger:
   // both add entries with a reason, never edit a number.
   'leave:balance:manage',

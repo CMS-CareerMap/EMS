@@ -3,6 +3,7 @@ import type { TxDb } from '../../platform/db/transaction'
 import { dayLabel, fromDateColumn } from '../../domain/shared/dates'
 import { notify } from '../notifications/notify.service'
 import * as repo from './leave.repository'
+import { approverUsers } from './leaveApprover.service'
 
 /**
  * What leave tells whom — written inside each decision's own transaction.
@@ -27,12 +28,13 @@ export async function tellApprovers(ctx: AppContext, tx: TxDb, requestId: string
   const r = await repo.requestFacts(tx, requestId)
   if (!r) return
   const range = rangeOf(r.fromDate, r.toDate)
-  // HR may file or withdraw a request for somebody else; the notice says who did.
+  // Their manager may file or withdraw a request for them; the notice says who did.
   const onBehalf = ctx.employeeId !== r.employeeId
   const actor = onBehalf ? ((await repo.employeeName(tx, ctx.employeeId)) ?? 'An administrator') : null
   await notify(ctx, tx, {
     event,
-    to: { leaveApproversOf: r.employeeId },
+    // Whoever decides it in the company tree (Day 22), not a role.
+    to: { users: await approverUsers(tx, ctx.organizationId, r.employeeId) },
     title: event === 'leave.submitted' ? 'Leave request to approve' : 'Leave request withdrawn',
     message:
       event === 'leave.submitted'
@@ -42,7 +44,8 @@ export async function tellApprovers(ctx: AppContext, tx: TxDb, requestId: string
         : onBehalf
           ? `${actor} withdrew ${r.employee.fullName}'s request for ${r.leaveType.name}: ${range}.`
           : `${r.employee.fullName} withdrew their request for ${r.leaveType.name}: ${range}.`,
-    link: '/leave',
+    // Straight to Team Requests, where the person who decides it decides it.
+    link: '/leave?tab=decide',
     entity: { type: 'leave_request', id: r.id },
   })
   // Withdrawn by somebody else, the person it was for is told — it was their request.

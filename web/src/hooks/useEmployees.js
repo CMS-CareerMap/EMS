@@ -28,6 +28,15 @@ function invalidateAll(queryClient) {
   // The attendance roster lists employees too; a new hire belongs on it today.
   queryClient.invalidateQueries({ queryKey: ['attendance'] })
   queryClient.invalidateQueries({ queryKey: ['users'] })
+  // Who somebody reports to is the company tree (Day 22): the chart, and whose
+  // leave goes to whom, move with it.
+  queryClient.invalidateQueries({ queryKey: ['company-tree'] })
+  queryClient.invalidateQueries({ queryKey: ['leave'] })
+  queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+  // …and whom one's own work goes to: bank accounts, incentives, salaries, documents.
+  queryClient.invalidateQueries({ queryKey: ['payroll'] })
+  queryClient.invalidateQueries({ queryKey: ['salary'] })
+  queryClient.invalidateQueries({ queryKey: ['documents'] })
 }
 
 /** `includeArchived` adds the people who have left — for looking back, as the audit log does. */

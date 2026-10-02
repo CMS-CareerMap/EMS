@@ -157,10 +157,13 @@ export default function EmployeeDrawer({ employee, onClose, onEdit }) {
               <InfoRow icon={Clock} label="Shift"
                 value={employee.shift ? `${employee.shift.name} (${employee.shift.start_time}–${employee.shift.end_time})` : '—'} />
               <InfoRow icon={Fingerprint} label="Attendance" value={ATTENDANCE_MODE[employee.attendance_mode] ?? '—'} />
-              <InfoRow icon={Users} label="Reporting Manager"
+              {/* Who their leave goes to (Day 22: the company tree). One who has left decides nothing. */}
+              <InfoRow icon={Users} label="Reports to"
                 value={employee.reporting_manager_name
-                  ? `${employee.reporting_manager_name}${employee.reporting_manager_designation ? ` (${employee.reporting_manager_designation})` : ''}`
-                  : '—'} />
+                  ? employee.reporting_manager_left
+                    ? `Nobody above — ${employee.reporting_manager_name} has left`
+                    : `${employee.reporting_manager_name}${employee.reporting_manager_designation ? ` (${employee.reporting_manager_designation})` : ''}`
+                  : 'Nobody above'} />
               <InfoRow icon={UserRound} label="Gender" value={GENDER[employee.gender] ?? 'Not recorded'} />
               <InfoRow icon={KeyRound} label="Access"
                 value={employee.account_status ? `${ACCOUNT[employee.account_status] ?? employee.account_status}${employee.role ? ` · ${roleLabel(employee.role, employee.role_name)}` : ''}` : 'No login'} />

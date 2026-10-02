@@ -1,7 +1,7 @@
 {
   "generatedAt": "2026-10-01",
   "note": "Field names the frontend reads, pinned so the API cannot quietly stop sending one. A serializer that stops sending one of these will render an empty cell rather than an error, so check new serializers against this list. Regenerate with: cd server && npm run field-contract",
-  "fieldCount": 165,
+  "fieldCount": 187,
   "allFields": [
     "absent_days",
     "absent_today",
@@ -15,6 +15,7 @@
     "applied_on",
     "approved_at",
     "approved_leave_affected",
+    "as_backup",
     "assumed_days",
     "attendance_mode",
     "bank_account",
@@ -27,16 +28,22 @@
     "built_in",
     "by_department",
     "calculated_at",
+    "can_be_owner",
+    "can_decide",
+    "can_reverse",
+    "can_sign_in",
     "carry_forward",
     "carry_forward_cap",
     "carry_later",
     "category_label",
     "changed_from_default",
+    "check_goes_to",
     "check_in",
     "check_out",
     "component_code",
     "component_label",
     "content_type",
+    "correction_goes_to",
     "counts_for_pf",
     "created_at",
     "date_format",
@@ -46,6 +53,7 @@
     "days_not_yet_happened",
     "decided_at",
     "decided_by",
+    "decides_for",
     "department_id",
     "designation_id",
     "display_order",
@@ -62,6 +70,7 @@
     "employment_to",
     "employment_type",
     "end_time",
+    "entry_goes_to",
     "eps_wage_ceiling",
     "esi_employee",
     "esi_employer",
@@ -83,6 +92,7 @@
     "has_proof",
     "hours_worked",
     "include_header",
+    "is_owner",
     "is_weekly_off_today",
     "last_working_date",
     "leave_balances",
@@ -95,18 +105,27 @@
     "legal_name",
     "lop_basis",
     "lop_days",
+    "manager_id",
+    "manager_who_left",
+    "mark_goes_to",
     "marked_on_leave_without_request",
     "max_accuracy_meters",
     "max_gross",
     "max_upload_mb",
+    "may_check",
+    "may_correct",
+    "may_enter",
     "min_gross",
     "monthly_amount",
     "net_payable",
     "no_joining_date",
+    "no_manager_approver_id",
+    "no_manager_approver_name",
     "not_marked_today",
     "on_leave",
     "on_leave_today",
     "only_verified",
+    "owner_id",
     "paid_days",
     "paid_on",
     "parent_key",
@@ -116,6 +135,7 @@
     "payable_days",
     "payslip_id",
     "payslip_lock",
+    "pending_for_me",
     "pending_leave_count",
     "pending_leaves",
     "personal_email",
@@ -137,6 +157,7 @@
     "replaced_at",
     "reporting_manager_designation",
     "reporting_manager_id",
+    "reporting_manager_left",
     "reporting_manager_name",
     "request_id",
     "role_name",
@@ -164,6 +185,7 @@
     "verification_remarks",
     "verification_status",
     "waiting_count",
+    "waiting_for_me",
     "weekly_off",
     "weekly_off_days",
     "weekly_off_today",
@@ -208,6 +230,7 @@
       "total_days"
     ],
     "web/src/features/dashboard/HRDashboard.jsx": [
+      "can_decide",
       "date_of_joining",
       "employee_id",
       "from_date",
@@ -217,12 +240,14 @@
       "to_date"
     ],
     "web/src/features/documents/Checklist.jsx": [
+      "check_goes_to",
       "content_type",
       "decided_at",
       "decided_by",
       "employee_code",
       "file_name",
       "full_name",
+      "may_check",
       "replaced_at",
       "uploaded_at",
       "uploaded_by"
@@ -283,6 +308,7 @@
       "pf_applicable",
       "pt_state",
       "reporting_manager_designation",
+      "reporting_manager_left",
       "reporting_manager_name",
       "role_name",
       "salary_effective_from",
@@ -301,6 +327,7 @@
     ],
     "web/src/features/leave/TeamBalances.jsx": [
       "carry_later",
+      "correction_goes_to",
       "date_of_joining",
       "employee_code",
       "employee_id",
@@ -308,6 +335,7 @@
       "leave_type",
       "leave_type_id",
       "leave_year",
+      "may_correct",
       "no_joining_date",
       "pro_rated"
     ],
@@ -317,11 +345,13 @@
       "account_type",
       "bank_account",
       "bank_name",
+      "check_goes_to",
       "content_type",
       "employee_code",
       "employee_id",
       "file_name",
       "full_name",
+      "may_check",
       "submitted_by_employee",
       "updated_at",
       "verification_remarks",
@@ -410,8 +440,10 @@
       "effective_to",
       "employee_code",
       "employee_id",
+      "entry_goes_to",
       "full_name",
-      "gross_monthly"
+      "gross_monthly",
+      "may_enter"
     ],
     "web/src/features/payroll/TdsDirectives.jsx": [
       "effective_from",
@@ -422,13 +454,18 @@
     "web/src/features/payroll/people.js": [
       "employee_code",
       "employee_id",
-      "full_name"
+      "entry_goes_to",
+      "full_name",
+      "may_enter"
+    ],
+    "web/src/features/settings/ApprovalsSettings.jsx": [
+      "can_sign_in",
+      "no_manager_approver_id",
+      "no_manager_approver_name"
     ],
     "web/src/features/settings/AuditLog.jsx": [
       "action_label",
       "category_label",
-      "employee_id",
-      "full_name",
       "request_id",
       "user_id"
     ],
@@ -437,6 +474,13 @@
       "legal_name",
       "max_accuracy_meters",
       "radius_meters"
+    ],
+    "web/src/features/settings/CompanyTree.jsx": [
+      "can_be_owner",
+      "is_owner",
+      "manager_id",
+      "manager_who_left",
+      "owner_id"
     ],
     "web/src/features/settings/DocumentSettings.jsx": [
       "display_order"
@@ -503,6 +547,7 @@
       "not_marked_today",
       "on_leave",
       "on_leave_today",
+      "pending_for_me",
       "pending_leave_count",
       "pending_leaves",
       "present_days",
@@ -513,16 +558,21 @@
       "this_week",
       "total_employees",
       "total_hours",
+      "waiting_for_me",
       "weekly_off_days",
       "weekly_off_today"
     ],
     "web/src/hooks/useDocuments.js": [
       "max_upload_mb"
     ],
+    "web/src/hooks/useLeave.js": [
+      "decides_for"
+    ],
     "web/src/hooks/useNotifications.js": [
       "created_at"
     ],
     "web/src/hooks/usePayroll.js": [
+      "employee_id",
       "max_upload_mb",
       "tds_enabled"
     ],
@@ -539,7 +589,8 @@
       "employee_id",
       "full_name",
       "half_day",
-      "hours_worked"
+      "hours_worked",
+      "mark_goes_to"
     ],
     "web/src/pages/Employees.jsx": [
       "date_of_joining",
@@ -551,6 +602,10 @@
     "web/src/pages/Leave.jsx": [
       "annual_quota",
       "applied_on",
+      "as_backup",
+      "can_decide",
+      "can_reverse",
+      "decided_by",
       "employee_code",
       "employee_id",
       "from_date",

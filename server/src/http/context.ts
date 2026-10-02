@@ -1,6 +1,7 @@
 import type { Response } from 'express'
 import { Unauthorized } from '../platform/errors/AppError'
 import type { RoleGrant } from '../platform/authz/grant'
+import type { TreePlace } from '../platform/authz/scope'
 import { forOrg } from '../platform/db/scoped'
 import type { AppContext } from '../platform/context'
 
@@ -25,6 +26,8 @@ export interface AuthContextInput {
   grant: RoleGrant
   employeeId: string | null
   departmentId: string | null
+  /** The caller's place in the company tree, when a scope of theirs follows it (Day 22). */
+  tree?: TreePlace | undefined
 }
 
 export function setAuthContext(res: Response, input: AuthContextInput): void {
@@ -42,6 +45,7 @@ export function setAuthContext(res: Response, input: AuthContextInput): void {
       scope: grant.scopes[resource],
       employeeId: input.employeeId,
       departmentId: input.departmentId,
+      tree: input.tree,
     }),
     db: forOrg(input.organizationId),
     requestId: res.locals.requestId as string | undefined,

@@ -89,6 +89,8 @@ export const getDayRoster: RequestHandler = async (req, res) => {
         designation: employee.designation?.name ?? null,
         attendance_mode: employee.attendanceMode,
         attendance: employee.attendance[0] ? dayFields(employee.attendance[0]) : null,
+        // Null when the caller may mark this day; otherwise whom it goes to (Day 22).
+        mark_goes_to: roster.markGoesTo.get(employee.id) ?? null,
       })),
     },
     meta: { requestId: res.locals.requestId },

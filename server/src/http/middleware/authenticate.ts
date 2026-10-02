@@ -1,7 +1,8 @@
 import type { RequestHandler } from 'express'
 import { Unauthorized } from '../../platform/errors/AppError'
 import { verifyAccessToken } from '../../platform/auth/jwt'
-import { findAuthState } from '../../modules/auth/session.repository'
+import { findAuthState, findTreePlace } from '../../modules/auth/session.repository'
+import { TREE_SCOPES } from '../../platform/authz/scope'
 import { setAuthContext } from '../context'
 
 /**
@@ -46,6 +47,11 @@ export const authenticate: RequestHandler = async (req, res, next) => {
     throw Unauthorized('This account is no longer active.')
   }
 
+  // A role whose scopes follow the company tree (Day 22) needs the caller's
+  // place in it; the rest never pay for the read.
+  const followsTree = Object.values(state.grant.scopes).some((scope) => TREE_SCOPES.has(scope))
+  const tree = followsTree ? await findTreePlace(claims.org, state.employeeId) : undefined
+
   setAuthContext(res, {
     userId: state.userId,
     organizationId: claims.org,
@@ -53,6 +59,7 @@ export const authenticate: RequestHandler = async (req, res, next) => {
     grant: state.grant,
     employeeId: state.employeeId,
     departmentId: state.departmentId,
+    tree,
   })
 
   next()

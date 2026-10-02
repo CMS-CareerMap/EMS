@@ -141,11 +141,11 @@ describe('invariant 3 — you give only a role below your own, with nothing you 
   })
 
   it('refuses a role below yours that reaches more people than you do', () => {
-    // A manager approves their team's leave; a role under them that approves
-    // the whole company's would be a promotion through the back door.
+    // A manager sees their team's leave; a role under them that sees the whole
+    // company's would be a promotion through the back door.
     const company = companyOf([
-      custom('wide_lead', 'manager', ['leave:read', 'leave:approve'], { leave: 'ORGANIZATION' }),
-      custom('team_lead', 'manager', ['leave:read', 'leave:approve'], { leave: 'DIRECT_REPORTS' }),
+      custom('wide_lead', 'manager', ['leave:read'], { leave: 'ORGANIZATION' }),
+      custom('team_lead', 'manager', ['leave:read'], { leave: 'DIRECT_REPORTS' }),
     ])
     const manager = company.roles.get('manager')!
     expect(mayGive(manager, company.roles.get('wide_lead')!, company.order)).toBe(false)

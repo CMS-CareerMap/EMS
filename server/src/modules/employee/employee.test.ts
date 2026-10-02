@@ -341,19 +341,34 @@ describe('reading one employee by id', () => {
 })
 
 describe('which fields you can see', () => {
-  it('gives HR the person and their PAN but not their salary', async () => {
+  it('gives HR the person, their PAN and their salary — but not their bank account (Day 22)', async () => {
     const res = await getAs('hr', strangerEmpId)
 
     expect(res.body.data.full_name).toBe('Unmanaged Stranger')
-    expect(res.body.data).not.toHaveProperty('ctc')
+    // HR agrees salaries with the employee, so sees them on the record.
+    expect(res.body.data).toHaveProperty('ctc')
     expect(res.body.data).not.toHaveProperty('bank_account')
     // HR does hold employee:identity:read — statutory filing needs the PAN.
     expect(res.body.data.pan).toBe('ABCDE1234F')
     expect(res.body.meta.fields).toEqual({
-      compensation: false,
+      compensation: true,
       bank: false,
       identity: true,
     })
+  })
+
+  it('never shows HR the salary of somebody above them in the company tree', async () => {
+    const hrRecord = await prisma.employee.findFirstOrThrow({ where: { employeeCode: `${PREFIX}-hr` } })
+    // The stranger becomes HR's manager: a senior.
+    await prisma.employee.update({ where: { id: hrRecord.id }, data: { reportingManagerId: strangerEmpId } })
+    try {
+      const senior = await getAs('hr', strangerEmpId)
+      expect(senior.status).toBe(200)
+      expect(senior.body.data.full_name).toBe('Unmanaged Stranger')
+      expect(senior.body.data).not.toHaveProperty('ctc')
+    } finally {
+      await prisma.employee.update({ where: { id: hrRecord.id }, data: { reportingManagerId: null } })
+    }
   })
 
   it('gives super_admin all three, from the same endpoint', async () => {

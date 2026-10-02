@@ -76,7 +76,8 @@ function includeFor(access: FieldAccess) {
     designation: { select: { id: true, name: true } },
     shift: { select: { id: true, name: true, startTime: true, endTime: true, expectedHours: true } },
     reportingManager: {
-      select: { id: true, fullName: true, employeeCode: true, designation: { select: { name: true } } },
+      // archivedAt: a manager who has left decides nothing (Day 22) — the page says so.
+      select: { id: true, fullName: true, employeeCode: true, archivedAt: true, designation: { select: { name: true } } },
     },
     membership: { select: { id: true, role: true, roleDef: { select: { name: true } }, status: true, user: { select: { email: true } } } },
 
@@ -186,6 +187,15 @@ export async function updateEmployee(db: TxDb, id: string, data: Record<string, 
   return db.employee.update({ where: { id }, data })
 }
 
+/**
+ * Somebody named as a reporting manager — in this company, whatever the
+ * caller's scope: who people report to is the company tree, not a list
+ * somebody can see.
+ */
+export async function managerCandidate(db: TxDb, id: string) {
+  return db.employee.findFirst({ where: { id }, select: { id: true, fullName: true, archivedAt: true } })
+}
+
 /** Out of the active list; attendance, leave and payslips stay attached. */
 export async function archiveEmployee(db: TxDb, id: string, at: Date) {
   return db.employee.update({ where: { id }, data: { archivedAt: at } })
@@ -221,7 +231,7 @@ export async function findCard(db: ScopedDb, id: string) {
       phone: true,
       department: { select: { name: true } },
       designation: { select: { name: true } },
-      reportingManager: { select: { fullName: true, designation: { select: { name: true } } } },
+      reportingManager: { select: { fullName: true, archivedAt: true, designation: { select: { name: true } } } },
     },
   })
 }

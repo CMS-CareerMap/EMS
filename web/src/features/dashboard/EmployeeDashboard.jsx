@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { UserCheck, CalendarDays, Clock, TrendingUp, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
 import { useMyDashboardStats } from '../../hooks/useDashboard'
 import PunchCard from '../attendance/PunchCard'
@@ -69,7 +70,7 @@ export default function EmployeeDashboard() {
 }
 
 function MyMonth({ data }) {
-  const { profile, presentDays, absentDays, leaveDays, weeklyOffDays, todayStatus, recentLeaves, leaveBalances } = data
+  const { profile, presentDays, absentDays, leaveDays, weeklyOffDays, todayStatus, recentLeaves, leaveBalances, waitingForMe } = data
 
   const monthName = new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
 
@@ -101,6 +102,16 @@ function MyMonth({ data }) {
           </div>
         )}
       </div>
+
+      {/* Somebody with people under them decides their leave, whatever their role (Day 22). */}
+      {waitingForMe > 0 && (
+        <Link to="/leave?tab=decide" className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 hover:bg-amber-100 transition-colors">
+          <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" aria-hidden="true" />
+          <p className="text-sm text-amber-900">
+            <span className="font-semibold">{waitingForMe} leave request{waitingForMe === 1 ? '' : 's'} waiting for you.</span> Open Team Requests to decide.
+          </p>
+        </Link>
+      )}
 
       {/* Attendance stats for this month */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">

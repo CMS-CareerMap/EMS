@@ -38,7 +38,7 @@ function invalidateAll(queryClient) {
 }
 
 /** No arguments. Whose requests these are is the server's decision. */
-export function useLeaveRequests(filters = {}) {
+export function useLeaveRequests(filters = {}, { enabled = true } = {}) {
   const query = new URLSearchParams()
   if (filters.status) query.set('status', filters.status)
   if (filters.employeeId) query.set('employeeId', filters.employeeId)
@@ -48,6 +48,24 @@ export function useLeaveRequests(filters = {}) {
   return useQuery({
     queryKey: [...keys.requests, suffix],
     queryFn: async () => (await api.get(`/leave-requests${suffix}`)).data,
+    enabled,
+  })
+}
+
+/**
+ * Team requests (Day 22): the leave of the people whose leave the caller
+ * decides in the company tree — their direct reports, and for the Super Admin
+ * the people with nobody above — whatever the caller's role. `backup` is the
+ * waiting requests they may decide only as the stand-in.
+ */
+export function useTeamLeave({ enabled = true } = {}) {
+  return useQuery({
+    queryKey: ['leave', 'team'],
+    queryFn: async () => {
+      const payload = await api.get('/leave-requests/team')
+      return { requests: payload.data.requests, backup: payload.data.backup, decidesFor: payload.meta?.decides_for ?? 0 }
+    },
+    enabled,
   })
 }
 

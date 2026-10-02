@@ -312,7 +312,8 @@ describe('from draft to paid payslips', () => {
         days: 1, leaveYear: 2026, reason: 'Late request', status: 'pending',
       },
     })
-    expect((await api(org, 'hr').post(`/api/leave-requests/${pending.id}/approve`)).status).toBe(409)
+    // Decided by the Super Admin: Ravi has nobody above him (Day 22).
+    expect((await api(org, 'super_admin').post(`/api/leave-requests/${pending.id}/approve`)).status).toBe(409)
 
     // A salary from inside August — but one from September is fine.
     const salary = (effectiveFrom: string) =>
@@ -527,7 +528,8 @@ describe('what else a closed month refuses', () => {
         days: 1, leaveYear: 2026, reason: 'Family', status: 'pending',
       },
     })
-    expect((await api(org, 'hr').post(`/api/leave-requests/${leave.id}/approve`)).status).toBe(200)
+    // Sunita has nobody above her, so the Super Admin decides (Day 22).
+    expect((await api(org, 'super_admin').post(`/api/leave-requests/${leave.id}/approve`)).status).toBe(200)
 
     const run = (await api(org).post('/api/payroll-runs', AUGUST)).body.data
     expect((await api(org, 'super_admin').post(`/api/payroll-runs/${run.id}/approve`, { confirmAssumedDays: true })).status).toBe(200)
@@ -535,7 +537,7 @@ describe('what else a closed month refuses', () => {
     const holidayId = holiday.body.data.id
     expect((await api(org, 'hr').patch(`/api/holidays/${holidayId}`, { date: '2026-09-14' })).status).toBe(409)
     expect((await api(org, 'hr').delete(`/api/holidays/${holidayId}`)).status).toBe(409)
-    expect((await api(org, 'hr').post(`/api/leave-requests/${leave.id}/reverse`)).status).toBe(409)
+    expect((await api(org, 'super_admin').post(`/api/leave-requests/${leave.id}/reverse`)).status).toBe(409)
 
     // A holiday in September is nobody's business yet.
     expect((await api(org, 'hr').post('/api/holidays', { name: 'Later Day', date: '2026-09-21' })).status).toBe(201)

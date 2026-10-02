@@ -65,10 +65,25 @@ export function toGrant(row: RoleRowForGrant): RoleGrant {
   }
 }
 
-/** Does scope `wide` reach every row `narrow` does? TEAM and DEPARTMENT are different groups, so neither covers the other. */
+/**
+ * What each scope reaches at the least, wherever its holder sits: the scopes
+ * it covers. Team and department are different groups, so neither covers the
+ * other; a department can hold somebody's seniors, so "the company except
+ * seniors" does not cover it. Everybody under somebody is never above them —
+ * the tree cannot loop — so it covers both team scopes.
+ */
+const COVERS: Readonly<Record<DataScope, readonly DataScope[]>> = {
+  SELF: ['SELF'],
+  DIRECT_REPORTS: ['SELF', 'DIRECT_REPORTS'],
+  ALL_REPORTS: ['SELF', 'DIRECT_REPORTS', 'ALL_REPORTS'],
+  DEPARTMENT: ['SELF', 'DEPARTMENT'],
+  ORGANIZATION_EXCEPT_ABOVE: ['SELF', 'DIRECT_REPORTS', 'ALL_REPORTS', 'ORGANIZATION_EXCEPT_ABOVE'],
+  ORGANIZATION: ['SELF', 'DIRECT_REPORTS', 'ALL_REPORTS', 'DEPARTMENT', 'ORGANIZATION_EXCEPT_ABOVE', 'ORGANIZATION'],
+}
+
+/** Does scope `wide` reach every row `narrow` does, wherever the holder sits? */
 export function scopeCovers(wide: DataScope, narrow: DataScope): boolean {
-  if (wide === narrow || wide === 'ORGANIZATION' || narrow === 'SELF') return true
-  return false
+  return COVERS[wide].includes(narrow)
 }
 
 /**

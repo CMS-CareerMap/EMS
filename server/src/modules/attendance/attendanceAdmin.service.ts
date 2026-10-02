@@ -15,6 +15,7 @@ import { withTransaction } from '../../platform/db/transaction'
 import { audit } from '../audit/audit.service'
 import { companyTimezone } from '../organization/organization.service'
 import { assertDaysOpen } from '../payroll/payrollLock.service'
+import { assertWorkGoesUp, checkWork, loadWork } from '../organization/workRules.service'
 
 /**
  * Attendance as HR sees it: other people's days.
@@ -133,7 +134,17 @@ export async function dayRoster(ctx: AppContext, date?: string) {
   if (!isCalendarDate(day)) throw BadRequest(`"${day}" is not a date`)
 
   const employees = await repo.dayRoster(ctx.db, ctx.scopeFor('attendance'), day)
-  return { date: day, employees }
+  // Whose day the caller may mark (Day 22: own work goes up the tree), and if
+  // not, whom it goes to — asked only of somebody who marks at all.
+  const work = ctx.can('attendance:mark') ? await loadWork(ctx.db, ctx.organizationId, 'attendance') : null
+  const markGoesTo = new Map<string, string>()
+  if (work) {
+    for (const e of employees) {
+      const check = checkWork(ctx, work, e.id)
+      if (!check.allowed) markGoesTo.set(e.id, check.ask ?? 'the Super Admin')
+    }
+  }
+  return { date: day, employees, markGoesTo }
 }
 
 export interface MarkInput {
@@ -171,6 +182,9 @@ export async function markAttendance(ctx: AppContext, input: MarkInput) {
 
   const employee = await repo.findEmployeeWithShift(ctx.db, ctx.scopeFor('attendance'), input.employeeId)
   if (!employee) throw NotFound('Employee not found')
+  // Your own attendance — or that of somebody who marks attendance too — is
+  // marked and corrected by the people above them in the company tree (Day 22).
+  await assertWorkGoesUp(ctx, ctx.db, 'attendance', input.employeeId)
 
   const expectedHours = employee.shift ? Number(employee.shift.expectedHours) : null
   const breakMinutes = employee.shift?.breakMinutes ?? 0

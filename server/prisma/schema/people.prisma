@@ -112,6 +112,11 @@ model Employee {
 
   headsDepartments Department[] @relation("DepartmentHead")
 
+  /// The company this person is the owner of (Day 22), and the companies
+  /// that send the leave of people with nobody above them to this person.
+  ownerOf           Organization?  @relation("OrganizationOwner")
+  noManagerApprover Organization[] @relation("NoManagerApprover")
+
   financials        EmployeeFinancial[]
   bankAccount       EmployeeBankAccount?
   statutoryIdentity EmployeeStatutoryIdentity?

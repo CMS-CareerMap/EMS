@@ -83,6 +83,9 @@ function base(employee: EmployeeRow) {
     reporting_manager_id: employee.reportingManagerId,
     reporting_manager_name: employee.reportingManager?.fullName ?? null,
     reporting_manager_designation: employee.reportingManager?.designation?.name ?? null,
+    // The manager has left the company: in effect nobody is above this person
+    // until the Super Admin places them (Day 22).
+    reporting_manager_left: Boolean(employee.reportingManager?.archivedAt),
 
     // Access-related, not HR data: whether this person can sign in, and as what.
     role: employee.membership?.role ?? null,

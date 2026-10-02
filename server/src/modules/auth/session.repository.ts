@@ -1,6 +1,8 @@
 import type { AccountStatus } from '@prisma/client'
 import { unsafeDb } from '../../platform/db/unsafe'
 import { toGrant, type RoleGrant } from '../../platform/authz/grant'
+import type { TreePlace } from '../../platform/authz/scope'
+import { buildTree, placeIn } from '../../domain/org/companyTree'
 
 /**
  * Refresh tokens and the User row they belong to are both GLOBAL models, so
@@ -198,6 +200,28 @@ export async function findAuthState(membershipId: string): Promise<AuthState | n
     employeeId: membership.employee?.id ?? null,
     departmentId: membership.employee?.departmentId ?? null,
   }
+}
+
+/**
+ * The caller's place in the company tree — everybody under them in effect,
+ * everybody above them as recorded — for a role whose scopes follow the tree
+ * (Day 22). Read only for such a role: the others never need it.
+ */
+export async function findTreePlace(organizationId: string, employeeId: string | null): Promise<TreePlace> {
+  const rows = await unsafeDb.employee.findMany({
+    where: { organizationId },
+    select: {
+      id: true,
+      reportingManagerId: true,
+      archivedAt: true,
+      membership: { select: { status: true, roleDef: { select: { locked: true } } } },
+    },
+  })
+  const tree = buildTree(rows.map((r) => ({ id: r.id, managerId: r.reportingManagerId, left: r.archivedAt !== null })))
+  // The owner and the Super Admins are above everybody, placed or not — and
+  // above a login with no employee record, which has no place of its own.
+  const top = rows.filter((r) => !r.archivedAt && r.membership?.status === 'active' && r.membership.roleDef.locked).map((r) => r.id)
+  return employeeId ? placeIn(tree, employeeId, top) : { below: [], above: top }
 }
 
 /** The columns of a Role row a grant is made from. */

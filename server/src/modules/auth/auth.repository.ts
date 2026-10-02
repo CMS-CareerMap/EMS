@@ -28,13 +28,45 @@ export interface AuthIdentity {
   status: AccountStatus
 
   employee: { id: string; fullName: string; employeeCode: string; attendanceMode: string } | null
+  /**
+   * Decides somebody's leave in the company tree (Day 22): has people
+   * reporting to them, holds the Super Admin panel, or is the person Settings
+   * → Approvals names for those with nobody above. The screen shows Leave and
+   * its Team tab on it, whatever the role's leave rights; the server decides
+   * each request again on its own.
+   */
+  decidesLeave: boolean
 }
 
 const membershipInclude = {
-  organization: { select: { id: true, name: true, timezone: true } },
+  organization: { select: { id: true, name: true, timezone: true, leaveNoManagerApproverId: true } },
   roleDef: { select: roleForGrant },
-  employee: { select: { id: true, fullName: true, employeeCode: true, attendanceMode: true } },
+  employee: {
+    select: {
+      id: true,
+      fullName: true,
+      employeeCode: true,
+      attendanceMode: true,
+      _count: { select: { directReports: { where: { archivedAt: null } } } },
+    },
+  },
 } as const
+
+type IncludedMembership = {
+  organization: { leaveNoManagerApproverId: string | null }
+  employee: { id: string; fullName: string; employeeCode: string; attendanceMode: string; _count: { directReports: number } } | null
+}
+
+/** The employee as the session shows it, and whether they decide anybody's leave. */
+function personOf(membership: IncludedMembership, grant: RoleGrant) {
+  const e = membership.employee
+  return {
+    employee: e ? { id: e.id, fullName: e.fullName, employeeCode: e.employeeCode, attendanceMode: e.attendanceMode } : null,
+    decidesLeave:
+      grant.permissions.has('role:manage') ||
+      Boolean(e && (e._count.directReports > 0 || membership.organization.leaveNoManagerApproverId === e.id)),
+  }
+}
 
 export async function findIdentityByEmail(email: string): Promise<AuthIdentity | null> {
   const user = await unsafeDb.user.findUnique({
@@ -47,6 +79,7 @@ export async function findIdentityByEmail(email: string): Promise<AuthIdentity |
   const membership = user?.memberships[0]
   if (!user || !membership) return null
 
+  const grant = toGrant(membership.roleDef)
   return {
     userId: user.id,
     email: user.email,
@@ -57,9 +90,9 @@ export async function findIdentityByEmail(email: string): Promise<AuthIdentity |
     organizationName: membership.organization.name,
     organizationTimezone: membership.organization.timezone,
     role: membership.role,
-    grant: toGrant(membership.roleDef),
+    grant,
     status: membership.status,
-    employee: membership.employee,
+    ...personOf(membership, grant),
   }
 }
 
@@ -94,6 +127,7 @@ export async function findIdentityByEmployeeCode(code: string): Promise<AuthIden
   // Day 10 create exactly this.
   if (!membership) return null
 
+  const grant = toGrant(membership.roleDef)
   return {
     userId: membership.user.id,
     email: membership.user.email,
@@ -104,14 +138,9 @@ export async function findIdentityByEmployeeCode(code: string): Promise<AuthIden
     organizationName: membership.organization.name,
     organizationTimezone: membership.organization.timezone,
     role: membership.role,
-    grant: toGrant(membership.roleDef),
+    grant,
     status: membership.status,
-    employee: {
-      id: employee.id,
-      fullName: employee.fullName,
-      employeeCode: employee.employeeCode,
-      attendanceMode: employee.attendanceMode,
-    },
+    ...personOf(membership, grant),
   }
 }
 
@@ -132,6 +161,7 @@ export async function findIdentityByUserId(userId: string): Promise<AuthIdentity
   const membership = user?.memberships[0]
   if (!user || !membership) return null
 
+  const grant = toGrant(membership.roleDef)
   return {
     userId: user.id,
     email: user.email,
@@ -142,8 +172,8 @@ export async function findIdentityByUserId(userId: string): Promise<AuthIdentity
     organizationName: membership.organization.name,
     organizationTimezone: membership.organization.timezone,
     role: membership.role,
-    grant: toGrant(membership.roleDef),
+    grant,
     status: membership.status,
-    employee: membership.employee,
+    ...personOf(membership, grant),
   }
 }

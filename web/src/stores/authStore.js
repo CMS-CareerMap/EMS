@@ -41,6 +41,12 @@ export const useAuthStore = create((set, get) => ({
   /** The role as people read it. Since Day 21 a role can be one the Super Admin made, with no other name. */
   roleName: null,
   permissions: [],
+  /**
+   * Decides somebody's leave in the company tree (Day 22) — has people under
+   * them, or is the Super Admin. Leave and its Team requests tab show on it,
+   * whatever the role's leave rights; the server decides each request itself.
+   */
+  decidesLeave: false,
   organization: null,
   /** True until the session is either confirmed or ruled out. */
   loading: true,
@@ -54,6 +60,7 @@ export const useAuthStore = create((set, get) => ({
       role: session?.role ?? null,
       roleName: session?.roleName ?? null,
       permissions: session?.permissions ?? [],
+      decidesLeave: session?.decidesLeave ?? false,
       organization: session
         ? { id: session.organizationId, name: session.organizationName, timezone: session.organizationTimezone }
         : null,
@@ -67,6 +74,7 @@ export const useAuthStore = create((set, get) => ({
       role: null,
       roleName: null,
       permissions: [],
+      decidesLeave: false,
       organization: null,
       loading: false,
       profileDrawerOpen: false,
@@ -91,5 +99,14 @@ export const useAuthStore = create((set, get) => ({
    * single permission, so every nav item can be asked the same way.
    */
   canAny: (permissions) =>
-    (Array.isArray(permissions) ? permissions : [permissions]).some((p) => get().permissions.includes(p)),
+    (Array.isArray(permissions) ? permissions : [permissions]).some((p) =>
+      p === DECIDES_LEAVE ? get().decidesLeave : get().permissions.includes(p),
+    ),
 }))
+
+/**
+ * Not a permission: "decides somebody's leave in the company tree" (Day 22).
+ * A menu entry or a route may name it beside permissions — Leave does, so an
+ * Accounts head with a team reaches their Team requests.
+ */
+export const DECIDES_LEAVE = '@decidesLeave'

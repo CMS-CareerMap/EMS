@@ -9,6 +9,7 @@ import * as repo from './attendance.repository'
 import { companyTimezone } from '../organization/organization.service'
 import { closedMonthKeys } from '../payroll/payrollLock.service'
 import { audit } from '../audit/audit.service'
+import { checkWork, loadWork } from '../organization/workRules.service'
 
 /**
  * Biometric attendance import.
@@ -147,7 +148,10 @@ export async function importAttendance(
 
   // Only the people the importer's attendance scope reaches; a code outside it
   // reads like an unknown code, so the file cannot be used to probe who exists.
-  const employees = await repo.importableEmployees(ctx.db, ctx.scopeFor('attendance'))
+  const [employees, work] = await Promise.all([
+    repo.importableEmployees(ctx.db, ctx.scopeFor('attendance')),
+    loadWork(ctx.db, ctx.organizationId, 'attendance'),
+  ])
   const byCode = new Map(employees.map((e) => [e.employeeCode.toLowerCase(), e]))
 
   const seen = new Map<string, number>()
@@ -181,6 +185,18 @@ export async function importAttendance(
         field: 'employee_code',
         message: `No employee with code ${employeeCode}. Import them first, or fix the code.`,
       })
+    } else {
+      // Your own attendance, or that of somebody who marks attendance too, goes
+      // up the company tree (Day 22) — a file is no way round it.
+      const check = checkWork(ctx, work, employee.id)
+      if (!check.allowed) {
+        issues.push({
+          field: 'employee_code',
+          message: check.own
+            ? `This is your own attendance. It goes to the person above you: ${check.ask}.`
+            : `${employeeCode} marks attendance too, so their attendance is done by the people above them. Ask ${check.ask}.`,
+        })
+      }
     }
 
     const date = rawDate ? parseDate(rawDate) : null

@@ -17,6 +17,10 @@
 > - A role without "Open the dashboard" signs in to the first area it can open.
 > - The screen warns, and asks once more, before saving a role that both prepares and approves the payroll, or one that can read the audit log (which shows the whole company, salary changes included).
 >
+> **Since Day 22, approvals follow the company tree, not a role.** Everybody reports to one person (Settings → Company tree, the Super Admin's). That person decides their leave, whatever their role: an Accounts head approves the accountant's leave, and HR, who sees every request, approves none. Somebody with nobody above goes to the Super Admin (or the person Settings → Approvals names); the Super Admin may stand in for an absent manager; the one marked owner's leave is recorded directly. "Approve/reject leave" is therefore no permission any more.
+> - **Your own work goes up the tree.** Checking a bank account, correcting a leave balance, checking a document, marking attendance, entering an incentive or a salary is never done on one's own record, nor by a peer or a junior of somebody who does that work: only by the people above them, and in the end the Super Admin.
+> - **Two more choices of whose information a role reaches:** "Everybody under them" and "Whole company, except seniors". HR now sees salaries on employee records with the second — never a senior's, and never through Payroll.
+>
 > The full rewrite for the client's hierarchy model (Days 22–23) follows `docs/client/EMS-Roles-and-Approvals.pdf`.
 
 ---
@@ -79,7 +83,7 @@ This document defines who can access what in the Employee Management System (EMS
 | Mark attendance | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
 | Edit/delete attendance | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
 | Apply for leave | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ |
-| Approve/reject leave | ✅ | ❌ | ✅ | 🟡 Team | ❌ | ❌ |
+| Approve/reject leave | The person each employee reports to in the company tree, whatever their role (Day 22); the Super Admin for somebody with nobody above, or standing in | | | | | |
 | Grant the leave year / correct a balance | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
 | Manage salary structures | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ |
 | Run payroll | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ |
@@ -183,7 +187,7 @@ This document defines who can access what in the Employee Management System (EMS
 |------|------------------|
 | **Payroll** | Create/edit salary structures; create a month's payroll run as a draft, recalculate or discard it; mark an approved run paid. Approving is Super Admin's |
 | **Payroll inputs** | Enter monthly incentive amounts; and, only if the company deducts TDS through payroll (Settings → Payroll Config, off by default), each employee's monthly TDS amount (₹0 needs a reason) |
-| **Bank accounts** | Record each employee's salary bank account from a cancelled cheque or passbook page (the photo or PDF can be attached), and verify or reject it (a rejection needs a reason). Accounts an employee sends in themselves arrive as pending with their proof attached, marked "Sent in by them". Never their own — somebody else in Accounts, or the Super Admin, checks that |
+| **Bank accounts** | Record each employee's salary bank account from a cancelled cheque or passbook page (the photo or PDF can be attached), and verify or reject it (a rejection needs a reason). Accounts an employee sends in themselves arrive as pending with their proof attached, marked "Sent in by them". Never their own, nor another accountant's — the person above them in the company tree checks that, and in the end the Super Admin |
 | **Bank transfer file** | Download the month's bank file (CSV) from an approved or paid run, and set its layout once to match the bank's bulk-payment format |
 
 **No access to:** Employees page, Attendance, Leave, employee documents, Reports, Settings.
@@ -254,7 +258,7 @@ Super Admin ─── Full control
 ### Leave Request
 
 ```
-Employee applies → Manager/RM/HR reviews → Approve or Reject
+Employee applies → the person they report to in the company tree decides (the Super Admin for nobody above) → Approve or Reject
                                               ↓
                   approval takes the days from the leave balance
 ```

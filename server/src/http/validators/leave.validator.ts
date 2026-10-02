@@ -36,6 +36,11 @@ export const leaveQuerySchema = z.object({
   leaveTypeId: z.uuid().optional(),
 })
 
+/** GET /api/leave-requests/team — the requests of the people whose leave the caller decides. */
+export const teamLeaveQuerySchema = z.object({
+  status: z.enum(['pending', 'approved', 'rejected', 'cancelled']).optional(),
+})
+
 export const balanceQuerySchema = z.object({
   employeeId: z.uuid().optional(),
 })

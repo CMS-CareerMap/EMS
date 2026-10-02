@@ -173,11 +173,13 @@ describe('bank accounts', () => {
   it('will not let anybody verify their own account', async () => {
     const self = `/api/payroll/employees/${who.accountant}/bank-account`
     const marked = await api('accounts').put(self, account({ accountHolderName: 'ANIL', accountNumber: '555566667777', markVerified: true }))
-    expect(marked.status).toBe(409)
-    expect(marked.body.error.message).toMatch(/cannot verify your own/)
+    // Your own work goes up the company tree (Day 22): nobody above the
+    // accountant here, so to the Super Admin.
+    expect(marked.status).toBe(403)
+    expect(marked.body.error.message).toBe('You cannot check your own bank account. It goes to the person above you: the Super Admin.')
 
     expect((await api('accounts').put(self, account({ accountHolderName: 'ANIL', accountNumber: '555566667777' }))).status).toBe(200)
-    expect((await api('accounts').post(`${self}/verify`, { decision: 'verified', accountUpdatedAt: await seen(who.accountant!) })).status).toBe(409)
+    expect((await api('accounts').post(`${self}/verify`, { decision: 'verified', accountUpdatedAt: await seen(who.accountant!) })).status).toBe(403)
 
     // Somebody else can.
     const other = await api('super_admin').post(`${self}/verify`, { decision: 'verified', accountUpdatedAt: await seen(who.accountant!) })

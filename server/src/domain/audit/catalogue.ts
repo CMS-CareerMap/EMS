@@ -82,6 +82,7 @@ export const AUDIT_ACTIONS = {
   'leave.applied_for': { label: 'Leave applied for', category: 'time' },
   'leave.withdrawn': { label: 'Leave withdrawn', category: 'time' },
   'leave.approved': { label: 'Leave approved', category: 'time' },
+  'leave.recorded_directly': { label: 'Owner’s leave recorded', category: 'time' },
   'leave.rejected': { label: 'Leave rejected', category: 'time' },
   'leave.reversed': { label: 'Leave reversed', category: 'time' },
   'leave.granted': { label: 'Leave year granted', category: 'time' },
@@ -90,6 +91,8 @@ export const AUDIT_ACTIONS = {
   'attendance.imported': { label: 'Attendance imported', category: 'time' },
   // Company rules
   'company.updated': { label: 'Company details changed', category: 'settings' },
+  'company.owner_marked': { label: 'Owner marked', category: 'people' },
+  'approvals.updated': { label: 'Approval settings changed', category: 'settings' },
   'policy.updated': { label: 'Payroll rules changed', category: 'settings' },
   'pt_table.set': { label: 'Professional tax slabs set', category: 'settings' },
   'geofence.saved': { label: 'Office location saved', category: 'settings' },
@@ -192,6 +195,17 @@ export function roleLabel(role: unknown, names?: Pick<AuditNames, 'role'>, store
   if (stored) return stored
   if (typeof role !== 'string') return 'no role'
   return BUILT_IN_ROLE_LABELS[role] ?? names?.role(role) ?? humanise(role)
+}
+
+/** Settings → Approvals (Day 22), as the log says them. */
+const BACKUP_WORDS: Record<string, string> = {
+  super_admin: 'the Super Admin can decide instead',
+  next_up: 'the manager’s own manager can decide instead',
+  none: 'requests wait for the manager',
+}
+const REVERSAL_WORDS: Record<string, string> = {
+  manager_or_super_admin: 'the reporting manager or the Super Admin',
+  super_admin_only: 'only the Super Admin',
 }
 
 const ATTENDANCE_WORDS: Record<string, string> = {
@@ -454,7 +468,13 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
       return d.withLogin ? `Added ${who()} with a ${roleLabel(d.role, names, d.roleName)} login` : `Added ${who()}`
     case 'employee.updated': {
       const fields = fieldsOf([d.fields, d.statutoryFields].flatMap((f) => (Array.isArray(f) ? f : [])))
-      return fields ? `Changed ${who()}’s ${fields}` : `Changed ${who()}’s record`
+      // A move in the company tree (Day 22) says where to.
+      const moved = 'managerTo' in d
+        ? d.managerTo
+          ? `; now reports to ${names.employee(d.managerTo) ?? 'somebody else'}`
+          : '; now has nobody above them'
+        : ''
+      return fields ? `Changed ${who()}’s ${fields}${moved}` : `Changed ${who()}’s record${moved}`
     }
     case 'employee.imported':
       return `Imported ${count(d.employees, 'employee')}${Number(d.withLogin) > 0 ? `, ${count(d.withLogin, 'with a login', 'with logins')}` : ''}`
@@ -498,9 +518,11 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
     case 'leave.withdrawn':
       return `Withdrew ${who()}’s request for ${leave()}`
     case 'leave.approved':
-      return `Approved ${leave()} for ${who()}${d.fromDate ? `, ${day(d.fromDate)} to ${day(d.toDate)}` : ''}`
+      return `Approved ${leave()} for ${who()}${d.fromDate ? `, ${day(d.fromDate)} to ${day(d.toDate)}` : ''}${d.asBackup ? ', standing in for their reporting manager' : ''}`
+    case 'leave.recorded_directly':
+      return `Recorded ${leave()} for ${who()}${d.fromDate ? `, ${day(d.fromDate)} to ${day(d.toDate)}` : ''} — the owner’s leave needs no approval`
     case 'leave.rejected':
-      return `Rejected ${who()}’s request for ${leave()}`
+      return `Rejected ${who()}’s request for ${leave()}${d.asBackup ? ', standing in for their reporting manager' : ''}`
     case 'leave.granted':
       return `Granted the ${text(d.label) ?? 'year’s'} leave: ${count(d.days, 'day')} to ${count(d.people, 'person', 'people')}`
     case 'leave.balance_adjusted': {
@@ -518,6 +540,18 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
 
     case 'company.updated':
       return `Changed the company’s ${fieldsOf(d.changes) || 'details'}`
+    case 'company.owner_marked': {
+      const before = names.employee(d.previousOwnerId)
+      return `Marked ${who()} as the owner, at the top of the company tree${before ? ` (was ${before})` : ''}${'managerFrom' in d ? `; they no longer report to ${names.employee(d.managerFrom) ?? 'anybody'}` : ''}`
+    }
+    case 'approvals.updated': {
+      const parts: string[] = []
+      const changes = (d.changes && typeof d.changes === 'object' ? d.changes : {}) as Details
+      if ('noManagerApprover' in changes) parts.push(`leave of people with nobody above now goes to ${d.noManagerApproverId ? (names.employee(d.noManagerApproverId) ?? 'a chosen person') : 'the Super Admin'}`)
+      if ('backup' in changes) parts.push(`when a manager is away, ${BACKUP_WORDS[String(d.backup)] ?? 'the backup changed'}`)
+      if ('reversal' in changes) parts.push(`approved leave can be cancelled by ${REVERSAL_WORDS[String(d.reversal)] ?? 'somebody else'}`)
+      return parts.length ? `Changed the approval settings: ${parts.join('; ')}` : 'Changed the approval settings'
+    }
     case 'policy.updated':
       return `${POLICY_KINDS[String(d.kind)] ?? 'Changed the payroll rules'}${fieldsOf(d.changes) ? ` (${fieldsOf(d.changes)})` : ''} from ${day(d.effectiveFrom)}`
     case 'pt_table.set':
