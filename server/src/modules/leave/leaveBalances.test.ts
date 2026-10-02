@@ -48,7 +48,7 @@ async function person(key: string, options: { role?: 'super_admin' | 'hr' | 'man
   const e = await prisma.employee.create({
     data: {
       organizationId: orgId,
-      membershipId,
+      ...(membershipId ? { memberships: { connect: { id: membershipId } } } : {}),
       employeeCode: `${PREFIX}-${key}`,
       fullName: `${key[0]!.toUpperCase()}${key.slice(1)} Test`,
       dateOfJoining: options.joined === null ? null : toDateColumn(options.joined ?? '2020-01-06'),

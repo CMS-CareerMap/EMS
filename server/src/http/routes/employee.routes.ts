@@ -9,6 +9,7 @@ import { authenticate } from '../middleware/authenticate'
 import { authorize } from '../middleware/authorize'
 import { postImport } from '../controllers/employeeImport.controller'
 import { getEmployeeImportTemplate, getEmployeesExport } from '../controllers/exports.controller'
+import { postLogin } from '../controllers/user.controller'
 
 /**
  * Mounted at /api/employees.
@@ -44,3 +45,6 @@ employeeRouter.post(
   postImport,
 )
 employeeRouter.patch('/:id', authorize('employee:update'), patchEmployee)
+// Another login for this person — a role login beside their employee login
+// (Day 23). The Super Admin's: it decides who holds which role.
+employeeRouter.post('/:id/logins', authorize('role:manage'), postLogin)

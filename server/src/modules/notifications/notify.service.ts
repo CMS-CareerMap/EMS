@@ -54,11 +54,8 @@ export interface Notice {
 
 async function resolve(tx: TxDb, to: Recipients): Promise<string[]> {
   if ('users' in to) return [...to.users]
-  if ('employee' in to) {
-    const user = await repo.userOfEmployee(tx, to.employee)
-    return user ? [user] : []
-  }
-  if ('employees' in to) return [...(await repo.usersOfEmployees(tx, to.employees)).values()]
+  if ('employee' in to) return repo.usersOfEmployee(tx, to.employee)
+  if ('employees' in to) return repo.usersOfEmployees(tx, to.employees)
   // Found through the company's roles as they stand — a custom role given the
   // permission on the Roles screen is told like a built-in one.
   if ('holding' in to) {
@@ -96,7 +93,7 @@ async function reaching(tx: TxDb, permission: Permission, resource: ScopedResour
 }
 
 /** Who is acting and in which company — all a notice needs to know of the caller. */
-export type NoticeActor = Pick<AppContext, 'userId' | 'organizationId'>
+export type NoticeActor = Pick<AppContext, 'userId' | 'organizationId'> & Partial<Pick<AppContext, 'employeeId'>>
 
 /** Writes the notices. Returns how many were written — none when the event is switched off. */
 export async function notify(ctx: NoticeActor, tx: TxDb, notice: Notice): Promise<number> {
@@ -104,7 +101,12 @@ export async function notify(ctx: NoticeActor, tx: TxDb, notice: Notice): Promis
   if (!isEnabled(notice.event, settings)) return 0
 
   const users = new Set(await resolve(tx, notice.to))
-  if (!notice.includeActor) users.delete(ctx.userId)
+  if (!notice.includeActor) {
+    users.delete(ctx.userId)
+    // The actor is a person, not a login (Day 23): what they did from their
+    // role login is not news to their employee login.
+    if (ctx.employeeId) for (const own of await repo.usersOfEmployee(tx, ctx.employeeId)) users.delete(own)
+  }
   if (users.size === 0) return 0
 
   const rule = NOTIFICATION_EVENTS[notice.event]

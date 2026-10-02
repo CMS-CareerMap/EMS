@@ -79,7 +79,7 @@ beforeAll(async () => {
     const m = await prisma.membership.create({ data: { userId: user.id, organizationId: orgId, role, status: 'active' } })
     names[who] = `${who[0]!.toUpperCase()}${who.slice(1)} Person`
     emp[who] = (await prisma.employee.create({
-      data: { organizationId: orgId, membershipId: m.id, employeeCode: `${PREFIX}-${who}`, fullName: names[who], dateOfJoining: toDateColumn('2024-01-08') },
+      data: { organizationId: orgId, memberships: { connect: { id: m.id } }, employeeCode: `${PREFIX}-${who}`, fullName: names[who], dateOfJoining: toDateColumn('2024-01-08') },
     })).id
   }
   for (const [who, , above] of PEOPLE) {
@@ -318,8 +318,8 @@ describe('the two scopes that follow the tree', () => {
       scopes: { employee: 'ALL_REPORTS' },
     })
     expect(res.status, JSON.stringify(res.body)).toBe(201)
-    const m = await prisma.employee.findUniqueOrThrow({ where: { id: emp.mgr }, select: { membershipId: true } })
-    expect((await put('owner', `/api/users/${m.membershipId}/role`, { role: 'wing_lead' })).status).toBe(200)
+    const m = await prisma.membership.findFirstOrThrow({ where: { employeeId: emp.mgr }, select: { id: true } })
+    expect((await put('owner', `/api/users/${m.id}/role`, { role: 'wing_lead' })).status).toBe(200)
     const login = await request(app).post('/api/auth/login').send({ identifier: `${PREFIX}-mgr@example.com`, password: PASSWORD })
     const list = await request(app).get('/api/employees').set('Authorization', `Bearer ${login.body.data.accessToken}`)
     expect(list.status).toBe(200)

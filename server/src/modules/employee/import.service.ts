@@ -358,31 +358,9 @@ export async function importEmployees(
     }
     for (const row of prepared) {
       const data = row.data as Record<string, string | undefined>
-      let membershipId: string | null = null
-
-      if (row.email) {
-        const login = await createLoginInTransaction(tx, {
-          email: row.email,
-          // Always `employee`. The CSV has no role column, and promoting
-          // anyone is a separate deliberate act through the role endpoint —
-          // not something that happens because of a spreadsheet.
-          role: EMPLOYEE_ROLE,
-          organizationId: ctx.organizationId,
-          invitedByUserId: ctx.userId,
-        })
-        membershipId = login.membershipId
-
-        invites.push({
-          employeeCode: data.employeeCode!,
-          email: row.email,
-          token: login.inviteToken,
-          expiresAt: isoInstant(login.expiresAt),
-        })
-      }
 
       const employee = await repo.createEmployee(tx, {
         organizationId: ctx.organizationId,
-        membershipId,
         employeeCode: data.employeeCode!,
         fullName: data.fullName!,
         personalEmail: data.personalEmail ?? null,
@@ -395,6 +373,26 @@ export async function importEmployees(
         designationId: data.designationId ?? null,
         ...(data.gender ? { gender: data.gender as 'male' | 'female' | 'other' } : {}),
       })
+
+      if (row.email) {
+        const login = await createLoginInTransaction(tx, {
+          email: row.email,
+          // Always `employee`. The CSV has no role column, and promoting
+          // anyone is a separate deliberate act through the role endpoint —
+          // not something that happens because of a spreadsheet.
+          role: EMPLOYEE_ROLE,
+          organizationId: ctx.organizationId,
+          invitedByUserId: ctx.userId,
+          employeeId: employee.id,
+        })
+
+        invites.push({
+          employeeCode: data.employeeCode!,
+          email: row.email,
+          token: login.inviteToken,
+          expiresAt: isoInstant(login.expiresAt),
+        })
+      }
 
       if (data.pan) {
         await repo.createStatutoryIdentity(tx, {

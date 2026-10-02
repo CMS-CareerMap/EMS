@@ -88,7 +88,7 @@ beforeAll(async () => {
     userId[who] = user.id
     if (who === 'esha' || who === 'ravi' || who === 'hr') {
       const e = await prisma.employee.create({
-        data: { organizationId: orgId, employeeCode: `DT-${who.toUpperCase()}`, fullName: who === 'hr' ? 'Hema HR' : who === 'esha' ? 'Esha Iyer' : 'Ravi Rao', dateOfJoining: day('2025-01-01'), membershipId: m.id },
+        data: { organizationId: orgId, employeeCode: `DT-${who.toUpperCase()}`, fullName: who === 'hr' ? 'Hema HR' : who === 'esha' ? 'Esha Iyer' : 'Ravi Rao', dateOfJoining: day('2025-01-01'), memberships: { connect: { id: m.id } } },
       })
       employee[who === 'hr' ? 'hema' : who] = e.id
     }

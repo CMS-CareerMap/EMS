@@ -20,6 +20,20 @@ import { api } from '../api/http'
 const KEY = ['users']
 
 /**
+ * A login added, turned on or off, given a role, or a person removed: the
+ * person's page lists their logins (Day 23), the company tree who can sign
+ * in, and the log what happened. Removing somebody archives them, so every
+ * list with people in it follows too. Returned, so a dialog waiting on the
+ * change closes with the lists already redrawn.
+ */
+function invalidateAccess(queryClient) {
+  return Promise.all(
+    [KEY, ['employees'], ['company-tree'], ['audit-log'], ['attendance'], ['leave'], ['dashboard'], ['payroll'], ['salary'], ['documents']]
+      .map((queryKey) => queryClient.invalidateQueries({ queryKey })),
+  )
+}
+
+/**
  * The logins this person may see: `rows`, and `reach` — whose they are, the
  * caller's employee scope (Day 21). Somebody whose role reaches one department
  * gets that department's logins, and the screen says so.
@@ -57,7 +71,25 @@ export function useInviteUser() {
       })
       return payload.data
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: KEY }),
+    // With an employee code it also adds somebody to the staff.
+    onSuccess: () => invalidateAccess(queryClient),
+  })
+}
+
+/**
+ * Another login for somebody already here (Day 23) — a role login beside their
+ * employee login, with its own email. The Super Admin's. Returns the same
+ * `invite` shape as inviting, so the one panel shows its link.
+ */
+export function useAddLogin() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ employee_id, email, role }) => {
+      const payload = await api.post(`/employees/${employee_id}/logins`, { email, role })
+      return payload.data
+    },
+    onSuccess: () => invalidateAccess(queryClient),
   })
 }
 
@@ -69,7 +101,7 @@ export function useUpdateUserRole() {
       const payload = await api.put(`/users/${user_id}/role`, { role })
       return payload.data
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => invalidateAccess(queryClient),
   })
 }
 
@@ -85,7 +117,7 @@ export function useToggleUserStatus() {
       const payload = await api.patch(`/users/${user_id}/status`, { status })
       return payload.data
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => invalidateAccess(queryClient),
   })
 }
 
@@ -122,6 +154,6 @@ export function useDeleteUser() {
     mutationFn: async ({ user_id }) => {
       await api.del(`/users/${user_id}`)
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => invalidateAccess(queryClient),
   })
 }

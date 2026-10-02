@@ -130,7 +130,7 @@ async function hire(
       fullName: options.name,
       dateOfJoining: day('2021-01-01'),
       gender: 'male',
-      membershipId: options.membershipId ?? null,
+      ...(options.membershipId ? { memberships: { connect: { id: options.membershipId } } } : {}),
       ...(options.country ? { country: options.country } : {}),
       ...(options.currency ? { currency: options.currency } : {}),
     },

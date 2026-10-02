@@ -47,7 +47,7 @@ function accountPayload(row: BankRosterRow) {
           verified_by_user_id: a.verifiedByUserId,
           updated_at: isoInstant(a.updatedAt),
           // Sent in by the employee themselves, rather than entered by Accounts.
-          submitted_by_employee: a.submittedByUserId !== null && a.submittedByUserId === row.membership?.userId,
+          submitted_by_employee: a.submittedByUserId !== null && row.memberships.some((m) => m.userId === a.submittedByUserId),
           proof: a.proofKey
             ? { file_name: a.proofFileName, content_type: a.proofContentType, bytes: a.proofBytes, uploaded_at: isoInstant(a.proofUploadedAt) }
             : null,

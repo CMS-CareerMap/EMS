@@ -76,7 +76,7 @@ async function makeUser(
   const employee = await prisma.employee.create({
     data: {
       organizationId: orgId,
-      membershipId: membership.id,
+      memberships: { connect: { id: membership.id } },
       employeeCode: `${PREFIX}-${key}`,
       fullName: `${key} person`,
       reportingManagerId: options.reportsTo ?? null,
@@ -595,8 +595,8 @@ describe('the company tree decides (Day 22)', () => {
   it('sends the team of a manager who cannot sign in to the Super Admin, rather than waiting', async () => {
     await grant(aliceId, 12)
     const id = await applyAs('alice')
-    const mgr = await prisma.employee.findUniqueOrThrow({ where: { id: managerEmpId }, select: { membershipId: true } })
-    await prisma.membership.update({ where: { id: mgr.membershipId! }, data: { status: 'inactive' } })
+    const mgr = await prisma.membership.findFirstOrThrow({ where: { employeeId: managerEmpId }, select: { id: true } })
+    await prisma.membership.update({ where: { id: mgr.id }, data: { status: 'inactive' } })
     await rules({ leaveBackup: 'none' })
     try {
       // Not standing in: with the manager unable to act, it is the Super Admin's own.
@@ -604,16 +604,16 @@ describe('the company tree decides (Day 22)', () => {
       expect(res.status, JSON.stringify(res.body)).toBe(200)
       expect((await audited(id))?.details).not.toHaveProperty('asBackup')
     } finally {
-      await prisma.membership.update({ where: { id: mgr.membershipId! }, data: { status: 'active' } })
+      await prisma.membership.update({ where: { id: mgr.id }, data: { status: 'active' } })
       await rules({ leaveBackup: 'super_admin' })
     }
   })
 
   it('stops treating a marked owner as the owner once they no longer hold the Super Admin panel', async () => {
     await grant(bossId, 12)
-    const boss = await prisma.employee.findUniqueOrThrow({ where: { id: bossId }, select: { membershipId: true } })
+    const boss = await prisma.membership.findFirstOrThrow({ where: { employeeId: bossId }, select: { id: true } })
     await rules({ ownerEmployeeId: bossId })
-    await prisma.membership.update({ where: { id: boss.membershipId! }, data: { role: 'hr' } })
+    await prisma.membership.update({ where: { id: boss.id }, data: { role: 'hr' } })
     try {
       const res = await request(app).post('/api/leave-requests').set('Authorization', as('boss'))
         .send({ leaveTypeId: clId, fromDate: D(14), toDate: D(14), reason: 'Travel' })
@@ -622,7 +622,7 @@ describe('the company tree decides (Day 22)', () => {
       expect(res.status, JSON.stringify(res.body)).toBe(400)
       expect(res.body.error.message).toMatch(/Nobody could decide this request/)
     } finally {
-      await prisma.membership.update({ where: { id: boss.membershipId! }, data: { role: 'super_admin' } })
+      await prisma.membership.update({ where: { id: boss.id }, data: { role: 'super_admin' } })
       await rules({ ownerEmployeeId: null })
     }
   })

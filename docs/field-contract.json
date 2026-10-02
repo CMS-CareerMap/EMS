@@ -1,20 +1,20 @@
 {
-  "generatedAt": "2026-10-01",
+  "generatedAt": "2026-10-02",
   "note": "Field names the frontend reads, pinned so the API cannot quietly stop sending one. A serializer that stops sending one of these will render an empty cell rather than an error, so check new serializers against this list. Regenerate with: cd server && npm run field-contract",
-  "fieldCount": 187,
+  "fieldCount": 189,
   "allFields": [
     "absent_days",
     "absent_today",
     "account_ending",
     "account_holder_name",
     "account_number",
-    "account_status",
     "account_type",
     "action_label",
     "annual_quota",
     "applied_on",
     "approved_at",
     "approved_leave_affected",
+    "archived_at",
     "as_backup",
     "assumed_days",
     "attendance_mode",
@@ -138,6 +138,8 @@
     "pending_for_me",
     "pending_leave_count",
     "pending_leaves",
+    "person_id",
+    "person_left",
     "personal_email",
     "pf_acc_no",
     "pf_applicable",
@@ -288,7 +290,6 @@
       "start_time"
     ],
     "web/src/features/employees/EmployeeDrawer.jsx": [
-      "account_status",
       "attendance_mode",
       "bank_account",
       "bank_name",
@@ -310,9 +311,13 @@
       "reporting_manager_designation",
       "reporting_manager_left",
       "reporting_manager_name",
-      "role_name",
       "salary_effective_from",
       "start_time"
+    ],
+    "web/src/features/employees/EmployeeLogins.jsx": [
+      "archived_at",
+      "full_name",
+      "role_name"
     ],
     "web/src/features/employees/ImportEmployeesModal.jsx": [
       "employee_code",
@@ -531,6 +536,8 @@
     ],
     "web/src/features/settings/UsersSettings.jsx": [
       "full_name",
+      "person_id",
+      "person_left",
       "role_name"
     ],
     "web/src/features/settings/WeeklyOffPicker.jsx": [

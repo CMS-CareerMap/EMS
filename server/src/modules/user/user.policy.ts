@@ -45,12 +45,31 @@ export function mayManage(actor: PolicyRole, target: PolicyRole, order: Readonly
   return isBelow(target.key, actor.key, order) && !grantsMoreThan(target.grant, actor.grant)
 }
 
+/**
+ * Is the target one of the actor's own logins? The one they are signed in
+ * with, or — since a person can have two (Day 23) — their other one. The
+ * rules about yourself are about the person: an HR head may not hand their
+ * own employee login a role, or switch it off, from their HR login.
+ */
+export function isOwnLogin(input: {
+  actorMembershipId: string
+  actorEmployeeId: string | null
+  targetMembershipId: string
+  targetEmployeeId: string | null
+}): boolean {
+  if (input.actorMembershipId === input.targetMembershipId) return true
+  return input.actorEmployeeId !== null && input.actorEmployeeId === input.targetEmployeeId
+}
+
 export type RoleChangeRefusal = 'own_role' | 'target_not_below' | 'not_below' | 'last_super_admin'
 
 export interface RoleChangeInput {
   actorMembershipId: string
+  /** The actor's person; null for a login with no employee record. */
+  actorEmployeeId: string | null
   actor: PolicyRole
   targetMembershipId: string
+  targetEmployeeId: string | null
   targetCurrent: PolicyRole
   next: PolicyRole
   order: ReadonlyMap<string, RoleNode>
@@ -71,8 +90,9 @@ export function refuseRoleChange(input: RoleChangeInput): RoleChangeRefusal | nu
   // Not even downwards, and not even as super_admin. Allowing it means the only
   // super_admin can demote themselves and lock the company out of its own
   // settings with no way back short of a database edit. It also removes the
-  // "I was already an admin, I just adjusted myself" story entirely.
-  if (input.actorMembershipId === input.targetMembershipId) {
+  // "I was already an admin, I just adjusted myself" story entirely. Their
+  // other login is theirs too.
+  if (isOwnLogin(input)) {
     return 'own_role'
   }
 
@@ -105,7 +125,7 @@ export function refuseRoleChange(input: RoleChangeInput): RoleChangeRefusal | nu
 }
 
 export const REFUSAL_MESSAGES: Record<RoleChangeRefusal, string> = {
-  own_role: 'You cannot change your own role. Ask another administrator.',
+  own_role: 'You cannot change your own role, on this login or your other one. Ask another administrator.',
   target_not_below: 'You can change the role only of people whose role is below yours.',
   not_below: 'You can give only a role below your own, with nothing you cannot do yourself.',
   last_super_admin:
@@ -121,13 +141,15 @@ export type AccountChangeRefusal = 'own_account' | 'target_not_below' | 'last_su
 
 export function refuseAccountChange(input: {
   actorMembershipId: string
+  actorEmployeeId: string | null
   actor: PolicyRole
   targetMembershipId: string
+  targetEmployeeId: string | null
   target: PolicyRole
   order: ReadonlyMap<string, RoleNode>
   activeSuperAdminCount: number
 }): AccountChangeRefusal | null {
-  if (input.actorMembershipId === input.targetMembershipId) {
+  if (isOwnLogin(input)) {
     return 'own_account'
   }
 
@@ -143,7 +165,7 @@ export function refuseAccountChange(input: {
 }
 
 export const ACCOUNT_REFUSAL_MESSAGES: Record<AccountChangeRefusal, string> = {
-  own_account: 'You cannot deactivate or remove your own account.',
+  own_account: 'You cannot deactivate or remove your own account, on this login or your other one.',
   target_not_below: 'You can switch off only the logins of people whose role is below yours.',
   last_super_admin:
     'This is the last active super admin. Promote someone else first, or the company will have no administrator.',

@@ -50,8 +50,6 @@ enum BankVerificationStatus {
 model Employee {
   id             String  @id @default(uuid())
   organizationId String
-  /// Set once the person has a login. Null for a record created before that.
-  membershipId   String? @unique
 
   employeeCode  String
   fullName      String
@@ -103,7 +101,9 @@ model Employee {
   archivedAt DateTime? @db.Timestamptz(3)
 
   organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  membership       Membership?  @relation(fields: [membershipId], references: [id], onDelete: SetNull)
+  /// The person's logins (Day 23): an employee login, and a role login beside
+  /// it for someone who holds a role. Empty for a record created before any.
+  memberships      Membership[]
   reportingManager Employee?    @relation("Reports", fields: [reportingManagerId], references: [id], onDelete: SetNull)
   directReports    Employee[]   @relation("Reports")
   department       Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)

@@ -32,6 +32,12 @@ export interface AppContext {
   grant: RoleGrant
   /** The caller's own Employee row, when they have one. Null for an operator. */
   employeeId: string | null
+  /**
+   * Signed in with their employee login while they also have a live role
+   * login (Day 23): their own things only. The company tree's decisions —
+   * their team's leave — are made from the role login.
+   */
+  selfServiceOnly: boolean
 
   /** Never compare roles. Ask this. */
   can(permission: Permission): boolean

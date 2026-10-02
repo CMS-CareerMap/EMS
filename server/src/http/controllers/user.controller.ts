@@ -5,13 +5,16 @@ import { issuePasswordLink,
   changeRole,
   changeStatus,
   terminateUser,
+  addLogin,
 } from '../../modules/user/user.service'
 import {
   inviteUserSchema,
   changeRoleSchema,
   changeStatusSchema,
   membershipIdSchema,
+  addLoginSchema,
 } from '../validators/user.validator'
+import { employeeIdSchema } from '../validators/employee.validator'
 import { parseBody } from '../validators/parse'
 import { appContext } from '../context'
 import type { MembershipRow } from '../../modules/user/user.repository'
@@ -30,6 +33,11 @@ function serializeMembership(row: MembershipRow) {
     email: row.email,
     full_name: row.fullName,
     employee_id: row.employeeCode,
+    // The person the login belongs to — two logins, one person (Day 23) — so
+    // the screen can show somebody's logins together. Null for an operator.
+    person_id: row.employeeId,
+    // Left the company: every login of theirs is closed and stays so.
+    person_left: row.personLeft,
     role: row.role,
     // A custom role (Day 21) has no name the screen could know otherwise.
     role_name: row.roleName,
@@ -74,6 +82,28 @@ export const postInvite: RequestHandler = async (req, res) => {
         // claims an email went out when nothing did.
         delivery: 'manual',
       },
+    },
+    meta: { requestId: res.locals.requestId },
+  })
+}
+
+/**
+ * POST /api/employees/:id/logins
+ *
+ * Another login for somebody already here (Day 23), with its own email. The
+ * invitation token comes back once, as with an invitation.
+ */
+export const postLogin: RequestHandler = async (req, res) => {
+  const ctx = appContext(res)
+  const { id } = parseBody(employeeIdSchema, req.params)
+  const input = parseBody(addLoginSchema, req.body)
+
+  const { membership, inviteToken, expiresAt } = await addLogin(ctx, id, input)
+
+  res.status(201).json({
+    data: {
+      user: serializeMembership(membership),
+      invite: { token: inviteToken, expires_at: isoInstant(expiresAt), delivery: 'manual' },
     },
     meta: { requestId: res.locals.requestId },
   })

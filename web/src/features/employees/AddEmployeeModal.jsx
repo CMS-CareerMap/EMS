@@ -371,7 +371,7 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
               </Section>
             )}
 
-            {/* A login, on creation only — afterwards it is an invitation from Settings → Users */}
+            {/* A login, on creation only — afterwards one is added on their page, under Logins (Day 23) */}
             {!isEdit && (
               <Section title="Login">
                 <label className="flex items-center gap-2 text-sm text-gray-700">

@@ -3,6 +3,8 @@ import { unsafeDb } from '../../platform/db/unsafe'
 import { toGrant, type RoleGrant } from '../../platform/authz/grant'
 import type { TreePlace } from '../../platform/authz/scope'
 import { buildTree, placeIn } from '../../domain/org/companyTree'
+import { holdsSuperAdmin, isSelfServiceLogin } from '../../domain/org/logins'
+import { EMPLOYEE_ROLE } from '../../platform/authz/defaultRoles'
 
 /**
  * Refresh tokens and the User row they belong to are both GLOBAL models, so
@@ -163,6 +165,8 @@ export interface AuthState {
   status: AccountStatus
   employeeId: string | null
   departmentId: string | null
+  /** The employee login of somebody who also has a live role login (Day 23). */
+  selfServiceOnly: boolean
 }
 
 /**
@@ -183,10 +187,13 @@ export async function findAuthState(membershipId: string): Promise<AuthState | n
   const membership = await unsafeDb.membership.findUnique({
     where: { id: membershipId },
     select: {
+      id: true,
+      role: true,
       status: true,
       roleDef: { select: roleForGrant },
       user: { select: { id: true, tokenVersion: true } },
-      employee: { select: { id: true, departmentId: true } },
+      // Their other logins too: is this the employee login of somebody with a live role login?
+      employee: { select: { id: true, departmentId: true, memberships: { select: { id: true, role: true, status: true } } } },
     },
   })
 
@@ -199,6 +206,7 @@ export async function findAuthState(membershipId: string): Promise<AuthState | n
     status: membership.status,
     employeeId: membership.employee?.id ?? null,
     departmentId: membership.employee?.departmentId ?? null,
+    selfServiceOnly: Boolean(membership.employee && isSelfServiceLogin(membership, membership.employee.memberships, EMPLOYEE_ROLE)),
   }
 }
 
@@ -214,13 +222,14 @@ export async function findTreePlace(organizationId: string, employeeId: string |
       id: true,
       reportingManagerId: true,
       archivedAt: true,
-      membership: { select: { status: true, roleDef: { select: { locked: true } } } },
+      memberships: { select: { status: true, roleDef: { select: { locked: true } } } },
     },
   })
   const tree = buildTree(rows.map((r) => ({ id: r.id, managerId: r.reportingManagerId, left: r.archivedAt !== null })))
   // The owner and the Super Admins are above everybody, placed or not — and
   // above a login with no employee record, which has no place of its own.
-  const top = rows.filter((r) => !r.archivedAt && r.membership?.status === 'active' && r.membership.roleDef.locked).map((r) => r.id)
+  // A Super Admin by either of their logins (Day 23).
+  const top = rows.filter((r) => !r.archivedAt && holdsSuperAdmin(r.memberships)).map((r) => r.id)
   return employeeId ? placeIn(tree, employeeId, top) : { below: [], above: top }
 }
 

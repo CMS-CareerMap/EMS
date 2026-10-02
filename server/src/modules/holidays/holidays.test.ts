@@ -42,7 +42,7 @@ async function login(key: string, role: 'hr' | 'employee' | 'manager') {
   })
   employeeIds[key] = (
     await prisma.employee.create({
-      data: { organizationId: orgId, membershipId: membership.id, employeeCode: `${PREFIX}-${key}`, fullName: `${key} person` },
+      data: { organizationId: orgId, memberships: { connect: { id: membership.id } }, employeeCode: `${PREFIX}-${key}`, fullName: `${key} person` },
     })
   ).id
   tokens[key] = (await request(app).post('/api/auth/login').send({ identifier: email, password: PASSWORD })).body.data.accessToken

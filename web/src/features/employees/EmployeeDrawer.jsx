@@ -2,13 +2,13 @@ import { createElement } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   X, Mail, Phone, Building2, Briefcase, Calendar, BadgeCheck, Edit2, Users, Clock,
-  Landmark, CheckCircle2, XCircle, UserRound, KeyRound, Fingerprint, CalendarX,
+  Landmark, CheckCircle2, XCircle, UserRound, Fingerprint, CalendarX,
   FileText, Paperclip, ArrowRight, CircleDashed,
 } from 'lucide-react'
 import { useAuthStore } from '../../stores/authStore'
 import { useChecklist } from '../../hooks/useDocuments'
-import { roleLabel } from '../../lib/roles'
 import DataState from '../../components/DataState'
+import EmployeeLogins from './EmployeeLogins'
 import { formatDay } from '../../lib/dates'
 
 /**
@@ -53,7 +53,6 @@ const STATUS_CLASS = {
 
 const ATTENDANCE_MODE = { app: 'App punch-in', biometric: 'Biometric machine', manual: 'Marked by HR' }
 const GENDER = { male: 'Male', female: 'Female', other: 'Other' }
-const ACCOUNT = { active: 'Can sign in', invited: 'Invited — has not set a password', inactive: 'Access removed' }
 
 function money(value) {
   return value == null ? '—' : '₹' + Number(value).toLocaleString('en-IN')
@@ -141,7 +140,6 @@ export default function EmployeeDrawer({ employee, onClose, onEdit }) {
           <div className="px-6 py-5 space-y-6">
 
             <Section title="Contact Information">
-              <InfoRow icon={Mail} label="Work Email (login)" value={employee.email || 'No login'} />
               <InfoRow icon={Mail} label="Personal Email" value={employee.personal_email || '—'} />
               <InfoRow icon={Phone} label="Phone" value={employee.phone || '—'} />
             </Section>
@@ -165,8 +163,11 @@ export default function EmployeeDrawer({ employee, onClose, onEdit }) {
                     : `${employee.reporting_manager_name}${employee.reporting_manager_designation ? ` (${employee.reporting_manager_designation})` : ''}`
                   : 'Nobody above'} />
               <InfoRow icon={UserRound} label="Gender" value={GENDER[employee.gender] ?? 'Not recorded'} />
-              <InfoRow icon={KeyRound} label="Access"
-                value={employee.account_status ? `${ACCOUNT[employee.account_status] ?? employee.account_status}${employee.role ? ` · ${roleLabel(employee.role, employee.role_name)}` : ''}` : 'No login'} />
+            </Section>
+
+            {/* Every login of theirs, each with its own email (Day 23). */}
+            <Section title="Logins">
+              <EmployeeLogins employee={employee} />
             </Section>
 
             {checksDocuments && (

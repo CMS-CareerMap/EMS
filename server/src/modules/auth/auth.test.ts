@@ -45,7 +45,7 @@ beforeAll(async () => {
   await prisma.employee.create({
     data: {
       organizationId: orgId,
-      membershipId: activeMembership.id,
+      memberships: { connect: { id: activeMembership.id } },
       employeeCode: `${PREFIX}-EMP1`,
       fullName: 'Active Employee',
     },

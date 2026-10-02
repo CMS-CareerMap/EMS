@@ -137,6 +137,8 @@ export default function SignIn() {
                       placeholder:text-gray-400 text-gray-900"
                   />
                 </div>
+                {/* An Employee ID names a person; somebody with two logins (Day 23) picks one by its email. */}
+                <p className="text-xs text-gray-400">Have two logins? Sign in with the email of the one you want.</p>
               </div>
 
               {/* Password */}

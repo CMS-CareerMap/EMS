@@ -26,6 +26,8 @@ export interface AuthContextInput {
   grant: RoleGrant
   employeeId: string | null
   departmentId: string | null
+  /** The employee login of somebody with a live role login too (Day 23). */
+  selfServiceOnly: boolean
   /** The caller's place in the company tree, when a scope of theirs follows it (Day 22). */
   tree?: TreePlace | undefined
 }
@@ -40,6 +42,7 @@ export function setAuthContext(res: Response, input: AuthContextInput): void {
     roleName: grant.name,
     grant,
     employeeId: input.employeeId,
+    selfServiceOnly: input.selfServiceOnly,
     can: (permission) => grant.permissions.has(permission),
     scopeFor: (resource) => ({
       scope: grant.scopes[resource],

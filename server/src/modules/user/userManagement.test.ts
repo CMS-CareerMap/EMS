@@ -51,7 +51,7 @@ async function makeUser(key: string, role: 'super_admin' | 'hr' | 'manager' | 'e
   await prisma.employee.create({
     data: {
       organizationId: orgId,
-      membershipId: membership.id,
+      memberships: { connect: { id: membership.id } },
       employeeCode: `${PREFIX}-${key}`,
       fullName: `${key} person`,
     },

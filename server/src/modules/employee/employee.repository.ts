@@ -79,7 +79,12 @@ function includeFor(access: FieldAccess) {
       // archivedAt: a manager who has left decides nothing (Day 22) — the page says so.
       select: { id: true, fullName: true, employeeCode: true, archivedAt: true, designation: { select: { name: true } } },
     },
-    membership: { select: { id: true, role: true, roleDef: { select: { name: true } }, status: true, user: { select: { email: true } } } },
+    // Every login of theirs (Day 23) — an employee login, and a role login
+    // beside it for somebody with a role — oldest first.
+    memberships: {
+      select: { id: true, role: true, roleDef: { select: { name: true } }, status: true, user: { select: { email: true } } },
+      orderBy: { createdAt: 'asc' },
+    },
 
     // Salaries outside the caller's salary scope are not read at all; the
     // serializer leaves their fields out for the same people (isInScope).

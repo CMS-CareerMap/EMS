@@ -1,20 +1,27 @@
 import type { TxDb } from '../../platform/db/transaction'
 import type { TreePerson } from '../../domain/org/companyTree'
+import { canSignIn, holdsSuperAdmin, permissionsOf } from '../../domain/org/logins'
 
 /**
  * Everybody's place in the company tree: who they report to, and whether they
  * have left. One small read — the whole company, two columns — that the tree
  * is then walked over in memory.
+ *
+ * A person can have more than one login (Day 23); each read below takes all
+ * of them, so the person, not the login they last used, is what counts.
  */
 export async function treePeople(db: TxDb): Promise<TreePerson[]> {
-  const rows = await db.employee.findMany({ select: { id: true, reportingManagerId: true, archivedAt: true, membership: { select: { status: true } } } })
+  const rows = await db.employee.findMany({ select: { id: true, reportingManagerId: true, archivedAt: true, memberships: { select: loginFacts } } })
   return rows.map((r) => ({
     id: r.id,
     managerId: r.reportingManagerId,
     left: r.archivedAt !== null,
-    canSignIn: r.membership?.status === 'active',
+    canSignIn: canSignIn(r.memberships),
   }))
 }
+
+/** What every read here needs to know about each login. */
+const loginFacts = { status: true, roleDef: { select: { locked: true } } } as const
 
 /**
  * The people at the top whatever the reporting lines say: the owner and
@@ -23,13 +30,13 @@ export async function treePeople(db: TxDb): Promise<TreePerson[]> {
  */
 export async function topPeople(db: TxDb): Promise<string[]> {
   const rows = await db.employee.findMany({
-    where: { archivedAt: null, membership: { status: 'active', roleDef: { locked: true } } },
+    where: { archivedAt: null, memberships: { some: { status: 'active', roleDef: { locked: true } } } },
     select: { id: true },
   })
   return rows.map((r) => r.id)
 }
 
-/** Everybody's place, and what their live login's role does — for "your own work goes up" (Day 22). */
+/** Everybody's place, and what their live logins' roles do — for "your own work goes up" (Day 22). */
 export async function workPeople(db: TxDb) {
   const rows = await db.employee.findMany({
     select: {
@@ -37,18 +44,19 @@ export async function workPeople(db: TxDb) {
       fullName: true,
       reportingManagerId: true,
       archivedAt: true,
-      membership: { select: { status: true, roleDef: { select: { permissions: true, locked: true } } } },
+      memberships: { select: { status: true, roleDef: { select: { permissions: true, locked: true } } } },
     },
   })
   return rows.map((r) => {
-    const live = r.membership && r.membership.status === 'active' && !r.archivedAt ? r.membership.roleDef : null
+    // Somebody who has left does no work, whatever their logins say.
+    const logins = r.archivedAt ? [] : r.memberships
     return {
       id: r.id,
       name: r.fullName,
       managerId: r.reportingManagerId,
       left: r.archivedAt !== null,
-      permissions: new Set(live?.permissions ?? []),
-      isSuperAdmin: Boolean(live?.locked),
+      permissions: permissionsOf(logins),
+      isSuperAdmin: holdsSuperAdmin(logins),
     }
   })
 }
@@ -64,7 +72,7 @@ export async function chartPeople(db: TxDb) {
       reportingManagerId: true,
       department: { select: { name: true } },
       designation: { select: { name: true } },
-      membership: { select: { status: true, roleDef: { select: { name: true, locked: true } } } },
+      memberships: { select: { status: true, roleDef: { select: { name: true, locked: true } } }, orderBy: { createdAt: 'asc' } },
     },
     orderBy: { fullName: 'asc' },
   })
@@ -79,7 +87,7 @@ export async function personForTree(db: TxDb, id: string) {
       fullName: true,
       reportingManagerId: true,
       archivedAt: true,
-      membership: { select: { status: true, roleDef: { select: { locked: true } } } },
+      memberships: { select: loginFacts },
     },
   })
 }

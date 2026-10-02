@@ -50,6 +50,19 @@ export const changeStatusSchema = z
   })
   .strict()
 
+/**
+ * Another login for somebody already here (Day 23). Any role, the Super
+ * Admin's included: only the Super Admin reaches this, choosing the role on
+ * purpose for a person they picked — the service refuses one the person
+ * already has.
+ */
+export const addLoginSchema = z
+  .object({
+    email: z.email('That is not a valid email address'),
+    role: roleKey,
+  })
+  .strict()
+
 export const membershipIdSchema = z.object({
   id: z.uuid('That is not a valid user id'),
 })

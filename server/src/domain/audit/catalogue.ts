@@ -48,6 +48,8 @@ export const AUDIT_ACTIONS = {
   'permission.denied': { label: 'Request refused', category: 'refused' },
   // Who has access, and as what
   'user.invited': { label: 'User invited', category: 'users' },
+  // A second login for somebody already here (Day 23): an HR login beside their employee login.
+  'user.login_added': { label: 'Login added', category: 'users' },
   'user.role_changed': { label: 'Role changed', category: 'users' },
   'user.status_changed': { label: 'Login turned on or off', category: 'users' },
   'user.terminated': { label: 'User removed', category: 'users' },
@@ -437,6 +439,8 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
 
     case 'user.invited':
       return `Invited ${text(d.email) ?? who()} as ${roleLabel(d.role, names, d.roleName)}`
+    case 'user.login_added':
+      return `Gave ${who()} ${Number(d.logins) > 1 ? 'another login' : 'a login'}, as ${roleLabel(d.role, names, d.roleName)}${text(d.email) ? ` (${text(d.email)})` : ''}`
     case 'user.role_changed':
       return `Changed ${who()}’s role from ${roleLabel(d.from, names, d.fromName)} to ${roleLabel(d.to, names, d.toName)}`
 
@@ -458,9 +462,12 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
       return `Deleted the role “${text(d.name) ?? 'a role'}”${reach ? `, which reached ${reach}` : ''}`
     }
     case 'user.status_changed':
-      return `Changed ${who()}’s login from ${ACCOUNT_STATUS_WORDS[String(d.from)] ?? 'before'} to ${ACCOUNT_STATUS_WORDS[String(d.to)] ?? 'changed'}`
+      // Which login, since a person can have two (Day 23); older rows did not say.
+      return `Changed ${who()}’s ${d.role ? `${roleLabel(d.role, names, d.roleName)} ` : ''}login${text(d.email) ? ` (${text(d.email)})` : ''} from ${ACCOUNT_STATUS_WORDS[String(d.from)] ?? 'before'} to ${ACCOUNT_STATUS_WORDS[String(d.to)] ?? 'changed'}`
     case 'user.terminated':
-      return d.employeeArchived ? `Removed ${who()}’s access and archived their employee record` : `Removed ${who()}’s access`
+      return d.employeeArchived
+        ? `Removed ${who()}’s access and archived their employee record${Number(d.loginsClosed) > 1 ? ` — all ${count(d.loginsClosed, 'login')} closed` : ''}`
+        : `Removed ${who()}’s access`
     case 'user.password_link_issued':
       return `Issued ${d.purpose === 'reset' ? 'a password reset' : 'an invitation'} link for ${text(d.email) ?? who()}${d.via === 'terminal' ? ', from the server terminal' : ''}`
 

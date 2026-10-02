@@ -2,6 +2,8 @@ import type { NotificationKind, Prisma } from '@prisma/client'
 import type { ScopedDb } from '../../platform/db/scoped'
 import type { TxDb } from '../../platform/db/transaction'
 import type { PersonPlace } from '../../platform/authz/scopeWhere'
+import { EMPLOYEE_ROLE } from '../../platform/authz/defaultRoles'
+import { decidingLogins } from '../../domain/org/logins'
 
 /**
  * Notifications and the people they go to.
@@ -21,24 +23,49 @@ export async function allUsers(db: Db): Promise<string[]> {
   return rows.map((r) => r.userId)
 }
 
-/** The login of an employee, when they have one that is not switched off. */
-export async function userOfEmployee(db: Db, employeeId: string): Promise<string | null> {
-  const row = await db.employee.findFirst({
-    where: { id: employeeId },
-    select: { membership: { select: { userId: true, status: true } } },
+/**
+ * The logins of an employee that are not switched off — both of them, for
+ * somebody with an employee login and a role login (Day 23): a notice about
+ * the person reaches them whichever one they sign in with.
+ */
+export async function usersOfEmployee(db: Db, employeeId: string): Promise<string[]> {
+  const rows = await db.membership.findMany({ where: { employeeId, ...REACHABLE }, select: { userId: true } })
+  return rows.map((r) => r.userId)
+}
+
+/**
+ * The logins a person DECIDES from — for "a request is waiting for you": all
+ * not switched off, less their employee login while they have a live role
+ * login (Day 23), which is for their own things only.
+ */
+export async function decidingUsersOfEmployee(db: Db, employeeId: string): Promise<string[]> {
+  const rows = await db.membership.findMany({ where: { employeeId }, select: { id: true, role: true, status: true, userId: true } })
+  return decidingLogins(rows, EMPLOYEE_ROLE).map((r) => r.userId)
+}
+
+/**
+ * The OTHER logins of the person this login belongs to, not switched off —
+ * for "the password of your other login was changed" (Day 23). None for an
+ * operator with no employee record.
+ */
+export async function otherLoginsOfPerson(db: Db, userId: string): Promise<{ email: string; others: string[] }> {
+  const mine = await db.membership.findFirst({ where: { userId }, select: { employeeId: true, user: { select: { email: true } } } })
+  if (!mine?.employeeId) return { email: mine?.user.email ?? '', others: [] }
+  const rows = await db.membership.findMany({
+    where: { employeeId: mine.employeeId, userId: { not: userId }, ...REACHABLE },
+    select: { userId: true },
   })
-  if (!row?.membership || row.membership.status === 'inactive') return null
-  return row.membership.userId
+  return { email: mine.user.email, others: rows.map((r) => r.userId) }
 }
 
 /** The logins of several employees at once — a payroll run's worth. */
-export async function usersOfEmployees(db: Db, employeeIds: readonly string[]): Promise<Map<string, string>> {
-  if (employeeIds.length === 0) return new Map()
-  const rows = await db.employee.findMany({
-    where: { id: { in: [...employeeIds] }, membership: REACHABLE },
-    select: { id: true, membership: { select: { userId: true } } },
+export async function usersOfEmployees(db: Db, employeeIds: readonly string[]): Promise<string[]> {
+  if (employeeIds.length === 0) return []
+  const rows = await db.membership.findMany({
+    where: { employeeId: { in: [...employeeIds] }, ...REACHABLE },
+    select: { userId: true },
   })
-  return new Map(rows.flatMap((r) => (r.membership ? [[r.id, r.membership.userId] as const] : [])))
+  return rows.map((r) => r.userId)
 }
 
 /** Where a person sits — who they report to, which department — for deciding whose scope reaches them. */

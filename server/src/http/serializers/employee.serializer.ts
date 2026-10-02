@@ -40,6 +40,10 @@ function money(value: Prisma.Decimal | null | undefined): number | null {
 
 /** The fields anyone who may read an employee at all can see. */
 function base(employee: EmployeeRow) {
+  // Their first login. Since Day 23 a person can have two — the full list is
+  // `logins` — and the single fields below, which every screen read before
+  // that, describe the one they had first.
+  const first = employee.memberships[0]
   return {
     id: employee.id,
     employee_id: employee.employeeCode,
@@ -48,7 +52,7 @@ function base(employee: EmployeeRow) {
     // The login address lives on User; the personal one on Employee. They are
     // different things and the UI shows the work address, so `email` is the
     // login and `personal_email` is separate rather than one field guessing.
-    email: employee.membership?.user.email ?? null,
+    email: first?.user.email ?? null,
     personal_email: employee.personalEmail,
     phone: employee.phone,
 
@@ -88,9 +92,17 @@ function base(employee: EmployeeRow) {
     reporting_manager_left: Boolean(employee.reportingManager?.archivedAt),
 
     // Access-related, not HR data: whether this person can sign in, and as what.
-    role: employee.membership?.role ?? null,
-    role_name: employee.membership?.roleDef.name ?? null,
-    account_status: employee.membership?.status ?? null,
+    role: first?.role ?? null,
+    role_name: first?.roleDef.name ?? null,
+    account_status: first?.status ?? null,
+    // Every login, oldest first: each with its own email, role and status.
+    logins: employee.memberships.map((m) => ({
+      id: m.id,
+      email: m.user.email,
+      role: m.role,
+      role_name: m.roleDef.name,
+      status: m.status,
+    })),
 
     archived_at: isoInstant(employee.archivedAt),
   }

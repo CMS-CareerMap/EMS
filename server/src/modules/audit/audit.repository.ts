@@ -60,8 +60,8 @@ export interface AuditFilter {
   /** From this instant (inclusive) to that one (exclusive). */
   from?: Date | undefined
   to?: Date | undefined
-  /** Rows about one person: their record, their login, or naming them in the facts. */
-  about?: { employeeId: string; membershipId: string | null; userId: string | null } | undefined
+  /** Rows about one person: their record, any of their logins, or naming them in the facts. */
+  about?: { employeeId: string; membershipIds: string[]; userIds: string[] } | undefined
 }
 
 export interface AuditCursor {
@@ -76,13 +76,13 @@ function whereOf(filter: AuditFilter): Prisma.AuditLogWhereInput[] {
   if (filter.from) and.push({ createdAt: { gte: filter.from } })
   if (filter.to) and.push({ createdAt: { lt: filter.to } })
   if (filter.about) {
-    const { employeeId, membershipId, userId } = filter.about
+    const { employeeId, membershipIds, userIds } = filter.about
     const about: Prisma.AuditLogWhereInput[] = [
       { entityType: 'employee', entityId: employeeId },
       { details: { path: ['employeeId'], equals: employeeId } },
     ]
-    if (membershipId) about.push({ entityType: 'membership', entityId: membershipId })
-    if (userId) about.push({ entityType: 'user', entityId: userId })
+    if (membershipIds.length > 0) about.push({ entityType: 'membership', entityId: { in: membershipIds } })
+    if (userIds.length > 0) about.push({ entityType: 'user', entityId: { in: userIds } })
     and.push({ OR: about })
   }
   return and
@@ -161,7 +161,6 @@ export async function roleNames(db: ScopedDb) {
   return db.role.findMany({ select: { key: true, name: true } })
 }
 
-/** A person's login, so "about Ravi" also finds his sign-ins and role changes. */
 /**
  * Everybody the log can be filtered by: every login (as the one who did it)
  * and every employee record, archived ones included (as the one it was about).
@@ -169,15 +168,19 @@ export async function roleNames(db: ScopedDb) {
  */
 export async function filterPeople(db: ScopedDb) {
   const [logins, employees] = await Promise.all([
-    db.membership.findMany({ select: { userId: true, user: { select: { email: true } }, employee: { select: { fullName: true } } } }),
+    db.membership.findMany({ select: { userId: true, employeeId: true, roleDef: { select: { name: true } }, user: { select: { email: true } }, employee: { select: { fullName: true } } } }),
     db.employee.findMany({ select: { id: true, fullName: true, employeeCode: true } }),
   ])
   return { logins, employees }
 }
 
-export async function loginOf(db: ScopedDb, employeeId: string) {
+/**
+ * A person and every login of theirs (Day 23: an employee login and a role
+ * login), so "about Ravi" also finds the sign-ins and role changes of both.
+ */
+export async function loginsOf(db: ScopedDb, employeeId: string) {
   return db.employee.findFirst({
     where: { id: employeeId },
-    select: { id: true, membership: { select: { id: true, userId: true } } },
+    select: { id: true, memberships: { select: { id: true, userId: true } } },
   })
 }

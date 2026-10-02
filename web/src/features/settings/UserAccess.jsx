@@ -154,6 +154,14 @@ export function InviteUserForm({ onInvited, onCancel }) {
         </div>
       </div>
 
+      {/* A login invited without an employee code belongs to no person (an
+          operator), so it sits outside the company tree and the rule that one's
+          own work goes up. Somebody already on the staff gets theirs on their page. */}
+      <p className="text-xs text-gray-500">
+        Already an employee? Give them their role login on their page instead (Employees → their name → Logins), so it is the same person.
+        Without an employee code this login belongs to nobody on the staff.
+      </p>
+
       <div className="flex items-center justify-end gap-2">
         <button type="button" onClick={onCancel}
           className="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100">

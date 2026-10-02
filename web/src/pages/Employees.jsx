@@ -50,7 +50,11 @@ export default function Employees() {
   const [sortDir, setSortDir] = useState('asc')
   const [modalOpen, setModalOpen] = useState(false)
   const [editTarget, setEditTarget] = useState(null)
-  const [drawerEmp, setDrawerEmp] = useState(null)
+  // By id, read from the list: a login added or switched off in the drawer
+  // (Day 23) shows there as soon as the list comes back.
+  const [drawerId, setDrawerId] = useState(null)
+  const drawerEmp = employees.find((e) => e.id === drawerId) ?? null
+  const setDrawerEmp = (emp) => setDrawerId(emp?.id ?? null)
   const [menuOpenId, setMenuOpenId] = useState(null)
   const [importOpen, setImportOpen] = useState(false)
   const { busy: exporting, start: startExport } = useDownload()

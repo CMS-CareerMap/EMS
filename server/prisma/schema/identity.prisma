@@ -106,11 +106,27 @@ model Membership {
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
+  /// The person this login belongs to (Day 23). A person can have more than
+  /// one: an employee login for their own things and a role login for their
+  /// role's work — each with its own email — and every rule about "your own"
+  /// keys on this, the person, not the login. Null for an operator with no
+  /// employee record.
+  employeeId String?
+
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   roleDef      Role         @relation(fields: [organizationId, role], references: [organizationId, key], onDelete: NoAction, onUpdate: NoAction)
-  employee     Employee?
+  /// Cascade, not SetNull: an employee row is never hard-deleted by EMS, but
+  /// if one were, a role login left with no person would escape every rule
+  /// about "your own" while keeping its role. It goes with the person.
+  employee     Employee?    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   @@unique([userId, organizationId])
+  /// One login per role per person: a second HR login for the same person is
+  /// a mistake, not a feature. NULLs are distinct, so operators are unaffected.
+  @@unique([organizationId, employeeId, role])
   @@index([organizationId, role])
+  /// For the foreign key: archiving is soft, but a hard delete of an employee
+  /// row would otherwise scan every login.
+  @@index([employeeId])
 }
