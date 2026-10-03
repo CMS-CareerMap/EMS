@@ -122,6 +122,8 @@ export async function teamBalances(ctx: AppContext, requestedYear?: number) {
   const waiting = canManage ? summaryOf((await planFor(ctx.db, ctx, year)).entries, year.leaveYear) : null
   // Whose balance the caller may correct (Day 22: own work goes up the tree).
   const work = canManage ? await loadWork(ctx.db, ctx.organizationId, 'leave_balance') : null
+  // …and within their leave scope, which the correction itself reads through.
+  const inLeaveScope = new Set(canManage ? (await repo.peopleInScope(ctx.db, ctx.scopeFor('leave'))).map((p) => p.id) : [])
 
   return {
     leaveYear: year.leaveYear,
@@ -137,7 +139,10 @@ export async function teamBalances(ctx: AppContext, requestedYear?: number) {
       own: p.id === ctx.employeeId,
       ...(() => {
         const check = work ? checkWork(ctx, work, p.id) : null
-        return { mayCorrect: Boolean(check?.allowed), correctionGoesTo: check && !check.allowed ? check.ask : null }
+        // Correcting needs the leave scope too (adjustBalance reads through
+        // it): somebody listed only because the caller decides their leave
+        // is not a "Correct" button that answers "not found".
+        return { mayCorrect: Boolean(check?.allowed) && inLeaveScope.has(p.id), correctionGoesTo: check && !check.allowed ? check.ask : null }
       })(),
       balances: types.map((t) => {
         const key = `${p.id}|${t.id}`

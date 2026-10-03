@@ -236,7 +236,8 @@ export async function submitOwnBankAccount(ctx: AppContext, input: Omit<BankAcco
       }, tx)
       await notify(ctx, tx, {
         event: 'bank.submitted',
-        to: { holding: 'employee:bank:manage' },
+        // Whoever may check this person's: an accountant's own goes up the tree (Day 22).
+        to: { doing: { permission: 'employee:bank:manage', work: 'bank', employeeId } },
         title: 'Bank details to check',
         message: `${employee.fullName} sent in bank details (account ending ${lastFour(accountNumber)}). Check them against the proof attached.`,
         link: '/payroll?tab=bank',

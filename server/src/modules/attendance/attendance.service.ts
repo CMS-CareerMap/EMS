@@ -2,7 +2,7 @@ import type { AppContext } from '../../platform/context'
 import { BadRequest, Conflict, Forbidden, NotFound } from '../../platform/errors/AppError'
 import { logger } from '../../platform/logger'
 import { isUniqueViolation } from '../../platform/db/errors'
-import { zonedToday, toDateColumn, type CalendarDate } from '../../domain/shared/dates'
+import { zonedToday, toDateColumn, fromDateColumn, dayLabel, type CalendarDate } from '../../domain/shared/dates'
 import { hoursBetween, classifyDay } from '../../domain/attendance/hours'
 import {
   checkGeofence,
@@ -109,6 +109,17 @@ export async function punchIn(ctx: AppContext, input: PunchInput): Promise<Punch
 
   const now = new Date()
   const today = zonedToday(now, timezone)
+
+  // The employee lifecycle: a day before joining, or after the last working
+  // day, is not a working day of theirs.
+  const joined = fromDateColumn(employee.dateOfJoining)
+  if (joined && today < joined) {
+    throw Forbidden(`You join on ${dayLabel(joined)}. Checking in opens on your first day.`)
+  }
+  const lastDay = fromDateColumn(employee.lastWorkingDate)
+  if (lastDay && today > lastDay) {
+    throw Forbidden(`Your last working day was ${dayLabel(lastDay)}, so there is nothing to check in to.`)
+  }
 
   const existing = await repo.findDay(ctx.db, employee.id, toDateColumn(today))
 

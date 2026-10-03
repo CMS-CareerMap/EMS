@@ -18,9 +18,15 @@ export default function Dashboard() {
   useAuthStore((state) => state.permissions)
   useAuthStore((state) => state.decidesLeave)
   const holds = useAuthStore((state) => state.canAny)
+  const profile = useAuthStore((state) => state.profile)
 
-  if (holds('employee:read')) return <HRDashboard />
-  if (holds('dashboard:read')) return <EmployeeDashboard />
+  // "Open the dashboard" is the dashboard's own tick: a role that reads
+  // employee records without it goes on to its first area like any other.
+  if (holds('dashboard:read') && holds('employee:read')) return <HRDashboard />
+  // The personal dashboard is about one's own employee record. A login with
+  // none — an outside administrator invited without an employee code — has
+  // nothing to show there, and goes on to its first area.
+  if (holds('dashboard:read') && profile) return <EmployeeDashboard />
 
   const first = NAV_GROUPS.flatMap((group) => group.items).find((item) => item.to !== '/dashboard' && holds(item.permission))
   if (first) return <Navigate to={first.to} replace />

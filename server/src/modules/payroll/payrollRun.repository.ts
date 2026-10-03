@@ -22,8 +22,10 @@ import { ownedRowsInScope } from '../../platform/authz/scopeWhere'
 export async function employeesForMonth(db: ScopedDb, monthStart: Date, monthEnd: Date) {
   return db.employee.findMany({
     where: {
-      archivedAt: null,
       AND: [
+        // Somebody whose exit is complete is archived — and is still paid for
+        // the days of the month up to their last working day.
+        { OR: [{ archivedAt: null }, { lastWorkingDate: { gte: monthStart } }] },
         { OR: [{ dateOfJoining: null }, { dateOfJoining: { lte: monthEnd } }] },
         { OR: [{ lastWorkingDate: null }, { lastWorkingDate: { gte: monthStart } }] },
       ],

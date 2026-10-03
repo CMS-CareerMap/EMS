@@ -85,11 +85,13 @@ const HR: readonly Permission[] = [
   'employee:update',
   'employee:identity:read',
   'employee:compensation:read',
+  // The employee lifecycle (client §43: "Manage onboarding", "Manage employee
+  // lifecycle" are HR's). Their own, and a fellow HR person's, go up the tree.
+  'employee:lifecycle:manage',
   'attendance:read',
   'attendance:punch',
   'attendance:mark',
   'attendance:update',
-  'attendance:delete',
   'leave:read',
   'leave:apply',
   // Grants the leave year and corrects balances — HR runs leave day to day.
@@ -233,7 +235,7 @@ export const DEFAULT_ROLES: readonly RoleDefinition[] = [
   {
     key: 'hr',
     name: 'HR',
-    description: 'Runs people operations day to day: employees, attendance, documents, holidays and monthly incentives. Sees all leave, gives the yearly leave and corrects balances. Sees salaries, except those of the people above them.',
+    description: 'Runs people operations day to day: employees from onboarding to exit, attendance, documents, holidays and monthly incentives. Sees all leave, gives the yearly leave and corrects balances. Sees salaries, except those of the people above them.',
     parentKey: SUPER_ADMIN_ROLE,
     locked: false,
     permissions: HR,

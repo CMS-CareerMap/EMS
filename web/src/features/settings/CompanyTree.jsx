@@ -75,7 +75,14 @@ function TreeView({ data }) {
             <div role="alert" className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
               <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
               <p>
-                No owner is marked. The owner is the one person at the top whose own leave needs nobody’s approval. Until one is marked, the leave of everybody with nobody above goes to the Super Admin — including the Super Admin’s own. Mark the owner from their row below (<Crown className="inline w-3.5 h-3.5" aria-hidden="true" /> Make owner).
+                No owner is marked. The owner is the one person at the top whose own leave needs nobody’s approval. Until one is marked, the leave of everybody with nobody above goes to the Super Admin — including the Super Admin’s own.{' '}
+                {people.some((p) => p.can_be_owner) ? (
+                  <>Mark the owner from their row below (<Crown className="inline w-3.5 h-3.5" aria-hidden="true" /> Make owner).</>
+                ) : (
+                  // On a fresh start the only Super Admin is the first administrator,
+                  // who has no employee record: nobody on the chart can be the owner yet.
+                  <>Nobody on the chart holds the Super Admin panel yet. Give the owner’s own record a Super Admin login first (Employees → their name → Logins → Add login), then mark them here.</>
+                )}
               </p>
             </div>
           )}

@@ -56,12 +56,22 @@ export async function assertMonthsOpen(ctx: AppContext, months: readonly MonthRe
  * holds from a date until something replaces it: a salary, a PT table.
  */
 export async function assertOpenFrom(ctx: AppContext, from: CalendarDate, what: string): Promise<void> {
+  const closed = await closedFrom(ctx, from)
+  if (closed) throw refusal(closed, what)
+}
+
+/** The same question, for a caller that keeps what was paid instead of refusing. */
+export async function isOpenFrom(ctx: AppContext, from: CalendarDate): Promise<boolean> {
+  return !(await closedFrom(ctx, from))
+}
+
+async function closedFrom(ctx: AppContext, from: CalendarDate) {
   const { year, month } = monthOfDay(from)
   const start = monthKey(year, month)
   const closed = (await closedRuns(ctx.db))
     .filter((run) => monthKey(run.year, run.month) >= start)
     .sort((a, b) => a.year - b.year || a.month - b.month)
-  if (closed[0]) throw refusal(closed[0], what)
+  return closed[0] ?? null
 }
 
 export { monthsBetween }

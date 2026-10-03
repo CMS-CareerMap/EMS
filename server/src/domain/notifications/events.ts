@@ -13,7 +13,7 @@ export type NotificationKind = 'leave' | 'payroll' | 'document' | 'bank' | 'acco
 
 export interface EventRule {
   kind: NotificationKind
-  group: 'Leave' | 'Payroll' | 'Documents' | 'Bank accounts' | 'Account'
+  group: 'Leave' | 'Payroll' | 'Documents' | 'Bank accounts' | 'Employment' | 'Account'
   /** "A leave request is submitted" — what happened, for Settings. */
   label: string
   /** Who is told, in words, for Settings. */
@@ -87,6 +87,22 @@ export const NOTIFICATION_EVENTS = {
     kind: 'bank', group: 'Bank accounts', optional: true,
     label: 'Bank details are verified or rejected',
     tells: 'The employee they belong to',
+  },
+  // The employee lifecycle (client §43).
+  'employment.resignation_submitted': {
+    kind: 'system', group: 'Employment', optional: true,
+    label: 'An employee hands in or withdraws their resignation',
+    tells: 'The person who decides it — whoever they report to — and HR, who runs the exit',
+  },
+  'employment.resignation_decided': {
+    kind: 'system', group: 'Employment', optional: true,
+    label: 'A resignation is accepted or called off',
+    tells: 'The employee whose resignation it is, and HR — and, when it is called off, whoever decides it',
+  },
+  'employment.changed': {
+    kind: 'system', group: 'Employment', optional: true,
+    label: 'Onboarding is complete, probation is confirmed or extended, or somebody is transferred or promoted',
+    tells: 'The employee it is about',
   },
   'account.password_changed': {
     kind: 'account', group: 'Account', optional: false,

@@ -65,6 +65,21 @@ model Employee {
   /// and the overpayment is only discovered when somebody tries to recover it.
   lastWorkingDate DateTime? @db.Date
 
+  /// The employee lifecycle (client §43). Where somebody stands is worked out
+  /// from these and their resignation (domain/org/lifecycle.ts): joining date
+  /// ahead → joining soon; not onboarded → onboarding; not confirmed → on
+  /// probation; confirmed; a resignation → resigned, then serving notice.
+  ///
+  /// The day HR finished onboarding them. Null while onboarding is open.
+  onboardedOn      DateTime? @db.Date
+  /// When their probation ends — the company's probation months from joining,
+  /// unless HR set or extended it.
+  probationEndDate DateTime? @db.Date
+  /// The day they were confirmed. Null while on probation.
+  confirmedOn      DateTime? @db.Date
+  /// Why they left, once their exit is complete.
+  exitReason       ExitReason?
+
   /// Nullable, because nobody should be forced to guess it to save a record.
   ///
   /// Not a demographic nicety: professional tax is gendered by statute in
@@ -128,6 +143,8 @@ model Employee {
   tdsDirectives     EmployeeTdsDirective[]
   monthlyEntries    EmployeeMonthlyEntry[]
   documents         EmployeeDocument[]
+  employmentEvents  EmploymentEvent[]
+  resignations      Resignation[]
 
   @@unique([organizationId, employeeCode])
   @@index([organizationId, archivedAt])

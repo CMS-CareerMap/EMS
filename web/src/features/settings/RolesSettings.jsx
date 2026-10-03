@@ -178,10 +178,16 @@ export default function RolesSettings() {
 
                 {editing && (
                   <RoleEditor
+                    // A fresh form when the role is reloaded after somebody else's change.
+                    key={editing.mode === 'edit' ? editing.role.version : 'new'}
                     data={data}
                     role={editing.mode === 'edit' ? editing.role : null}
                     onClose={() => setEditing(null)}
                     onSaved={(text) => { setEditing(null); setNotice(text) }}
+                    onReload={(key) => {
+                      const fresh = data.roles.find((r) => r.key === key)
+                      setEditing(fresh ? { mode: 'edit', role: fresh } : null)
+                    }}
                   />
                 )}
               </>
@@ -193,7 +199,10 @@ export default function RolesSettings() {
       {resetting && (
         <ConfirmDialog title={`Reset “${resetting.name}” to how EMS started it?`} confirmLabel="Reset"
           onConfirm={async () => {
-            const r = await resetRole.mutateAsync({ key: resetting.key, version: resetting.version })
+            // The version as the list holds it now — not as it was when the
+            // dialog opened, which a refused reset (and its re-read) left behind.
+            const current = (roles.data?.roles ?? []).find((x) => x.key === resetting.key) ?? resetting
+            const r = await resetRole.mutateAsync({ key: resetting.key, version: current.version })
             setNotice(`“${resetting.name}” is back to how EMS started it${r.holders ? ` — for the ${people(r.holders)} holding it, from now on` : ''}.`)
           }}
           onClose={() => setResetting(null)}>
@@ -223,21 +232,28 @@ export default function RolesSettings() {
   )
 }
 
-function RoleEditor({ data, role, onClose, onSaved }) {
+function RoleEditor({ data, role, onClose, onSaved, onReload }) {
   const { catalogue } = data
   const isNew = !role
   const readOnly = Boolean(role && (role.locked || role.own))
   const create = useCreateRole()
   const update = useUpdateRole()
 
-  const [form, setForm] = useState(() => ({
-    name: role?.name ?? '',
-    description: role?.description ?? '',
-    parent_key: role?.parent_key ?? 'super_admin',
-    permissions: role?.permissions ?? [],
-    scopes: { ...(role?.scopes ?? {}) },
-  }))
+  const [form, setForm] = useState(() => {
+    // Only what the screen offers: a permission a role still lists but nobody
+    // can tick any more (one that does nothing) is dropped on save, not sent
+    // back and refused.
+    const offered = new Set(catalogue.modules.flatMap((m) => m.permissions.map((p) => p.key)))
+    return {
+      name: role?.name ?? '',
+      description: role?.description ?? '',
+      parent_key: role?.parent_key ?? 'super_admin',
+      permissions: (role?.permissions ?? []).filter((key) => offered.has(key)),
+      scopes: { ...(role?.scopes ?? {}) },
+    }
+  })
   const [error, setError] = useState(null)
+  const [stale, setStale] = useState(false)
   const [confirmWarning, setConfirmWarning] = useState(false)
   const set = (field, value) => setForm((f) => ({ ...f, [field]: value }))
 
@@ -294,6 +310,9 @@ function RoleEditor({ data, role, onClose, onSaved }) {
     } catch (err) {
       // The server's words, here, where the person is looking — the toast says it too.
       setError(err?.message ?? 'The role could not be saved.')
+      // Somebody else saved this role meanwhile: saving again would only be
+      // refused again. Their version can be loaded, and the change made on it.
+      setStale(err?.status === 409 && !isNew)
     }
   }
 
@@ -417,6 +436,12 @@ function RoleEditor({ data, role, onClose, onSaved }) {
       ))}
 
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+      {stale && (
+        <button type="button" onClick={() => onReload(role.key)}
+          className="text-sm font-semibold text-blue-600 hover:text-blue-700">
+          Load the role as it is now, and make your change on it
+        </button>
+      )}
 
       <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-1">
         <button type="button" onClick={onClose} disabled={saving}

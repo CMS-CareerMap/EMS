@@ -23,20 +23,25 @@ import { api } from '../api/http'
 
 const KEY = ['employees']
 
+/** Returned, so a form waiting on the save closes with the lists already redrawn. */
 function invalidateAll(queryClient) {
-  queryClient.invalidateQueries({ queryKey: KEY })
-  // The attendance roster lists employees too; a new hire belongs on it today.
-  queryClient.invalidateQueries({ queryKey: ['attendance'] })
-  queryClient.invalidateQueries({ queryKey: ['users'] })
-  // Who somebody reports to is the company tree (Day 22): the chart, and whose
-  // leave goes to whom, move with it.
-  queryClient.invalidateQueries({ queryKey: ['company-tree'] })
-  queryClient.invalidateQueries({ queryKey: ['leave'] })
-  queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-  // …and whom one's own work goes to: bank accounts, incentives, salaries, documents.
-  queryClient.invalidateQueries({ queryKey: ['payroll'] })
-  queryClient.invalidateQueries({ queryKey: ['salary'] })
-  queryClient.invalidateQueries({ queryKey: ['documents'] })
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: KEY }),
+    // The attendance roster lists employees too; a new hire belongs on it today.
+    queryClient.invalidateQueries({ queryKey: ['attendance'] }),
+    queryClient.invalidateQueries({ queryKey: ['users'] }),
+    // Who somebody reports to is the company tree (Day 22): the chart, and whose
+    // leave goes to whom, move with it.
+    queryClient.invalidateQueries({ queryKey: ['company-tree'] }),
+    queryClient.invalidateQueries({ queryKey: ['leave'] }),
+    queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+    // …and whom one's own work goes to: bank accounts, incentives, salaries, documents.
+    queryClient.invalidateQueries({ queryKey: ['payroll'] }),
+    queryClient.invalidateQueries({ queryKey: ['salary'] }),
+    queryClient.invalidateQueries({ queryKey: ['documents'] }),
+    // Where somebody stands from joining to leaving moves with their dates (client §43).
+    queryClient.invalidateQueries({ queryKey: ['lifecycle'] }),
+  ])
 }
 
 /** `includeArchived` adds the people who have left — for looking back, as the audit log does. */

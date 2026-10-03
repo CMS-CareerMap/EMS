@@ -21,7 +21,7 @@ const PREFIX = 'emptest'
 const PASSWORD = 'CorrectHorseBattery1'
 
 /** None of the three sensitive blocks — what the scope tests read with. */
-const NO_SENSITIVE = { includeCompensation: false, includeBank: false, includeIdentity: false } as const
+const NO_SENSITIVE = { includeCompensation: false, includeBank: false, includeIdentity: false, includeLogins: false, today: '2026-10-03', lifecycleOf: { everybody: false, employeeId: null, above: [] } } as const
 
 const app = createApp()
 

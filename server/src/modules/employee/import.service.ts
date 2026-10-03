@@ -6,6 +6,8 @@ import { logger } from '../../platform/logger'
 import { importRowSchema } from '../../http/validators/employeeImport.validator'
 import { isCalendarDate, isoInstant, toDateColumn } from '../../domain/shared/dates'
 import { createLoginInTransaction, rolesForGrant, rolesLock } from '../user/user.service'
+import { lifecycleStart } from './employee.service'
+import { companyToday } from '../organization/organization.service'
 import { mayGive } from '../user/user.policy'
 import { lockFor } from '../../platform/db/locks'
 import type { TxDb } from '../../platform/db/transaction'
@@ -86,6 +88,7 @@ const HEADER_ALIASES: Record<string, string[]> = {
   personalEmail: ['personal_email'],
   phone: ['phone', 'mobile', 'contact', 'phone_number'],
   dateOfJoining: ['date_of_joining', 'doj', 'joining_date'],
+  confirmedOn: ['confirmed_on', 'confirmation_date', 'date_of_confirmation'],
   employmentType: ['employment_type', 'type'],
   department: ['department', 'dept'],
   designation: ['designation', 'title', 'job_title'],
@@ -194,7 +197,7 @@ export async function importEmployees(
   }
 
   // Names, not ids. HR has a spreadsheet with "Sales" in it, not a uuid.
-  const [departments, designations] = await Promise.all([listDepartments(ctx.db), listDesignations(ctx.db)])
+  const [departments, designations, today] = await Promise.all([listDepartments(ctx.db), listDesignations(ctx.db), companyToday(ctx)])
 
   const departmentByName = new Map(departments.map((d) => [d.name.toLowerCase(), d.id]))
   const designationByName = new Map(designations.map((d) => [d.name.toLowerCase(), d.id]))
@@ -246,6 +249,21 @@ export async function importEmployees(
           field: 'date_of_joining',
           message: `"${rawDate}" is not a date this can read. Use DD/MM/YYYY or YYYY-MM-DD.`,
         })
+      }
+    }
+
+    // Somebody already working here: confirmed on this day.
+    const rawConfirmed = (raw.confirmedOn ?? '').trim()
+    if (rawConfirmed) {
+      const iso = parseDate(rawConfirmed)
+      if (!iso) {
+        issues.push({ field: 'confirmed_on', message: `"${rawConfirmed}" is not a date this can read. Use DD/MM/YYYY or YYYY-MM-DD.` })
+      } else if (typeof candidate.dateOfJoining === 'string' && iso < candidate.dateOfJoining) {
+        issues.push({ field: 'confirmed_on', message: `The confirmation date (${rawConfirmed}) is before the joining date.` })
+      } else if (iso > today) {
+        issues.push({ field: 'confirmed_on', message: `The confirmation date (${rawConfirmed}) is in the future. Leave it empty for somebody still on probation.` })
+      } else {
+        candidate.confirmedOn = iso
       }
     }
 
@@ -352,10 +370,14 @@ export async function importEmployees(
   const invites: ImportResult['invites'] = []
 
   await withTransaction(ctx.db, async (tx) => {
-    if (withLogin > 0) {
-      await lockFor(tx, rolesLock(ctx.organizationId))
-      await assertMayGiveLogins(tx, ctx)
+    await lockFor(tx, rolesLock(ctx.organizationId))
+    // The reach as the role stands under the lock, not as the request found
+    // it: a role narrowed a moment ago must not import company-wide.
+    const { actor } = await rolesForGrant(tx, ctx, EMPLOYEE_ROLE, ['employee:create'])
+    if (!actor.locked && actor.grant.scopes.employee !== 'ORGANIZATION') {
+      throw Forbidden('Importing a roster adds people anywhere in the company, so it needs a company-wide reach. Add people one at a time under Employees instead.')
     }
+    if (withLogin > 0) await assertMayGiveLogins(tx, ctx)
     for (const row of prepared) {
       const data = row.data as Record<string, string | undefined>
 
@@ -372,6 +394,8 @@ export async function importEmployees(
         departmentId: data.departmentId ?? null,
         designationId: data.designationId ?? null,
         ...(data.gender ? { gender: data.gender as 'male' | 'female' | 'other' } : {}),
+        // Where they start in the lifecycle: confirmed, or a new joiner.
+        ...(await lifecycleStart(ctx, { dateOfJoining: data.dateOfJoining ?? null, confirmedOn: data.confirmedOn ?? null })),
       })
 
       if (row.email) {

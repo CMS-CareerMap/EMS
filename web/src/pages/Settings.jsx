@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Building2, Users, CalendarDays, Bell, IndianRupee, Network, FolderOpen, ScrollText, ShieldCheck, GitBranch, CheckSquare } from 'lucide-react'
+import { Building2, Users, CalendarDays, Bell, IndianRupee, Network, FolderOpen, ScrollText, ShieldCheck, GitBranch, CheckSquare, UserCog } from 'lucide-react'
 import CompanyTree from '../features/settings/CompanyTree'
 import ApprovalsSettings from '../features/settings/ApprovalsSettings'
 import CompanySettings from '../features/settings/CompanySettings'
@@ -11,6 +11,7 @@ import LeaveSettings from '../features/settings/LeaveSettings'
 import PayrollSettings from '../features/settings/PayrollSettings'
 import NotificationSettings from '../features/settings/NotificationSettings'
 import DocumentSettings from '../features/settings/DocumentSettings'
+import LifecycleSettings from '../features/settings/LifecycleSettings'
 import AuditLog from '../features/settings/AuditLog'
 import { useAuthStore } from '../stores/authStore'
 
@@ -44,6 +45,9 @@ const TABS = [
   },
   { id: 'payroll', label: 'Payroll Config', icon: IndianRupee, permission: 'settings:read', Component: PayrollSettings },
   { id: 'documents', label: 'Documents', icon: FolderOpen, permission: ['settings:read', 'document:type:manage'], Component: DocumentSettings },
+  // Probation and notice period (client §43): HR reads them, Settings changes them.
+  // After the tabs HR works in, so HR still lands on Leave Config.
+  { id: 'lifecycle', label: 'Employee Lifecycle', icon: UserCog, permission: ['settings:read', 'employee:lifecycle:manage'], Component: LifecycleSettings },
   { id: 'notifications', label: 'Notifications', icon: Bell, permission: 'settings:read', Component: NotificationSettings },
   { id: 'audit', label: 'Audit Log', icon: ScrollText, permission: 'audit:read', Component: AuditLog },
 ]

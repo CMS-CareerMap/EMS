@@ -6,6 +6,7 @@ import { companyTimezone, companyToday } from '../../modules/organization/organi
 import { recordSecurityEvent } from '../../modules/audit/audit.service'
 import { toCsv, type CsvCell } from '../../domain/shared/csv'
 import { zonedMinutes } from '../../domain/shared/dates'
+import { LIFECYCLE_STAGES, type LifecycleStage } from '../../domain/org/lifecycle'
 import { serializeEmployees } from '../serializers/employee.serializer'
 import { employeeQuerySchema } from '../validators/employee.validator'
 import { parseBody } from '../validators/parse'
@@ -37,10 +38,25 @@ const STATUS: Record<string, string> = {
   weekly_off: 'Weekly off',
 }
 
-/** GET /api/employees/export?search=&departmentId=&status= */
+/** Where somebody stands in the lifecycle (client §43), as the list's Stage column says it. */
+const STAGE: Record<LifecycleStage, string> = {
+  joining_soon: 'Joining soon',
+  onboarding: 'Onboarding',
+  probation: 'On probation',
+  confirmed: 'Confirmed',
+  resigned: 'Resigned',
+  notice_period: 'Serving notice',
+  exit_due: 'Exit due',
+  left: 'Left',
+}
+
+/** The list's filters, and the Stage filter the page applies to them. */
+const employeeExportSchema = employeeQuerySchema.extend({ stage: z.enum(LIFECYCLE_STAGES as [LifecycleStage, ...LifecycleStage[]]).optional() })
+
+/** GET /api/employees/export?search=&departmentId=&status=&stage= */
 export const getEmployeesExport: RequestHandler = async (req, res) => {
   const ctx = appContext(res)
-  const query = parseBody(employeeQuerySchema, req.query)
+  const query = parseBody(employeeExportSchema, req.query)
   const { rows: found, access } = await listEmployees(ctx, query)
   // The list's search also matches a personal email; the page's matches only
   // the name and the code, and the file is the page's rows.
@@ -48,10 +64,11 @@ export const getEmployeesExport: RequestHandler = async (req, res) => {
   const rows = needle
     ? found.filter((e) => e.fullName.toLowerCase().includes(needle) || e.employeeCode.toLowerCase().includes(needle))
     : found
-  const employees = serializeEmployees(rows, access) as Array<Record<string, unknown>>
+  const employees = (serializeEmployees(rows, access) as Array<Record<string, unknown>>)
+    .filter((e) => !query.stage || e.lifecycle_stage === query.stage)
   const withPay = access.includeCompensation
 
-  const header: CsvCell[] = ['Full Name', 'Employee Code', 'Department', 'Designation', 'Phone', 'Employment Type', 'Date of Joining', 'Last Working Day', 'Status']
+  const header: CsvCell[] = ['Full Name', 'Employee Code', 'Department', 'Designation', 'Phone', 'Employment Type', 'Date of Joining', 'Last Working Day', 'Stage', 'Status']
   if (withPay) header.push('CTC')
 
   const body = employees.map((e) => {
@@ -64,6 +81,7 @@ export const getEmployeesExport: RequestHandler = async (req, res) => {
       EMPLOYMENT[String(e.employment_type)] ?? (e.employment_type as CsvCell),
       e.date_of_joining as CsvCell,
       e.last_working_date as CsvCell,
+      STAGE[e.lifecycle_stage as LifecycleStage] ?? (e.lifecycle_stage as CsvCell),
       e.status as CsvCell,
     ]
     // Blank when not recorded — never 0, which would read as a salary of nothing.
@@ -90,8 +108,10 @@ export const getEmployeeImportTemplate: RequestHandler = async (_req, res) => {
   sendFile(res, {
     filename: 'employee-import-template.csv',
     bytes: csvBytes([
-      ['employee_code', 'full_name', 'email', 'personal_email', 'phone', 'date_of_joining', 'employment_type', 'department', 'designation', 'pan', 'gender'],
-      ['CMS-1001', 'Priya Sharma', 'priya@company.in', null, '9876543210', '01/10/2026', 'full_time', 'Sales', 'Executive', null, 'female'],
+      // confirmed_on: for somebody already working here — left empty, a new joiner.
+      ['employee_code', 'full_name', 'email', 'personal_email', 'phone', 'date_of_joining', 'employment_type', 'department', 'designation', 'pan', 'gender', 'confirmed_on'],
+      ['CMS-1001', 'Priya Sharma', 'priya@company.in', null, '9876543210', '01/10/2026', 'full_time', 'Sales', 'Executive', null, 'female', null],
+      ['CMS-0412', 'Ravi Patil', 'ravi@company.in', null, '9876500000', '06/01/2025', 'full_time', 'Sales', 'Executive', null, 'male', '06/07/2025'],
     ]),
     contentType: CSV,
   })

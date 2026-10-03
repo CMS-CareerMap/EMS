@@ -101,6 +101,10 @@ export default function ImportEmployeesModal({ onClose }) {
                   One row per person. <span className="font-medium">employee_code</span> and <span className="font-medium">full_name</span> are
                   required; the rest is optional. Dates as DD/MM/YYYY or YYYY-MM-DD.
                 </p>
+                <p>
+                  For somebody already working here and past probation, fill <span className="font-medium">confirmed_on</span>.
+                  Left empty, the person starts as a new joiner: onboarding, then probation.
+                </p>
                 {/* Which departments a file may name. Failed, it says so — silence
                     would read as "any department is fine". */}
                 <DataState query={masterData} compact isEmpty={(lists) => !lists.departments?.length} empty={

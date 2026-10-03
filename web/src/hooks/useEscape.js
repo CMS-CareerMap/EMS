@@ -15,6 +15,15 @@ function onKey(event) {
   open[open.length - 1].current()
 }
 
+/**
+ * The same, as something to render: for a drawer or modal that may be mounted
+ * while closed, so the listener is there only while it is open.
+ */
+export function EscapeCloses({ onClose }) {
+  useEscape(onClose)
+  return null
+}
+
 export function useEscape(onClose) {
   const latest = useRef(onClose)
   useEffect(() => {

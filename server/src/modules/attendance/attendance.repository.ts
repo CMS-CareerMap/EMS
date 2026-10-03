@@ -241,6 +241,11 @@ export interface UpsertInput {
   markedByUserId: string
 }
 
+/** Whether this person's day is already recorded — marking it again is correcting it. */
+export async function dayRecorded(db: TxDb, employeeId: string, date: CalendarDate): Promise<boolean> {
+  return (await db.attendance.count({ where: { employeeId, date: toDateColumn(date) } })) > 0
+}
+
 export async function upsertDay(
   db: TxDb,
   organizationId: string,

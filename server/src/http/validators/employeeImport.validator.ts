@@ -22,6 +22,9 @@ export const importRowSchema = z.object({
   phone: z.string().trim().max(20).optional(),
 
   dateOfJoining: z.iso.date().optional(),
+  // Somebody already working here, confirmed on this day (the employee
+  // lifecycle). Left out, the row is a new joiner: onboarding, then probation.
+  confirmedOn: z.iso.date().optional(),
   employmentType: z
     .enum(['full_time', 'part_time', 'contract', 'intern'], {
       message: 'Use one of: full_time, part_time, contract, intern',

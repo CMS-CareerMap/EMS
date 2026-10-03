@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { checkRoleInput, describeChange, keyFor, refuseDelete, refuseEdit, warningsFor } from './roles.policy'
 import { DEFAULT_ROLES } from '../../platform/authz/defaultRoles'
 import { GRANTABLE_PERMISSIONS, PERMISSION_MODULES, missingRequirements, scopesFor } from '../../platform/authz/catalogue'
-import { PERMISSIONS, SUPER_ADMIN_ONLY, type Permission } from '../../platform/authz/permissions'
+import { PERMISSIONS, RETIRED, SUPER_ADMIN_ONLY, type Permission } from '../../platform/authz/permissions'
 import type { RoleNode } from '../../platform/authz/roleOrder'
 
 /**
@@ -26,12 +26,21 @@ describe('the permission catalogue', () => {
     const offered = PERMISSION_MODULES.flatMap((m) => m.permissions.map((p) => p.key))
     expect(new Set(offered).size).toBe(offered.length)
     expect([...offered].sort()).toEqual([...GRANTABLE_PERMISSIONS].sort())
-    expect(PERMISSIONS.filter((p) => !offered.includes(p)).sort()).toEqual([...SUPER_ADMIN_ONLY].sort())
+    expect(PERMISSIONS.filter((p) => !offered.includes(p)).sort()).toEqual([...SUPER_ADMIN_ONLY, ...RETIRED].sort())
+  })
+
+  it('drops a retired permission a role still lists, instead of refusing the save', () => {
+    // HR's starting role lists "attendance:delete", which nothing checks.
+    const r = checkRoleInput(input({ parentKey: 'hr', permissions: ['attendance:read', 'attendance:delete'], scopes: { attendance: 'ORGANIZATION' } }), null, others, order)
+    expect(r.ok).toBe(true)
+    expect(r.ok && r.role.permissions).toEqual(['attendance:read'])
   })
 
   it('never offers a permission nothing checks — “Delete employee records” stays off the screen', () => {
     const offered = PERMISSION_MODULES.flatMap((m) => m.permissions.map((p) => p.key))
     expect(offered).not.toContain('employee:delete')
+    // Nothing deletes attendance either.
+    expect(offered).not.toContain('attendance:delete')
   })
 
   it('offers payslips only their own or the whole company, and every other module every scope', () => {

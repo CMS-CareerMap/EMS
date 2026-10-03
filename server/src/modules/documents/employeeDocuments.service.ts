@@ -194,8 +194,9 @@ export async function upload(ctx: AppContext, input: UploadInput, file: Incoming
       if (own && !input.markVerified) {
         await notify(ctx, tx, {
           event: 'document.submitted',
-          // Only checkers whose document scope reaches this person (Day 21).
-          to: { reaching: { permission: 'document:verify', resource: 'document', employeeId: target } },
+          // Only checkers whose document scope reaches this person (Day 21),
+          // and who may check theirs (Day 22: a checker's own go up the tree).
+          to: { reaching: { permission: 'document:verify', resource: 'document', employeeId: target, work: 'documents' } },
           title: 'A document to check',
           message: `${employee.fullName} uploaded their ${type.label}.`,
           link: `/documents?tab=employees&employee=${target}`,

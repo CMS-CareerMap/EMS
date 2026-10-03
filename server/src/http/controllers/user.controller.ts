@@ -6,6 +6,7 @@ import { issuePasswordLink,
   changeStatus,
   terminateUser,
   addLogin,
+  withdrawInvitation,
 } from '../../modules/user/user.service'
 import {
   inviteUserSchema,
@@ -149,6 +150,21 @@ export const deleteUser: RequestHandler = async (req, res) => {
   const { id } = parseBody(membershipIdSchema, req.params)
 
   await terminateUser(ctx, id)
+
+  res.status(204).end()
+}
+
+/**
+ * POST /api/users/:id/withdraw
+ *
+ * Takes back an invitation nobody has used: the login is deleted, so the
+ * right one can be added in its place.
+ */
+export const postWithdraw: RequestHandler = async (req, res) => {
+  const ctx = appContext(res)
+  const { id } = parseBody(membershipIdSchema, req.params)
+
+  await withdrawInvitation(ctx, id)
 
   res.status(204).end()
 }

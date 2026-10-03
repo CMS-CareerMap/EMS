@@ -1,6 +1,6 @@
 import Papa from 'papaparse'
 import type { AppContext } from '../../platform/context'
-import { BadRequest } from '../../platform/errors/AppError'
+import { BadRequest, Forbidden } from '../../platform/errors/AppError'
 import { withTransaction } from '../../platform/db/transaction'
 import { logger } from '../../platform/logger'
 import { isCalendarDate, parseWallClock, toDateColumn, zonedToday } from '../../domain/shared/dates'
@@ -268,6 +268,14 @@ export async function importAttendance(
     wouldOverwrite = await repo.countExistingDays(
       ctx.db,
       prepared.map((p) => ({ employeeId: p.employee.id, date: toDateColumn(p.date) })),
+    )
+  }
+
+  // Replacing a recorded day is correcting it — its own tick. The preview
+  // says so too: it promises what the import will do.
+  if (wouldOverwrite > 0 && !ctx.can('attendance:update')) {
+    throw Forbidden(
+      `${wouldOverwrite} of these days ${wouldOverwrite === 1 ? 'is' : 'are'} already recorded, and replacing them needs “Correct attendance”, which your role does not have. Leave those days out of the file.`,
     )
   }
 

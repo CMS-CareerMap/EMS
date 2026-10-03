@@ -23,12 +23,12 @@ const KEY = ['users']
  * A login added, turned on or off, given a role, or a person removed: the
  * person's page lists their logins (Day 23), the company tree who can sign
  * in, and the log what happened. Removing somebody archives them, so every
- * list with people in it follows too. Returned, so a dialog waiting on the
+ * list with people in it follows too — and where they stand (client §43). Returned, so a dialog waiting on the
  * change closes with the lists already redrawn.
  */
 function invalidateAccess(queryClient) {
   return Promise.all(
-    [KEY, ['employees'], ['company-tree'], ['audit-log'], ['attendance'], ['leave'], ['dashboard'], ['payroll'], ['salary'], ['documents']]
+    [KEY, ['employees'], ['company-tree'], ['audit-log'], ['attendance'], ['leave'], ['dashboard'], ['payroll'], ['salary'], ['documents'], ['lifecycle']]
       .map((queryKey) => queryClient.invalidateQueries({ queryKey })),
   )
 }
@@ -116,6 +116,22 @@ export function useToggleUserStatus() {
       const status = currentStatus === 'active' ? 'inactive' : 'active'
       const payload = await api.patch(`/users/${user_id}/status`, { status })
       return payload.data
+    },
+    onSuccess: () => invalidateAccess(queryClient),
+  })
+}
+
+/**
+ * Takes back an invitation nobody used — a login added with a mistyped
+ * address. It is deleted, so the right one can be added in its place; a login
+ * somebody has signed in with is turned off instead.
+ */
+export function useWithdrawInvitation() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ user_id }) => {
+      await api.post(`/users/${user_id}/withdraw`, {})
     },
     onSuccess: () => invalidateAccess(queryClient),
   })

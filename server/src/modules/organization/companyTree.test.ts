@@ -153,16 +153,20 @@ describe('moving people', () => {
     expect((await patch('owner', `/api/employees/${emp.owner}`, { reportingManagerId: emp.mgr })).body.error.message).toMatch(/the owner, at the top of the company tree/)
   })
 
-  it('never lets anybody but the Super Admin move a person under themselves, or under anybody below them', async () => {
-    // HR could otherwise take over the leave of anybody it may edit.
+  it('never lets anybody but the Super Admin change who somebody already here reports to', async () => {
+    // HR could otherwise take over anybody's leave: under themselves, under a
+    // new hire whose link they hold, or to the "nobody above" approver by
+    // clearing the line. The company tree is the Super Admin's.
+    const MESSAGE = 'Who somebody reports to is set by the Super Admin, on Settings → Company Tree. Ask the Super Admin to move them.'
     const toSelf = await patch('hrHead', `/api/employees/${emp.agent}`, { reportingManagerId: emp.hrHead })
     expect(toSelf.status).toBe(403)
-    expect(toSelf.body.error.message).toMatch(/would make their leave and their work yours to decide/)
+    expect(toSelf.body.error.message).toBe(MESSAGE)
     expect((await patch('hrHead', `/api/employees/${emp.agent}`, { reportingManagerId: emp.hrExec })).status).toBe(403)
+    expect((await patch('hrHead', `/api/employees/${emp.loose}`, { reportingManagerId: emp.mgr })).status).toBe(403)
+    expect((await patch('hrHead', `/api/employees/${emp.agent}`, { reportingManagerId: null })).status).toBe(403)
     expect((await prisma.employee.findUniqueOrThrow({ where: { id: emp.agent } })).reportingManagerId).toBe(emp.mgr)
-    // Moving somebody elsewhere is still HR's to do.
-    expect((await patch('hrHead', `/api/employees/${emp.loose}`, { reportingManagerId: emp.mgr })).status).toBe(200)
-    expect((await patch('hrHead', `/api/employees/${emp.loose}`, { reportingManagerId: null })).status).toBe(200)
+    // Everything else on the record is still HR's to edit.
+    expect((await patch('hrHead', `/api/employees/${emp.loose}`, { phone: '9876543210' })).status).toBe(200)
   })
 
   it('places somebody with nobody above, and says where in the log', async () => {

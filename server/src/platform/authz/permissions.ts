@@ -27,6 +27,10 @@ export const PERMISSIONS = [
   'employee:create',
   'employee:update',
   'employee:delete',
+  // The employee lifecycle (client §43): completing onboarding, probation and
+  // confirmation, transfers, promotions, resignations handed in for somebody,
+  // and exits. Accepting a resignation needs none: it follows the company tree.
+  'employee:lifecycle:manage',
   'employee:compensation:read',
   'employee:bank:read',
   // Entering a bank account and checking it against the cheque. Held by those
@@ -129,3 +133,14 @@ export const SUPER_ADMIN_ONLY: ReadonlySet<Permission> = new Set<Permission>([
   // screen would be a tick that does nothing, so it stays where it is.
   'employee:delete',
 ])
+
+/**
+ * Permissions nothing checks any more, and that are not offered. Unlike the
+ * Super Admin's own, holding one is no danger, so a role that still lists one
+ * — HR's starting role lists `attendance:delete` — is not refused on save: the
+ * permission is simply dropped.
+ *
+ * `attendance:delete`: nothing deletes attendance — a day is corrected
+ * (`attendance:update`), never removed.
+ */
+export const RETIRED: ReadonlySet<Permission> = new Set<Permission>(['attendance:delete'])

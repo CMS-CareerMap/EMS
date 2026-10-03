@@ -80,8 +80,8 @@ describe('the employee export', () => {
     expect(res.status).toBe(200)
     expect(res.headers['content-disposition']).toMatch(/^attachment; filename="employees-\d{4}-\d{2}-\d{2}\.csv"$/)
     const lines = linesOf(res.body as Buffer)
-    expect(lines[0]).toBe('Full Name,Employee Code,Department,Designation,Phone,Employment Type,Date of Joining,Last Working Day,Status,CTC')
-    expect(lines).toContain('"Rao, ""Ravi""",EX-1,Sales,,,Full time,2025-04-01,,active,480000')
+    expect(lines[0]).toBe('Full Name,Employee Code,Department,Designation,Phone,Employment Type,Date of Joining,Last Working Day,Stage,Status,CTC')
+    expect(lines).toContain('"Rao, ""Ravi""",EX-1,Sales,,,Full time,2025-04-01,,Onboarding,active,480000')
     // The leading apostrophe keeps Excel from running it.
     expect(lines.find((l) => l.includes('EX-2'))).toMatch(/^"'=HYPERLINK\(""http:\/\/evil\.example""\)",EX-2/)
   })
@@ -132,7 +132,9 @@ describe('the attendance export', () => {
 describe('the import template', () => {
   it('has the columns the importer reads', async () => {
     const lines = linesOf((await csv('hr', '/api/employees/import/template')).body as Buffer)
-    expect(lines[0]).toBe('employee_code,full_name,email,personal_email,phone,date_of_joining,employment_type,department,designation,pan,gender')
-    expect(lines).toHaveLength(2)
+    expect(lines[0]).toBe('employee_code,full_name,email,personal_email,phone,date_of_joining,employment_type,department,designation,pan,gender,confirmed_on')
+    // A new joiner, and somebody already working here (confirmed_on filled).
+    expect(lines).toHaveLength(3)
+    expect(lines[2]).toMatch(/,06\/07\/2025$/)
   })
 })

@@ -1,5 +1,5 @@
 import type { AppContext } from '../../platform/context'
-import { BadRequest, Conflict, Forbidden, NotFound } from '../../platform/errors/AppError'
+import { AppError, BadRequest, Conflict, Forbidden, NotFound } from '../../platform/errors/AppError'
 import { withTransaction, type TxDb } from '../../platform/db/transaction'
 import { lockFor } from '../../platform/db/locks'
 import { isUniqueViolation } from '../../platform/db/errors'
@@ -20,6 +20,12 @@ import type { Permission } from '../../platform/authz/permissions'
 import { employeesInScope, isInScope } from '../../platform/authz/scopeWhere'
 import * as employeeRepo from '../employee/employee.repository'
 import { audit } from '../audit/audit.service'
+import { buildTree } from '../../domain/org/companyTree'
+import { treePeople } from '../organization/tree.repository'
+import * as lifecycleRepo from '../lifecycle/lifecycle.repository'
+import { companyToday } from '../organization/organization.service'
+import { addCalendarDays, fromDateColumn, toDateColumn } from '../../domain/shared/dates'
+import { isOpenFrom } from '../payroll/payrollLock.service'
 
 /**
  * The lock every change to roles or to who holds them takes (Day 21), so a
@@ -231,7 +237,7 @@ export async function changeRole(
     })
 
     if (refusal) throw Forbidden(REFUSAL_MESSAGES[refusal])
-    await assertOtherLoginsBelow(tx, actor, order, roles, target)
+    await assertOtherLoginsBelow(tx, ctx, actor, order, roles, target)
     // One login per role per person (Day 23): their other login already holds it.
     if (target.employeeId && newRole !== target.role) {
       const others = await repo.loginsOfPerson(tx, target.employeeId)
@@ -357,7 +363,44 @@ export async function terminateUser(ctx: AppContext, membershipId: string): Prom
     for (const login of logins) await assertMayManage(tx, ctx, login, login.status === 'active', ['user:delete'])
     for (const login of logins) await repo.setStatus(tx, login.id, 'inactive')
     // Somebody removed twice keeps the day they left.
-    if (current.employeeId && !current.employee?.archivedAt) await employeeRepo.archiveEmployee(tx, current.employeeId, new Date())
+    if (current.employeeId && !current.employee?.archivedAt) {
+      // Leaving as the lifecycle's exit leaves (client §43), under the same
+      // lock after the roles lock: a resignation cannot be handed in or
+      // accepted while they are being removed.
+      await lockFor(tx, `lifecycle:${current.employeeId}`)
+      const person = await lifecycleRepo.findPerson(tx, null, current.employeeId)
+      const today = await companyToday(ctx)
+      const joined = fromDateColumn(person?.dateOfJoining ?? null)
+      const before = fromDateColumn(person?.lastWorkingDate ?? null)
+      // Paid up to today — or to a last working day already past. Somebody
+      // who never joined has none.
+      let lastDay = joined && joined > today ? null : before && before < today ? before : today
+      // A month whose payroll is approved keeps what it paid: their last
+      // working day then stays as it was, and the history says why.
+      let payrollClosed = false
+      if (lastDay !== before) {
+        const earlier = [before, lastDay].filter((d): d is string => Boolean(d)).sort()[0]
+        if (earlier && !(await isOpenFrom(ctx, addCalendarDays(earlier, 1)))) {
+          lastDay = before
+          payrollClosed = true
+        }
+      }
+      await lifecycleRepo.updatePerson(tx, current.employeeId, {
+        status: 'inactive',
+        archivedAt: new Date(),
+        lastWorkingDate: lastDay ? toDateColumn(lastDay) : null,
+      })
+      // Their employment history says they left, and a resignation still open is finished with.
+      await lifecycleRepo.completeOpenResignations(tx, current.employeeId, ctx.userId)
+      await lifecycleRepo.addEvent(tx, {
+        organizationId: ctx.organizationId,
+        employeeId: current.employeeId,
+        kind: 'exited',
+        effectiveDate: toDateColumn(lastDay ?? today),
+        details: { via: 'access_removed', loginsClosed: logins.length, lastWorkingDate: lastDay, previousLastWorkingDate: before, ...(payrollClosed ? { payrollClosed } : {}) },
+        createdByUserId: ctx.userId,
+      })
+    }
     await audit(ctx, {
       action: 'user.terminated',
       entityType: 'membership',
@@ -380,6 +423,52 @@ export async function terminateUser(ctx: AppContext, membershipId: string): Prom
     employeeArchived: Boolean(target.employeeId),
     loginsClosed: closed.length,
   })
+}
+
+/**
+ * Closes every login of a person whose exit is being completed (the employee
+ * lifecycle), inside the caller's transaction, under the roles lock the caller
+ * takes. The same rules as removing them: the caller must be allowed to manage
+ * each login — by `user:delete`, or by running the lifecycle — so HR does not
+ * close a Super Admin's or an Accounts head's logins. Returns the users whose
+ * sessions to end once the transaction commits.
+ */
+export async function closeLoginsForExit(tx: TxDb, ctx: AppContext, employeeId: string): Promise<string[]> {
+  const logins = await repo.loginsOfPerson(tx, employeeId)
+  await assertMayCloseLogins(tx, ctx, logins)
+
+  for (const login of logins) {
+    if (login.status !== 'inactive') await repo.setStatus(tx, login.id, 'inactive')
+  }
+  return logins.map((l) => l.userId)
+}
+
+const EXIT_NEEDS: readonly Permission[] = ['user:delete', 'employee:lifecycle:manage']
+
+async function assertMayCloseLogins(db: TxDb, ctx: AppContext, logins: Awaited<ReturnType<typeof repo.loginsOfPerson>>): Promise<void> {
+  for (const login of logins) {
+    await assertMayManage(db, ctx, login, login.status === 'active', EXIT_NEEDS)
+  }
+}
+
+/**
+ * Whether the caller could close every login of this person — what the
+ * "Complete exit" button asks, so it is not offered for somebody whose logins
+ * the exit would then refuse to close.
+ */
+export async function mayCloseLoginsForExit(db: TxDb, ctx: AppContext, employeeId: string): Promise<boolean> {
+  try {
+    await assertMayCloseLogins(db, ctx, await repo.loginsOfPerson(db, employeeId))
+    return true
+  } catch (err) {
+    if (err instanceof AppError && err.status === 403) return false
+    throw err
+  }
+}
+
+/** Ends every session of these users — after the change that closed their logins has committed. */
+export async function endSessionsOf(userIds: readonly string[]): Promise<void> {
+  for (const userId of userIds) await repo.revokeSessions(userId)
 }
 
 export interface AddLoginInput {
@@ -471,7 +560,7 @@ async function assertMayManage(
     activeSuperAdminCount: removingAccess ? await repo.countActiveSuperAdmins(tx) : Number.POSITIVE_INFINITY,
   })
   if (refusal) throw Forbidden(ACCOUNT_REFUSAL_MESSAGES[refusal])
-  await assertOtherLoginsBelow(tx, actor, order, roles, login)
+  await assertOtherLoginsBelow(tx, ctx, actor, order, roles, login)
 }
 
 const OTHER_LOGIN_NOT_BELOW =
@@ -487,6 +576,7 @@ const OTHER_LOGIN_NOT_BELOW =
  */
 async function assertOtherLoginsBelow(
   tx: TxDb,
+  ctx: AppContext,
   actor: PolicyRole,
   order: Awaited<ReturnType<typeof roleRepo.policyRoles>>['order'],
   roles: Map<string, PolicyRole>,
@@ -497,6 +587,12 @@ async function assertOtherLoginsBelow(
     if (other.id === login.id) continue
     const role = roles.get(other.role)
     if (!role || !mayManage(actor, role, order)) throw Forbidden(OTHER_LOGIN_NOT_BELOW)
+  }
+  // The role order is not the company tree: an HR head may sit under a manager
+  // whose role is below HR's. Resetting that manager's password, or switching
+  // their login, is taking over the person who decides the HR head's leave.
+  if (ctx.employeeId && buildTree(await treePeople(tx)).above(ctx.employeeId).includes(login.employeeId)) {
+    throw Forbidden('This person is above you in the company tree, so their logins are not yours to manage. Ask the Super Admin.')
   }
 }
 
@@ -543,6 +639,47 @@ export async function createLoginInTransaction(tx: TxDb, seed: LoginSeed): Promi
   })
 
   return { membershipId, inviteToken: rawToken, expiresAt }
+}
+
+/**
+ * Takes back an invitation nobody has used — a login added with a mistyped
+ * address, or for the wrong person. It is deleted, not switched off: it never
+ * signed anybody in, and leaving it would hold its role, so the right login
+ * could not be added. Once somebody has set a password, a login is switched
+ * off instead, and its history stays.
+ */
+export async function withdrawInvitation(ctx: AppContext, membershipId: string): Promise<void> {
+  const target = await repo.findMembership(ctx.db, membershipId)
+  if (!target) throw NotFound('User not found')
+
+  await withTransaction(ctx.db, async (tx) => {
+    await lockFor(tx, rolesLock(ctx.organizationId))
+    const current = await repo.findMembershipForChange(tx, membershipId)
+    if (!current) throw NotFound('User not found')
+    const { actor, next: targetRole, order, roles } = await rolesForGrant(tx, ctx, current.role, ['user:invite'])
+    await assertTargetInReach(tx, ctx, actor, membershipId)
+    if (!mayManage(actor, targetRole, order)) {
+      throw Forbidden('You can withdraw an invitation only for a role below yours.')
+    }
+    await assertOtherLoginsBelow(tx, ctx, actor, order, roles, current)
+    if (current.status !== 'invited' || (await repo.hasPassword(tx, target.userId))) {
+      throw Conflict('This login has been used, so it cannot be withdrawn. Turn it off instead.')
+    }
+    await repo.deleteUnusedLogin(tx, membershipId, target.userId)
+    await audit(ctx, {
+      action: 'user.invite_withdrawn',
+      entityType: 'membership',
+      entityId: membershipId,
+      details: {
+        email: target.email,
+        role: current.role,
+        roleName: target.roleName,
+        ...(current.employeeId ? { employeeId: current.employeeId } : {}),
+      },
+    }, tx)
+  })
+
+  logger.info('Invitation withdrawn', { by: ctx.userId, membershipId })
 }
 
 export interface PasswordLinkResult {
@@ -594,7 +731,7 @@ export async function issuePasswordLink(
       throw Forbidden('You can issue a link only for people whose role is below yours.')
     }
     // A key to a senior's employee login is a key to the senior (Day 23).
-    await assertOtherLoginsBelow(tx, actor, order, roles, current)
+    await assertOtherLoginsBelow(tx, ctx, actor, order, roles, current)
     // Their status as it stands under the lock, not as first read.
     if (current.status === 'inactive') {
       throw Conflict('This account is deactivated. Reactivate it before issuing a link.')

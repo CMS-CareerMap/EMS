@@ -8,6 +8,7 @@ import { wouldLoop } from '../../platform/authz/roleOrder'
 import { defaultRole } from '../../platform/authz/defaultRoles'
 import { PERMISSION_MODULES, SCOPE_HINTS, SCOPE_LABELS, permissionLabel } from '../../platform/authz/catalogue'
 import { DATA_SCOPES } from '../../platform/authz/scope'
+import { RETIRED, type Permission } from '../../platform/authz/permissions'
 import { audit } from '../audit/audit.service'
 import { mayGive } from '../user/user.policy'
 import { rolesLock } from '../user/user.service'
@@ -65,7 +66,8 @@ function viewOf(row: repo.RoleRecord, order: Map<string, { parentKey: string | n
     ? base.name !== row.name ||
       base.description !== row.description ||
       base.parentKey !== (order.get(row.key)?.parentKey ?? null) ||
-      [...base.permissions].sort().join() !== [...row.permissions].sort().join() ||
+      // Leaving a retired permission behind on a save is no change.
+      [...base.permissions].filter((p) => !RETIRED.has(p)).sort().join() !== [...row.permissions].filter((p) => !RETIRED.has(p as Permission)).sort().join() ||
       Object.entries(baseScopes).some(([r, s]) => scopes[r as keyof typeof scopes] !== s)
     : false
   return {

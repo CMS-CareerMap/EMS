@@ -1,4 +1,4 @@
-import { isPermission, SUPER_ADMIN_ONLY, type Permission } from '../../platform/authz/permissions'
+import { isPermission, RETIRED, SUPER_ADMIN_ONLY, type Permission } from '../../platform/authz/permissions'
 import { isDataScope, SCOPED_RESOURCES, type DataScope, type ScopedResource } from '../../platform/authz/scope'
 import { missingRequirements, permissionLabel, RESOURCE_LABELS, SCOPE_LABELS, scopesFor } from '../../platform/authz/catalogue'
 import { wouldLoop, type RoleNode } from '../../platform/authz/roleOrder'
@@ -72,6 +72,8 @@ export function checkRoleInput(
   const permissions: Permission[] = []
   for (const raw of input.permissions) {
     if (!isPermission(raw)) return { ok: false, message: 'One of the ticked permissions is not one EMS knows. Reload the page and try again.' }
+    // One nothing checks any more: dropped, not refused — a role that still lists it saves.
+    if (RETIRED.has(raw)) continue
     if (SUPER_ADMIN_ONLY.has(raw)) return { ok: false, message: `“${permissionLabel(raw)}” stays with the Super Admin and cannot be given to another role.` }
     if (!permissions.includes(raw)) permissions.push(raw)
   }

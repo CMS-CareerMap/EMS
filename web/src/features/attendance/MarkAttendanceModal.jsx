@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { X, MapPin, Navigation, AlertTriangle, CheckCircle2, LocateFixed, Loader2, ShieldAlert, ShieldCheck } from 'lucide-react'
+import { EscapeCloses } from '../../hooks/useEscape'
 
 /**
  * What HR may record by hand. Late and WFH were here and are not statuses the
@@ -72,8 +73,10 @@ export default function MarkAttendanceModal({ open, onClose, employee, onSave })
   const initials = employee.full_name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-slate-100">
+    // Scrolls when taller than a phone's screen, rather than cutting off its buttons.
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-black/50 p-4 overflow-y-auto">
+      <EscapeCloses onClose={onClose} />
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-slate-100 my-4">
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-slate-50">

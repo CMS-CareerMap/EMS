@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { postPasswordLink,
+  postWithdraw,
   getUsers,
   postInvite,
   putRole,
@@ -33,6 +34,8 @@ userRouter.use(authenticate)
 userRouter.get('/', authorize(['user:invite', 'membership:role:assign', 'user:status:update', 'user:delete']), getUsers)
 userRouter.post('/invite', authorize('user:invite'), postInvite)
 userRouter.post('/:id/password-link', authorize('user:invite'), postPasswordLink)
+// An invitation nobody used, taken back — a mistyped address (Day 23 wrap-up).
+userRouter.post('/:id/withdraw', authorize('user:invite'), postWithdraw)
 userRouter.put('/:id/role', authorize('membership:role:assign'), putRole)
 userRouter.patch('/:id/status', authorize('user:status:update'), patchStatus)
 userRouter.delete('/:id', authorize('user:delete'), deleteUser)

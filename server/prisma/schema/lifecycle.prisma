@@ -1,0 +1,102 @@
+/// The employee lifecycle (client §43): joining, onboarding, probation,
+/// confirmation, transfers, promotions, resignation, notice and exit.
+///
+/// Where a person stands is worked out from Employee's dates and their open
+/// resignation (domain/org/lifecycle.ts) — never stored twice. What happened,
+/// and when, is the employment history below.
+
+/// Why somebody left.
+enum ExitReason {
+  resigned
+  terminated
+  retired
+  contract_ended
+  absconded
+  other
+}
+
+/// A step in somebody's employment history.
+enum EmploymentEventKind {
+  onboarding_completed
+  probation_extended
+  confirmed
+  transferred
+  promoted
+  resignation_submitted
+  resignation_accepted
+  resignation_withdrawn
+  resignation_cancelled
+  exited
+}
+
+/// One step of a person's employment, for their history — shown to them and
+/// to whoever runs the lifecycle. The audit log keeps the security record of
+/// the same act; this is the HR record.
+model EmploymentEvent {
+  id             String @id @default(uuid())
+  organizationId String
+  employeeId     String
+
+  kind          EmploymentEventKind
+  /// The day it took effect — a transfer from the 1st is the 1st, whenever it was entered.
+  effectiveDate DateTime            @db.Date
+  /// What changed, by name as it read then: { fromDepartment, toDepartment }, …
+  details       Json                @default("{}")
+  note          String?
+
+  createdByUserId String?
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, employeeId, effectiveDate])
+}
+
+enum ResignationStatus {
+  /// Handed in, waiting for the person they report to.
+  submitted
+  /// Accepted, with a last working day: they are serving notice.
+  accepted
+  /// Taken back by the person before it was accepted.
+  withdrawn
+  /// Called off after all — they are staying.
+  cancelled
+  /// They left: their exit is complete.
+  completed
+}
+
+/// A resignation, from handing it in to leaving. At most one is open
+/// (submitted or accepted) per person — checked under a lock, as the database
+/// cannot say "unique among open ones" through Prisma.
+model Resignation {
+  id             String @id @default(uuid())
+  organizationId String
+  employeeId     String
+
+  status           ResignationStatus @default(submitted)
+  reason           String
+  submittedOn      DateTime          @db.Date
+  /// The last day they asked for — the notice period from when they handed it in, unless they asked otherwise.
+  requestedLastDay DateTime          @db.Date
+  /// The last day agreed when it was accepted. Also written to Employee.lastWorkingDate, which payroll reads.
+  lastWorkingDay   DateTime?         @db.Date
+
+  /// Who handed it in: the person, or HR for them.
+  submittedByUserId String
+  decidedByUserId   String?
+  decidedAt         DateTime? @db.Timestamptz(3)
+  decisionNote      String?
+  closedByUserId    String?
+  closedAt          DateTime? @db.Timestamptz(3)
+  closeNote         String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, employeeId])
+  @@index([organizationId, status])
+}

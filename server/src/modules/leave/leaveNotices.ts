@@ -4,6 +4,7 @@ import { dayLabel, fromDateColumn } from '../../domain/shared/dates'
 import { notify } from '../notifications/notify.service'
 import * as repo from './leave.repository'
 import { approverUsers } from './leaveApprover.service'
+import * as lifecycleRepo from '../lifecycle/lifecycle.repository'
 
 /**
  * What leave tells whom — written inside each decision's own transaction.
@@ -22,6 +23,39 @@ function rangeOf(from: Date, to: Date): string {
 function daysOf(days: unknown): string {
   const n = Number(days)
   return `${n} ${n === 1 ? 'day' : 'days'}`
+}
+
+/**
+ * Somebody with requests waiting was moved in the company tree: the person who
+ * decides them now is told, as if the requests had just arrived. Without this
+ * the only notice went to the old manager, whose Team Requests no longer show them.
+ * A resignation waiting for acceptance (client §43) is decided the same way, so
+ * its new decider is told too — whichever screen made the move.
+ */
+export async function tellNewApprovers(ctx: AppContext, tx: TxDb, employeeId: string) {
+  const resignation = await lifecycleRepo.submittedResignationOf(tx, employeeId)
+  if (resignation) {
+    await notify(ctx, tx, {
+      event: 'employment.resignation_submitted',
+      to: { users: await approverUsers(tx, ctx.organizationId, employeeId) },
+      title: 'A resignation',
+      message: `After a change in the company tree, ${resignation.employee.fullName}'s resignation is yours to accept.`,
+      link: '/dashboard',
+      entity: { type: 'employee', id: employeeId },
+    })
+  }
+  for (const id of await repo.pendingIdsOf(tx, employeeId)) {
+    const r = await repo.requestFacts(tx, id)
+    if (!r) continue
+    await notify(ctx, tx, {
+      event: 'leave.submitted',
+      to: { users: await approverUsers(tx, ctx.organizationId, r.employeeId) },
+      title: 'Leave request to approve',
+      message: `After a change in the company tree, ${r.employee.fullName}'s waiting request is yours to decide: ${daysOf(r.days)} of ${r.leaveType.name}, ${rangeOf(r.fromDate, r.toDate)}.`,
+      link: '/leave?tab=decide',
+      entity: { type: 'leave_request', id: r.id },
+    })
+  }
 }
 
 export async function tellApprovers(ctx: AppContext, tx: TxDb, requestId: string, event: 'leave.submitted' | 'leave.withdrawn') {
