@@ -76,6 +76,16 @@ export const policySchema = z
     pfRestrictToCeiling: z.boolean().optional(),
     pfWageCeiling: money.optional(),
     epsWageCeiling: money.optional(),
+    // The Labour Codes' wages rule. One half unless the government notifies
+    // another share; never none, never more than the whole pay.
+    wagesShareEnabled: z.boolean().optional(),
+    wagesSharePercent: z
+      .number()
+      .min(1, 'At least 1%')
+      .max(100, 'At most 100%')
+      // The column keeps two decimal places; a third would be rounded away unseen.
+      .refine((v) => Number(v.toFixed(2)) === v, 'At most two decimal places, such as 50 or 33.33')
+      .optional(),
 
     esiEmployeeRate: rate.optional(),
     esiEmployerRate: rate.optional(),
@@ -183,3 +193,6 @@ export const ptTableSchema = z
       .max(40),
   })
   .strict()
+
+/** Whether an earning component counts as PF wages. */
+export const pfComponentSchema = z.object({ countsForPf: z.boolean() }).strict()

@@ -255,6 +255,9 @@ function identity(employee: EmployeeRow) {
     // Null means nobody has asked. Kept distinct from false, because payroll
     // treats "unknown" as a warning and "no" as an answer.
     has_prior_pf_membership: record?.hasPriorPfMembership ?? null,
+    // A member of the pension scheme as recorded from their PF record; null is
+    // "payroll works it out from what they joined on".
+    eps_member: record?.epsMember ?? null,
   }
 }
 

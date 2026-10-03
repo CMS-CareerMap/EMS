@@ -113,6 +113,8 @@ export const postCalculate: RequestHandler = async (req, res) => {
       eps_member: calc.basis.epsMember,
       pt_state: calc.basis.ptState,
       pt_gender: calc.basis.ptGender,
+      // Set when the Labour Codes' wages rule raised PF wages.
+      wages_share: r.wagesShare ? { percent: r.wagesShare.percent, wages: r.wagesShare.wages, raised_to: r.wagesShare.raisedTo } : null,
     },
 
     // Not an error list. Each is a fact the calculation had to assume around,

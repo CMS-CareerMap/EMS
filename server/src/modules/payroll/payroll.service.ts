@@ -4,6 +4,7 @@ import {
   computeSalary,
   daysInMonth,
   employmentWindow,
+  withWagesShare,
   type SalaryResult,
   type SalaryComponentValue,
 } from '../../domain/payroll/salary'
@@ -96,6 +97,9 @@ export interface Calculation {
       pfRestrictToCeiling: boolean
       pfWageCeiling: number
       epsWageCeiling: number
+      /** The Labour Codes' wages rule: on or off, and the share. */
+      wagesShareEnabled: boolean
+      wagesSharePercent: number
       esiEmployeeRate: number
       esiEmployerRate: number
       esiThreshold: number
@@ -136,6 +140,23 @@ function pfWagesOf(
         row.component.countsForPf,
     )
     .reduce((sum, row) => sum + Number(row.amount), 0)
+}
+
+/**
+ * The PF wages somebody joined on, for EPS membership — with the Labour Codes'
+ * wages rule applied when it was on the day they joined. The policy of the
+ * joining day, not this month's: a later switch never moves a member out.
+ */
+function wagesAtJoining(
+  financial: Awaited<ReturnType<typeof repo.findFirstFinancial>>,
+  policyAtJoining: { wagesShareEnabled: boolean; wagesSharePercent: unknown } | null,
+): number {
+  const wages = pfWagesOf(financial)
+  if (!financial || !policyAtJoining?.wagesShareEnabled) return wages
+  const gross = financial.components
+    .filter((row) => row.component.type === 'earning' && row.component.entry === 'fixed')
+    .reduce((sum, row) => sum + Number(row.amount), 0)
+  return withWagesShare(wages, gross, Number(policyAtJoining.wagesSharePercent))
 }
 
 export async function calculate(
@@ -318,17 +339,26 @@ export async function calculate(
 
   const pfApplicable = identity?.pfApplicable ?? true
 
-  const first = await repo.findFirstFinancial(ctx.db, employeeId)
-  const epsMember = isEpsMember({
+  const [first, policyAtJoining] = await Promise.all([
+    repo.findFirstFinancial(ctx.db, employeeId),
+    employee.dateOfJoining ? repo.findPolicyOn(ctx.db, employee.dateOfJoining) : Promise.resolve(null),
+  ])
+  // Recorded on their record from their PF record, it stands — whatever
+  // later changes what counts as PF wages or the pension ceiling. Left blank,
+  // payroll works it out from what they joined on.
+  const recorded = identity?.epsMember ?? null
+  const epsMember = recorded ?? isEpsMember({
     dateOfJoining: employee.dateOfJoining ? fromDateColumn(employee.dateOfJoining) : null,
-    pfWagesAtJoining: pfWagesOf(first),
+    pfWagesAtJoining: wagesAtJoining(first, policyAtJoining),
     hasPriorMembership: identity?.hasPriorPfMembership ?? false,
     epsWageCeiling: Number(policy.epsWageCeiling),
   })
 
-  if (pfApplicable && identity?.hasPriorPfMembership == null && !epsMember) {
+  if (pfApplicable && recorded === null && !epsMember) {
     warnings.push(
-      'Excluded from EPS as a new PF member above the wage ceiling. Confirm they were never a member before — if they were, they belong in EPS.',
+      'Excluded from EPS: worked out as a new PF member above the pension ceiling when they joined. ' +
+        (identity?.hasPriorPfMembership == null ? 'Confirm they were never a member before — if they were, they belong in EPS. ' : '') +
+        'If their PF record says they are an EPS member, record it on their record under Statutory Details.',
     )
   }
 
@@ -349,6 +379,7 @@ export async function calculate(
       wageCeiling: Number(policy.pfWageCeiling),
       epsWageCeiling: Number(policy.epsWageCeiling),
       epsMember,
+      wagesShare: policy.wagesShareEnabled ? Number(policy.wagesSharePercent) : null,
     },
     esi: {
       covered: esi.covered,
@@ -387,6 +418,8 @@ export async function calculate(
         pfRestrictToCeiling: policy.pfRestrictToCeiling,
         pfWageCeiling: Number(policy.pfWageCeiling),
         epsWageCeiling: Number(policy.epsWageCeiling),
+        wagesShareEnabled: policy.wagesShareEnabled,
+        wagesSharePercent: Number(policy.wagesSharePercent),
         esiEmployeeRate: Number(policy.esiEmployeeRate),
         esiEmployerRate: Number(policy.esiEmployerRate),
         esiThreshold: Number(policy.esiThreshold),

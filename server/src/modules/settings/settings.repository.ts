@@ -206,3 +206,24 @@ export async function findLeaveTypesLike(db: ScopedDb, code: string | undefined,
   if (or.length === 0) return []
   return db.leaveType.findMany({ where: { OR: or } })
 }
+
+// ── What counts as PF wages ─────────────────────────────────────────────────
+
+const pfComponentSelect = { id: true, code: true, label: true, type: true, entry: true, countsForPf: true, displayOrder: true } as const
+
+/** Every earning component the company uses — the ones PF wages may be made of. */
+export async function listEarningComponents(db: ScopedDb) {
+  return db.salaryComponent.findMany({
+    where: { type: 'earning', archivedAt: null },
+    select: pfComponentSelect,
+    orderBy: { displayOrder: 'asc' },
+  })
+}
+
+export async function findSalaryComponent(db: TxDb, id: string) {
+  return db.salaryComponent.findFirst({ where: { id, archivedAt: null }, select: pfComponentSelect })
+}
+
+export async function setCountsForPf(tx: TxDb, id: string, countsForPf: boolean): Promise<void> {
+  await tx.salaryComponent.update({ where: { id }, data: { countsForPf } })
+}

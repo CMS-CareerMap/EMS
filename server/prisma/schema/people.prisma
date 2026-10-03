@@ -273,6 +273,14 @@ model EmployeeStatutoryIdentity {
   /// invisible on the payslip and wrong on every return until someone asks.
   hasPriorPfMembership Boolean?
 
+  /// Is this person a member of the pension scheme (EPS), as their PF record
+  /// with EPFO has it? Recorded by HR from that record. NULL: payroll works it
+  /// out from what they joined on (statutory.isEpsMember). Recorded, it holds
+  /// whatever later changes what counts as PF wages, the pension ceiling, or
+  /// the Labour Codes' wages rule — membership is a fact about the person, not
+  /// a figure to recompute every month.
+  epsMember Boolean?
+
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 

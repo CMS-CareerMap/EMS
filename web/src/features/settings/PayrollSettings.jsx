@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
 import { Plus, Trash2, Edit2, X, History, Info } from 'lucide-react'
 import {
-  usePayrollSettings, useSavePayroll, usePayrollHistory, usePtSlabs, useSetPtTable,
+  usePayrollSettings, useSavePayroll, usePayrollHistory, usePtSlabs, useSetPtTable, usePfComponents, useSetPfComponent,
 } from '../../hooks/useSettings'
+import { toast } from 'sonner'
 import { useAuthStore } from '../../stores/authStore'
 import { calendarDayIn, addDays } from '../../lib/dates'
 import DataState from '../../components/DataState'
@@ -30,6 +31,8 @@ const FIELDS = [
   ['pf_restrict_to_ceiling', 'pfRestrictToCeiling'],
   ['pf_wage_ceiling', 'pfWageCeiling'],
   ['eps_wage_ceiling', 'epsWageCeiling'],
+  ['wages_share_enabled', 'wagesShareEnabled'],
+  ['wages_share_percent', 'wagesSharePercent'],
   ['esi_employee', 'esiEmployeeRate'],
   ['esi_employer', 'esiEmployerRate'],
   ['esi_threshold', 'esiThreshold'],
@@ -64,7 +67,7 @@ const LOP_BASES = [
 
 /** A form value as the server wants it: numbers as numbers, blank as null. */
 function asValue(key, value) {
-  if (key === 'pf_restrict_to_ceiling' || key === 'sandwich_rule' || key === 'tds_enabled') return Boolean(value)
+  if (key === 'pf_restrict_to_ceiling' || key === 'sandwich_rule' || key === 'tds_enabled' || key === 'wages_share_enabled') return Boolean(value)
   if (key === 'lop_basis') return value || null
   if (value === '' || value == null) return null
   return Number(value)
@@ -83,6 +86,8 @@ export default function PayrollSettings() {
       <DataState query={settings} loading="Loading payroll settings…">
         {(policy) => <PolicyForm policy={policy} history={history} canEdit={canEdit} />}
       </DataState>
+
+      <PfComponents canEdit={canEdit} />
 
       <PtTables canEdit={canEdit} />
     </div>
@@ -145,7 +150,7 @@ function PolicyForm({ policy, history, canEdit }) {
             {(periods) => periods.map((p) => (
             <div key={p.id} className="px-4 py-2.5 flex items-center justify-between text-sm">
               <span className="font-medium text-gray-800">{formatDay(p.effective_from)} — {p.effective_to ? formatDay(p.effective_to) : 'now'}</span>
-              <span className="text-xs text-gray-500">PF {p.pf_employee}% / {p.pf_employer}% · ESI {p.esi_employee}% / {p.esi_employer}% up to ₹{Number(p.esi_threshold).toLocaleString('en-IN')} · pay day {p.pay_day}</span>
+              <span className="text-xs text-gray-500">PF {p.pf_employee}% / {p.pf_employer}% · ESI {p.esi_employee}% / {p.esi_employer}% up to ₹{Number(p.esi_threshold).toLocaleString('en-IN')} · pay day {p.pay_day} · wages rule {p.wages_share_enabled ? `${p.wages_share_percent}%` : 'off'}</span>
             </div>
             ))}
           </DataState>
@@ -167,6 +172,15 @@ function PolicyForm({ policy, history, canEdit }) {
         </Field>
         <Field label="Pension (EPS) Ceiling" hint="The employer's pension share is 8.33% of PF wages up to this — ₹1,250 a month at ₹15,000, ₹2,083 at ₹25,000. The rest of the employer's share goes to EPF. Confirm the figure with your accountant.">
           <MoneyInput value={form.eps_wage_ceiling} onChange={(v) => set('eps_wage_ceiling', v)} disabled={!canEdit} />
+        </Field>
+      </Section>
+
+      <Section title="Labour Codes: Wages Rule" desc="Under the Code on Wages, what is left out of wages (HRA, conveyance, commission and the like) may not be more than a set share of the whole pay; the excess counts as wages. On, PF wages are at least that share of what each person earned in the month. Confirm with your accountant before turning it on.">
+        <Field label="Apply the Wages Rule" hint="Off: PF is worked out on the components marked as counting for PF, as before. Saved after the 1st, a change applies from the next month’s payroll: each month is worked out on the rules in force on its first day (a joiner’s, on their first day).">
+          <Toggle checked={Boolean(form.wages_share_enabled)} onChange={(v) => set('wages_share_enabled', v)} disabled={!canEdit} label="Apply the Labour Codes wages rule" />
+        </Field>
+        <Field label="Minimum Share of Wages" hint={`One half by law, unless the government notifies another share. At ${form.wages_share_percent || 50}%, somebody earning ₹30,000 with a Basic of ₹10,000 pays PF on ₹${Math.max(10000, Math.round(30000 * (Number(form.wages_share_percent) || 50) / 100)).toLocaleString('en-IN')}.`}>
+          <PercentInput value={form.wages_share_percent} step="1" min="1" onChange={(v) => set('wages_share_percent', v)} disabled={!canEdit} label="Minimum share of wages in percent" />
         </Field>
       </Section>
 
@@ -223,11 +237,49 @@ function PolicyForm({ policy, history, canEdit }) {
   )
 }
 
-function PercentInput({ value, onChange, disabled, step = '0.01' }) {
+/**
+ * Which earnings PF is worked out on. Each switch saves on its own, as the
+ * document checklist's do: it is one decision, not part of the rates form.
+ */
+function PfComponents({ canEdit }) {
+  const components = usePfComponents()
+  const setPf = useSetPfComponent()
+
+  async function change(component, countsForPf) {
+    const ok = await setPf.mutateAsync({ id: component.id, countsForPf }).then(() => true, () => false)
+    if (ok) toast.success(`${component.label} ${countsForPf ? 'now counts' : 'no longer counts'} as PF wages. Recalculate any draft payroll.`)
+  }
+
+  return (
+    <Section title="What Counts as PF Wages" desc="The earnings PF is worked out on: Basic and DA to start. Under the Labour Codes an allowance paid to everybody, such as Special Allowance, may count too. By law HRA and conveyance are not wages. Ask your accountant. A payroll calculated after a change follows it — recalculate any draft — and a month past draft keeps what it was paid on. Pension (EPS) membership recorded on an employee's record does not change with it.">
+      <DataState query={components} compact>
+        {(rows) => (
+          <div className="divide-y divide-gray-100">
+            {rows.map((c) => (
+              <div key={c.id} className="flex items-center justify-between gap-3 py-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-800">{c.label}</p>
+                  <p className="text-xs text-gray-400">{c.entry === 'monthly' ? 'Entered each month' : 'On the salary'}</p>
+                </div>
+                <label className="flex items-center gap-2 text-xs text-gray-600 shrink-0">
+                  <Toggle checked={c.counts_for_pf} disabled={!canEdit || setPf.isPending} onChange={(v) => change(c, v)} label={`${c.label} counts as PF wages`} />
+                  PF wages
+                </label>
+              </div>
+            ))}
+            {!canEdit && <p className="py-3 text-xs text-gray-500">Set by the Super Admin.</p>}
+          </div>
+        )}
+      </DataState>
+    </Section>
+  )
+}
+
+function PercentInput({ value, onChange, disabled, step = '0.01', min = '0', label }) {
   return (
     <div className="flex items-center gap-2">
-      <input type="number" min="0" max="100" step={step} className={`${inpSm} w-28`} value={value ?? ''}
-        onChange={(e) => onChange(e.target.value)} disabled={disabled} />
+      <input type="number" min={min} max="100" step={step} className={`${inpSm} w-28`} value={value ?? ''}
+        onChange={(e) => onChange(e.target.value)} disabled={disabled} aria-label={label} />
       <span className="text-sm text-gray-500">%</span>
     </div>
   )

@@ -28,7 +28,7 @@ export async function findEmployee(db: ScopedDb, employeeId: string) {
       lastWorkingDate: true,
       gender: true,
       statutoryIdentity: {
-        select: { ptState: true, pfApplicable: true, hasPriorPfMembership: true },
+        select: { ptState: true, pfApplicable: true, hasPriorPfMembership: true, epsMember: true },
       },
     },
   })

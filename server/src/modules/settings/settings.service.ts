@@ -85,6 +85,8 @@ export interface PolicyInput {
   pfRestrictToCeiling?: boolean | undefined
   pfWageCeiling?: number | undefined
   epsWageCeiling?: number | undefined
+  wagesShareEnabled?: boolean | undefined
+  wagesSharePercent?: number | undefined
   esiEmployeeRate?: number | undefined
   esiEmployerRate?: number | undefined
   esiThreshold?: number | undefined
@@ -204,6 +206,8 @@ export async function updatePolicy(ctx: AppContext, input: PolicyInput) {
       pfRestrictToCeiling: current.pfRestrictToCeiling,
       pfWageCeiling: current.pfWageCeiling,
       epsWageCeiling: current.epsWageCeiling,
+      wagesShareEnabled: current.wagesShareEnabled,
+      wagesSharePercent: current.wagesSharePercent,
       esiEmployeeRate: current.esiEmployeeRate,
       esiEmployerRate: current.esiEmployerRate,
       esiThreshold: current.esiThreshold,
@@ -400,3 +404,37 @@ export async function listPtSlabs(ctx: AppContext, state?: string) {
   return repo.listPtSlabs(ctx.db, state)
 }
 
+
+// ── What counts as PF wages ─────────────────────────────────────────────────
+
+/** The earning components, each with whether it counts as PF wages. */
+export async function listPfComponents(ctx: AppContext) {
+  return repo.listEarningComponents(ctx.db)
+}
+
+/**
+ * Whether an earning counts as PF wages — Basic and DA to start; the
+ * accountant may add, say, Special Allowance. The Super Admin's, as every
+ * payroll rule is. A payroll calculated or recalculated afterwards follows it;
+ * a month past draft keeps what it was paid on, and somebody already paid
+ * keeps their EPS membership (payroll.service).
+ */
+export async function setCountsForPf(ctx: AppContext, id: string, countsForPf: boolean) {
+  await withTransaction(ctx.db, async (tx) => {
+    // One change to the payroll rules at a time, as with the rates.
+    await lockFor(tx, `policy:${ctx.organizationId}`)
+    const component = await repo.findSalaryComponent(tx, id)
+    if (!component) throw NotFound('Salary component not found')
+    if (component.type !== 'earning') throw BadRequest(`${component.label} is a deduction, so it cannot be PF wages.`)
+    if (component.countsForPf === countsForPf) return
+    await repo.setCountsForPf(tx, id, countsForPf)
+    await audit(ctx, {
+      action: 'salary_component.pf_changed',
+      entityType: 'salary_component',
+      entityId: id,
+      details: { code: component.code, label: component.label, countsForPf },
+    }, tx)
+  })
+  logger.info('PF wages components changed', { by: ctx.userId, componentId: id, countsForPf })
+  return listPfComponents(ctx)
+}

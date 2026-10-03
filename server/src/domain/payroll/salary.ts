@@ -81,6 +81,11 @@ export interface SalaryInput {
     /** The pension scheme's ceiling, which need not be the PF ceiling. */
     epsWageCeiling: number
     epsMember: boolean
+    /**
+     * The Labour Codes' wages rule, as a percent — PF wages are at least this
+     * share of what was earned — or null when the company has it off.
+     */
+    wagesShare?: number | null
   }
 
   esi: {
@@ -108,6 +113,11 @@ export interface SalaryResult {
   grossEarnings: number
   /** What PF was calculated on, after proration and any ceiling. */
   pfWages: number
+  /**
+   * Set when the wages rule raised PF wages: the share applied, the wages the
+   * components came to, and what they were raised to (before any ceiling).
+   */
+  wagesShare: { percent: number; wages: number; raisedTo: number } | null
 
   employeePf: number
   employeeEsi: number
@@ -148,6 +158,19 @@ function prorate(amount: number, paidDays: number, daysInMonth: number): number 
   return paise((amount * paidDays) / daysInMonth)
 }
 
+/**
+ * PF wages under the Labour Codes' wages rule (Code on Wages 2019, s.2(y)):
+ * whatever the left-out allowances come to beyond a share of the whole pay
+ * counts as wages — one half, unless another share is notified. In effect the
+ * wages are never less than that share of the gross. `percent` null: the rule
+ * is off. Compared in whole rupees, so a paisa of proration never triggers it.
+ */
+export function withWagesShare(wages: number, gross: number, percent: number | null): number {
+  if (!percent) return wages
+  const floor = paise((gross * percent) / 100)
+  return Math.round(floor) > Math.round(wages) ? floor : wages
+}
+
 export function computeSalary(input: SalaryInput): SalaryResult {
   const paidDays = Math.max(0, Math.min(input.paidDays, input.daysInMonth))
   const units = input.proration ?? { payable: paidDays, basis: input.daysInMonth }
@@ -177,9 +200,13 @@ export function computeSalary(input: SalaryInput): SalaryResult {
     }
   }
 
+  // The Labour Codes' wages rule — prorated, since the gross is.
+  const share = input.pf.applicable ? (input.pf.wagesShare ?? null) : null
+  const pfWagesDue = withWagesShare(pfWagesFull, grossEarnings, share)
+
   const pf = input.pf.applicable
     ? computePf({
-        pfWages: pfWagesFull,
+        pfWages: pfWagesDue,
         employeeRate: input.pf.employeeRate,
         employerRate: input.pf.employerRate,
         restrictToCeiling: input.pf.restrictToCeiling,
@@ -188,6 +215,13 @@ export function computeSalary(input: SalaryInput): SalaryResult {
         epsMember: input.pf.epsMember,
       })
     : { pfWages: 0, employee: 0, employerTotal: 0, employerEps: 0, employerEpf: 0 }
+
+  // Recorded only where the rule changed what PF was worked out on — not a
+  // raise the wage ceiling then took back in full.
+  const withoutRule = input.pf.restrictToCeiling ? Math.min(pfWagesFull, input.pf.wageCeiling) : pfWagesFull
+  const wagesShare = share && pfWagesDue > pfWagesFull && pf.pfWages > withoutRule
+    ? { percent: share, wages: pfWagesFull, raisedTo: pfWagesDue }
+    : null
 
   const esi = computeEsi({
     grossPaid: grossEarnings,
@@ -228,6 +262,7 @@ export function computeSalary(input: SalaryInput): SalaryResult {
 
     grossEarnings,
     pfWages: pf.pfWages,
+    wagesShare,
 
     employeePf: pf.employee,
     employeeEsi: esi.employee,

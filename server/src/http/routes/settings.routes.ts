@@ -5,6 +5,8 @@ import {
   getPolicy,
   putPolicy,
   getPolicyHistory,
+  getPfComponents,
+  patchPfComponent,
   getGeofences,
   putGeofence,
   deleteGeofence,
@@ -40,6 +42,9 @@ settingsRouter.put('/company', authorize('settings:update'), putCompany)
 settingsRouter.get('/payroll', authorize('settings:read'), getPolicy)
 settingsRouter.put('/payroll', authorize('settings:update'), putPolicy)
 settingsRouter.get('/payroll/history', authorize('settings:read'), getPolicyHistory)
+// Which earnings are PF wages: Basic and DA to start, the accountant's to widen.
+settingsRouter.get('/pf-components', authorize('settings:read'), getPfComponents)
+settingsRouter.patch('/pf-components/:id', authorize('settings:update'), patchPfComponent)
 
 settingsRouter.get('/geofence', authorize('settings:read'), getGeofences)
 settingsRouter.put('/geofence', authorize('settings:update'), putGeofence)

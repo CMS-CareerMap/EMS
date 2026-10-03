@@ -240,6 +240,8 @@ export default function EmployeeDrawer({ employee, onClose, onEdit }) {
                   value={employee.pf_applicable === false ? 'Does not apply'
                     : employee.has_prior_pf_membership == null ? 'Applies · prior membership not asked'
                     : employee.has_prior_pf_membership ? 'Applies · was a member before' : 'Applies · first PF membership'} />
+                <InfoRow icon={BadgeCheck} label="Pension (EPS)"
+                  value={employee.eps_member == null ? 'Worked out by payroll from the joining salary' : employee.eps_member ? 'Member' : 'Not a member'} />
               </Section>
             )}
 
