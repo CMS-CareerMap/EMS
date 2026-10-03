@@ -92,6 +92,14 @@ export default function PayslipModal({ runId, payslipId, runStatus, onClose }) {
                 Paid on {days(slip.payable_days)} of {slip.pay_basis_days} days ({LOP_BASIS[slip.lop_basis] ?? slip.lop_basis})
                 {slip.basis?.tdsEnabled === false ? ' · no income tax deducted through payroll' : ''}
               </p>
+              {/* The Labour Codes' wages rule raised PF wages: said, so the PF line is explained. */}
+              {slip.basis?.wagesShare && (
+                <p>
+                  {/* What PF was worked out on — after the wage ceiling, which may have stopped the raise short. */}
+                  PF wages {m(slip.pf_wages)}: raised from {m(slip.basis.wagesShare.wages)} to {slip.basis.wagesShare.percent}% of gross earned
+                  {slip.pf_wages < slip.basis.wagesShare.raisedTo ? ` (${m(slip.basis.wagesShare.raisedTo)}), up to the wage ceiling` : ''}, under the Labour Codes wages rule.
+                </p>
+              )}
             </div>
 
             {slip.warnings.length > 0 && (

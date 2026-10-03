@@ -622,6 +622,81 @@ describe('a month of payroll', () => {
     ).toBe(1)
   })
 
+  it('works PF out on the Labour Codes share of the pay, once the company turns the rule on', async () => {
+    // The recalculation above made new payslips.
+    run = (await api(org).get(`/api/payroll-runs/${run.id}`)).body.data
+    const slip = () => payslipOf(run, who.standard!)!
+    const detail = async () => (await api(org).get(`/api/payroll-runs/${run.id}/payslips/${slip().id}`)).body.data
+    const before = await detail()
+    expect(before.basis.wagesShare).toBeNull()
+
+    // All of the pay, on no ceiling, so the change shows in the PF line itself.
+    const policy = await prisma.organizationPolicy.findFirstOrThrow({ where: { organizationId: org.id, effectiveTo: null } })
+    await prisma.organizationPolicy.update({ where: { id: policy.id }, data: { wagesShareEnabled: true, wagesSharePercent: 100, pfRestrictToCeiling: false } })
+    expect((await api(org).post(`/api/payroll-runs/${run.id}/recalculate`)).status).toBe(200)
+    run = (await api(org).get(`/api/payroll-runs/${run.id}`)).body.data
+    const after = await detail()
+    expect(after.pf_wages).toBe(after.gross_earnings)
+    expect(after.basis.wagesShare).toMatchObject({ percent: 100, raisedTo: after.gross_earnings })
+    expect(after.basis.wagesShare.wages).toBeLessThan(after.gross_earnings)
+    expect(after.basis.rates).toMatchObject({ wagesShareEnabled: true, wagesSharePercent: 100 })
+    expect(after.deductions.find((line: { code: string }) => line.code === 'PF').amount).toBe(Math.round(after.gross_earnings * 0.12))
+
+    await prisma.organizationPolicy.update({ where: { id: policy.id }, data: { wagesShareEnabled: false, wagesSharePercent: 50, pfRestrictToCeiling: true } })
+    expect((await api(org).post(`/api/payroll-runs/${run.id}/recalculate`)).status).toBe(200)
+    run = (await api(org).get(`/api/payroll-runs/${run.id}`)).body.data
+    expect((await detail()).basis.wagesShare).toBeNull()
+  })
+
+  it('works PF out on whatever earnings the company counts as PF wages', async () => {
+    run = (await api(org).get(`/api/payroll-runs/${run.id}`)).body.data
+    const detail = async () => (await api(org).get(`/api/payroll-runs/${run.id}/payslips/${payslipOf(run, who.standard!)!.id}`)).body.data
+    const policy = await prisma.organizationPolicy.findFirstOrThrow({ where: { organizationId: org.id, effectiveTo: null } })
+    await prisma.organizationPolicy.update({ where: { id: policy.id }, data: { pfRestrictToCeiling: false } })
+    const recalc = async () => {
+      expect((await api(org).post(`/api/payroll-runs/${run.id}/recalculate`)).status).toBe(200)
+      run = (await api(org).get(`/api/payroll-runs/${run.id}`)).body.data
+    }
+
+    await recalc()
+    const before = await detail()
+    expect(before.pf_wages).toBeLessThan(before.gross_earnings)
+    // HRA counted too — the Super Admin's switch in Payroll Config.
+    await prisma.salaryComponent.update({ where: { id: org.component.HRA! }, data: { countsForPf: true } })
+    await recalc()
+    const after = await detail()
+    expect(after.pf_wages).toBe(after.gross_earnings)
+
+    await prisma.salaryComponent.update({ where: { id: org.component.HRA! }, data: { countsForPf: false } })
+    await prisma.organizationPolicy.update({ where: { id: policy.id }, data: { pfRestrictToCeiling: true } })
+    await recalc()
+  })
+
+  it('takes EPS membership as recorded on the person, and otherwise works it out from what they joined on', async () => {
+    // Joined in 2021 on more than the pension ceiling, never a member before:
+    // by the rule, outside EPS — and payroll says how it got there.
+    await prisma.employeeStatutoryIdentity.update({ where: { employeeId: who.standard! }, data: { hasPriorPfMembership: false } })
+    const september = async () => (await api(org).post('/api/payroll/calculate', { employeeId: who.standard, year: 2026, month: 9 })).body.data
+    const worked = await september()
+    expect(worked.basis.eps_member).toBe(false)
+    expect(worked.warnings).toEqual(expect.arrayContaining([expect.stringMatching(/^Excluded from EPS: worked out/)]))
+
+    // HR records it from their PF record, on the employee record.
+    const res = await request(app).patch(`/api/employees/${who.standard}`).set('Authorization', `Bearer ${org.token.hr}`).send({ statutory: { epsMember: true } })
+    expect(res.status, JSON.stringify(res.body)).toBe(200)
+    expect(res.body.data.eps_member).toBe(true)
+    const recorded = await september()
+    expect(recorded.basis.eps_member).toBe(true)
+    expect(recorded.warnings.some((w: string) => w.startsWith('Excluded from EPS'))).toBe(false)
+
+    // And it stands when what counts as PF wages changes.
+    await prisma.salaryComponent.update({ where: { id: org.component.HRA! }, data: { countsForPf: true } })
+    expect((await september()).basis.eps_member).toBe(true)
+    await prisma.salaryComponent.update({ where: { id: org.component.HRA! }, data: { countsForPf: false } })
+
+    await prisma.employeeStatutoryIdentity.update({ where: { employeeId: who.standard! }, data: { hasPriorPfMembership: true, epsMember: null } })
+  })
+
   it('is not visible from another company', async () => {
     const outsider = await makeOrg('outsider')
     expect((await api(outsider).get(`/api/payroll-runs/${run.id}`)).status).toBe(404)

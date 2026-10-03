@@ -82,6 +82,8 @@ function fromEmployee(employee) {
     // No statutory record reads as the column's default: PF applies.
     pfApplicable: employee?.pf_applicable ?? true,
     hasPriorPfMembership: priorToForm(employee?.has_prior_pf_membership),
+    // As their PF record has it; blank leaves it to payroll, from what they joined on.
+    epsMember: priorToForm(employee?.eps_member),
 
     withLogin: false,
     loginEmail: '',
@@ -101,6 +103,7 @@ function statutoryOf(form) {
     ptState: orNull(form.ptState.trim()),
     pfApplicable: form.pfApplicable,
     hasPriorPfMembership: priorFromForm(form.hasPriorPfMembership),
+    epsMember: priorFromForm(form.epsMember),
   }
 }
 
@@ -392,6 +395,13 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
                       <option value="">Not asked yet</option>
                       <option value="yes">Yes, at a previous employer</option>
                       <option value="no">No, first job with PF</option>
+                    </select>
+                  </Field>
+                  <Field label="Pension (EPS) Member?" hint="As their PF record with EPFO has it. Recorded, it never changes with the payroll settings.">
+                    <select value={form.epsMember} onChange={(e) => set('epsMember', e.target.value)} className={inp()} aria-label="Pension (EPS) member">
+                      <option value="">Let payroll work it out from the joining salary</option>
+                      <option value="yes">Yes, an EPS member</option>
+                      <option value="no">No, not in the pension scheme</option>
                     </select>
                   </Field>
                   <label className="sm:col-span-2 flex items-center gap-2 text-sm text-gray-700">

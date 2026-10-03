@@ -213,6 +213,25 @@ describe('statutory policy', () => {
     expect(res.status).toBe(422)
   })
 
+  it('keeps the Labour Codes wages rule off, at one half, until the Super Admin turns it on', async () => {
+    expect((await get('/payroll')).body.data).toMatchObject({ wages_share_enabled: false, wages_share_percent: 50 })
+    expect((await put('/payroll', { wagesSharePercent: 0 })).status).toBe(422)
+    expect((await put('/payroll', { wagesSharePercent: 101 })).status).toBe(422)
+    expect((await put('/payroll', { wagesSharePercent: 33.333 })).status).toBe(422)
+    expect((await put('/payroll', { wagesShareEnabled: true }, 'hr')).status).toBe(403)
+
+    expect((await put('/payroll', { wagesShareEnabled: true, wagesSharePercent: 40 })).status).toBe(200)
+    expect((await get('/payroll')).body.data).toMatchObject({ wages_share_enabled: true, wages_share_percent: 40 })
+
+    // A later change of something else carries it into the new period.
+    const current = await prisma.organizationPolicy.findFirstOrThrow({ where: { organizationId: orgId, effectiveTo: null } })
+    await prisma.organizationPolicy.update({ where: { id: current.id }, data: { effectiveFrom: new Date(Date.UTC(2026, 0, 15)) } })
+    expect((await put('/payroll', { payDay: 3 })).status).toBe(200)
+    expect((await get('/payroll')).body.data).toMatchObject({ pay_day: 3, wages_share_enabled: true, wages_share_percent: 40 })
+
+    expect((await put('/payroll', { wagesShareEnabled: false, wagesSharePercent: 50 })).status).toBe(200)
+  })
+
   it('refuses a negative rate', async () => {
     const res = await put('/payroll', { esiEmployeeRate: -1 })
     expect(res.status).toBe(422)
@@ -519,5 +538,47 @@ describe('what the Day 9 audit found in these screens', () => {
     expect(newest.effective_from).toBe('2026-07-01')
     const closed = history.body.data.find((p: { effective_to: string | null }) => p.effective_to === '2026-06-30')
     expect(closed).toBeDefined()
+  })
+})
+
+describe('what counts as PF wages', () => {
+  let basic = ''
+  let special = ''
+  let deduction = ''
+
+  beforeAll(async () => {
+    const make = (code: string, label: string, type: 'earning' | 'deduction', countsForPf: boolean, displayOrder: number) =>
+      prisma.salaryComponent.create({ data: { organizationId: orgId, code, label, type, countsForPf, taxable: true, displayOrder } })
+    basic = (await make('BASIC', 'Basic', 'earning', true, 1)).id
+    special = (await make('SPECIAL', 'Special Allowance', 'earning', false, 2)).id
+    deduction = (await make('CANTEEN', 'Canteen', 'deduction', false, 3)).id
+  })
+
+  it('lists the earnings, Basic counted and Special Allowance not, to start', async () => {
+    const res = await get('/pf-components')
+    expect(res.status).toBe(200)
+    expect(res.body.data.map((c: { code: string; counts_for_pf: boolean }) => [c.code, c.counts_for_pf])).toEqual([['BASIC', true], ['SPECIAL', false]])
+    // HR reads no payroll settings.
+    expect((await get('/pf-components', 'hr')).status).toBe(403)
+  })
+
+  it('lets the Super Admin count Special Allowance, and records who did', async () => {
+    const patch = (id: string, body: object, key = 'boss') =>
+      request(app).patch(`/api/settings/pf-components/${id}`).set('Authorization', as(key)).send(body)
+    expect((await patch(special, { countsForPf: true }, 'hr')).status).toBe(403)
+    expect((await patch(special, { countsForPf: 'yes' })).status).toBe(422)
+    expect((await patch(deduction, { countsForPf: true })).status).toBe(400)
+
+    const res = await patch(special, { countsForPf: true })
+    expect(res.status, JSON.stringify(res.body)).toBe(200)
+    expect(res.body.data.find((c: { code: string }) => c.code === 'SPECIAL').counts_for_pf).toBe(true)
+    const audit = await prisma.auditLog.findFirst({ where: { organizationId: orgId, action: 'salary_component.pf_changed' } })
+    expect(audit?.details).toMatchObject({ code: 'SPECIAL', countsForPf: true })
+    // The same again changes and records nothing.
+    expect((await patch(special, { countsForPf: true })).status).toBe(200)
+    expect(await prisma.auditLog.count({ where: { organizationId: orgId, action: 'salary_component.pf_changed' } })).toBe(1)
+
+    expect((await patch(basic, { countsForPf: true })).status).toBe(200)
+    expect((await patch(special, { countsForPf: false })).status).toBe(200)
   })
 })

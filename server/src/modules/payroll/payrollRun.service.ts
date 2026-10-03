@@ -377,6 +377,8 @@ function toPayslip(person: Person, lop: LossOfPay, directive: DatedDirective | n
       epsMember: b.epsMember,
       ptState: b.ptState,
       ptGender: b.ptGender,
+      // Set when the Labour Codes' wages rule raised PF wages this month.
+      wagesShare: r.wagesShare,
       tdsEnabled: person.tdsEnabled,
       tdsDirective: directive
         ? {

@@ -9,6 +9,7 @@ import {
   settingsIdSchema,
   ptSlabQuerySchema,
   ptTableSchema,
+  pfComponentSchema,
 } from '../validators/settings.validator'
 import { parseBody } from '../validators/parse'
 import { setPtTable } from '../../modules/settings/ptSlabs.service'
@@ -94,6 +95,9 @@ function policyPayload(policy: Policy) {
     pf_restrict_to_ceiling: policy.pfRestrictToCeiling,
     pf_wage_ceiling: num(policy.pfWageCeiling),
     eps_wage_ceiling: num(policy.epsWageCeiling),
+    // The Labour Codes' wages rule: PF wages are at least this share of what was earned.
+    wages_share_enabled: policy.wagesShareEnabled,
+    wages_share_percent: num(policy.wagesSharePercent),
     esi_employee: num(policy.esiEmployeeRate),
     esi_employer: num(policy.esiEmployerRate),
     esi_threshold: num(policy.esiThreshold),
@@ -127,6 +131,29 @@ export const putPolicy: RequestHandler = async (req, res) => {
   ok(res, policyPayload(updated))
 }
 
+type PfComponent = Awaited<ReturnType<typeof settings.listPfComponents>>[number]
+
+const pfComponentPayload = (row: PfComponent) => ({
+  id: row.id,
+  code: row.code,
+  label: row.label,
+  // "monthly" is entered per person per month (an incentive); "fixed" is on the salary.
+  entry: row.entry,
+  counts_for_pf: row.countsForPf,
+})
+
+/** GET /api/settings/pf-components — the earnings, and which of them are PF wages. */
+export const getPfComponents: RequestHandler = async (_req, res) => {
+  ok(res, (await settings.listPfComponents(appContext(res))).map(pfComponentPayload))
+}
+
+/** PATCH /api/settings/pf-components/:id — counts it as PF wages, or stops. */
+export const patchPfComponent: RequestHandler = async (req, res) => {
+  const { id } = parseBody(settingsIdSchema, req.params)
+  const { countsForPf } = parseBody(pfComponentSchema, req.body)
+  ok(res, (await settings.setCountsForPf(appContext(res), id, countsForPf)).map(pfComponentPayload))
+}
+
 /**
  * GET /api/settings/payroll/history
  *
@@ -150,6 +177,9 @@ export const getPolicyHistory: RequestHandler = async (_req, res) => {
       esi_employer: num(policy.esiEmployerRate),
       esi_threshold: num(policy.esiThreshold),
       pay_day: policy.payDay,
+      // The Labour Codes' wages rule, as it stood in that period.
+      wages_share_enabled: policy.wagesShareEnabled,
+      wages_share_percent: num(policy.wagesSharePercent),
     })),
   )
 }

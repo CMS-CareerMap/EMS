@@ -109,6 +109,7 @@ export const AUDIT_ACTIONS = {
   'company.owner_marked': { label: 'Owner marked', category: 'people' },
   'approvals.updated': { label: 'Approval settings changed', category: 'settings' },
   'policy.updated': { label: 'Payroll rules changed', category: 'settings' },
+  'salary_component.pf_changed': { label: 'What counts as PF wages changed', category: 'settings' },
   'pt_table.set': { label: 'Professional tax slabs set', category: 'settings' },
   'geofence.saved': { label: 'Office location saved', category: 'settings' },
   'geofence.deleted': { label: 'Office location removed', category: 'settings' },
@@ -609,6 +610,8 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
     }
     case 'policy.updated':
       return `${POLICY_KINDS[String(d.kind)] ?? 'Changed the payroll rules'}${fieldsOf(d.changes) ? ` (${fieldsOf(d.changes)})` : ''} from ${day(d.effectiveFrom)}`
+    case 'salary_component.pf_changed':
+      return `${d.countsForPf ? 'Counted' : 'Stopped counting'} ${text(d.label) ?? 'a salary component'} as PF wages`
     case 'pt_table.set':
       return `Set the professional tax slabs for ${text(d.state) ?? 'a state'} from ${day(d.effectiveFrom)} (${count(Array.isArray(d.slabs) ? d.slabs.length : NaN, 'slab')})`
     case 'geofence.saved':

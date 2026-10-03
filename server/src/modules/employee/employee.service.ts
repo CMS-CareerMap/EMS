@@ -143,6 +143,7 @@ export interface CreateEmployeeInput {
         ptState?: string | null | undefined
         pfApplicable?: boolean | undefined
         hasPriorPfMembership?: boolean | null | undefined
+        epsMember?: boolean | null | undefined
       }
     | undefined
   /** `role` is a role key of this company. */
@@ -390,6 +391,7 @@ export async function createEmployee(
           ? { pfApplicable: input.statutory.pfApplicable }
           : {}),
         hasPriorPfMembership: input.statutory.hasPriorPfMembership ?? null,
+        epsMember: input.statutory.epsMember ?? null,
       })
     }
 
@@ -578,6 +580,7 @@ export async function updateEmployee(
           ...(s.hasPriorPfMembership !== undefined
             ? { hasPriorPfMembership: s.hasPriorPfMembership }
             : {}),
+          ...(s.epsMember !== undefined ? { epsMember: s.epsMember } : {}),
         },
         {
           organizationId: ctx.organizationId,
@@ -589,6 +592,7 @@ export async function updateEmployee(
           ptState: s.ptState ?? null,
           ...(s.pfApplicable !== undefined ? { pfApplicable: s.pfApplicable } : {}),
           hasPriorPfMembership: s.hasPriorPfMembership ?? null,
+          epsMember: s.epsMember ?? null,
         },
       )
     }

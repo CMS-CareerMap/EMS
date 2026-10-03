@@ -53,6 +53,9 @@ const statutorySchema = z
     /// Were they a PF member at a previous employer? Decides EPS membership.
     /// Null is "nobody has asked yet", and payroll warns about it.
     hasPriorPfMembership: z.boolean().nullish(),
+    /// A member of the pension scheme (EPS), as their PF record has it. Null:
+    /// payroll works it out from what they joined on.
+    epsMember: z.boolean().nullish(),
   })
   .strict()
 

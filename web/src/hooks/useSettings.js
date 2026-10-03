@@ -16,6 +16,7 @@ const keys = {
   geofence: ['settings', 'geofence'],
   leaveTypes: ['settings', 'leave-types'],
   ptSlabs: ['settings', 'pt-slabs'],
+  pfComponents: ['settings', 'pf-components'],
   // Shared with the Leave page's holiday list, so a holiday added here shows
   // there without a reload.
   holidays: ['leave', 'holidays'],
@@ -51,6 +52,23 @@ export function usePayrollSettings() {
 
 export function useSavePayroll() {
   return useSettingMutation(keys.payroll, async (body) => (await api.put('/settings/payroll', body)).data)
+}
+
+/** The earning components, and which of them count as PF wages. */
+export function usePfComponents() {
+  return useSetting(keys.pfComponents, '/settings/pf-components')
+}
+
+/**
+ * Counts one as PF wages, or stops. Payroll's own screens — Salary structure
+ * marks each PF component — follow at once.
+ */
+export function useSetPfComponent() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, countsForPf }) => (await api.patch(`/settings/pf-components/${id}`, { countsForPf })).data,
+    onSuccess: () => Promise.all([keys.pfComponents, ['payroll'], ['salary']].map((queryKey) => queryClient.invalidateQueries({ queryKey }))),
+  })
 }
 
 /**

@@ -33,6 +33,15 @@ model OrganizationPolicy {
   /// from the EPF ceiling because the September 2026 revision had not been
   /// clarified for pensionable wages — ₹15,000 until the accountant says so.
   epsWageCeiling      Decimal @default(15000) @db.Decimal(12, 2)
+  /// The Labour Codes' wages rule (Code on Wages 2019, s.2(y); in force from
+  /// 21 November 2025): when what is left out of "wages" — HRA, conveyance,
+  /// commission and the like — is more than a set share of the whole pay, the
+  /// excess counts as wages. So PF is worked out on at least that share of
+  /// what was earned. Off until the company's accountant confirms it applies.
+  wagesShareEnabled   Boolean @default(false)
+  /// The share, in percent. The law says one half "or such other per cent as
+  /// may be notified" — a setting, so a notification is not a code change.
+  wagesSharePercent   Decimal @default(50) @db.Decimal(5, 2)
 
   esiEmployeeRate Decimal @default(0.75) @db.Decimal(5, 2)
   esiEmployerRate Decimal @default(3.25) @db.Decimal(5, 2)

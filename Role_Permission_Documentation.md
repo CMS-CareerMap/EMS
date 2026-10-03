@@ -307,6 +307,8 @@ Accounts sets salaries → creates the month's run (draft) → recalculates as n
 - **Approve** and **reopen** are the Super Admin's (`payroll:run:approve`), so Accounts, who prepares, never signs. The Super Admin holds both and can do the whole run alone. Approving recalculates and refuses if any payslip would change.
 - **Mark paid** stores every payslip as a PDF with a SHA-256 hash. A paid month cannot change.
 - One's own salary, TDS and incentive go up the tree (§6).
+- **The Labour Codes wages rule** (Settings → Payroll Config, the Super Admin's; off to start): PF wages are at least a set share of what each person earned in the month — one half, changeable when the government notifies another share. Like every payroll rule it applies from the next month's payroll: a month is worked out on the rules in force on its first day. A payslip it changed says so ("PF wages raised from … to 50% of gross earned"), and the payslip PDF stays as the client approved it.
+- **What counts as PF wages** (Settings → Payroll Config, the Super Admin's): a switch per earning — Basic and DA to start; Special Allowance, say, when the accountant decides. A payroll calculated after a change follows it; a month past draft keeps what it was paid on. Pension (EPS) membership recorded on an employee's record (Statutory Details, from their PF record) does not change with it; left blank, payroll works it out from what they joined on.
 
 ### Bank accounts
 
