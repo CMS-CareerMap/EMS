@@ -122,8 +122,9 @@ describe('invariant 3 — you give only a role below your own, with nothing you 
     super_admin: KEYS,
     hr: ['manager', 'rm', 'employee'],
     // Below the manager, but the Employee role uploads documents, which a
-    // manager cannot: so not the Employee role.
-    manager: ['rm'],
+    // manager cannot: so not the Employee role. Nor RM: its team scopes would
+    // be measured from its new holder, and a manager reaches only their own team.
+    manager: [],
     rm: [],
     admin: [],
     accounts: [],
@@ -165,7 +166,22 @@ describe('invariant 3 — you give only a role below your own, with nothing you 
     ])
     const manager = company.roles.get('manager')!
     expect(mayGive(manager, company.roles.get('wide_lead')!, company.order)).toBe(false)
-    expect(mayGive(manager, company.roles.get('team_lead')!, company.order)).toBe(true)
+    // Nor one with the same team scope: it reaches from where its NEW holder
+    // sits, which is not the manager's team.
+    expect(mayGive(manager, company.roles.get('team_lead')!, company.order)).toBe(false)
+  })
+
+  it('gives a role whose scope is measured from its holder only from a company-wide reach', () => {
+    // "The company except seniors", given by HR (who has it) to somebody new
+    // with nobody above them, would reach HR's own seniors. HR's leave reach is
+    // the whole company, so a team-scoped leave role is HR's to give.
+    const company = companyOf([
+      custom('pay_viewer', 'hr', ['employee:read', 'employee:compensation:read'], { employee: 'ORGANIZATION', compensation: 'ORGANIZATION_EXCEPT_ABOVE' }),
+      custom('team_leave', 'hr', ['leave:read'], { leave: 'DIRECT_REPORTS' }),
+    ])
+    const hr = company.roles.get('hr')!
+    expect(mayGive(hr, company.roles.get('pay_viewer')!, company.order)).toBe(false)
+    expect(mayGive(hr, company.roles.get('team_leave')!, company.order)).toBe(true)
   })
 
   it('refuses a role beside yours even when it does less', () => {

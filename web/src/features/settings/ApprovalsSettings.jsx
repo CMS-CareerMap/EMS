@@ -24,22 +24,34 @@ const REVERSAL = [
 export default function ApprovalsSettings() {
   const settings = useApprovalSettings()
   return (
+    // Not keyed by the version: a save brings a new one, and remounting the
+    // form then threw away its "Saved" and any error it was showing.
     <DataState query={settings}>
-      {(data) => <ApprovalsForm key={data.version} data={data} />}
+      {(data) => <ApprovalsForm data={data} />}
     </DataState>
   )
 }
 
+const formOf = (data) => ({
+  noManagerApproverId: data.no_manager_approver_id ?? '',
+  backup: data.backup,
+  reversal: data.reversal,
+})
+
 function ApprovalsForm({ data }) {
   const tree = useCompanyTree()
   const save = useSaveApprovalSettings()
-  const [form, setForm] = useState({
-    noManagerApproverId: data.no_manager_approver_id ?? '',
-    backup: data.backup,
-    reversal: data.reversal,
-  })
+  const [form, setForm] = useState(() => formOf(data))
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState(null)
+  // After a refusal because somebody else saved meanwhile, the form shows
+  // their settings as soon as they arrive — not the old ones, to be saved over
+  // them. (Set while drawing, React's way of following new data.)
+  const [reloadAfter, setReloadAfter] = useState(null)
+  if (reloadAfter && data.version !== reloadAfter) {
+    setReloadAfter(null)
+    setForm(formOf(data))
+  }
   const set = (key) => (e) => { setSaved(false); setForm((f) => ({ ...f, [key]: e.target.value })) }
   const changed =
     (form.noManagerApproverId || null) !== (data.no_manager_approver_id ?? null) || form.backup !== data.backup || form.reversal !== data.reversal
@@ -58,9 +70,15 @@ function ApprovalsForm({ data }) {
       setSaved(true)
       toast.success('Approval settings saved')
     } catch (err) {
-      setError(err?.message ?? 'The settings could not be saved.')
+      if (err?.status === 409) {
+        setReloadAfter(data.version)
+        setError('Somebody changed these settings a moment ago. They are shown now; make your change again if it is still needed.')
+      } else {
+        setError(err?.message ?? 'The settings could not be saved.')
+      }
     }
   }
+  const named = data.no_manager_approver_id ? data.no_manager_approver_name : null
 
   return (
     <Section title="Approvals" desc="Leave goes to the person each employee reports to in the company tree. These settings decide what happens when the tree has no answer.">
@@ -72,10 +90,17 @@ function ApprovalsForm({ data }) {
             ? people.map((p) => <option key={p.id} value={p.id}>{p.name}{p.designation ? ` — ${p.designation}` : ''}</option>)
             : <option value="" disabled>{optionsNote(tree, '')}</option>}
           {data.no_manager_approver_id && !people.some((p) => p.id === data.no_manager_approver_id) && (
-            <option value={data.no_manager_approver_id}>{data.no_manager_approver_name}</option>
+            <option value={data.no_manager_approver_id}>
+              {data.no_manager_approver_name}{data.no_manager_approver_can_sign_in ? '' : ' (cannot sign in now)'}
+            </option>
           )}
         </select>
       </Field>
+      {named && !data.no_manager_approver_can_sign_in && (
+        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          {named} cannot sign in at the moment, so the Super Admin decides these requests until they can. Choose somebody else if that is not what you want.
+        </p>
+      )}
       <Field label="The reporting manager is away" hint="Who may decide the request instead. Deciding instead is written in the log as standing in.">
         <select value={form.backup} onChange={set('backup')} className={inp} aria-label="Who may decide when the reporting manager is away">
           {BACKUP.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}

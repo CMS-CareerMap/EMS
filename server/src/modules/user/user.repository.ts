@@ -200,6 +200,25 @@ export async function createInvitedLogin(
   return { userId: user.id, membershipId: membership.id }
 }
 
+/** Whether a login's User has ever set a password — an invitation that was used. */
+export async function hasPassword(db: TxDb, userId: string): Promise<boolean> {
+  const user = await db.user.findUnique({ where: { id: userId }, select: { passwordHash: true } })
+  return Boolean(user?.passwordHash)
+}
+
+/**
+ * Takes back an invitation nobody used: the login goes, its links go, and its
+ * User goes too when nothing else holds it — a mistyped address leaves no
+ * trace but the audit row. On the caller's transaction.
+ */
+export async function deleteUnusedLogin(db: TxDb, membershipId: string, userId: string): Promise<void> {
+  await db.membership.delete({ where: { id: membershipId } })
+  await db.passwordResetToken.deleteMany({ where: { userId, usedAt: null } })
+  // The User is global: counted across every company, not only this one.
+  const user = await db.user.findUnique({ where: { id: userId }, select: { passwordHash: true, _count: { select: { memberships: true } } } })
+  if (user && user._count.memberships === 0 && !user.passwordHash) await db.user.delete({ where: { id: userId } })
+}
+
 /** Global: a user's sessions are not owned by a company. */
 export async function revokeSessions(userId: string): Promise<void> {
   await unsafeDb.refreshToken.updateMany({

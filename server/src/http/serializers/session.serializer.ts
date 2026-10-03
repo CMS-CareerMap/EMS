@@ -31,6 +31,9 @@ export function serializeSessionUser(identity: AuthIdentity) {
     // Decides somebody's leave in the company tree (Day 22): the menu shows
     // Leave and its Team tab on it, whatever the role's leave rights.
     decidesLeave: identity.decidesLeave,
+    // Whose employee records the role reaches — the screen offers a roster
+    // import, which adds people outside any team, only to a company-wide reach.
+    employeeReach: identity.grant.scopes.employee,
     organizationId: identity.organizationId,
     organizationName: identity.organizationName,
     // The company's zone, so the browser can tell which calendar day it is

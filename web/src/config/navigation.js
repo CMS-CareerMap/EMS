@@ -33,8 +33,9 @@ export const NAV_GROUPS = [
       // Or deciding somebody's leave (Day 22): whoever has people under them
       // approves their leave, whatever their role's leave rights.
       { to: '/leave', icon: CalendarDays, label: 'Leave', permission: ['leave:read', DECIDES_LEAVE] },
-      // Any of these: HR enters Incentive here without seeing anybody's pay.
-      { to: '/payroll', icon: Wallet, label: 'Payroll', permission: ['payroll:structure:read', 'payroll:entry:manage'] },
+      // Any of these: HR enters Incentive here without seeing anybody's pay,
+      // and a role given only bank accounts reaches its Bank accounts tab.
+      { to: '/payroll', icon: Wallet, label: 'Payroll', permission: ['payroll:structure:read', 'payroll:entry:manage', 'employee:bank:read'] },
       { to: '/payslips', icon: Receipt, label: 'My Payslips', permission: 'payslip:read' },
     ],
   },
@@ -69,6 +70,8 @@ export const NAV_GROUPS = [
           'membership:role:assign',
           // Roles & Permissions, the Company tree and Approvals (Days 21–22).
           'role:manage',
+          // The probation and notice period the lifecycle runs on (client §43).
+          'employee:lifecycle:manage',
         ],
       },
     ],

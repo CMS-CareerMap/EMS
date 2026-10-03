@@ -253,19 +253,20 @@ describe('one person, two logins', () => {
     expect((await post(tokens.boss, `/api/leave-requests/${id}/approve`, {})).status).toBe(200)
   })
 
-  it('does not tell her HR login about what she did on her employee login', async () => {
-    // Her own Aadhaar, from the employee login: whoever checks documents and
-    // reaches her is told — hr2, the Super Admin — and her HR login, which
-    // also checks documents, is not: it was her.
+  it('tells only who may check her upload — not her HR login, nor a fellow HR person', async () => {
+    // Her own Aadhaar, from the employee login. She checks documents herself
+    // (by her HR login), so hers go up the tree: the Super Admin above her is
+    // told. Her HR login is not — it was her — and nor is hr2, a peer, who
+    // would only be refused.
     const res = await request(app).post('/api/employee-documents').set('Authorization', bearer(tokens.priya))
       .field('documentTypeId', aadhaarId)
       .attach('file', Buffer.from('%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n'), { filename: 'aadhaar.pdf', contentType: 'application/pdf' })
     expect(res.status, JSON.stringify(res.body)).toBe(201)
     const priyaHrUser = (await prisma.membership.findUniqueOrThrow({ where: { id: priyaHrLogin } })).userId
     const told = (await prisma.notification.findMany({ where: { organizationId: orgId, event: { startsWith: 'document' } }, select: { userId: true } })).map((n) => n.userId)
-    expect(told).toEqual(expect.arrayContaining([users.hr2, users.boss]))
+    expect(told).toEqual([users.boss])
     expect(told).not.toContain(priyaHrUser)
-    expect(told).not.toContain(users.priya)
+    expect(told).not.toContain(users.hr2)
   })
 
   it('decides her team’s leave from the HR login only: the employee login is for her own things', async () => {

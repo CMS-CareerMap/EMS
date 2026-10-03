@@ -39,6 +39,12 @@ model Organization {
   /// server's own ceiling is 10 MB whatever this says.
   maxUploadMb Int @default(2)
 
+  /// The employee lifecycle (client §43): how long a new joiner's probation
+  /// runs, and the notice a resignation gives — the company's own, set in
+  /// Settings → Employee lifecycle.
+  probationMonths  Int @default(6)
+  noticePeriodDays Int @default(30)
+
   /// The owner (Day 22): the one person at the top of the company tree whose
   /// own leave, and own items generally, need nobody's approval. Marked by the
   /// Super Admin, never inferred: somebody left without a manager by mistake
@@ -97,6 +103,9 @@ model Organization {
   companyDocuments     CompanyDocument[]
   notifications        Notification[]
   notificationSettings NotificationSetting[]
+
+  employmentEvents EmploymentEvent[]
+  resignations     Resignation[]
 
   auditLogs AuditLog[]
 }

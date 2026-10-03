@@ -33,7 +33,9 @@ export default function Checklist({ data, types, limits, reviewer, canUpload }) 
   const verified = required.filter((i) => i.current?.status === 'verified').length
   const employee = data.employee
 
-  const canRemove = (doc) => (reviews ? true : data.own && doc.status === 'pending' && !doc.replaced_at)
+  // Taking somebody's file off is checker's work too: a fellow checker's goes
+  // up the tree like checking it, so the button follows `decides`.
+  const canRemove = (doc) => (reviews ? decides : data.own && doc.status === 'pending' && !doc.replaced_at)
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">

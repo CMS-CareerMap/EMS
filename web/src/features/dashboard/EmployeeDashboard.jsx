@@ -5,6 +5,7 @@ import PunchCard from '../attendance/PunchCard'
 import { useAuthStore } from '../../stores/authStore'
 import DataState from '../../components/DataState'
 import { calendarDayIn, formatCalendarDay, formatDayOf } from '../../lib/dates'
+import { WaitingResignations } from './LifecycleCards'
 
 // Leave types are the company's own: the names come from the server with each row.
 const LEAVE_STATUS_LABELS = { pending: 'Pending', approved: 'Approved', rejected: 'Rejected', cancelled: 'Cancelled' }
@@ -60,6 +61,9 @@ export default function EmployeeDashboard() {
         figures below refresh without a reload.
       */}
       {attendanceMode === 'app' && canPunch && <PunchCard />}
+
+      {/* Somebody with people under them accepts their resignations, whatever their role. */}
+      <WaitingResignations />
 
       {/* The punch card above has its own request, so it stays usable when this one fails. */}
       <DataState query={stats}>

@@ -4,7 +4,7 @@ import { withTransaction } from '../../platform/db/transaction'
 import { tellApprovers } from './leaveNotices'
 import { lockFor } from '../../platform/db/locks'
 import { logger } from '../../platform/logger'
-import { zonedToday, toDateColumn, fromDateColumn, type CalendarDate } from '../../domain/shared/dates'
+import { zonedToday, toDateColumn, fromDateColumn, dayLabel, type CalendarDate } from '../../domain/shared/dates'
 import {
   workingDays,
   checkBalance,
@@ -154,7 +154,17 @@ export async function previewLeave(ctx: AppContext, input: PreviewInput): Promis
 
   let problem: PreviewResult['problem'] = null
 
-  if (counted.days === 0) {
+  // The employee lifecycle: leave is from days of their employment — not
+  // before they join, nor after their last working day.
+  const window = await repo.employmentWindow(ctx.db, employeeId)
+  const joined = fromDateColumn(window?.dateOfJoining)
+  const lastDay = fromDateColumn(window?.lastWorkingDate)
+
+  if (joined && input.fromDate < joined) {
+    problem = { reason: 'outside_employment', message: `That starts before the joining date, ${dayLabel(joined)}. Leave is for days of employment.` }
+  } else if (lastDay && input.toDate > lastDay) {
+    problem = { reason: 'outside_employment', message: `That runs past the last working day, ${dayLabel(lastDay)}. Leave is for days of employment.` }
+  } else if (counted.days === 0) {
     problem = {
       reason: 'no_working_days',
       message: 'Those dates are all weekends or holidays, so there is no leave to apply for.',
@@ -359,16 +369,12 @@ export async function teamLeave(ctx: AppContext, status?: repo.LeaveFilters['sta
   const people = peopleDecidedBy(world, decider)
   const rows = await repo.requestsOf(ctx.db, people, { status })
 
-  let backup: repo.LeaveRequestRow[] = []
-  // Read only for somebody who could stand in at all: a Super Admin, or — for
-  // "the manager's own manager" — somebody with managers under them.
-  const mayStandIn =
-    (world.rules.backup === 'super_admin' && decider.isSuperAdmin) ||
-    (world.rules.backup === 'next_up' && Boolean(ctx.employeeId) && world.tree.below(ctx.employeeId!).length > people.length)
-  if (mayStandIn) {
-    const others = await repo.pendingExcept(ctx.db, [...people, ...(ctx.employeeId ? [ctx.employeeId] : [])])
-    backup = others.filter((r) => rightsOn(world, decider, r).canDecide)
-  }
+  // The people the caller may decide for only as the stand-in, found from the
+  // tree itself — every person, asked of the same rule that decides — then
+  // their waiting requests. (A count of who is below the caller used to
+  // decide whether to look at all, and missed a named approver's stand-ins.)
+  const standIns = world.tree.ids().filter((id) => id !== decider.employeeId && !people.includes(id) && mayDecide(world.tree, world.rules, id, decider).asBackup)
+  const backup = standIns.length > 0 ? await repo.requestsOf(ctx.db, standIns, { status: 'pending' }) : []
 
   const listed = await withRights(ctx, world, [...rows, ...backup])
   return { ...listed, rows, backup, decidesFor: people.length }

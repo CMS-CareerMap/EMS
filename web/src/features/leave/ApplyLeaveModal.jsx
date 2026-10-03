@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { X, CalendarDays, AlertCircle, Loader2 } from 'lucide-react'
 import { useLeaveBalances, usePreviewLeave } from '../../hooks/useLeave'
+import { EscapeCloses } from '../../hooks/useEscape'
 import DataState from '../../components/DataState'
 
 /**
@@ -101,8 +102,10 @@ export default function ApplyLeaveModal({ open, onClose, onSave, saving }) {
   const problem = result?.problem
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg">
+    // Scrolls when taller than a phone's screen, rather than cutting off its buttons.
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-black/50 p-4 overflow-y-auto">
+      <EscapeCloses onClose={onClose} />
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg my-4">
 
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
           <div>

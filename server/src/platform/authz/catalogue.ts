@@ -1,4 +1,4 @@
-import { PERMISSIONS, SUPER_ADMIN_ONLY, type Permission } from './permissions'
+import { PERMISSIONS, RETIRED, SUPER_ADMIN_ONLY, type Permission } from './permissions'
 import { DATA_SCOPES, type DataScope, type ScopedResource } from './scope'
 
 /**
@@ -68,11 +68,17 @@ export const PERMISSION_MODULES: readonly PermissionModule[] = [
     label: 'Employees',
     resource: 'employee',
     scopeQuestion: 'Whose records',
+    note: 'Accepting a resignation needs no tick: like leave, it is decided by the person somebody reports to.',
     permissions: [
       { key: 'employee:read', label: 'See employee records' },
       { key: 'employee:create', label: 'Add employees', requires: ['employee:read'] },
       { key: 'employee:update', label: 'Edit employee records', requires: ['employee:read'] },
       { key: 'employee:identity:read', label: 'See PAN, UAN, PF and ESIC numbers', requires: ['employee:read'] },
+      {
+        key: 'employee:lifecycle:manage',
+        label: 'Run onboarding, probation, transfers, promotions and exits',
+        requires: ['employee:update'],
+      },
     ],
   },
   {
@@ -93,7 +99,6 @@ export const PERMISSION_MODULES: readonly PermissionModule[] = [
       { key: 'attendance:punch', label: 'Punch in and out (their own)', unscoped: true },
       { key: 'attendance:mark', label: 'Mark attendance for other people', requires: ['attendance:read'] },
       { key: 'attendance:update', label: 'Correct attendance', requires: ['attendance:read'] },
-      { key: 'attendance:delete', label: 'Delete attendance records', requires: ['attendance:read'] },
     ],
   },
   {
@@ -118,7 +123,9 @@ export const PERMISSION_MODULES: readonly PermissionModule[] = [
     permissions: [
       { key: 'payroll:structure:read', label: 'Open Payroll and see salary structures' },
       { key: 'payroll:structure:manage', label: 'Enter and change salaries', requires: ['payroll:structure:read'] },
-      { key: 'payroll:entry:manage', label: 'Enter monthly incentives' },
+      // An incentive is pay: without seeing salaries, a role would reach only its
+      // own row — which goes up the tree — and the tick would do nothing.
+      { key: 'payroll:entry:manage', label: 'Enter monthly incentives', requires: ['employee:compensation:read'] },
       { key: 'payroll:run:create', label: 'Prepare the monthly payroll', requires: ['payroll:structure:read'] },
       { key: 'payroll:run:approve', label: 'Approve or reopen the payroll', requires: ['payroll:structure:read'] },
       { key: 'employee:bank:read', label: 'See bank accounts' },
@@ -138,6 +145,9 @@ export const PERMISSION_MODULES: readonly PermissionModule[] = [
     label: 'Documents',
     resource: 'document',
     scopeQuestion: 'Whose documents',
+    // An offer letter states the salary: a role that reaches somebody's
+    // documents can read their pay there, whatever its "Whose salaries" says.
+    note: 'Some documents show pay — an offer letter states the salary. A role that sees somebody’s documents can read what they say, whatever it may see of salaries.',
     permissions: [
       { key: 'document:read', label: 'See employee documents' },
       { key: 'document:upload', label: 'Upload employee documents', requires: ['document:read'] },
@@ -205,7 +215,7 @@ const INFO = new Map<Permission, PermissionInfo & { resource: ScopedResource | n
 )
 
 /** Every permission a role can be given from the screen: all of them but the Super Admin's own. */
-export const GRANTABLE_PERMISSIONS: readonly Permission[] = PERMISSIONS.filter((p) => !SUPER_ADMIN_ONLY.has(p))
+export const GRANTABLE_PERMISSIONS: readonly Permission[] = PERMISSIONS.filter((p) => !SUPER_ADMIN_ONLY.has(p) && !RETIRED.has(p))
 
 export function permissionLabel(permission: string): string {
   if (permission === 'role:manage') return 'Manage roles and permissions'

@@ -1,6 +1,6 @@
 import type { AttendanceStatus } from '@prisma/client'
 import type { AppContext } from '../../platform/context'
-import { BadRequest, NotFound } from '../../platform/errors/AppError'
+import { BadRequest, Forbidden, NotFound } from '../../platform/errors/AppError'
 import { logger } from '../../platform/logger'
 import {
   zonedToday,
@@ -213,6 +213,11 @@ export async function markAttendance(ctx: AppContext, input: MarkInput) {
   }
 
   const row = await withTransaction(ctx.db, async (tx) => {
+    // Marking a day already recorded — a punch, or an earlier entry — is
+    // correcting it, which is its own tick on the Roles screen.
+    if (!ctx.can('attendance:update') && (await repo.dayRecorded(tx, input.employeeId, input.date))) {
+      throw Forbidden('This day is already recorded. Changing it needs “Correct attendance”, which your role does not have.')
+    }
     const saved = await repo.upsertDay(tx, ctx.organizationId, {
       employeeId: input.employeeId,
       date: input.date,

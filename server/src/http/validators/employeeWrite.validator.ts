@@ -102,6 +102,10 @@ export const createEmployeeSchema = z
 
     statutory: statutorySchema.optional(),
     login: loginSchema.optional(),
+    /// Somebody already working here, added to EMS: onboarded and confirmed
+    /// on this day, so they do not start in onboarding and probation (the
+    /// employee lifecycle). Left out for a new joiner.
+    confirmedOn: z.iso.date().nullish(),
   })
   .strict()
 
@@ -113,7 +117,8 @@ export type CreateEmployeeBody = z.infer<typeof createEmployeeSchema>
  * permission.
  */
 export const updateEmployeeSchema = createEmployeeSchema
-  .omit({ login: true })
+  // Confirmation is a step in the lifecycle, with its own endpoint and history.
+  .omit({ login: true, confirmedOn: true })
   .partial()
   .strict()
   .refine((body) => Object.keys(body).length > 0, {

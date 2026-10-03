@@ -1,10 +1,13 @@
 import { useState } from 'react'
 import { X, Info } from 'lucide-react'
 import { useEmployees, useMasterData, useCreateEmployee, useUpdateEmployee } from '../../hooks/useEmployees'
+import { EscapeCloses } from '../../hooks/useEscape'
 import { useAuthStore } from '../../stores/authStore'
 import { PasswordLinkPanel } from '../settings/UserAccess'
 import { useInvitableRoles } from '../../hooks/useRoles'
 import { optionsNote } from '../../lib/optionsNote'
+import { calendarDayIn } from '../../lib/dates'
+import { useLifecycleSettings } from '../../hooks/useLifecycle'
 
 /**
  * Adding or editing an employee, against the server.
@@ -62,6 +65,8 @@ function fromEmployee(employee) {
     gender: employee?.gender ?? '',
     dateOfJoining: employee?.date_of_joining ?? '',
     lastWorkingDate: employee?.last_working_date ?? '',
+    // Only on creation: somebody already working here, confirmed on this day.
+    confirmedOn: '',
     employmentType: employee?.employment_type ?? 'full_time',
     departmentId: employee?.department_id ?? '',
     designationId: employee?.designation_id ?? '',
@@ -102,6 +107,12 @@ function statutoryOf(form) {
 export default function AddEmployeeModal({ open, onClose, initial = null, onSave }) {
   const isEdit = Boolean(initial)
   const canSeeIdentity = useAuthStore((state) => state.can('employee:identity:read'))
+  const setsTree = useAuthStore((state) => state.can('role:manage'))
+  const timezone = useAuthStore((state) => state.organization?.timezone)
+  const today = calendarDayIn(timezone)
+  // The company's probation, for the hint — asked only of those who may read it.
+  const readsLifecycle = useAuthStore((state) => state.canAny(['settings:read', 'employee:lifecycle:manage']))
+  const probationMonths = useLifecycleSettings({ enabled: open && !isEdit && readsLifecycle }).data?.probation_months ?? null
 
   // Both only fill dropdowns. Each says in its first option when its list is
   // loading or failed, so an empty dropdown never reads as "none exist".
@@ -139,6 +150,10 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
     // Required here though the server allows it blank: payroll works out who
     // was employed on which days from it, and a blank one is paid in full.
     if (!form.dateOfJoining) e.dateOfJoining = 'Required'
+    if (!isEdit && form.confirmedOn && form.dateOfJoining && form.confirmedOn < form.dateOfJoining) {
+      e.confirmedOn = 'Cannot be before the joining date'
+    }
+    if (!isEdit && form.confirmedOn && form.confirmedOn > today) e.confirmedOn = 'Cannot be in the future — leave it empty for somebody on probation'
     if (form.lastWorkingDate && form.dateOfJoining && form.lastWorkingDate < form.dateOfJoining) {
       e.lastWorkingDate = 'Cannot be before the joining date'
     }
@@ -172,6 +187,9 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
     }
 
     if (isEdit) body.lastWorkingDate = orNull(form.lastWorkingDate)
+    else body.confirmedOn = orNull(form.confirmedOn)
+    // Not theirs to change on an edit (the Super Admin's), so not sent at all.
+    if (isEdit && !setsTree) delete body.reportingManagerId
 
     // Only somebody who can SEE the statutory record may send it. Anybody else
     // would be saving the blanks they were shown over the real values.
@@ -220,6 +238,7 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 overflow-y-auto">
+      <EscapeCloses onClose={onClose} />
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl my-8 overflow-hidden">
 
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 bg-white sticky top-0 z-10">
@@ -288,11 +307,17 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
                     onChange={(e) => set('dateOfJoining', e.target.value)} className={inp(errors.dateOfJoining)} />
                 </Field>
                 {isEdit ? (
-                  <Field label="Last Working Day" error={errors.lastWorkingDate} hint="Only for somebody leaving. Pay stops on this day.">
+                  <Field label="Last Working Day" error={errors.lastWorkingDate} hint="Set by accepting a resignation or completing the exit, in their profile. Change it here only to correct it. Pay stops on this day.">
                     <input type="date" value={form.lastWorkingDate} min={form.dateOfJoining || undefined}
                       onChange={(e) => set('lastWorkingDate', e.target.value)} className={inp(errors.lastWorkingDate)} />
                   </Field>
-                ) : <div />}
+                ) : (
+                  <Field label="Confirmed On" error={errors.confirmedOn}
+                    hint={`Only for somebody already working here and past probation. Left empty, they start as a new joiner — onboarding, then ${probationMonths == null ? 'the company’s' : `a ${probationMonths}-month`} probation.`}>
+                    <input type="date" value={form.confirmedOn} min={form.dateOfJoining || undefined} max={today}
+                      onChange={(e) => set('confirmedOn', e.target.value)} className={inp(errors.confirmedOn)} aria-label="Confirmed On" />
+                  </Field>
+                )}
                 <Field label="Department">
                   <select value={form.departmentId} onChange={(e) => set('departmentId', e.target.value)} className={inp()} disabled={loadingLists}>
                     <option value="">{optionsNote(lists, 'Not assigned')}</option>
@@ -319,8 +344,15 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
                   </select>
                 </Field>
                 <div className="sm:col-span-2">
-                  <Field label="Reporting Manager" hint="Their leave requests go to this person.">
-                    <select value={form.reportingManagerId} onChange={(e) => set('reportingManagerId', e.target.value)} className={inp()}>
+                  {/* For somebody already here, who they report to is the Super
+                      Admin's to change (the company tree); a new joiner is placed
+                      by whoever adds them. */}
+                  <Field label="Reporting Manager"
+                    hint={isEdit && !setsTree
+                      ? 'Who they report to is changed by the Super Admin, on Settings → Company Tree.'
+                      : 'Their leave requests go to this person.'}>
+                    <select value={form.reportingManagerId} onChange={(e) => set('reportingManagerId', e.target.value)} className={inp()}
+                      disabled={isEdit && !setsTree} aria-label="Reporting Manager">
                       <option value="">{optionsNote(people, 'No reporting manager')}</option>
                       {managers.map((m) => (
                         <option key={m.id} value={m.id}>{m.full_name}{m.designation ? ` — ${m.designation}` : ''}</option>

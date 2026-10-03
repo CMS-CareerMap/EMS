@@ -85,7 +85,7 @@ export async function companyTree(ctx: AppContext): Promise<CompanyTreeView> {
     })),
     ownerId,
     unplaced: tree.unplaced().map((u) => u.id).filter((id) => id !== ownerId),
-    version: String(rules?.updatedAt.getTime() ?? 0),
+    version: rules?.version ?? '',
   }
 }
 
@@ -100,7 +100,7 @@ export async function markOwner(ctx: AppContext, employeeId: string, version: st
     await lockFor(tx, treeLock(ctx.organizationId))
     const rules = await repo.findApprovalRules(tx, ctx.organizationId)
     if (!rules) throw NotFound('Company not found')
-    if (String(rules.updatedAt.getTime()) !== version) {
+    if (rules.version !== version) {
       throw Conflict('Somebody changed the company tree settings a moment ago. Reload and try again.')
     }
     const person = await treeRepo.personForTree(tx, employeeId)
@@ -127,6 +127,8 @@ export async function markOwner(ctx: AppContext, employeeId: string, version: st
 export interface ApprovalSettings {
   noManagerApproverId: string | null
   noManagerApproverName: string | null
+  /** False while the named person has no login that can sign in: until they do, the Super Admin decides. */
+  noManagerApproverCanSignIn: boolean
   backup: BackupApprover
   reversal: ReversalBy
   version: string
@@ -140,9 +142,11 @@ export async function approvalSettings(ctx: AppContext): Promise<ApprovalSetting
     // Somebody who has left decides nothing: shown as the Super Admin, which is what applies.
     noManagerApproverId: named && !named.archivedAt ? named.id : null,
     noManagerApproverName: named && !named.archivedAt ? named.fullName : null,
+    // Still named, but switched off: the screen says the Super Admin decides meanwhile.
+    noManagerApproverCanSignIn: Boolean(named && !named.archivedAt && canSignIn(named.memberships)),
     backup: rules.leaveBackup,
     reversal: rules.leaveReversal,
-    version: String(rules.updatedAt.getTime()),
+    version: rules.version,
   }
 }
 
@@ -158,10 +162,12 @@ export async function updateApprovalSettings(ctx: AppContext, input: ApprovalSet
     await lockFor(tx, treeLock(ctx.organizationId))
     const rules = await repo.findApprovalRules(tx, ctx.organizationId)
     if (!rules) throw NotFound('Company not found')
-    if (String(rules.updatedAt.getTime()) !== input.version) {
+    if (rules.version !== input.version) {
       throw Conflict('Somebody changed these settings a moment ago. Reload and try again.')
     }
-    if (input.noManagerApproverId) {
+    // Checked when somebody is newly named: saving the other two settings must
+    // not be refused because the person named earlier is switched off for now.
+    if (input.noManagerApproverId && input.noManagerApproverId !== rules.leaveNoManagerApproverId) {
       const person = await treeRepo.personForTree(tx, input.noManagerApproverId)
       if (!person) throw BadRequest('That person was not found.')
       if (person.archivedAt) throw BadRequest(`${person.fullName} has left the company.`)

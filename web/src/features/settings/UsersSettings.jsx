@@ -4,7 +4,7 @@ import {
 } from 'lucide-react'
 import {
   useUsers, useUpdateUserRole,
-  useToggleUserStatus, useDeleteUser, useIssuePasswordLink,
+  useToggleUserStatus, useDeleteUser, useIssuePasswordLink, useWithdrawInvitation,
 } from '../../hooks/useUsers'
 import { InviteUserForm, PasswordLinkPanel } from './UserAccess'
 import { Section, inpSm } from './ui'
@@ -34,6 +34,9 @@ import ConfirmDialog from '../../components/ConfirmDialog'
  * closes all of them, so Remove sits on the person and needs every one of
  * their logins to be one you could manage. Your own other login is yours too.
  */
+
+const STATUS_WORDS = { active: 'Can sign in', invited: 'Invited', inactive: 'Turned off' }
+const STATUS_LOOK = { active: 'bg-green-100 text-green-700', invited: 'bg-blue-100 text-blue-700', inactive: 'bg-gray-100 text-gray-500' }
 
 /** Logins in the list's order, each person's together under their first. */
 function byPerson(rows) {
@@ -85,9 +88,13 @@ export default function UsersSettings() {
   // administrator closes it.
   const [showInvite, setShowInvite] = useState(false)
   const [issued, setIssued] = useState(null)
-  // Who a confirmation is open for: a reset link, or removal.
+  // Who a confirmation is open for: a reset link, removal, turning a login
+  // off (it ends that login's sessions at once), or taking back an invitation.
   const [resetting, setResetting] = useState(null)
   const [removing, setRemoving] = useState(null)
+  const [turningOff, setTurningOff] = useState(null)
+  const [withdrawing, setWithdrawing] = useState(null)
+  const withdraw = useWithdrawInvitation()
 
   async function issueLinkFor(user) {
     const result = await issueLink.mutateAsync({ user_id: user.id })
@@ -113,6 +120,11 @@ export default function UsersSettings() {
   }
 
   async function handleToggleStatus(user) {
+    // Turning off is asked once more; turning back on is not.
+    if (user.status === 'active') {
+      setTurningOff(user)
+      return
+    }
     try {
       await toggleStatus.mutateAsync({ user_id: user.id, currentStatus: user.status })
     } catch (err) {
@@ -271,22 +283,22 @@ export default function UsersSettings() {
                     </td>
 
                     <td className="px-4 py-3.5">
-                      {user.status === 'invited'
-                        ? <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">Invited</span>
-                        : <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                            ${user.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                            {user.status ?? 'active'}
-                          </span>
-                      }
+                      {/* In words, the same as the person's page; never a made-up "active". */}
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                        ${STATUS_LOOK[user.status] ?? 'bg-gray-100 text-gray-500'}`}>
+                        {STATUS_WORDS[user.status] ?? user.status}
+                      </span>
                     </td>
 
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-1">
+                        {/* Each icon is named for a screen reader, and for a phone, which has no tooltip. */}
                         {mayAssign && mayActOn(group) && (
                           <button
                             onClick={() => startEdit(user)}
                             className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors"
                             title="Edit role"
+                            aria-label={`Edit the role of ${user.email}`}
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
@@ -297,8 +309,21 @@ export default function UsersSettings() {
                             disabled={issueLink.isPending}
                             className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors"
                             title={user.status === 'invited' ? 'New invitation link' : 'Password reset link'}
+                            aria-label={`${user.status === 'invited' ? 'New invitation link' : 'Password reset link'} for ${user.email}`}
                           >
                             <KeyRound className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {/* An invitation nobody used — a mistyped address — is taken back, not switched off. */}
+                        {mayInvite && mayActOn(group) && user.status === 'invited' && (
+                          <button
+                            onClick={() => setWithdrawing(user)}
+                            disabled={withdraw.isPending}
+                            className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
+                            title="Withdraw invitation"
+                            aria-label={`Withdraw the invitation for ${user.email}`}
+                          >
+                            <X className="w-3.5 h-3.5" />
                           </button>
                         )}
                         {mayToggle && mayActOn(group) && user.status !== 'invited' && (
@@ -307,7 +332,8 @@ export default function UsersSettings() {
                             disabled={toggleStatus.isPending}
                             className={`p-1.5 rounded-lg transition-colors text-gray-400
                               ${user.status === 'active' ? 'hover:bg-amber-50 hover:text-amber-600' : 'hover:bg-green-50 hover:text-green-600'}`}
-                            title={user.status === 'active' ? 'Deactivate' : 'Activate'}
+                            title={user.status === 'active' ? 'Turn off' : 'Turn on'}
+                            aria-label={`${user.status === 'active' ? 'Turn off' : 'Turn on'} ${user.email}`}
                           >
                             {user.status === 'active' ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
                           </button>
@@ -319,6 +345,7 @@ export default function UsersSettings() {
                             disabled={deleteUser.isPending}
                             className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
                             title="Remove user"
+                            aria-label={`Remove ${user.full_name || user.email}`}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -352,6 +379,23 @@ export default function UsersSettings() {
               <p><strong>{removing[0].email}</strong> will lose all access immediately.</p>
             )}
             {removing[0].person_id && <p>Their employee record is kept, marked as left.</p>}
+          </ConfirmDialog>
+        )}
+
+        {turningOff && (
+          <ConfirmDialog title={`Turn off ${turningOff.email}?`} confirmLabel="Turn off" danger
+            onConfirm={() => toggleStatus.mutateAsync({ user_id: turningOff.id, currentStatus: turningOff.status })}
+            onClose={() => setTurningOff(null)}>
+            <p>It is signed out everywhere at once and cannot sign in until it is turned back on.</p>
+            <p>Any other login of theirs keeps working.</p>
+          </ConfirmDialog>
+        )}
+
+        {withdrawing && (
+          <ConfirmDialog title={`Withdraw the invitation for ${withdrawing.email}?`} confirmLabel="Withdraw" danger
+            onConfirm={() => withdraw.mutateAsync({ user_id: withdrawing.id })}
+            onClose={() => setWithdrawing(null)}>
+            <p>Its link stops working and the login is taken away, so the right one can be added in its place.</p>
           </ConfirmDialog>
         )}
       </Section>

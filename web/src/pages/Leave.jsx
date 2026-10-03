@@ -63,7 +63,12 @@ const NO_REQUESTS = []
  * tree, not a role). Everybody else sees who decides it. `note` is said above
  * the list — the backup list explains itself.
  */
-function RequestsTab({ query, onApprove, onReject, onWithdraw, onReverse, myEmployeeId, note = null, emptyText = 'No leave requests found.' }) {
+/**
+ * `deciding` is the request a decision is being sent for: its Approve and
+ * Reject are held until the answer comes, so a second tap on a slow line does
+ * not send a second decision that is refused after the first succeeded.
+ */
+function RequestsTab({ query, onApprove, onReject, onWithdraw, onReverse, myEmployeeId, deciding = null, note = null, emptyText = 'No leave requests found.' }) {
   const timezone = useAuthStore((state) => state.organization?.timezone)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -103,22 +108,23 @@ function RequestsTab({ query, onApprove, onReject, onWithdraw, onReverse, myEmpl
     <div className="space-y-4">
       {note}
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      {/* Stats. On a phone the three sit side by side with the icon above the
+          number, so "Approved" is not cut to "Appro". */}
+      <div className="grid grid-cols-3 gap-2 sm:gap-4">
         {[
           { key: 'pending', label: 'Pending', Icon: Clock, bg: 'bg-amber-100', text: 'text-amber-600' },
           { key: 'approved', label: 'Approved', Icon: CheckCircle, bg: 'bg-green-100', text: 'text-green-600' },
           { key: 'rejected', label: 'Rejected', Icon: XCircle, bg: 'bg-red-100', text: 'text-red-600' },
         ].map(({ key, label, Icon, bg, text }) => (
           <button key={key} onClick={() => setStatusFilter(statusFilter === key ? 'all' : key)}
-            className={`bg-white rounded-xl border shadow-sm p-4 flex items-center gap-4 transition-all text-left
+            className={`min-w-0 bg-white rounded-xl border shadow-sm p-3 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 transition-all text-left
               ${statusFilter === key ? 'border-blue-400 ring-1 ring-blue-400' : 'border-gray-200 hover:border-gray-300'}`}>
-            <div className={`${bg} rounded-xl p-3 shrink-0`}>
+            <div className={`${bg} rounded-xl p-2 sm:p-3 shrink-0`}>
               {createElement(Icon, { className: `w-5 h-5 ${text}` })}
             </div>
-            <div>
-              <p className="text-2xl font-bold text-gray-900">{known ? counts[key] : '—'}</p>
-              <p className="text-sm text-gray-500">{label}</p>
+            <div className="min-w-0">
+              <p className="text-xl sm:text-2xl font-bold text-gray-900">{known ? counts[key] : '—'}</p>
+              <p className="text-xs sm:text-sm text-gray-500 truncate">{label}</p>
             </div>
           </button>
         ))}
@@ -129,18 +135,20 @@ function RequestsTab({ query, onApprove, onReject, onWithdraw, onReverse, myEmpl
         <div className="relative flex-1 min-w-48">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input type="text" placeholder="Search employee…" value={search} onChange={(e) => setSearch(e.target.value)}
+            aria-label="Search by employee"
             className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm
               focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder:text-gray-400" />
         </div>
         <div className="flex items-center gap-2">
           <Filter className="w-4 h-4 text-gray-400" />
-          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
+          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} aria-label="Leave type"
             className="border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
             <option value="all">All Types</option>
             {types.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
           </select>
         </div>
-        <div className="flex gap-1 ml-auto">
+        {/* Wraps on a phone: on one line "Cancelled" ran off the screen. */}
+        <div className="flex flex-wrap gap-1 sm:ml-auto" role="group" aria-label="Status">
           {STATUS_FILTER.map((s) => (
             <button key={s} onClick={() => setStatusFilter(s)}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors capitalize
@@ -224,14 +232,14 @@ function RequestsTab({ query, onApprove, onReject, onWithdraw, onReverse, myEmpl
                           ) : req.can_decide ? (
                             // (The owner may settle their own request from before they were marked.)
                             <>
-                              <button onClick={() => onApprove(req.id)}
+                              <button onClick={() => onApprove(req.id)} disabled={deciding === req.id}
                                 title={req.as_backup ? `Standing in for ${req.decided_by}` : undefined}
-                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-green-50 hover:bg-green-100 text-green-700 text-xs font-medium transition-colors">
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-green-50 hover:bg-green-100 text-green-700 text-xs font-medium transition-colors disabled:opacity-50">
                                 <CheckCircle className="w-3.5 h-3.5" /> Approve
                               </button>
-                              <button onClick={() => onReject(req.id)}
+                              <button onClick={() => onReject(req.id)} disabled={deciding === req.id}
                                 title={req.as_backup ? `Standing in for ${req.decided_by}` : undefined}
-                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 text-xs font-medium transition-colors">
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 text-xs font-medium transition-colors disabled:opacity-50">
                                 <XCircle className="w-3.5 h-3.5" /> Reject
                               </button>
                             </>
@@ -496,9 +504,16 @@ export default function Leave() {
   const withdrawLeave = useWithdrawLeave()
   const reverseLeave = useReverseLeave()
   const myEmployeeId = useAuthStore((state) => state.profile?.id ?? null)
-  // ?tab=decide opens Team Requests — the link a "waiting for you" notice carries.
-  const [params] = useSearchParams()
-  const [chosenTab, setTab] = useState(() => params.get('tab'))
+  // ?tab=decide opens Team Requests — the link a "waiting for you" notice
+  // carries. Read from the address every time, not once: a notice clicked
+  // while Leave is already open changes the address, not the page.
+  const [params, setParams] = useSearchParams()
+  const chosenTab = params.get('tab')
+  const setTab = (next) => setParams((current) => {
+    const p = new URLSearchParams(current)
+    p.set('tab', next)
+    return p
+  }, { replace: true })
   // The first tab there is, unless one was chosen — an Accounts head with a
   // team has Team Requests and nothing else.
   const tab = chosenTab && tabs.includes(chosenTab) ? chosenTab : tabs[0]
@@ -513,6 +528,8 @@ export default function Leave() {
   function handleApprove(id) {
     updateLeaveStatus.mutate({ id, status: 'approved' })
   }
+  // The request a decision is on its way for, if any.
+  const deciding = updateLeaveStatus.isPending ? (updateLeaveStatus.variables?.id ?? null) : null
 
   function handleReject(id) {
     updateLeaveStatus.mutate({ id, status: 'rejected' })
@@ -591,13 +608,13 @@ export default function Leave() {
         {tab === 'requests' && (
           <RequestsTab query={requests} onApprove={handleApprove} onReject={handleReject}
             onWithdraw={setWithdrawing} onReverse={(req) => { setReverseNote(''); setReversing(req) }}
-            myEmployeeId={myEmployeeId} />
+            myEmployeeId={myEmployeeId} deciding={deciding} />
         )}
         {tab === 'decide' && (
           <div className="space-y-8">
             <RequestsTab query={{ ...team, data: team.data?.requests }} onApprove={handleApprove} onReject={handleReject}
               onWithdraw={setWithdrawing} onReverse={(req) => { setReverseNote(''); setReversing(req) }}
-              myEmployeeId={myEmployeeId}
+              myEmployeeId={myEmployeeId} deciding={deciding}
               emptyText="Nobody whose leave you decide has asked for any."
               note={
                 <p className="text-sm text-gray-600">
@@ -607,7 +624,7 @@ export default function Leave() {
             {backupCount > 0 && (
               <RequestsTab query={{ ...team, data: team.data?.backup }} onApprove={handleApprove} onReject={handleReject}
                 onWithdraw={setWithdrawing} onReverse={(req) => { setReverseNote(''); setReversing(req) }}
-                myEmployeeId={myEmployeeId}
+                myEmployeeId={myEmployeeId} deciding={deciding}
                 note={
                   <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
                     <p className="text-sm font-semibold text-amber-900">Waiting for somebody else — you may stand in</p>

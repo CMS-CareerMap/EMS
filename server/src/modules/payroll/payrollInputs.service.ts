@@ -165,8 +165,9 @@ export async function listMonthlyEntries(ctx: AppContext, year: number, month: n
     .map((b) => ({
       employeeId: b.employeeId,
       own: b.check.own,
-      // A senior's pay is not the caller's to see or set: Accounts enters it.
-      ask: b.check.allowed ? 'Accounts' : b.check.ask,
+      // A senior's pay is not the caller's to see or set: whoever enters
+      // salaries does — by what they may do, not by a role's name.
+      ask: b.check.allowed ? 'whoever enters salaries in Payroll' : b.check.ask,
     }))
   return { entries, blocked }
 }

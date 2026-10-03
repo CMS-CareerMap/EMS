@@ -31,6 +31,21 @@ export interface FieldAccess {
   compensationScope: ScopeContext
   includeBank: boolean
   includeIdentity: boolean
+  /**
+   * Every login of the person — each email, role and status (Day 23). For
+   * whoever manages logins; anybody else reading the directory sees the work
+   * email only, not who holds a Super Admin or an Accounts login.
+   */
+  includeLogins: boolean
+  /** Today on the company's calendar — where each person stands in the lifecycle is worked out from it. */
+  today: string
+  /**
+   * Whose resignation, before it is accepted, shows as "Resigned" — and whose
+   * exit reason shows: everybody's for whoever runs the lifecycle and the Super
+   * Admin — except the caller's seniors' (`above`); otherwise one's own and
+   * one's direct reports' (whom one decides).
+   */
+  lifecycleOf: { everybody: boolean; employeeId: string | null; above: readonly string[] }
 }
 
 export interface EmployeeFilters {
@@ -79,6 +94,8 @@ function includeFor(access: FieldAccess) {
       // archivedAt: a manager who has left decides nothing (Day 22) — the page says so.
       select: { id: true, fullName: true, employeeCode: true, archivedAt: true, designation: { select: { name: true } } },
     },
+    // An open resignation: where they stand in the lifecycle depends on it.
+    resignations: { where: { status: { in: ['submitted', 'accepted'] } }, select: { status: true }, take: 1 },
     // Every login of theirs (Day 23) — an employee login, and a role login
     // beside it for somebody with a role — oldest first.
     memberships: {
@@ -202,10 +219,6 @@ export async function managerCandidate(db: TxDb, id: string) {
 }
 
 /** Out of the active list; attendance, leave and payslips stay attached. */
-export async function archiveEmployee(db: TxDb, id: string, at: Date) {
-  return db.employee.update({ where: { id }, data: { archivedAt: at } })
-}
-
 export async function createStatutoryIdentity(db: TxDb, data: Prisma.EmployeeStatutoryIdentityUncheckedCreateInput) {
   return db.employeeStatutoryIdentity.create({ data })
 }

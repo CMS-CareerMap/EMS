@@ -10,10 +10,14 @@ import type { TxDb } from '../../platform/db/transaction'
 
 const briefEmployee = { select: { id: true, employeeCode: true, fullName: true } } as const
 
-/** Enough of an employee to check they can be paid, and to name them. */
+/**
+ * Enough of an employee to check they can be paid, and to name them. Somebody
+ * who has left with a last working day is still found: their last month is
+ * paid, and the employment window refuses any month after it.
+ */
 export async function findEmployeeBrief(db: ScopedDb, employeeId: string, people: Prisma.EmployeeWhereInput | null = null) {
   return db.employee.findFirst({
-    where: { AND: [{ id: employeeId, archivedAt: null }, people ?? {}] },
+    where: { AND: [{ id: employeeId }, { OR: [{ archivedAt: null }, { lastWorkingDate: { not: null } }] }, people ?? {}] },
     select: { id: true, employeeCode: true, fullName: true, dateOfJoining: true, lastWorkingDate: true },
   })
 }

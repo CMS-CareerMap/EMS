@@ -50,6 +50,7 @@ export const AUDIT_ACTIONS = {
   'user.invited': { label: 'User invited', category: 'users' },
   // A second login for somebody already here (Day 23): an HR login beside their employee login.
   'user.login_added': { label: 'Login added', category: 'users' },
+  'user.invite_withdrawn': { label: 'Invitation withdrawn', category: 'users' },
   'user.role_changed': { label: 'Role changed', category: 'users' },
   'user.status_changed': { label: 'Login turned on or off', category: 'users' },
   'user.terminated': { label: 'User removed', category: 'users' },
@@ -63,6 +64,18 @@ export const AUDIT_ACTIONS = {
   'employee.created': { label: 'Employee added', category: 'people' },
   'employee.updated': { label: 'Employee record changed', category: 'people' },
   'employee.imported': { label: 'Employees imported', category: 'people' },
+  // The employee lifecycle (client §43)
+  'lifecycle.onboarding_completed': { label: 'Onboarding completed', category: 'people' },
+  'lifecycle.probation_extended': { label: 'Probation extended', category: 'people' },
+  'lifecycle.confirmed': { label: 'Confirmed after probation', category: 'people' },
+  'lifecycle.transferred': { label: 'Transferred', category: 'people' },
+  'lifecycle.promoted': { label: 'Promoted', category: 'people' },
+  'lifecycle.resignation_submitted': { label: 'Resignation handed in', category: 'people' },
+  'lifecycle.resignation_accepted': { label: 'Resignation accepted', category: 'people' },
+  'lifecycle.resignation_withdrawn': { label: 'Resignation withdrawn', category: 'people' },
+  'lifecycle.resignation_cancelled': { label: 'Resignation called off', category: 'people' },
+  'lifecycle.exited': { label: 'Exit completed', category: 'people' },
+  'lifecycle.settings_updated': { label: 'Lifecycle settings changed', category: 'settings' },
   // Pay
   'salary.set': { label: 'Salary set', category: 'pay' },
   'payroll.run_created': { label: 'Payroll calculated', category: 'pay' },
@@ -217,6 +230,16 @@ const ATTENDANCE_WORDS: Record<string, string> = {
   on_leave: 'on leave',
   holiday: 'on a holiday',
   weekly_off: 'on a weekly off',
+}
+
+/** Why somebody left, in words (ExitReason). */
+export const EXIT_WORDS: Record<string, string> = {
+  resigned: 'resigned',
+  terminated: 'let go',
+  retired: 'retired',
+  contract_ended: 'contract ended',
+  absconded: 'stopped coming',
+  other: 'left',
 }
 
 const ACCOUNT_STATUS_WORDS: Record<string, string> = {
@@ -439,6 +462,8 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
 
     case 'user.invited':
       return `Invited ${text(d.email) ?? who()} as ${roleLabel(d.role, names, d.roleName)}`
+    case 'user.invite_withdrawn':
+      return `Withdrew the unused ${roleLabel(d.role, names, d.roleName)} invitation${text(d.email) ? ` for ${text(d.email)}` : ''}${d.employeeId ? ` (${who()})` : ''}`
     case 'user.login_added':
       return `Gave ${who()} ${Number(d.logins) > 1 ? 'another login' : 'a login'}, as ${roleLabel(d.role, names, d.roleName)}${text(d.email) ? ` (${text(d.email)})` : ''}`
     case 'user.role_changed':
@@ -485,6 +510,29 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
     }
     case 'employee.imported':
       return `Imported ${count(d.employees, 'employee')}${Number(d.withLogin) > 0 ? `, ${count(d.withLogin, 'with a login', 'with logins')}` : ''}`
+
+    case 'lifecycle.onboarding_completed':
+      return `Completed ${who()}’s onboarding`
+    case 'lifecycle.probation_extended':
+      return `Extended ${who()}’s probation to ${day(d.to)}${d.from ? ` (was ${day(d.from)})` : ''}`
+    case 'lifecycle.confirmed':
+      return `Confirmed ${who()} from ${day(d.confirmedOn)}`
+    case 'lifecycle.transferred':
+      return `Transferred ${who()}${text(d.toDepartment) ? ` to ${text(d.toDepartment)}` : ''}${text(d.fromDepartment) ? ` from ${text(d.fromDepartment)}` : ''}, from ${day(d.effectiveDate)}`
+    case 'lifecycle.promoted':
+      return `Promoted ${who()} to ${text(d.toDesignation) ?? 'a new designation'}${text(d.fromDesignation) ? ` from ${text(d.fromDesignation)}` : ''}, from ${day(d.effectiveDate)}`
+    case 'lifecycle.resignation_submitted':
+      return d.onBehalf ? `Recorded ${who()}’s resignation, asking to leave on ${day(d.requestedLastDay)}` : `Handed in their resignation, asking to leave on ${day(d.requestedLastDay)}`
+    case 'lifecycle.resignation_accepted':
+      return `Accepted ${who()}’s resignation; last working day ${day(d.lastWorkingDay)}${d.asBackup ? ' (standing in)' : ''}`
+    case 'lifecycle.resignation_withdrawn':
+      return 'Withdrew their resignation'
+    case 'lifecycle.resignation_cancelled':
+      return `Called off ${who()}’s resignation — they are staying`
+    case 'lifecycle.exited':
+      return `Completed ${who()}’s exit: last working day ${day(d.lastWorkingDate)}, ${EXIT_WORDS[String(d.reason)] ?? 'left'}${Number(d.loginsClosed) > 0 ? `, ${count(d.loginsClosed, 'login')} closed` : ''}`
+    case 'lifecycle.settings_updated':
+      return `Set probation to ${count(d.probationMonths, 'month')} and the notice period to ${count(d.noticePeriodDays, 'day')}`
 
     case 'salary.set':
       return `Set ${who()}’s ${SALARY_KINDS[String(d.kind)] ?? 'salary'}: CTC ${money(d.ctc)} a year from ${day(d.effectiveFrom)}${d.previousCtc != null ? ` (was ${money(d.previousCtc)})` : ''}`

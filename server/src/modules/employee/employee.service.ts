@@ -1,6 +1,6 @@
 import type { AppContext } from '../../platform/context'
 import { NotFound, Conflict, BadRequest, Forbidden } from '../../platform/errors/AppError'
-import { fromDateColumn, toDateColumn } from '../../domain/shared/dates'
+import { addCalendarDays, fromDateColumn, toDateColumn } from '../../domain/shared/dates'
 import { withTransaction } from '../../platform/db/transaction'
 import { lockFor } from '../../platform/db/locks'
 import { isUniqueViolation } from '../../platform/db/errors'
@@ -15,6 +15,13 @@ import type { TxDb } from '../../platform/db/transaction'
 import { buildTree } from '../../domain/org/companyTree'
 import { namesOf, treePeople } from '../organization/tree.repository'
 import { findApprovalRules } from '../organization/organization.repository'
+import { tellNewApprovers } from '../leave/leaveNotices'
+import * as lifecycleRepo from '../lifecycle/lifecycle.repository'
+import { lifecycleSettings } from '../lifecycle/lifecycle.repository'
+import { assertMayChangeEmployment } from '../organization/workRules.service'
+import { assertOpenFrom } from '../payroll/payrollLock.service'
+import { companyToday } from '../organization/organization.service'
+import { defaultProbationEnd } from '../../domain/org/lifecycle'
 
 /**
  * Employee reads and writes.
@@ -32,13 +39,28 @@ import { findApprovalRules } from '../organization/organization.repository'
  * business seeing the salary. A single `employee:read` would hand all three to
  * anyone who could see a name.
  */
-function accessFor(ctx: AppContext): repo.FieldAccess {
+async function accessFor(ctx: AppContext): Promise<repo.FieldAccess> {
   return {
     includeCompensation: ctx.can('employee:compensation:read'),
     compensationScope: ctx.scopeFor('compensation'),
     includeBank: ctx.can('employee:bank:read'),
     includeIdentity: ctx.can('employee:identity:read'),
+    includeLogins: (['role:manage', 'user:invite', 'user:status:update', 'user:delete', 'membership:role:assign'] as const).some((p) => ctx.can(p)),
+    today: await companyToday(ctx),
+    lifecycleOf: await lifecycleVisibility(ctx),
   }
+}
+
+/**
+ * Whose unaccepted resignation and exit reason the caller sees in the
+ * directory. Whoever runs the lifecycle sees everybody's but their seniors'
+ * (whose record is the Super Admin's); the Super Admin, everybody's.
+ */
+async function lifecycleVisibility(ctx: AppContext): Promise<repo.FieldAccess['lifecycleOf']> {
+  if (ctx.can('role:manage')) return { everybody: true, employeeId: ctx.employeeId, above: [] }
+  if (!ctx.can('employee:lifecycle:manage')) return { everybody: false, employeeId: ctx.employeeId, above: [] }
+  const above = ctx.employeeId ? buildTree(await treePeople(ctx.db)).above(ctx.employeeId) : []
+  return { everybody: true, employeeId: ctx.employeeId, above }
 }
 
 export interface EmployeeListResult {
@@ -51,7 +73,7 @@ export async function listEmployees(
   ctx: AppContext,
   filters: repo.EmployeeFilters = {},
 ): Promise<EmployeeListResult> {
-  const access = accessFor(ctx)
+  const access = await accessFor(ctx)
   const scope = ctx.scopeFor('employee')
 
   const [rows, total] = await Promise.all([
@@ -80,7 +102,7 @@ export interface EmployeeResult {
  * employee at that id, as far as they are concerned.
  */
 export async function getEmployee(ctx: AppContext, id: string): Promise<EmployeeResult> {
-  const access = accessFor(ctx)
+  const access = await accessFor(ctx)
   const row = await repo.findById(ctx.db, ctx.scopeFor('employee'), id, access)
 
   if (!row) throw NotFound('Employee not found')
@@ -125,6 +147,8 @@ export interface CreateEmployeeInput {
     | undefined
   /** `role` is a role key of this company. */
   login?: { email: string; role: string } | undefined
+  /** Somebody already working here: onboarded and confirmed on this day (the employee lifecycle). */
+  confirmedOn?: string | null | undefined
 }
 
 export interface CreateEmployeeResult {
@@ -151,6 +175,18 @@ function assertLeavesAfterJoining(dateOfJoining: string | null, lastWorkingDate:
   }
 }
 
+/**
+ * PAN, UAN, PF and ESIC — and whether PF applies, which changes a payslip —
+ * are written only by somebody who may read them. Writing them blind, as a
+ * role that edits records but holds no identity read could, would change
+ * deductions nobody on that side can see.
+ */
+function assertMayWriteStatutory(ctx: AppContext, input: { statutory?: unknown }): void {
+  if (input.statutory !== undefined && !ctx.can('employee:identity:read')) {
+    throw Forbidden('PAN, UAN, PF and ESIC details are entered by somebody who can see them. Ask HR.')
+  }
+}
+
 function asConflict(err: unknown): never {
   // A duplicate employee code is an ordinary thing for a person to do, not a
   // server fault. 409 with a readable message rather than a 500.
@@ -168,7 +204,7 @@ function asConflict(err: unknown): never {
  * told "not found" when it was read back — and a new login's one-time link,
  * returned only in that answer, was lost with it.
  */
-function assertWithinReach(ctx: AppContext, place: PersonPlace, adding: boolean): void {
+export function assertWithinReach(ctx: AppContext, place: PersonPlace, adding: boolean): void {
   const scope = ctx.scopeFor('employee')
   if (isInScope(scope, place)) return
   const where =
@@ -194,7 +230,7 @@ function assertWithinReach(ctx: AppContext, place: PersonPlace, adding: boolean)
  * people between teams and departments is still done; by somebody above, or
  * by somebody whose reach the move does not change.
  */
-function assertNoNewReach(ctx: AppContext, before: PersonPlace, after: PersonPlace): void {
+export function assertNoNewReach(ctx: AppContext, before: PersonPlace, after: PersonPlace): void {
   for (const resource of SCOPED_RESOURCES) {
     const scope = ctx.scopeFor(resource)
     // Moving one of your seniors can take them, and everybody above them, out
@@ -259,15 +295,41 @@ export async function assertManagerFits(tx: TxDb, ctx: AppContext, personId: str
   }
 }
 
+/**
+ * Where a new record starts in the employee lifecycle (client §43). A new
+ * joiner starts in onboarding, with a probation ending the company's months
+ * after joining. Somebody already working here, added with the day they were
+ * confirmed, starts confirmed. Shared with the roster import.
+ */
+export async function lifecycleStart(
+  ctx: AppContext,
+  input: { dateOfJoining?: string | null | undefined; confirmedOn?: string | null | undefined },
+): Promise<{ onboardedOn: Date | null; probationEndDate: Date | null; confirmedOn: Date | null }> {
+  const joined = input.dateOfJoining ?? null
+  if (input.confirmedOn) {
+    if (joined && input.confirmedOn < joined) {
+      throw BadRequest(`The confirmation date (${input.confirmedOn}) cannot be before the joining date (${joined}).`)
+    }
+    if (input.confirmedOn > (await companyToday(ctx))) {
+      throw BadRequest(`The confirmation date (${input.confirmedOn}) is in the future. Leave it empty for somebody still on probation.`)
+    }
+    return { onboardedOn: toDateColumn(joined ?? input.confirmedOn), probationEndDate: null, confirmedOn: toDateColumn(input.confirmedOn) }
+  }
+  const months = (await lifecycleSettings(ctx.db, ctx.organizationId))?.probationMonths ?? 6
+  return { onboardedOn: null, probationEndDate: joined ? toDateColumn(defaultProbationEnd(joined, months)) : null, confirmedOn: null }
+}
+
 export async function createEmployee(
   ctx: AppContext,
   input: CreateEmployeeInput,
 ): Promise<CreateEmployeeResult> {
   let invite: { token: string; expiresAt: Date } | undefined
 
+  assertMayWriteStatutory(ctx, input)
   assertLeavesAfterJoining(input.dateOfJoining ?? null, input.lastWorkingDate ?? null)
   // A new record has no id yet, so it is in reach only by its manager or department.
   assertWithinReach(ctx, { id: '', reportingManagerId: input.reportingManagerId ?? null, departmentId: input.departmentId ?? null }, true)
+  const lifecycle = await lifecycleStart(ctx, input)
 
   const employeeId = await withTransaction(ctx.db, async (tx) => {
     let roleName: string | null = null
@@ -301,6 +363,7 @@ export async function createEmployee(
       ...(input.attendanceMode ? { attendanceMode: input.attendanceMode } : {}),
       ...(input.country ? { country: input.country.toUpperCase() } : {}),
       ...(input.currency ? { currency: input.currency.toUpperCase() } : {}),
+      ...lifecycle,
     })
 
     if (input.login) {
@@ -340,8 +403,12 @@ export async function createEmployee(
     return employee.id
   }).catch(asConflict)
 
-  const access = accessFor(ctx)
-  const row = await repo.findById(ctx.db, ctx.scopeFor('employee'), employeeId, access)
+  const access = await accessFor(ctx)
+  // Read back by the company, not the caller's scope: the reach was checked
+  // before anything was written, and a tree scope ("everybody under them")
+  // was loaded before this person existed — reading through it would answer
+  // "not found" and lose the one-time invitation link. Field access still applies.
+  const row = await repo.findById(ctx.db, { ...ctx.scopeFor('employee'), scope: 'ORGANIZATION' }, employeeId, access)
   if (!row) throw NotFound('Employee was created but could not be read back')
 
   logger.info('Employee created', { by: ctx.userId, employeeId, withLogin: Boolean(input.login) })
@@ -349,14 +416,15 @@ export async function createEmployee(
   return { row, access, invite }
 }
 
-export type UpdateEmployeeInput = Partial<Omit<CreateEmployeeInput, 'login'>>
+export type UpdateEmployeeInput = Partial<Omit<CreateEmployeeInput, 'login' | 'confirmedOn'>>
 
 export async function updateEmployee(
   ctx: AppContext,
   id: string,
   input: UpdateEmployeeInput,
 ): Promise<EmployeeResult> {
-  const access = accessFor(ctx)
+  assertMayWriteStatutory(ctx, input)
+  const access = await accessFor(ctx)
   const scope = ctx.scopeFor('employee')
 
   // Scoped read FIRST. Updating by id alone would let anyone with
@@ -389,14 +457,46 @@ export async function updateEmployee(
   const moved = after.reportingManagerId !== before.reportingManagerId || after.departmentId !== before.departmentId
   // Nobody decides where they themselves sit: their team and department are
   // what other people's scopes — and their own — are measured from. The Super
-  // Admin, with nobody above, is the exception (role:manage is theirs alone).
+  // Admin passes this check (role:manage is theirs alone); their own
+  // department, like the rest of their employment record, is then theirs only
+  // as the owner — anybody else's goes up the tree (assertMayChangeEmployment).
   if (moved && existing.id === ctx.employeeId && !ctx.can('role:manage')) {
     throw Forbidden('You cannot change your own reporting manager or department. Ask somebody above you.')
+  }
+  const managerChanged = after.reportingManagerId !== before.reportingManagerId
+  // Who somebody already here reports to is the Super Admin's to set — the
+  // company tree is theirs (the client's words). Anybody else could otherwise
+  // hand a person's leave and work decisions to whoever they liked: to a new
+  // hire whose invitation link they hold, to the approver for "nobody above"
+  // by clearing the line, or to a peer by moving that peer's manager. A new
+  // joiner is still placed by whoever adds them (createEmployee).
+  if (managerChanged && !ctx.can('role:manage')) {
+    throw Forbidden('Who somebody reports to is set by the Super Admin, on Settings → Company Tree. Ask the Super Admin to move them.')
   }
   assertWithinReach(ctx, after, false)
   if (moved) assertNoNewReach(ctx, before, after)
 
-  const managerChanged = after.reportingManagerId !== before.reportingManagerId
+  // Designation, department and last working day are the employment record
+  // (client §43): the lifecycle's rules hold here too — never one's own or a
+  // fellow HR person's, never a senior's — and the change is in their history.
+  const designationChanged = input.designationId !== undefined && input.designationId !== existing.designationId
+  const departmentChanged = after.departmentId !== before.departmentId
+  const lastDayBefore = fromDateColumn(existing.lastWorkingDate)
+  const lastDayAfter = input.lastWorkingDate !== undefined ? input.lastWorkingDate : lastDayBefore
+  const lastDayChanged = lastDayAfter !== lastDayBefore
+  const joinedBefore = fromDateColumn(existing.dateOfJoining)
+  const joiningChanged = input.dateOfJoining !== undefined && input.dateOfJoining !== joinedBefore
+  // The joining date too: it moves pay and the end of probation.
+  if (designationChanged || departmentChanged || lastDayChanged || joiningChanged) await assertMayChangeEmployment(ctx, ctx.db, existing.id)
+  // Pay is worked out from both dates: a month whose payroll is approved keeps them.
+  if (lastDayChanged) {
+    const earlier = [lastDayBefore, lastDayAfter].filter((d): d is string => Boolean(d)).sort()[0]!
+    await assertOpenFrom(ctx, addCalendarDays(earlier, 1), 'a change to the last working day')
+  }
+  if (joiningChanged) {
+    const earlier = [joinedBefore, input.dateOfJoining].filter((d): d is string => Boolean(d)).sort()[0]
+    if (earlier) await assertOpenFrom(ctx, earlier, 'a change to the joining date')
+  }
 
   await withTransaction(ctx.db, async (tx) => {
     const data: Record<string, unknown> = {}
@@ -405,21 +505,54 @@ export async function updateEmployee(
       await lockFor(tx, treeLock(ctx.organizationId))
       await assertManagerFits(tx, ctx, existing.id, after.reportingManagerId)
     }
+    if (lastDayChanged) {
+      // The same lock a resignation's acceptance takes: the two never cross.
+      await lockFor(tx, `lifecycle:${existing.id}`)
+      const now = await lifecycleRepo.findPerson(tx, null, existing.id)
+      if (now?.resignations[0]) {
+        throw Conflict(`${existing.fullName}'s last working day comes from their resignation. Change it there: call the resignation off, or complete the exit.`)
+      }
+    }
+    if (designationChanged || departmentChanged) {
+      const today = await companyToday(ctx)
+      const [fromDesignation, toDesignation, fromDepartment, toDepartment] = await Promise.all([
+        lifecycleRepo.designationName(tx, existing.designationId),
+        designationChanged ? lifecycleRepo.designationName(tx, input.designationId ?? null) : Promise.resolve(null),
+        lifecycleRepo.departmentName(tx, before.departmentId),
+        departmentChanged ? lifecycleRepo.departmentName(tx, after.departmentId) : Promise.resolve(null),
+      ])
+      const event = { organizationId: ctx.organizationId, employeeId: existing.id, effectiveDate: toDateColumn(today), createdByUserId: ctx.userId }
+      if (designationChanged) await lifecycleRepo.addEvent(tx, { ...event, kind: 'promoted', details: { fromDesignation, toDesignation, via: 'edit' } })
+      if (departmentChanged) await lifecycleRepo.addEvent(tx, { ...event, kind: 'transferred', details: { fromDepartment, toDepartment, via: 'edit' } })
+    }
 
     if (input.employeeCode !== undefined) data.employeeCode = input.employeeCode.trim()
     if (input.fullName !== undefined) data.fullName = input.fullName.trim()
     if (input.personalEmail !== undefined) data.personalEmail = input.personalEmail
     if (input.phone !== undefined) data.phone = input.phone
-    if (input.dateOfJoining !== undefined) {
+    if (joiningChanged) {
       data.dateOfJoining = input.dateOfJoining ? toDateColumn(input.dateOfJoining) : null
+      // A joining date corrected while on probation moves the end of probation
+      // with it — unless HR set that end by hand (it no longer matches the
+      // company's months from the old date).
+      const oldJoined = fromDateColumn(existing.dateOfJoining)
+      const end = fromDateColumn(existing.probationEndDate)
+      if (!existing.confirmedOn && input.dateOfJoining !== oldJoined) {
+        const months = (await lifecycleSettings(tx, ctx.organizationId))?.probationMonths ?? 6
+        if (!end || (oldJoined && end === defaultProbationEnd(oldJoined, months))) {
+          data.probationEndDate = input.dateOfJoining ? toDateColumn(defaultProbationEnd(input.dateOfJoining, months)) : null
+        }
+      }
     }
-    if (input.lastWorkingDate !== undefined) {
-      data.lastWorkingDate = input.lastWorkingDate ? toDateColumn(input.lastWorkingDate) : null
+    // Written only when changed: an acceptance, promotion or transfer committed
+    // since this edit read the record is not put back by a form that resent it.
+    if (lastDayChanged) {
+      data.lastWorkingDate = lastDayAfter ? toDateColumn(lastDayAfter) : null
     }
     if (input.gender !== undefined) data.gender = input.gender
     if (input.employmentType !== undefined) data.employmentType = input.employmentType
-    if (input.departmentId !== undefined) data.departmentId = input.departmentId
-    if (input.designationId !== undefined) data.designationId = input.designationId
+    if (departmentChanged) data.departmentId = after.departmentId
+    if (designationChanged) data.designationId = input.designationId
     if (input.shiftId !== undefined) data.shiftId = input.shiftId
     if (managerChanged) data.reportingManagerId = after.reportingManagerId
     if (input.attendanceMode !== undefined) data.attendanceMode = input.attendanceMode
@@ -476,6 +609,8 @@ export async function updateEmployee(
         },
       }, tx)
     }
+    // Their waiting requests now go to somebody else, who is told.
+    if (managerChanged) await tellNewApprovers(ctx, tx, id)
   }).catch(asConflict)
 
   const row = await repo.findById(ctx.db, scope, id, access)

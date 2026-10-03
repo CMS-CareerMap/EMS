@@ -39,7 +39,7 @@
 <main>
 
 <h1>EMS — Roles and Approvals</h1>
-<p class="sub">How roles, reporting and approvals work in the CareerMap Solutions Employee Management System · 2 October 2026</p>
+<p class="sub">How roles, reporting and approvals work in the CareerMap Solutions Employee Management System · 3 October 2026</p>
 
 <div class="box note">
   This document explains, in simple words, how EMS handles roles, reporting and approvals.<br><br>
@@ -62,6 +62,7 @@
   <tr><td>Every person with a role is also an employee, with two separate logins.</td><td>The Super Admin adds a role login on the employee's page, beside their employee login. Both are the same person (section 5).</td></tr>
   <tr><td>HR negotiates salaries, so HR should see them.</td><td>HR can see salaries, but not change them, and not see their seniors' salaries. Accounts enters salaries (section 6).</td></tr>
   <tr><td>The owner does not need anybody's approval.</td><td>The owner's leave is recorded directly (section 3).</td></tr>
+<tr><td>Follow every employee from joining to leaving.</td><td>Each profile shows where the person is: onboarding, probation, confirmed, resigned, serving notice or left. HR takes each step; the reporting manager accepts a resignation (section 9).</td></tr>
 </table>
 
 <h2>2. Everybody works under somebody</h2>
@@ -111,7 +112,8 @@
   <li><strong>Only one person is marked as the owner.</strong> Somebody whose manager has simply not been set yet is not treated as the owner.</li>
   <li><strong>Nobody gets missed.</strong> If somebody has nobody above them, they show on a list for the Super Admin. Until the Super Admin places them, the Super Admin handles their requests.</li>
   <li><strong>The chart cannot go in a loop.</strong> EMS stops “A reports to B” if B already reports to A.</li>
-  <li><strong>Moving people is safe.</strong> If somebody gets a new manager, their waiting requests go to the new manager. If a manager leaves the company, their team shows on the Super Admin's list until they are placed under somebody else. If a manager's login is turned off, their team's requests go to the Super Admin.</li>
+  <li><strong>Only the Super Admin moves people.</strong> When HR adds a new joiner, HR chooses who they report to. After that, any change is made by the Super Admin, so nobody can take over somebody else's approvals by moving them.</li>
+  <li><strong>Moving people is safe.</strong> If somebody gets a new manager, their waiting requests go to the new manager, who is told. If a manager leaves the company, their team shows on the Super Admin's list until they are placed under somebody else. If a manager's login is turned off, their team's requests go to the Super Admin.</li>
 </ul>
 
 <h2>3. Who approves leave</h2>
@@ -143,6 +145,7 @@
   <tr><td>Marking or correcting attendance</td><td>HR</td><td>The person above that HR person</td></tr>
   <tr><td>Entering the monthly incentive</td><td>HR or Accounts</td><td>The person above them</td></tr>
   <tr><td>Entering or changing a salary</td><td>Accounts</td><td>The person above that accountant</td></tr>
+<tr><td>Confirming, extending probation, transferring, promoting, or completing the exit</td><td>HR</td><td>The person above that HR person</td></tr>
   <tr><td>Approving leave</td><td>Their reporting manager</td><td>Their reporting manager</td></tr>
 </table>
 <p class="muted">This rule applies to every role, including new roles the Super Admin creates. It cannot be turned off.</p>
@@ -160,6 +163,7 @@
   <li><strong>Signing in:</strong> somebody with two logins signs in with the email of the login they want. Their Employee ID cannot choose between the two.</li>
   <li>The top of the screen always shows which login is open, for example “Signed in as HR” or “Signed in as Employee”. On a phone it shows the role as a small label.</li>
   <li>The Super Admin can turn one login off; the other keeps working. When somebody leaves the company, <strong>both logins are closed together</strong>, and they stay closed.</li>
+  <li>A login added by mistake, for example with a wrongly typed email, can be withdrawn before anybody uses it, and then added again correctly.</li>
   <li>Normal employees have just one login.</li>
 </ul>
 
@@ -171,6 +175,9 @@
   <tr><td><strong>Everybody</strong></td><td>Sees their own salary on their own payslips.</td></tr>
 </table>
 <p>HR agrees a salary with the employee, and Accounts enters it. Every change is recorded in the audit log, and nobody can change their own salary.</p>
+<div class="box note">
+  <strong>Documents.</strong> HR checks everybody's documents, including those of the people above them. An offer letter shows the salary, so HR can read it there. The Super Admin can change whose documents HR sees on the Roles &amp; Permissions screen.
+</div>
 
 <h2>7. The Super Admin controls roles</h2>
 <p>The Super Admin has a <strong>Roles &amp; Permissions</strong> screen in Settings. From there, the Super Admin can:</p>
@@ -201,6 +208,8 @@
   <ul>
     <li>The Super Admin role cannot be changed or deleted, and there is always at least one Super Admin.</li>
     <li>Nobody can change a role they have themselves.</li>
+    <li>Nobody can give somebody a role that would let that person see more than they can see themselves.</li>
+    <li>Nobody can reset the password of, or turn off, the login of somebody above them in the company tree.</li>
     <li>The seven starting roles cannot be deleted, only changed or reset. A role that somebody still has, or that other roles come under, cannot be deleted.</li>
     <li>EMS warns if one role could both prepare and approve the payroll.</li>
     <li>Every change is saved in the audit log: who changed what, and when.</li>
@@ -213,7 +222,7 @@
   <tr><th style="width:22%">Role</th><th>What they do</th></tr>
   <tr><td><strong>Super Admin</strong></td><td>Everything: approves the payroll, sees reports and the audit log, manages settings, users, roles and who reports to whom.</td></tr>
   <tr><td><strong>Admin</strong></td><td>Looks after employee records and documents.</td></tr>
-  <tr><td><strong>HR</strong></td><td>Employees, attendance, documents and holidays. Sees all leave, gives the yearly leave and corrects balances, but does not approve leave. Enters monthly incentives. Sees salaries, except seniors' salaries.</td></tr>
+  <tr><td><strong>HR</strong></td><td>Employees from joining to leaving: onboarding, probation, transfers, promotions and exits. Attendance, documents and holidays. Sees all leave, gives the yearly leave and corrects balances, but does not approve leave. Enters monthly incentives. Sees salaries, except seniors' salaries.</td></tr>
   <tr><td><strong>Manager</strong></td><td>Sees their team's attendance and leave. Approves the leave of the people under them, as everybody with people under them does.</td></tr>
   <tr><td><strong>Reporting Manager</strong></td><td>The same as Manager.</td></tr>
   <tr><td><strong>Accounts</strong></td><td>Enters salaries, prepares the monthly payroll, checks bank accounts, and downloads the bank transfer file.</td></tr>
@@ -221,7 +230,31 @@
 </table>
 <p class="muted">Everybody with a role also gets an employee login for their own things (section 5). Anybody with people under them approves those people's leave. A login for somebody who is not on the staff, for example an outside administrator, can be made in Settings → Users; it is not part of the company tree.</p>
 
-<h2>9. Other safety rules</h2>
+<h2>9. From joining to leaving</h2>
+<p>EMS follows every employee from the day they join to the day they leave. Each employee's profile shows the stage they are at, and a history of every step.</p>
+<table>
+<tr><th style="width:20%">Stage</th><th>What it means</th><th style="width:22%">Who moves them on</th></tr>
+<tr><td><strong>Joining soon</strong></td><td>Their joining date is still ahead. They cannot punch in or apply for leave before it.</td><td>Nobody: it moves on by itself on the joining day</td></tr>
+<tr><td><strong>Onboarding</strong></td><td>They have joined. Their profile shows a short checklist: login, documents, bank account, PAN and reporting manager. HR marks onboarding complete.</td><td>HR</td></tr>
+<tr><td><strong>On probation</strong></td><td>Probation runs 6 months from joining. HR can extend it, with a reason the employee sees.</td><td>HR confirms or extends</td></tr>
+<tr><td><strong>Confirmed</strong></td><td>Probation is over.</td><td>—</td></tr>
+<tr><td><strong>Transfer and promotion</strong></td><td>HR moves them to another department, or gives them a new designation. Who they report to is still changed only by the Super Admin. A pay rise is entered by Accounts.</td><td>HR</td></tr>
+<tr><td><strong>Resigned</strong></td><td>The employee hands in their resignation in EMS (My Profile), or HR records a resignation letter. They can take it back until it is accepted.</td><td>The employee</td></tr>
+<tr><td><strong>Serving notice</strong></td><td>The person they report to accepts the resignation and sets the last working day. The notice period is 30 days to start.</td><td>Their reporting manager</td></tr>
+<tr><td><strong>Left</strong></td><td>On or after the last working day, HR completes the exit and records why they left. (HR can also do it earlier, if the company relieves them early.) All their logins close, and payroll pays them up to their last working day.</td><td>HR</td></tr>
+</table>
+<ul>
+<li><strong>HR does not accept resignations.</strong> The person the employee reports to does, as with leave. That person, or HR, can also call a resignation off if the employee decides to stay.</li>
+<li><strong>People already working here</strong> when EMS starts are added as Confirmed, with the date they were confirmed.</li>
+<li><strong>HR's own steps</strong>, like confirming or promoting an HR person, are done by the person above them (section 4). HR also cannot change the record of anybody above them in the company tree; the Super Admin does that.</li>
+<li><strong>A resignation stays private until it is accepted.</strong> Only the employee, HR, their reporting manager and the Super Admin can see it. An HR person who works under that employee does not see it. Everybody else sees it once it is accepted.</li>
+<li><strong>Somebody who was to join but does not come:</strong> HR closes their record. No working day is recorded for them.</li>
+<li><strong>The dashboard helps.</strong> HR sees who is joining, who is still being onboarded, whose probation ends within 30 days, who has resigned and who is past their last day. A manager sees the resignations waiting for them.</li>
+<li>The employee is told about every step, and every step is saved in the audit log.</li>
+<li>The Super Admin can change the probation length and the notice period in Settings → Employee Lifecycle.</li>
+</ul>
+
+<h2>10. Other safety rules</h2>
 <ul>
   <li><strong>Everything important is recorded.</strong> Sign-ins, role changes, salary changes, payroll steps, documents opened and files downloaded all go into the audit log. Nobody can edit or delete it.</li>
   <li><strong>Everybody sets their own password.</strong> There are no shared passwords. Each person gets a one-time link, valid for 72 hours, to set theirs.</li>
@@ -231,7 +264,7 @@
 </ul>
 
 <div class="keep">
-<h2>10. What happens next</h2>
+<h2>11. What happens next</h2>
 <ol>
   <li>Everything in this document is built, and tested for every role, on computer and on phone.</li>
   <li>EMS goes live. The Super Admin then sets up who reports to whom, the roles, and the role logins, directly in EMS. You do not need to send us any data.</li>
@@ -249,7 +282,7 @@
 </div>
 </div>
 
-<footer>EMS — CareerMap Solutions Pvt. Ltd. · Roles and approvals · 2 October 2026</footer>
+<footer>EMS — CareerMap Solutions Pvt. Ltd. · Roles and approvals · 3 October 2026</footer>
 </main>
 </body>
 </html>

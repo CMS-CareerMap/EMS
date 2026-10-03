@@ -515,9 +515,10 @@ describe('reach cannot be widened from the inside (core review fixes)', () => {
     expect(self.status).toBe(403)
     expect(self.body.error.message).toMatch(/cannot change your own reporting manager or department/)
 
+    // Who somebody reports to is the Super Admin's alone to change.
     const md = await patch('clerk', emp.boss!, { reportingManagerId: emp.clerk })
     expect(md.status).toBe(403)
-    expect(md.body.error.message).toBe('That change would put this person in your team, which would show you more of their information (salaries). Ask somebody above you to make it.')
+    expect(md.body.error.message).toBe('Who somebody reports to is set by the Super Admin, on Settings → Company Tree. Ask the Super Admin to move them.')
     const boss = await prisma.employee.findUniqueOrThrow({ where: { id: emp.boss! }, select: { reportingManagerId: true } })
     expect(boss.reportingManagerId).toBeNull()
 

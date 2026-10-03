@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { KeyRound, Loader2, Plus, X } from 'lucide-react'
 import { useAuthStore } from '../../stores/authStore'
-import { useAddLogin, useIssuePasswordLink, useToggleUserStatus } from '../../hooks/useUsers'
+import { useAddLogin, useIssuePasswordLink, useToggleUserStatus, useWithdrawInvitation } from '../../hooks/useUsers'
 import { useAssignableRoles } from '../../hooks/useRoles'
 import { PasswordLinkPanel } from '../settings/UserAccess'
+import ConfirmDialog from '../../components/ConfirmDialog'
 import { roleLabel } from '../../lib/roles'
 import { optionsNote } from '../../lib/optionsNote'
 
@@ -35,8 +36,13 @@ export default function EmployeeLogins({ employee }) {
   const assignable = useAssignableRoles({ enabled: mayAdd || mayToggle || mayLink })
   const toggle = useToggleUserStatus()
   const issueLink = useIssuePasswordLink()
+  const withdraw = useWithdrawInvitation()
   const [adding, setAdding] = useState(false)
   const [issued, setIssued] = useState(null)
+  // Asked once more: turning a login off signs it out everywhere, and taking
+  // back an invitation deletes the login.
+  const [turningOff, setTurningOff] = useState(null)
+  const [withdrawing, setWithdrawing] = useState(null)
 
   const logins = employee.logins ?? []
   const mine = employee.id === myPersonId
@@ -74,10 +80,18 @@ export default function EmployeeLogins({ employee }) {
                   New link
                 </button>
               )}
+              {/* A mistyped address is taken back, so the right login can be added. */}
+              {mayLink && manageable && login.status === 'invited' && (
+                <button type="button" onClick={() => setWithdrawing(login)} disabled={withdraw.isPending}
+                  aria-label={`Withdraw the invitation for ${login.email}`}
+                  className="shrink-0 px-2.5 py-1 rounded-lg text-xs font-semibold border border-rose-200 text-rose-700 hover:bg-rose-50 disabled:opacity-50">
+                  Withdraw
+                </button>
+              )}
               {mayToggle && manageable && login.status !== 'invited' && (
                 <button
                   type="button"
-                  onClick={() => toggle.mutate({ user_id: login.id, currentStatus: login.status })}
+                  onClick={() => (login.status === 'active' ? setTurningOff(login) : toggle.mutate({ user_id: login.id, currentStatus: login.status }))}
                   disabled={toggle.isPending}
                   aria-label={`${login.status === 'active' ? 'Turn off' : 'Turn on'} ${login.email}`}
                   className={`shrink-0 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-50
@@ -111,6 +125,22 @@ export default function EmployeeLogins({ employee }) {
           <Plus className="w-3.5 h-3.5" /> {logins.length > 0 ? 'Add another login' : 'Add login'}
         </button>
       ))}
+
+      {turningOff && (
+        <ConfirmDialog title={`Turn off ${turningOff.email}?`} confirmLabel="Turn off" danger
+          onConfirm={() => toggle.mutateAsync({ user_id: turningOff.id, currentStatus: turningOff.status })}
+          onClose={() => setTurningOff(null)}>
+          <p>It is signed out everywhere at once and cannot sign in until it is turned back on.</p>
+          {logins.length > 1 && <p>Their other login keeps working.</p>}
+        </ConfirmDialog>
+      )}
+      {withdrawing && (
+        <ConfirmDialog title={`Withdraw the invitation for ${withdrawing.email}?`} confirmLabel="Withdraw" danger
+          onConfirm={() => withdraw.mutateAsync({ user_id: withdrawing.id })}
+          onClose={() => setWithdrawing(null)}>
+          <p>Its link stops working and the login is taken away, so the right one can be added in its place.</p>
+        </ConfirmDialog>
+      )}
     </div>
   )
 }

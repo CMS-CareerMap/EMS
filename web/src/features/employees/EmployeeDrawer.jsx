@@ -2,14 +2,17 @@ import { createElement } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   X, Mail, Phone, Building2, Briefcase, Calendar, BadgeCheck, Edit2, Users, Clock,
-  Landmark, CheckCircle2, XCircle, UserRound, Fingerprint, CalendarX,
+  Landmark, CheckCircle2, XCircle, UserRound, Fingerprint,
   FileText, Paperclip, ArrowRight, CircleDashed,
 } from 'lucide-react'
 import { useAuthStore } from '../../stores/authStore'
 import { useChecklist } from '../../hooks/useDocuments'
 import DataState from '../../components/DataState'
 import EmployeeLogins from './EmployeeLogins'
+import EmploymentSection from './EmploymentSection'
+import { EscapeCloses } from '../../hooks/useEscape'
 import { formatDay } from '../../lib/dates'
+import { stageOf } from '../../lib/lifecycle'
 
 /**
  * One employee, as the server holds them.
@@ -88,6 +91,8 @@ export default function EmployeeDrawer({ employee, onClose, onEdit }) {
     <>
       {/* Backdrop */}
       <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
+      {/* Escape closes it — after any dialog opened over it (the Logins confirmations). */}
+      <EscapeCloses onClose={onClose} />
 
       {/* Drawer */}
       <div className="fixed right-0 top-0 h-full w-full max-w-md bg-white shadow-2xl z-50 flex flex-col">
@@ -103,7 +108,7 @@ export default function EmployeeDrawer({ employee, onClose, onEdit }) {
                 Edit
               </button>
             )}
-            <button onClick={onClose}
+            <button onClick={onClose} aria-label="Close"
               className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
               <X className="w-4 h-4" />
             </button>
@@ -131,6 +136,11 @@ export default function EmployeeDrawer({ employee, onClose, onEdit }) {
                       {type.label}
                     </span>
                   )}
+                  {employee.lifecycle_stage && (
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${stageOf(employee.lifecycle_stage).cls}`}>
+                      {stageOf(employee.lifecycle_stage).label}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -149,9 +159,6 @@ export default function EmployeeDrawer({ employee, onClose, onEdit }) {
               <InfoRow icon={Building2} label="Department" value={employee.department || '—'} />
               <InfoRow icon={Briefcase} label="Designation" value={employee.designation || '—'} />
               <InfoRow icon={Calendar} label="Date of Joining" value={formatDate(employee.date_of_joining)} />
-              {employee.last_working_date && (
-                <InfoRow icon={CalendarX} label="Last Working Day" value={formatDate(employee.last_working_date)} />
-              )}
               <InfoRow icon={Clock} label="Shift"
                 value={employee.shift ? `${employee.shift.name} (${employee.shift.start_time}–${employee.shift.end_time})` : '—'} />
               <InfoRow icon={Fingerprint} label="Attendance" value={ATTENDANCE_MODE[employee.attendance_mode] ?? '—'} />
@@ -165,10 +172,22 @@ export default function EmployeeDrawer({ employee, onClose, onEdit }) {
               <InfoRow icon={UserRound} label="Gender" value={GENDER[employee.gender] ?? 'Not recorded'} />
             </Section>
 
-            {/* Every login of theirs, each with its own email (Day 23). */}
-            <Section title="Logins">
-              <EmployeeLogins employee={employee} />
+            {/* Where they stand from joining to leaving (client §43), with the steps the caller may take. */}
+            <Section title="Employment">
+              <EmploymentSection employeeId={employee.id} />
             </Section>
+
+            {/* Every login of theirs, each with its own email (Day 23) — sent
+                only to whoever manages logins. Anybody else sees the work email. */}
+            {Object.hasOwn(employee, 'logins') ? (
+              <Section title="Logins">
+                <EmployeeLogins employee={employee} />
+              </Section>
+            ) : (
+              <Section title="Login">
+                <InfoRow icon={Mail} label="Work Email" value={employee.email || 'No login'} />
+              </Section>
+            )}
 
             {checksDocuments && (
               <Section title="Documents">

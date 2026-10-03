@@ -70,7 +70,7 @@ export function PasswordLinkPanel({ email, invite, onDone }) {
             </p>
           </div>
         </div>
-        <button onClick={onDone} className="p-1 rounded text-blue-400 hover:text-blue-700" title="Close">
+        <button onClick={onDone} className="p-1 rounded text-blue-400 hover:text-blue-700" title="Close" aria-label="Close the link">
           <X className="w-4 h-4" />
         </button>
       </div>
@@ -78,6 +78,7 @@ export function PasswordLinkPanel({ email, invite, onDone }) {
       <div className="flex items-center gap-2">
         <input
           ref={inputRef}
+          aria-label={`${isReset ? 'Password reset' : 'Invitation'} link for ${email}`}
           readOnly
           value={url}
           onFocus={(e) => e.target.select()}
@@ -129,18 +130,18 @@ export function InviteUserForm({ onInvited, onCancel }) {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-600">Work email</label>
-          <input type="email" required value={form.email} onChange={(e) => set('email', e.target.value)}
+          <label htmlFor="invite-email" className="text-xs font-medium text-gray-600">Work email</label>
+          <input id="invite-email" type="email" required value={form.email} onChange={(e) => set('email', e.target.value)}
             placeholder="name@company.in" className={inp} />
         </div>
         <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-600">Full name</label>
-          <input value={form.full_name} onChange={(e) => set('full_name', e.target.value)}
+          <label htmlFor="invite-name" className="text-xs font-medium text-gray-600">Full name</label>
+          <input id="invite-name" value={form.full_name} onChange={(e) => set('full_name', e.target.value)}
             placeholder="Optional" className={inp} />
         </div>
         <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-600">Role</label>
-          <select value={role} onChange={(e) => set('role', e.target.value)} disabled={!rolesQuery.isSuccess || roles.length === 0}
+          <label htmlFor="invite-role" className="text-xs font-medium text-gray-600">Role</label>
+          <select id="invite-role" value={role} onChange={(e) => set('role', e.target.value)} disabled={!rolesQuery.isSuccess || roles.length === 0}
             className={`${inp} bg-white`}>
             {rolesQuery.isSuccess && roles.length > 0
               ? roles.map((r) => <option key={r.key} value={r.key}>{r.name}</option>)
@@ -148,8 +149,8 @@ export function InviteUserForm({ onInvited, onCancel }) {
           </select>
         </div>
         <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-600">Employee code</label>
-          <input value={form.employee_code} onChange={(e) => set('employee_code', e.target.value)}
+          <label htmlFor="invite-code" className="text-xs font-medium text-gray-600">Employee code</label>
+          <input id="invite-code" value={form.employee_code} onChange={(e) => set('employee_code', e.target.value)}
             placeholder="Optional — also creates their HR record" className={inp} />
         </div>
       </div>

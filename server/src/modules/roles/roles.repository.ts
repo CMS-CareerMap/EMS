@@ -117,7 +117,8 @@ export async function membershipsHolding(db: Db, permission: string) {
       userId: true,
       status: true,
       role: true,
-      roleDef: { select: { scopes: true } },
+      // The whole role, so its scopes are read as they apply (`toGrant`), and a Super Admin is known.
+      roleDef: { select: { key: true, name: true, permissions: true, scopes: true, locked: true } },
       // Where the holder sits — what their team and department scopes are measured from.
       employee: { select: { id: true, departmentId: true } },
     },

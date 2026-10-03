@@ -1,6 +1,6 @@
 # Role & Permission Documentation
 
-**EMS — CareerMap Solutions** | Version 2.0 | 2 October 2026
+**EMS — CareerMap Solutions** | Version 2.1 | 3 October 2026
 
 This document says who can do what in EMS, and how the system enforces it. It describes the model built on Days 21–23:
 
@@ -8,6 +8,7 @@ This document says who can do what in EMS, and how the system enforces it. It de
 - **Approvals follow the company tree**, not a role. The person somebody reports to decides their leave (§5).
 - **Your own work goes up the tree.** Nobody checks, corrects or enters their own items in their role's area, and neither do their peers or juniors (§6).
 - **Two logins, one person.** Somebody with a role has an employee login and a role login, each with its own email. Both are the same person, so every rule above holds from both (§7).
+- **The employee lifecycle** (client §43): joining soon → onboarding → probation → confirmed → transfers and promotions → resigned → serving notice → exit. HR takes the steps; a resignation is accepted by the person somebody reports to, like leave (§9).
 
 The client's own description of the same model, in plain words, is `docs/client/EMS-Roles-and-Approvals.pdf`.
 
@@ -34,7 +35,7 @@ The role row is read again on every request, so a change on the Roles screen app
 | `DIRECT_REPORTS` | Their team | The people directly under them, and themselves |
 | `ALL_REPORTS` | Everybody under them | Everybody below them in the tree, at every level, and themselves |
 | `DEPARTMENT` | Their department | Everybody in their department |
-| `ORGANIZATION_EXCEPT_ABOVE` | Whole company, except seniors | Everybody except the people above them in the tree. The owner and every Super Admin always count as "above" |
+| `ORGANIZATION_EXCEPT_ABOVE` | Whole company, except seniors | Everybody except the people above them in the tree. The owner and every Super Admin always count as "above" — even one placed under them |
 | `ORGANIZATION` | Whole company | Everybody |
 
 The two tree scopes need the caller's place in the tree, so `authenticate` loads it, but only for a role that uses them.
@@ -65,9 +66,12 @@ The order decides who may hand out or manage which role (§8). It does **not** p
 |--------|:-----------:|:-----:|:--:|:------------:|:--------:|:--------:|
 | Dashboard | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ own |
 | Employees (directory) | ✅ | ✅ create, edit | ✅ create, edit | 👁 view | ❌ | ❌ |
+| Employee lifecycle — onboarding, probation, transfer, promotion, recording a resignation, exit | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| Resignation — hand in, withdraw before acceptance | ✅ own | ✅ own | ✅ own | ✅ own | ✅ own | ✅ own |
+| Resignation — accept | By the company tree, whatever the role (§5) | | | | | |
 | Salaries on employee records | ✅ | ❌ | 👁 all but seniors' | ❌ | ✅ (through Payroll) | ❌ |
 | PAN, UAN, PF, ESIC | ✅ | ❌ | 👁 | ❌ | on payslips | own payslips |
-| Attendance | ✅ | ❌ | ✅ mark, edit, delete | 👁 team | ❌ | 🟡 own, punch |
+| Attendance | ✅ | ❌ | ✅ mark, correct | 👁 team | ❌ | 🟡 own, punch |
 | Leave — apply | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ |
 | Leave — see requests | ✅ | ❌ | 👁 all | 👁 team | ❌ | own |
 | Leave — decide | By the company tree, whatever the role (§5) | | | | | |
@@ -85,6 +89,7 @@ The order decides who may hand out or manage which role (§8). It does **not** p
 | Document checklist | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | Reports | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Settings (company, payroll config, notifications) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Settings → Employee Lifecycle (probation, notice period) | ✅ | ❌ | 👁 | ❌ | ❌ | ❌ |
 | Users, roles, company tree, approvals | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Audit log | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Notifications (the bell) | own | own | own | own | own | own |
@@ -93,7 +98,8 @@ The order decides who may hand out or manage which role (§8). It does **not** p
 
 Notes:
 
-- **Admin, HR:** Settings opens only for the tabs they run: leave types (Admin, HR), holidays (HR) and the document checklist (Admin, HR).
+- **Admin, HR:** Settings opens only for the tabs they run: leave types (Admin, HR), holidays (HR) and the document checklist (Admin, HR). HR also reads the Employee Lifecycle tab.
+- **HR and the lifecycle.** HR holds `employee:lifecycle:manage` (needs `employee:update`), within its employee scope. Accepting a resignation needs no tick: the person somebody reports to accepts it, as with leave.
 - **HR and salaries.** HR holds `employee:compensation:read` with the scope "Whole company, except seniors". HR sees salaries on employee records, never a senior's. HR does **not** hold `payroll:structure:read`, because Payroll shows every salary to whoever opens it.
 - **Accounts** has no `employee:read`. Salaries and bank details reach Accounts through the payroll screens only.
 - **Admin and Accounts cannot apply for leave** from their role login. They do it from their employee login (§7).
@@ -134,8 +140,9 @@ Every change is written to the audit log. A custom role shows its own name every
 - Everybody reports to exactly one person (`Employee.reportingManagerId`). The Super Admin sets the tree on **Settings → Company Tree**, or on a person's page.
 - The tree cannot loop. Nobody reports to somebody who has left, and nobody is placed above the owner.
 - **The tree in effect** skips managers who have left. Their people show under "Nobody above" until the Super Admin places them. A manager who is still here but has no live login stays in the tree; their people's requests go to the Super Admin (or the named person) until the login is back.
-- **Moving people:** only the Super Admin may move an existing person under themselves, or under anybody below them. That move would hand over that person's leave and work decisions. A new joiner added straight into your own team is allowed.
-- **The owner** is marked explicitly, on one person who holds the Super Admin panel. The owner sits at the top; any reporting line they had is taken away when they are marked. The owner's own leave and items need nobody's approval and are recorded directly. The mark counts only while that person is still here and holds the Super Admin panel on a live login.
+- **Moving people is the Super Admin's alone** (`role:manage`): setting, changing or clearing who somebody already here reports to. Anybody else could otherwise hand a person's leave and work decisions to whoever they liked — to a new hire whose invitation link they hold, to the "nobody above" approver by clearing the line, or to a peer by moving that peer's manager. A new joiner is placed by whoever adds them. The person's page shows the field locked, with a note, to everybody else.
+- When a person with requests waiting is moved, whoever decides them now is told.
+- **The owner** is marked explicitly, on one person who holds the Super Admin panel. The owner sits at the top; any reporting line they had is taken away when they are marked. The owner's own leave and items need nobody's approval and are recorded directly. The mark counts only while that person is still here, has nobody above them, and holds the Super Admin panel on a live login.
 
 ### 5.2 Who decides leave
 
@@ -148,8 +155,10 @@ Every change is written to the audit log. A custom role shows its own name every
 | Reversing approved leave | The manager or the Super Admin (default), or the Super Admin only |
 
 - `leave:approve` no longer exists. HR sees every request and decides none.
-- Anybody with people under them gets **Leave → Team Requests**, whatever their role (`session.decidesLeave`).
-- A pending request follows the tree as it is when somebody decides.
+- Anybody with people under them gets **Leave → Team Requests**, whatever their role (`session.decidesLeave`). The stand-in list beside it is worked out from the tree itself, person by person, with the same rule that decides.
+- A pending request follows the tree as it is when somebody decides. A request made by somebody who has since left still shows to whoever decides it.
+- A person named in Settings → Approvals who cannot sign in for now stays named, and the screen says the Super Admin decides meanwhile. Saving the other two settings is not refused because of them.
+- The approval settings' version is made from the settings themselves, so saving the company's details does not make an open Approvals screen "out of date".
 - Nobody decides, reverses or files leave for themselves. The person's other login counts as themselves too (§7).
 - The only Super Admin with nobody above and no owner marked is refused when applying, with "mark the owner", because nobody could decide the request.
 
@@ -164,15 +173,17 @@ Somebody who does a kind of work never does it on their own record. Neither do t
 | Checking a bank account | `employee:bank:manage` |
 | Correcting a leave balance | `leave:balance:manage` |
 | Checking (or removing a checked) document | `document:verify` |
-| Marking or correcting attendance, attendance import rows | `attendance:mark` / `attendance:update` |
+| Marking or correcting attendance, attendance import rows | `attendance:mark` / `attendance:update` (a day already recorded is corrected only with `attendance:update`; `attendance:delete` is checked by nothing and is not offered) |
 | Entering an incentive | `payroll:entry:manage` |
 | Entering a salary or TDS | `payroll:structure:manage` |
+| A lifecycle step: onboarding, probation, confirmation, transfer, promotion, recording a resignation, exit | `employee:lifecycle:manage` |
 
 - **Allowed:** the people above the person in the tree, in effect. A Super Admin is allowed too, unless they are junior to that person. The owner may do their own.
 - **The direct superior** does it. If they lack the right, it goes to the next person up who has it.
 - An ordinary employee's items are done as before, by anybody holding the right whose scope reaches them.
 - Lists say, row by row, whether the caller may act and whom it goes to instead (`may_check`, `may_correct`, `may_enter`, `blocked`). The screens show "Goes to …" or "Entered by …", and refusals name the person to ask.
-- With no owner marked, a top Super Admin's own work cannot be done by anybody, so it is refused with "mark the owner".
+- With no owner marked, a top Super Admin's own work cannot be done by anybody, so it is refused with "mark the owner" — and the lists say the same ("goes to the owner, once marked").
+- A "to check" notice (a document or a bank account sent in) goes only to the people who may check that person's — never to a peer who would be refused.
 
 Code: `server/src/domain/org/workGoesUp.ts` (pure rules), `server/src/modules/organization/workRules.service.ts`.
 
@@ -199,14 +210,16 @@ A person who holds a role has two logins:
 - **Own work goes up** (§6) from both logins. A person "does" a kind of work if **any** of their live logins' roles holds it. So once Priya has an HR login, a fellow HR person can no longer correct her leave balance either.
 - **Leave:** nobody decides their own leave from either login. A person with people under them decides their team's leave from the **role login**. Their employee login is for their own things: it shows no Team Requests, is not told of the team's requests, and cannot decide them (`ctx.selfServiceOnly`, `domain/org/logins.ts` `isSelfServiceLogin`). While the role login is only invited or switched off, the employee login decides, so nothing waits.
 - **The Super Admin panel** counts from any live login: for the owner mark, and for "the Super Admin is always above".
-- **User management:** nobody changes the role of, switches off or removes their own logins, either one. Acting on any one login of a person (a password link, switching it, giving it a role, removing them) needs the right over **every** login of theirs: a senior's employee login is the senior.
+- **User management:** nobody changes the role of, switches off or removes their own logins, either one. Acting on any one login of a person (a password link, switching it, giving it a role, removing them) needs the right over **every** login of theirs: a senior's employee login is the senior. Nor does anybody but the Super Admin manage the logins of somebody above them in the company tree, whatever the role order says.
+- **Who sees a person's logins:** the list of every login (each email, role and status) goes only to whoever manages logins (`role:manage` or a `user:*` permission). Everybody else reading the directory sees the work email, as before.
 - **Notifications** about the person go to all their logins that are not switched off; a request waiting for their decision goes to the role login. Nobody is told about their own action on their other login. A password change on one login is also told on the other.
 - **The audit log** filter "about a person" finds the entries of both logins.
 
 ### 7.3 Adding, switching off, leaving
 
 - **Adding a role login** is the Super Admin's (`role:manage`). It is done on the person's page (**Employees → the person → Logins → Add role login**), never by adding a new person. The login gets its own email and its own invitation link. The role must be one the person does not hold already (`POST /api/employees/:id/logins`).
-- **Switching one login off** (Settings → Users, or the person's page) leaves the other as it is.
+- **Switching one login off** (Settings → Users, or the person's page) leaves the other as it is. It is asked once more, since it signs that login out at once.
+- **Withdrawing an invitation** nobody used (a mistyped address) deletes that login, so the right one can be added with the same role (`POST /api/users/:id/withdraw`). A login somebody has signed in with is switched off instead.
 - **Leaving** (Remove in Settings → Users) closes **every** login of the person together, ends every session of both, and archives the employee record. The caller must be allowed to manage every one of those logins: HR cannot remove somebody whose other login is Accounts. The logins of somebody who has left stay closed: turning one back on is refused, and Users shows them as "Left" with no buttons.
 - **Settings → Users & Roles** lists a person's logins together, with the name once, "2 logins", and "Their other login" on the second row. The role picker leaves out the roles their other logins hold.
 - **Signing in by Employee ID** works when exactly one of the person's logins can sign in (a role login still invited, or switched off, does not count). An Employee ID names a person, so somebody with two live logins signs in with the email of the login they want. The sign-in page says so.
@@ -224,9 +237,11 @@ A person who holds a role has two logins:
 - Nobody edits a role they hold themselves.
 - A role somebody holds, a role other roles come under, and the seven built-in roles cannot be deleted.
 - **Giving and managing.** A person may give only a role below their own that holds nothing they cannot do themselves. The same applies to changing, switching off, removing or resetting the password of somebody else's login.
+  - A scope measured from its holder — their team, everybody under them, their department, the company except their seniors — reaches from where the NEW holder sits. So such a scope can be given only by somebody whose reach in that area is the whole company. "Only their own" can always be given.
+- **Ticks that need another.** "Enter monthly incentives" needs "See salaries" (an incentive is pay; without it the tick reaches nobody). PAN, UAN, PF and ESIC are written only by somebody who may read them.
 - **Reach.** Managing logins works within the role's employee scope. A role reaching one department manages only that department's logins.
-- **Moving people.** Nobody moves somebody into their own team or department when that would show them more (salaries, for example). Nobody moves a senior, because that could take them out of "the people above". Somebody above makes such moves.
-- **Adding people.** Inviting (Settings → Users) and importing a roster need a company-wide employee scope, because both add people outside any team or department. A narrower role adds people under Employees, with itself as their reporting manager.
+- **Moving people.** Who somebody reports to is the Super Admin's to change (§5.1). A department move is still HR's, but nobody moves somebody into their own department when that would show them more (salaries, for example), and nobody moves a senior.
+- **Adding people.** Inviting (Settings → Users) and importing a roster need a company-wide employee scope, because both add people outside any team or department (the import checks it again at the moment it saves). A narrower role adds people under Employees, with itself as their reporting manager. The Import button shows only for a company-wide reach.
 - A roster with an email column gives each person an Employee login, so only a role that may give the Employee role can import it. The preview says so.
 - A role without "Open the dashboard" signs in to the first area it can open.
 - The screen warns, and asks once more, before saving a role that both prepares and approves the payroll, or one that can read the audit log.
@@ -248,6 +263,27 @@ Employee applies (from their employee login)
 - **Reverse:** once approved, by the manager or the Super Admin (Settings → Approvals), never by the person it belongs to. The days go back to the balance and come off the attendance. A month whose payroll is approved cannot be changed.
 - **Granting the year:** HR or the Super Admin, under Leave → Team Balances. Joiners get the months that are left, to the nearest half day. Unused days carry over up to each type's cap. Nothing is granted twice.
 - **Correcting a balance:** HR or the Super Admin, in whole or half days, with a reason the employee sees. One's own goes up the tree (§6).
+
+### Employee lifecycle
+
+```
+Joining soon → Onboarding → On probation → Confirmed ── transfers, promotions
+  → Resigned (handed in) → Serving notice (accepted) → Exit due → Left
+```
+
+- **Joining.** A new joiner starts in **Onboarding**, with probation ending the company's months after joining (6 to start; Settings → Employee Lifecycle). Somebody already working here is added (or imported) with **Confirmed On** filled, and starts as **Confirmed**. A joining date still ahead shows as **Joining soon**; they cannot check in or apply for leave before it.
+- **Onboarding.** The profile shows a checklist (login, required documents, bank account, PAN, reporting manager) for HR to see; it does not block. HR completes onboarding once they have joined.
+- **Probation.** HR extends it (a new end date and a reason the employee sees) or confirms them from a day up to today. The dashboard lists probations ending within 30 days, or past.
+- **Transfer.** HR changes the department. Who somebody reports to stays the Super Admin's (§5.1), so only the Super Admin changes it here too; their waiting requests then go to the new person, who is told. Nobody moves somebody into their own department when that would show them more.
+- **Promotion.** HR changes the designation. A pay change that goes with it is entered by Accounts.
+- **Resignation.** Handed in by the person from **My Profile → My Employment**, or recorded by HR for a letter. The last day asked for defaults to the notice period (30 days to start). The person they report to accepts it from the dashboard and sets the **last working day** (Settings → Approvals applies, standing in included). Before acceptance the person can withdraw it; after, the manager or HR can call it off, which takes the last working day off again.
+- **Exit.** HR completes it, usually on or after the last working day, with the reason; completing it earlier relieves them early, and pay stops on the day entered. Every login of theirs closes, every session ends, the record leaves the employee list, and payroll pays their last month up to that day. The button shows only where HR may close every login of theirs (not a senior's, nor a role not below HR's). Somebody who was to join and is not coming is let go the same way, with no last working day.
+- **Remove** in Settings → Users leaves the same way: inactive, archived, paid up to today (or an earlier last working day), an open resignation closed, and an entry in the history. If this month's payroll is already approved, the last working day stays as it was, and the history says so.
+- **Serving notice** comes only from an accepted resignation. A contract's end date set on the record leaves the person where they are until it passes; then they show as **Exit due**.
+- **Who sees what.** Until a resignation is accepted, it is shown only to the person, whoever decides it, the Super Admin, and HR — but not to HR below that person in the tree. Anybody else reading the directory sees them as before. The history, notes and exit reason are shown to the same people, and the dashboard card and notices follow the same rule.
+- **Seniors and oneself.** HR takes no step on somebody above them in the company tree; the Super Admin does. One's own lifecycle, and a fellow HR person's, is changed by the people above (§6). Every step is in the person's history and the audit log, and the person is told.
+- **Editing the record** (Employees → Edit) follows the same rules for the designation, the department, the joining date and the last working day, and a new designation or department shows in the history. Moving somebody on the Company Tree tells the new decider about a waiting resignation, as it does about waiting leave. A last working day that comes from a resignation is changed only through the resignation.
+- A changed last working day, or joining date, in a month whose payroll is approved is refused.
 
 ### Documents
 
@@ -343,10 +379,19 @@ Accounts sets salaries → creates the month's run (draft) → recalculates as n
 **The tree**
 - [ ] Leave goes to the reporting manager, whatever their role; nobody above → the Super Admin
 - [ ] The backup and reversal settings apply; the owner's leave is recorded directly
-- [ ] Moving somebody under yourself is refused for everybody but the Super Admin
+- [ ] Changing who somebody already here reports to is refused for everybody but the Super Admin
+- [ ] Nobody manages the login of somebody above them in the tree
 
 **Own work**
-- [ ] Bank, leave balance, documents, attendance, incentive, salary/TDS: refused for oneself and for a peer; done by the person above
+- [ ] Bank, leave balance, documents, attendance, incentive, salary/TDS, lifecycle steps: refused for oneself and for a peer; done by the person above
+
+**Employee lifecycle**
+- [ ] A new joiner starts in Onboarding with probation set; somebody added with Confirmed On starts as Confirmed
+- [ ] HR completes onboarding, extends probation with a reason, confirms; the employee is told each time
+- [ ] HR changes the department and designation; only the Super Admin changes the reporting line
+- [ ] The employee hands in and withdraws a resignation; the reporting manager accepts it from the dashboard; HR cannot
+- [ ] The exit waits for the last working day, closes every login, and payroll still pays that month
+- [ ] Check-in and leave are refused before joining and after the last working day
 
 **Two logins**
 - [ ] The Super Admin adds a role login on the person's page; nobody else can
@@ -366,6 +411,8 @@ Accounts sets salaries → creates the month's run (draft) → recalculates as n
 ## 13. Open question and later ideas
 
 > **Open question for the client:** Manager, RM and Accounts have no employee documents on their role login, so they cannot upload their own there. With two logins they can upload from their employee login. If the role login should manage its own documents too, it is one tick per role on the Roles screen.
+
+> **Decided (Devesh, 2 Oct 2026):** HR checks everybody's documents (document reach: whole company), seniors' included — so HR can read a senior's pay in their offer letter, though HR's salary reach leaves seniors out. That is accepted. To change it, set HR's "Whose documents" to "Whole company, except seniors" on the Roles screen; the screen says under Documents that documents can show pay.
 
 | Idea | Description |
 |------|-------------|

@@ -13,6 +13,7 @@ import DataState from '../../components/DataState'
 import { typeColourOf } from '../../lib/leaveTypes'
 import { ROLE_LABELS } from '../../lib/roles'
 import { calendarDayIn, formatCalendarDay, formatDayOf } from '../../lib/dates'
+import { LifecycleCard, WaitingResignations } from './LifecycleCards'
 
 
 function initials(name) {
@@ -84,6 +85,7 @@ export default function HRDashboard() {
   const stats = useDashboardStats()
   const approveLeave = useApproveLeaveDashboard()
   const myEmployeeId = useAuthStore((state) => state.profile?.id ?? null)
+  const runsLifecycle = useAuthStore((state) => state.can('employee:lifecycle:manage'))
 
   const roleTitles = {
     super_admin: 'Admin Dashboard',
@@ -111,10 +113,16 @@ export default function HRDashboard() {
         <p className="text-sm text-gray-500 mt-0.5">{today} · Overview of your workforce</p>
       </div>
 
+      {/* Resignations whose writers report to the caller — accepted here, as leave is decided. */}
+      <WaitingResignations />
+
       {/* Every card below is drawn from this one answer: one error for all of them, never cards of zeros. */}
       <DataState query={stats}>
         {(data) => <Overview data={data} approveLeave={approveLeave} myEmployeeId={myEmployeeId} />}
       </DataState>
+
+      {/* Joining to exit (client §43): who needs a step from HR. Its own request, so it stands if the overview fails. */}
+      {runsLifecycle && <LifecycleCard />}
     </div>
   )
 }

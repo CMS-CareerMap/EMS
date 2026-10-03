@@ -65,7 +65,9 @@ export interface CompanyTree {
 export function placeIn(tree: CompanyTree, employeeId: string, alwaysAbove: readonly string[]): { below: string[]; above: string[] } {
   const below = tree.below(employeeId)
   const above = new Set(tree.above(employeeId))
-  for (const id of alwaysAbove) if (id !== employeeId && !below.includes(id)) above.add(id)
+  // Even one placed under this person: a Super Admin who reports to an HR head
+  // is still not somebody whose salary that HR head sees.
+  for (const id of alwaysAbove) if (id !== employeeId) above.add(id)
   return { below, above: [...above] }
 }
 

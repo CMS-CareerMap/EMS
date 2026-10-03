@@ -1,7 +1,8 @@
 import type { AppContext } from '../../platform/context'
 import type { TxDb } from '../../platform/db/transaction'
 import type { Permission } from '../../platform/authz/permissions'
-import { readScopes } from '../../platform/authz/grant'
+import { toGrant } from '../../platform/authz/grant'
+import { loadWork, mayDoWork, type WorkKind } from '../organization/workRules.service'
 import { isInScope } from '../../platform/authz/scopeWhere'
 import { TREE_SCOPES, type ScopedResource } from '../../platform/authz/scope'
 import { buildTree, placeIn } from '../../domain/org/companyTree'
@@ -38,7 +39,15 @@ export type Recipients =
    * notice is about. A verifier who checks one department's documents is not
    * told about another department's uploads.
    */
-  | { reaching: { permission: Permission; resource: ScopedResource; employeeId: string } }
+  | { reaching: { permission: Permission; resource: ScopedResource; employeeId: string; work?: WorkKind } }
+  /**
+   * Whoever holds `permission` AND may do that kind of work on this employee
+   * (Day 22: one's own, and a fellow worker's, goes up the tree). A notice
+   * "to check" sent to somebody who would be refused is a notice about nothing.
+   */
+  | { doing: { permission: Permission; work: WorkKind; employeeId: string } }
+  /** Several of the above together — each person told once. */
+  | { all: readonly Recipients[] }
   | { everybody: true }
 
 export interface Notice {
@@ -52,7 +61,7 @@ export interface Notice {
   includeActor?: boolean
 }
 
-async function resolve(tx: TxDb, to: Recipients): Promise<string[]> {
+async function resolve(tx: TxDb, organizationId: string, to: Recipients): Promise<string[]> {
   if ('users' in to) return [...to.users]
   if ('employee' in to) return repo.usersOfEmployee(tx, to.employee)
   if ('employees' in to) return repo.usersOfEmployees(tx, to.employees)
@@ -63,14 +72,39 @@ async function resolve(tx: TxDb, to: Recipients): Promise<string[]> {
     return holders.filter((m) => m.status !== 'inactive').map((m) => m.userId)
   }
   if ('everybody' in to) return repo.allUsers(tx)
-  return reaching(tx, to.reaching.permission, to.reaching.resource, to.reaching.employeeId)
+  if ('all' in to) {
+    const groups = await Promise.all(to.all.map((part) => resolve(tx, organizationId, part)))
+    return [...new Set(groups.flat())]
+  }
+  if ('doing' in to) {
+    const holders = (await roleRepo.membershipsHolding(tx, to.doing.permission)).filter((m) => m.status !== 'inactive')
+    return (await workers(tx, organizationId, to.doing.work, to.doing.employeeId, holders)).map((m) => m.userId)
+  }
+  return reaching(tx, organizationId, to.reaching)
 }
 
-/** Live logins holding `permission` whose `resource` scope reaches `employeeId`. */
-async function reaching(tx: TxDb, permission: Permission, resource: ScopedResource, employeeId: string): Promise<string[]> {
-  const [holders, place] = await Promise.all([roleRepo.membershipsHolding(tx, permission), repo.placeOf(tx, employeeId)])
+type Holder = Awaited<ReturnType<typeof roleRepo.membershipsHolding>>[number]
+
+/** Of these holders, those who may do this kind of work on the employee. */
+async function workers(tx: TxDb, organizationId: string, work: WorkKind, employeeId: string, holders: Holder[]): Promise<Holder[]> {
+  if (holders.length === 0) return []
+  const loaded = await loadWork(tx, organizationId, work)
+  return holders.filter((m) => mayDoWork(loaded, { employeeId: m.employee?.id ?? null, isSuperAdmin: m.roleDef.locked }, employeeId))
+}
+
+/** Live logins holding `permission` whose `resource` scope reaches `employeeId` — and, given `work`, who may do it there. */
+async function reaching(
+  tx: TxDb,
+  organizationId: string,
+  { permission, resource, employeeId, work }: { permission: Permission; resource: ScopedResource; employeeId: string; work?: WorkKind | undefined },
+): Promise<string[]> {
+  const [all, place] = await Promise.all([roleRepo.membershipsHolding(tx, permission), repo.placeOf(tx, employeeId)])
   if (!place) return []
-  const live = holders.filter((m) => m.status !== 'inactive').map((m) => ({ ...m, scope: readScopes(m.roleDef.scopes)[resource] }))
+  const holders = all.filter((m) => m.status !== 'inactive')
+  // The scope as it APPLIES (toGrant), not as stored: a role without the
+  // permission a scope belongs to reaches only its own rows there.
+  const live = (work ? await workers(tx, organizationId, work, employeeId, holders) : holders)
+    .map((m) => ({ ...m, scope: toGrant(m.roleDef).scopes[resource] }))
   // A holder whose scope follows the company tree (Day 22) is decided on their
   // place in it; the tree is read once, and only when somebody needs it.
   const followsTree = live.some((m) => TREE_SCOPES.has(m.scope))
@@ -100,7 +134,7 @@ export async function notify(ctx: NoticeActor, tx: TxDb, notice: Notice): Promis
   const settings = await repo.savedSettings(tx)
   if (!isEnabled(notice.event, settings)) return 0
 
-  const users = new Set(await resolve(tx, notice.to))
+  const users = new Set(await resolve(tx, ctx.organizationId, notice.to))
   if (!notice.includeActor) {
     users.delete(ctx.userId)
     // The actor is a person, not a login (Day 23): what they did from their

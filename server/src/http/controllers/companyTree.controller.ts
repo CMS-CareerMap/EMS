@@ -55,6 +55,7 @@ export const putOwner: RequestHandler = async (req, res) => {
 const settingsOut = (s: ApprovalSettings) => ({
   no_manager_approver_id: s.noManagerApproverId,
   no_manager_approver_name: s.noManagerApproverName,
+  no_manager_approver_can_sign_in: s.noManagerApproverCanSignIn,
   backup: s.backup,
   reversal: s.reversal,
   version: s.version,

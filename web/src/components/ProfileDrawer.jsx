@@ -6,6 +6,7 @@ import {
 import { changePassword } from '../api/auth'
 import { useAuthStore } from '../stores/authStore'
 import MyBankAccount from '../features/payroll/MyBankAccount'
+import MyEmployment from '../features/employees/MyEmployment'
 import { useEscape } from '../hooks/useEscape'
 import { useMyDashboardStats } from '../hooks/useDashboard'
 import { roleLabel } from '../lib/roles'
@@ -309,6 +310,14 @@ export default function ProfileDrawer() {
 
             {/* Divider */}
             <hr className="border-gray-100" />
+
+            {/* Where they stand from joining to leaving, and their resignation (client §43). */}
+            {profile && (
+              <>
+                <MyEmployment />
+                <hr className="border-gray-100" />
+              </>
+            )}
 
             {/* Bank Account for Salary Credit Section */}
             {/* A salary account belongs to an employee record; a login without one has none to show or send. */}

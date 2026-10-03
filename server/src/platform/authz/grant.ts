@@ -96,12 +96,22 @@ export function scopeCovers(wide: DataScope, narrow: DataScope): boolean {
  * Compared on the actual permissions and scopes, not on where the roles sit in
  * the order: the order is what the Super Admin chose, this is what the roles
  * really do. user.policy applies both.
+ *
+ * The role goes to SOMEBODY ELSE, so a scope measured from its holder — their
+ * team, everybody under them, their department, the company except their
+ * seniors — reaches from where THAT person sits, not from the actor's place.
+ * "The company except seniors" given by an HR head to a new joiner with nobody
+ * above them would reach the HR head's own seniors. So such a scope is
+ * covered only by the whole company; "only their own" is always covered.
+ * (`scopeCovers` is for one holder's two scopes, where the place is the same.)
  */
 export function grantsMoreThan(candidate: RoleGrant, actor: RoleGrant): boolean {
   for (const permission of candidate.permissions) {
     if (!actor.permissions.has(permission)) return true
     const resource = resourceOf(permission)
-    if (resource && !scopeCovers(actor.scopes[resource], candidate.scopes[resource])) return true
+    if (!resource) continue
+    const theirs = candidate.scopes[resource]
+    if (theirs !== 'SELF' && actor.scopes[resource] !== 'ORGANIZATION') return true
   }
   return false
 }

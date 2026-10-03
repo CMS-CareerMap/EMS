@@ -101,16 +101,6 @@ export async function countPendingOf(db: ScopedDb, employeeIds: readonly string[
   return db.leaveRequest.count({ where: { status: 'pending', employeeId: { in: [...employeeIds] } } })
 }
 
-/** Waiting requests of anybody but these, for a Super Admin who may decide as the backup. */
-export async function pendingExcept(db: ScopedDb, employeeIds: readonly string[]): Promise<LeaveRequestRow[]> {
-  return db.leaveRequest.findMany({
-    where: { status: 'pending', employeeId: { notIn: [...employeeIds] } },
-    include: requestInclude,
-    orderBy: [{ appliedAt: 'desc' }],
-    take: 500,
-  }) as Promise<LeaveRequestRow[]>
-}
-
 /**
  * Days already committed but not yet decided.
  *
@@ -260,6 +250,12 @@ export async function employeeName(db: TxDb, employeeId: string | null): Promise
   return (await db.employee.findFirst({ where: { id: employeeId }, select: { fullName: true } }))?.fullName ?? null
 }
 
+/** The ids of this person's requests still waiting for a decision. */
+export async function pendingIdsOf(db: TxDb, employeeId: string): Promise<string[]> {
+  const rows = await db.leaveRequest.findMany({ where: { employeeId, status: 'pending' }, select: { id: true } })
+  return rows.map((r) => r.id)
+}
+
 export async function requestFacts(db: TxDb, id: string) {
   return db.leaveRequest.findFirst({
     where: { id },
@@ -357,6 +353,11 @@ export async function balanceOn(db: TxDb, employeeId: string, leaveTypeId: strin
 /** An employee still on the books, if the caller's leave scope reaches them. */
 export async function activeEmployee(db: ScopedDb, scope: ScopeContext, id: string) {
   return db.employee.findFirst({ where: { AND: [employeesInScope(scope), { id, archivedAt: null }] }, select: { id: true, fullName: true } })
+}
+
+/** The days somebody is employed: from joining to their last working day, either open. */
+export async function employmentWindow(db: ScopedDb, id: string) {
+  return db.employee.findFirst({ where: { id }, select: { dateOfJoining: true, lastWorkingDate: true } })
 }
 
 export async function activeLeaveType(db: ScopedDb, id: string) {

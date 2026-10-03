@@ -3,6 +3,7 @@ import type { EmployeeRow } from '../../modules/employee/employee.repository'
 import type { FieldAccess } from '../../modules/employee/employee.repository'
 import { fromDateColumn, isoInstant } from '../../domain/shared/dates'
 import { isInScope } from '../../platform/authz/scopeWhere'
+import { stageOf } from '../../domain/org/lifecycle'
 
 /**
  * What an employee looks like over the wire.
@@ -95,7 +96,47 @@ function base(employee: EmployeeRow) {
     role: first?.role ?? null,
     role_name: first?.roleDef.name ?? null,
     account_status: first?.status ?? null,
-    // Every login, oldest first: each with its own email, role and status.
+
+    archived_at: isoInstant(employee.archivedAt),
+
+    // The employee lifecycle (client §43): where they stand, and its dates.
+    onboarded_on: fromDateColumn(employee.onboardedOn),
+    probation_end_date: fromDateColumn(employee.probationEndDate),
+    confirmed_on: fromDateColumn(employee.confirmedOn),
+  }
+}
+
+/**
+ * Where somebody stands in the lifecycle today — worked out, never stored. A
+ * resignation not yet accepted is not announced: only those who run the
+ * lifecycle, the person and the one they report to see "Resigned" (and an
+ * exit reason); anybody else reading the directory sees where they stood.
+ */
+function lifecycle(employee: EmployeeRow, access: FieldAccess) {
+  const { everybody, employeeId, above } = access.lifecycleOf
+  const sees = (everybody && !above.includes(employee.id)) || (employeeId !== null && (employee.id === employeeId || employee.reportingManagerId === employeeId))
+  const today = access.today
+  const open = employee.resignations[0]
+  const shown = open && (open.status === 'accepted' || (open.status === 'submitted' && sees)) ? { status: open.status } : null
+  return {
+    exit_reason: sees ? employee.exitReason : null,
+    lifecycle_stage: stageOf(
+      {
+        dateOfJoining: fromDateColumn(employee.dateOfJoining),
+        onboardedOn: fromDateColumn(employee.onboardedOn),
+        confirmedOn: fromDateColumn(employee.confirmedOn),
+        lastWorkingDate: fromDateColumn(employee.lastWorkingDate),
+        left: employee.archivedAt !== null || employee.status === 'inactive',
+        resignation: shown,
+      },
+      today,
+    ),
+  }
+}
+
+/** For whoever manages logins: every login, oldest first, each with its own email, role and status (Day 23). */
+function logins(employee: EmployeeRow) {
+  return {
     logins: employee.memberships.map((m) => ({
       id: m.id,
       email: m.user.email,
@@ -103,8 +144,6 @@ function base(employee: EmployeeRow) {
       role_name: m.roleDef.name,
       status: m.status,
     })),
-
-    archived_at: isoInstant(employee.archivedAt),
   }
 }
 
@@ -225,9 +264,11 @@ export function serializeEmployee(employee: EmployeeRow, access: FieldAccess) {
   const seesSalary = access.includeCompensation && isInScope(access.compensationScope, employee)
   return {
     ...base(employee),
+    ...lifecycle(employee, access),
     ...(seesSalary ? compensation(employee) : {}),
     ...(access.includeBank ? bank(employee) : {}),
     ...(access.includeIdentity ? identity(employee) : {}),
+    ...(access.includeLogins ? logins(employee) : {}),
   }
 }
 

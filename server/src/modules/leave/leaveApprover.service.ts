@@ -170,12 +170,22 @@ export async function assertSomebodyDecides(tx: TxDb, world: ApprovalWorld, empl
   )
 }
 
-/** The people whose leave this person decides as the one asked — not as a backup. */
+/**
+ * The people whose leave this person decides as the one asked — not as a
+ * backup. People who have left are among them: a request they made before
+ * leaving still waits for a decision (their last month is paid on it), and
+ * leaving them out hid it from every screen of the person who decides it. The
+ * owner is among their own: a request from before they were marked is theirs
+ * to settle.
+ */
 export function peopleDecidedBy(world: ApprovalWorld, decider: Decider): string[] {
   const me = decider.employeeId
   const people: string[] = []
   for (const id of world.tree.ids()) {
-    if (id === me || world.tree.left(id)) continue
+    if (id === me) {
+      if (routeOf(world.tree, world.rules, id).kind === 'owner') people.push(id)
+      continue
+    }
     const route = routeOf(world.tree, world.rules, id)
     if (route.kind === 'manager' ? route.managerId === me : route.kind === 'nobody_above' && (route.approverId ? route.approverId === me : decider.isSuperAdmin)) {
       people.push(id)

@@ -47,6 +47,12 @@ export const useAuthStore = create((set, get) => ({
    * whatever the role's leave rights; the server decides each request itself.
    */
   decidesLeave: false,
+  /**
+   * Whose employee records the role reaches ("ORGANIZATION", "DEPARTMENT", …).
+   * A roster import adds people outside any team, so it is offered only to a
+   * company-wide reach — the server refuses anybody else.
+   */
+  employeeReach: null,
   organization: null,
   /** True until the session is either confirmed or ruled out. */
   loading: true,
@@ -61,6 +67,7 @@ export const useAuthStore = create((set, get) => ({
       roleName: session?.roleName ?? null,
       permissions: session?.permissions ?? [],
       decidesLeave: session?.decidesLeave ?? false,
+      employeeReach: session?.employeeReach ?? null,
       organization: session
         ? { id: session.organizationId, name: session.organizationName, timezone: session.organizationTimezone }
         : null,
@@ -75,6 +82,7 @@ export const useAuthStore = create((set, get) => ({
       roleName: null,
       permissions: [],
       decidesLeave: false,
+      employeeReach: null,
       organization: null,
       loading: false,
       profileDrawerOpen: false,
