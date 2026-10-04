@@ -1,5 +1,7 @@
+import { Link } from 'react-router-dom'
 import { LogIn, LogOut, Loader2, MapPin, CheckCircle2, Clock } from 'lucide-react'
-import { useMyToday, usePunchIn, usePunchOut } from '../../hooks/usePunch'
+import { useMyToday, useMyWorkplace, usePunchIn, usePunchOut } from '../../hooks/usePunch'
+import { WORK_MODES, minutesLabel } from '../../lib/requests'
 import DataState from '../../components/DataState'
 import { useAuthStore } from '../../stores/authStore'
 import { wallClockIn } from '../../lib/dates'
@@ -47,6 +49,8 @@ export default function PunchCard() {
 /** Today's row — null before the first punch — and the one button it calls for. */
 function Today({ today, punchIn, punchOut }) {
   const timezone = useAuthStore((state) => state.organization?.timezone)
+  const workplace = useMyWorkplace()
+  const mode = today?.work_mode ?? workplace.data?.work_mode ?? 'office'
   const busy = punchIn.isPending || punchOut.isPending
   const checkedIn = Boolean(today?.check_in)
   const checkedOut = Boolean(today?.check_out)
@@ -87,6 +91,26 @@ function Today({ today, punchIn, punchOut }) {
         </div>
       )}
 
+      {/* Against the shift (client §34–35): late past the grace, and overtime to claim once checked out. */}
+      {today?.late_minutes > 0 && (
+        <p className="text-xs font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          Checked in {minutesLabel(today.late_minutes)} after your shift started.
+        </p>
+      )}
+      {checkedOut && today?.overtime_minutes > 0 && workplace.data?.overtime_enabled && (
+        <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+          {minutesLabel(today.overtime_minutes)} of overtime recorded today.{' '}
+          <Link to={`/requests?new=overtime&date=${today.date}`} className="font-semibold underline">Claim it</Link> — it is paid once approved.
+        </p>
+      )}
+
+      {/* Away from the office today (client §32–33): said, so nobody wonders why no location is asked. */}
+      {mode !== 'office' && (
+        <p className="text-xs font-medium text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2">
+          {WORK_MODES[mode]} today{workplace.data && !workplace.data.location_needed && !checkedIn ? ' — no office location needed to check in' : ''}
+        </p>
+      )}
+
       {today?.geofence?.verified && (
         <div className="flex items-center gap-2 text-xs text-emerald-700">
           <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
@@ -108,7 +132,7 @@ function Today({ today, punchIn, punchOut }) {
               <Loader2 className="w-4 h-4 animate-spin" />
               {/* Reading the GPS takes a few seconds, and saying so stops
                   people from tapping again. */}
-              Checking your location…
+              {workplace.data?.location_needed === false ? 'Checking in…' : 'Checking your location…'}
             </>
           ) : (
             <>
@@ -134,7 +158,7 @@ function Today({ today, punchIn, punchOut }) {
         <p className="text-sm text-gray-500 text-center py-1">Your day is recorded. See you tomorrow.</p>
       )}
 
-      {!checkedIn && (
+      {!checkedIn && mode === 'office' && (
         <p className="text-xs text-gray-400 flex items-start gap-1.5">
           <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5" />
           <span>

@@ -67,7 +67,7 @@ export function useSetPfComponent() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async ({ id, countsForPf }) => (await api.patch(`/settings/pf-components/${id}`, { countsForPf })).data,
-    onSuccess: () => Promise.all([keys.pfComponents, ['payroll'], ['salary']].map((queryKey) => queryClient.invalidateQueries({ queryKey }))),
+    onSuccess: () => Promise.all([keys.pfComponents, ['payroll'], ['salary'], ['payroll-components']].map((queryKey) => queryClient.invalidateQueries({ queryKey }))),
   })
 }
 

@@ -4,7 +4,8 @@ import { BadRequest, Forbidden } from '../../platform/errors/AppError'
 import { withTransaction } from '../../platform/db/transaction'
 import { logger } from '../../platform/logger'
 import { isCalendarDate, parseWallClock, toDateColumn, zonedToday } from '../../domain/shared/dates'
-import { hoursBetweenWallClock, classifyDay } from '../../domain/attendance/hours'
+import { hoursBetweenWallClock } from '../../domain/attendance/hours'
+import { halfDayReason, marksOf, measureDay, shiftRulesOf, type DayMeasure } from '../../domain/attendance/shiftRules'
 import * as repo from './attendance.repository'
 import { companyTimezone } from '../organization/organization.service'
 import { closedMonthKeys } from '../payroll/payrollLock.service'
@@ -164,6 +165,7 @@ export async function importAttendance(
     hours: number | null
     status: 'present' | 'half_day' | 'absent'
     note: string | null
+    measure: DayMeasure | null
   }[] = []
 
   let wouldOverwrite = 0
@@ -244,20 +246,22 @@ export async function importAttendance(
     let hours: number | null = null
     let status: 'present' | 'half_day' | 'absent' = 'absent'
     let note: string | null = null
+    let measure: DayMeasure | null = null
 
     if (employee && date && start !== null && end !== null) {
       const result = hoursBetweenWallClock(start, end, employee.shift?.breakMinutes ?? 0)
       hours = result.hours
-      note = result.warning ?? null
-
-      const expected = employee.shift ? Number(employee.shift.expectedHours) : 0
-      status = expected > 0 ? classifyDay(result.hours, expected).status : 'present'
+      // The machine's times are the company's wall clock; a check-out at or
+      // before the check-in is the next morning, as hoursBetweenWallClock reads it.
+      measure = measureDay({ rules: shiftRulesOf(employee.shift), checkIn: start, checkOut: end <= start ? end + 1440 : end, hoursWorked: hours })
+      note = [result.warning, halfDayReason(measure)].filter(Boolean).join(' · ') || null
+      status = measure.classification?.status ?? 'present'
     }
 
     rows.push({ line, employeeCode, date: date ?? rawDate, checkIn: rawIn || null, checkOut: rawOut || null, hours, issues })
 
     if (issues.length === 0 && employee && date) {
-      prepared.push({ employee, date, start, end, hours, status, note })
+      prepared.push({ employee, date, start, end, hours, status, note, measure })
     }
   }
 
@@ -313,6 +317,7 @@ export async function importAttendance(
         shiftId: row.employee.shiftId,
         note: row.note,
         markedByUserId: ctx.userId,
+        ...(row.measure ? marksOf(row.measure) : { lateMinutes: null, earlyLeavingMinutes: null, overtimeMinutes: null }),
         // No geofence columns. A fingerprint at the machine IS the location
         // evidence, and leaving these null says "no GPS check was made" rather
         // than inventing one.

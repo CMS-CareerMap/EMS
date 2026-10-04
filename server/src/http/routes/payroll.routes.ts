@@ -22,6 +22,16 @@ import {
   getBankFileTemplate,
   putBankFileTemplate,
 } from '../controllers/bankAccount.controller'
+import {
+  getAllComponents,
+  postComponent,
+  patchComponent,
+  deleteComponent,
+  getLoans,
+  postLoan,
+  postCloseLoan,
+  deleteLoan,
+} from '../controllers/payrollExtras.controller'
 import { authenticate } from '../middleware/authenticate'
 import { authorize } from '../middleware/authorize'
 import { singleFile } from '../upload'
@@ -43,6 +53,17 @@ payrollRouter.use(authenticate)
 
 // The catalogue is no secret: HR needs it to enter an incentive.
 payrollRouter.get('/components', authorize(['payroll:structure:read', 'payroll:entry:manage']), getComponents)
+// The company's own components (client §40): the accountant's to add, change and archive.
+payrollRouter.get('/components/all', authorize('payroll:structure:read'), getAllComponents)
+payrollRouter.post('/components', authorize('payroll:structure:manage'), postComponent)
+payrollRouter.patch('/components/:id', authorize('payroll:structure:manage'), patchComponent)
+payrollRouter.delete('/components/:id', authorize('payroll:structure:manage'), deleteComponent)
+
+// Loans and salary advances (client §40), recovered from pay.
+payrollRouter.get('/loans', authorize('payroll:structure:read'), getLoans)
+payrollRouter.post('/loans', authorize('payroll:structure:manage'), postLoan)
+payrollRouter.post('/loans/:id/close', authorize('payroll:structure:manage'), postCloseLoan)
+payrollRouter.delete('/loans/:id', authorize('payroll:structure:manage'), deleteLoan)
 payrollRouter.post('/calculate', authorize('payroll:structure:read'), postCalculate)
 payrollRouter.post(
   '/esi-coverage/redecide',

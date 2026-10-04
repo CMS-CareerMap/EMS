@@ -93,6 +93,20 @@ model OrganizationPolicy {
   /// Off by default — it costs employees money, so it is the company's call.
   sandwichRule Boolean @default(false)
 
+  /// Overtime (client §35): whether employees may claim it — off until the
+  /// company turns it on, so nobody is paid overtime by surprise — and what an
+  /// approved hour pays — the rate times an hour of their pay. An hour of pay
+  /// is the month's amount on the basis below, over the month's pay days
+  /// (as for loss of pay) and the shift's expected hours. Twice the ordinary
+  /// rate is what the Factories Act and most shops-and-establishments acts
+  /// ask; the company may pay more.
+  overtimeEnabled Boolean  @default(false)
+  overtimeRate    Decimal  @default(2) @db.Decimal(4, 2)
+  overtimeBasis   PayBasis @default(gross)
+
+  /// Leave encashment (client §36): one day's pay on this basis per day encashed.
+  encashmentBasis PayBasis @default(basic)
+
   effectiveFrom DateTime  @db.Date
   /// Null means "current". Set when a later policy supersedes this one.
   effectiveTo   DateTime? @db.Date
@@ -108,6 +122,14 @@ model OrganizationPolicy {
 }
 
 /// The number of days a month's pay is divided into.
+/// What a day's or an hour's pay is worked out from.
+enum PayBasis {
+  /// The full salary: every fixed earning on the salary record.
+  gross
+  /// The components that count for PF — Basic and DA, as set up.
+  basic
+}
+
 enum LopBasis {
   /// The days the month actually has — 28 to 31. The default, and the only
   /// basis on which a day costs the same as the day it is.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { leaveYearBounds, leaveYearLabel, planGrant, proRatedQuota } from './grant'
+import { accruedBy, leaveYearBounds, leaveYearLabel, planGrant, proRatedQuota } from './grant'
 
 /**
  * Granting a leave year. The rules a new company lives by from its first
@@ -116,5 +116,23 @@ describe('the plan', () => {
     ]
     const plan = planGrant({ leaveYear: 2026, startMonth: 4, today: TODAY, employees: [person('ravi'), person('neha', '2026-10-14')], leaveTypes: [CL, EL], already, lastYearLeft: nobodyLeft })
     expect(plan.map((e) => `${e.employeeId}:${e.leaveTypeId}`)).toEqual(['neha:cl', 'neha:el'])
+  })
+})
+
+describe('monthly accrual', () => {
+  it('earns a twelfth a month, the month reached counting, to the half day', () => {
+    expect(accruedBy({ grant: 12, leaveYear: 2026, startMonth: 4, joined: null, asOf: '2026-04-01' })).toBe(1)
+    expect(accruedBy({ grant: 12, leaveYear: 2026, startMonth: 4, joined: null, asOf: '2026-09-30' })).toBe(6)
+    expect(accruedBy({ grant: 18, leaveYear: 2026, startMonth: 4, joined: null, asOf: '2026-05-15' })).toBe(3)
+    expect(accruedBy({ grant: 12, leaveYear: 2026, startMonth: 4, joined: null, asOf: '2027-03-31' })).toBe(12)
+    // Before the year, nothing; after it, all.
+    expect(accruedBy({ grant: 12, leaveYear: 2026, startMonth: 4, joined: null, asOf: '2026-03-31' })).toBe(0)
+    expect(accruedBy({ grant: 12, leaveYear: 2026, startMonth: 4, joined: null, asOf: '2027-06-01' })).toBe(12)
+  })
+
+  it('counts a joiner’s pro-rated grant from the month they joined', () => {
+    // Joined 15 June: 10 months left, 10 days granted — one a month from June.
+    expect(accruedBy({ grant: 10, leaveYear: 2026, startMonth: 4, joined: '2026-06-15', asOf: '2026-06-20' })).toBe(1)
+    expect(accruedBy({ grant: 10, leaveYear: 2026, startMonth: 4, joined: '2026-06-15', asOf: '2026-12-01' })).toBe(7)
   })
 })

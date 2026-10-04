@@ -112,6 +112,10 @@ function policyPayload(policy: Policy) {
     lop_basis: policy.lopBasis,
     sandwich_rule: policy.sandwichRule,
     tds_enabled: policy.tdsEnabled,
+    overtime_enabled: policy.overtimeEnabled,
+    overtime_rate: num(policy.overtimeRate),
+    overtime_basis: policy.overtimeBasis,
+    encashment_basis: policy.encashmentBasis,
     effective_from: fromDateColumn(policy.effectiveFrom),
   }
 }
@@ -234,6 +238,15 @@ function serializeLeaveType(row: {
   isPaid: boolean
   carryForward: boolean
   carryForwardCap: Prisma.Decimal
+  minNoticeDays: number
+  maxDaysPerRequest: Prisma.Decimal | null
+  eligibleAfterDays: number
+  eligibleGender: string | null
+  accrual: string
+  halfDayAllowed: boolean
+  countsNonWorkingDays: boolean
+  encashable: boolean
+  encashMaxDaysPerYear: Prisma.Decimal | null
 }) {
   return {
     id: row.id,
@@ -243,6 +256,15 @@ function serializeLeaveType(row: {
     paid: row.isPaid,
     carry_forward: row.carryForward,
     carry_forward_cap: num(row.carryForwardCap),
+    min_notice_days: row.minNoticeDays,
+    max_days_per_request: row.maxDaysPerRequest === null ? null : num(row.maxDaysPerRequest),
+    eligible_after_days: row.eligibleAfterDays,
+    eligible_gender: row.eligibleGender,
+    accrual: row.accrual,
+    half_day_allowed: row.halfDayAllowed,
+    counts_non_working_days: row.countsNonWorkingDays,
+    encashable: row.encashable,
+    encash_max_days_per_year: row.encashMaxDaysPerYear === null ? null : num(row.encashMaxDaysPerYear),
   }
 }
 

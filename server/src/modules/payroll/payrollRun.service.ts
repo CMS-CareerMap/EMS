@@ -18,6 +18,7 @@ import { runTotals } from '../../domain/payroll/run'
 import { transition, type RunAction, type RunStatus } from '../../domain/payroll/runStatus'
 import type { Weekday } from '../../domain/leave/leaveDays'
 import { fromDateColumn, toDateColumn, monthKey, monthName, type CalendarDate } from '../../domain/shared/dates'
+import { REQUEST_LABELS, requestNumber } from '../../domain/requests/requests'
 
 /**
  * The payroll run: a month of calculations turned into payslips, in one
@@ -142,7 +143,7 @@ export async function planMonth(ctx: AppContext, year: number, month: number): P
   const ids = onPayroll.map((e) => e.id)
   const financialYear = financialYearOf(year, month)
 
-  const [policies, dayOffRows, attendance, leave, directives, entries, salaries] = await Promise.all([
+  const [policies, dayOffRows, attendance, leave, directives, entries, salaries, waitingRequests] = await Promise.all([
     repo.policiesForMonth(ctx.db, from, to),
     listDaysOff(ctx.db, from, to),
     repo.attendanceForMonth(ctx.db, ids, from, to),
@@ -150,7 +151,9 @@ export async function planMonth(ctx: AppContext, year: number, month: number): P
     directivesFor(ctx.db, ids, financialYear),
     entriesForMonth(ctx.db, year, month),
     repo.salariesForMonth(ctx.db, ids, from, to),
+    repo.pendingRequestsForMonth(ctx.db, ids, from, to),
   ])
+  const waitingOf = groupBy(waitingRequests, (row) => row.employeeId)
 
   const holidays = dayOffRows.map((row) => fromDateColumn(row.date))
   const attendanceOf = groupBy(attendance, (row) => row.employeeId)
@@ -238,6 +241,13 @@ export async function planMonth(ctx: AppContext, year: number, month: number): P
       for (const pending of theirLeave.filter((row) => row.status === 'pending')) {
         warnings.push(
           `${pending.leaveType.name} from ${fromDateColumn(pending.fromDate)} to ${fromDateColumn(pending.toDate)} is waiting for a decision. Pay counts only approved leave — decide it, then recalculate.`,
+        )
+      }
+      // Corrections, overtime and encashment still waiting change this month's pay once decided.
+      for (const waiting of waitingOf.get(employee.id) ?? []) {
+        const day = fromDateColumn(waiting.fromDate)
+        warnings.push(
+          `${REQUEST_LABELS[waiting.type]} ${requestNumber(waiting.number)}${day ? ` for ${day}` : ''} is waiting for a decision. Pay counts only what is approved — decide it, then recalculate.`,
         )
       }
     }
@@ -401,9 +411,14 @@ function toPayslip(person: Person, lop: LossOfPay, directive: DatedDirective | n
       unmarkedDays: lop.unmarked,
       daysNotYetHappened: lop.notYet,
       markedLeaveWithoutRequest: lop.markedLeave,
+      // Overtime, leave encashment and loans (client §35, §36, §40), as paid and recovered.
+      overtime: b.overtime,
+      encashment: b.encashment,
+      loans: b.loans,
     },
     warnings: [...b.warnings, ...person.warnings],
     lines,
+    recoveries: calc.recoveries,
   }
 }
 
@@ -442,7 +457,12 @@ export async function buildPayslips(ctx: AppContext, plan: MonthPlan): Promise<r
   return results.flatMap((r) => (r.ok ? [r.payslip] : []))
 }
 
-function runValues(plan: MonthPlan, payslips: readonly repo.NewPayslip[]): repo.RunValues {
+/**
+ * `startedAt` is when the calculation began READING, not when it finished:
+ * a decision saved while the records were being read (an encashment approved
+ * mid-run) is then later than it, and approval asks for a recalculation.
+ */
+function runValues(plan: MonthPlan, payslips: readonly repo.NewPayslip[], startedAt: Date): repo.RunValues {
   // Never null once payslips exist: somebody in them had a policy.
   if (!plan.rules) throw new Error('A run with payslips but no rules')
   const totals = runTotals(payslips)
@@ -452,7 +472,7 @@ function runValues(plan: MonthPlan, payslips: readonly repo.NewPayslip[]): repo.
     sandwichRule: plan.rules.sandwichRule,
     ...totals,
     warnings: plan.warnings,
-    calculatedAt: new Date(),
+    calculatedAt: startedAt,
   }
 }
 
@@ -476,13 +496,14 @@ export async function createRun(ctx: AppContext, year: number, month: number) {
   const existing = await repo.findRunForMonth(ctx.db, year, month)
   if (existing) throw alreadyExists(existing, year, month)
 
+  const startedAt = new Date()
   const plan = await planMonth(ctx, year, month)
   if (plan.people.length === 0) {
     throw BusinessRule(`Nobody was employed in ${monthName(year, month)}, so there is no payroll to run.`)
   }
 
   const payslips = await buildPayslips(ctx, plan)
-  const values = runValues(plan, payslips)
+  const values = runValues(plan, payslips, startedAt)
 
   const runId = await withTransaction(ctx.db, async (tx) => {
     // Two accountants pressing Run together: the second waits here, then
@@ -538,12 +559,13 @@ export async function recalculateRun(ctx: AppContext, id: string) {
   if (!run) throw NotFound('Payroll run not found')
   assertCan(run, 'recalculate')
 
+  const startedAt = new Date()
   const plan = await planMonth(ctx, run.year, run.month)
   if (plan.people.length === 0) {
     throw BusinessRule(`Nobody was employed in ${monthName(run.year, run.month)}, so there is no payroll to run.`)
   }
   const payslips = await buildPayslips(ctx, plan)
-  const values = runValues(plan, payslips)
+  const values = runValues(plan, payslips, startedAt)
 
   await withTransaction(ctx.db, async (tx) => {
     await lockFor(tx, runLock(ctx, run.year, run.month))

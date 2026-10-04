@@ -98,6 +98,10 @@ export interface PolicyInput {
   lopBasis?: 'calendar_days' | 'fixed_30' | 'working_days' | undefined
   sandwichRule?: boolean | undefined
   tdsEnabled?: boolean | undefined
+  overtimeEnabled?: boolean | undefined
+  overtimeRate?: number | undefined
+  overtimeBasis?: 'gross' | 'basic' | undefined
+  encashmentBasis?: 'gross' | 'basic' | undefined
 }
 
 /**
@@ -219,6 +223,10 @@ export async function updatePolicy(ctx: AppContext, input: PolicyInput) {
       lopBasis: current.lopBasis,
       sandwichRule: current.sandwichRule,
       tdsEnabled: current.tdsEnabled,
+      overtimeEnabled: current.overtimeEnabled,
+      overtimeRate: current.overtimeRate,
+      overtimeBasis: current.overtimeBasis,
+      encashmentBasis: current.encashmentBasis,
       ...data,
     })
 
@@ -291,7 +299,29 @@ export interface LeaveTypeInput {
   isPaid?: boolean | undefined
   carryForward?: boolean | undefined
   carryForwardCap?: number | undefined
+  minNoticeDays?: number | undefined
+  maxDaysPerRequest?: number | null | undefined
+  eligibleAfterDays?: number | undefined
+  eligibleGender?: 'male' | 'female' | 'other' | null | undefined
+  accrual?: 'yearly' | 'monthly' | undefined
+  halfDayAllowed?: boolean | undefined
+  countsNonWorkingDays?: boolean | undefined
+  encashable?: boolean | undefined
+  encashMaxDaysPerYear?: number | null | undefined
 }
+
+/** A leave type's own rules (client §36–37), each defaulting to what applied before they existed. */
+const LEAVE_RULE_KEYS = [
+  'minNoticeDays',
+  'maxDaysPerRequest',
+  'eligibleAfterDays',
+  'eligibleGender',
+  'accrual',
+  'halfDayAllowed',
+  'countsNonWorkingDays',
+  'encashable',
+  'encashMaxDaysPerYear',
+] as const
 
 export async function listLeaveTypes(ctx: AppContext) {
   return repo.listLeaveTypes(ctx.db)
@@ -317,6 +347,15 @@ export async function createLeaveType(ctx: AppContext, input: LeaveTypeInput) {
     isPaid: input.isPaid ?? true,
     carryForward: input.carryForward ?? false,
     carryForwardCap: input.carryForwardCap ?? 0,
+    minNoticeDays: input.minNoticeDays ?? 0,
+    maxDaysPerRequest: input.maxDaysPerRequest ?? null,
+    eligibleAfterDays: input.eligibleAfterDays ?? 0,
+    eligibleGender: input.eligibleGender ?? null,
+    accrual: input.accrual ?? 'yearly',
+    halfDayAllowed: input.halfDayAllowed ?? true,
+    countsNonWorkingDays: input.countsNonWorkingDays ?? false,
+    encashable: input.encashable ?? false,
+    encashMaxDaysPerYear: input.encashMaxDaysPerYear ?? null,
   }
 
   const matches = await repo.findLeaveTypesLike(ctx.db, code, name)
@@ -356,6 +395,9 @@ export async function updateLeaveType(ctx: AppContext, id: string, input: LeaveT
   if (input.isPaid !== undefined) data.isPaid = input.isPaid
   if (input.carryForward !== undefined) data.carryForward = input.carryForward
   if (input.carryForwardCap !== undefined) data.carryForwardCap = input.carryForwardCap
+  for (const key of LEAVE_RULE_KEYS) {
+    if (input[key] !== undefined) data[key] = input[key]
+  }
 
   if (Object.keys(data).length === 0) throw BadRequest('Nothing to update')
 
@@ -377,7 +419,13 @@ export async function updateLeaveType(ctx: AppContext, id: string, input: LeaveT
   return withAudit(
     ctx,
     (tx) => repo.updateLeaveType(tx, id, data),
-    () => ({ action: 'leave_type.updated', entityType: 'leave_type', entityId: id, details: { code: existing.code, changes: data } }),
+    () => ({
+      action: 'leave_type.updated',
+      entityType: 'leave_type',
+      entityId: id,
+      // The old value beside each new one (client §47).
+      details: { code: existing.code, changes: data, before: Object.fromEntries(Object.keys(data).map((k) => [k, plain((existing as Record<string, unknown>)[k])])) },
+    }),
   )
 }
 
@@ -437,4 +485,9 @@ export async function setCountsForPf(ctx: AppContext, id: string, countsForPf: b
   })
   logger.info('PF wages components changed', { by: ctx.userId, componentId: id, countsForPf })
   return listPfComponents(ctx)
+}
+
+/** A stored value as the audit log keeps it — a Decimal as its number. */
+function plain(value: unknown): unknown {
+  return value !== null && typeof value === 'object' && 'toNumber' in value ? (value as { toNumber(): number }).toNumber() : value
 }

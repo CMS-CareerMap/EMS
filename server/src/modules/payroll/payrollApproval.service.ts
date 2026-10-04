@@ -2,6 +2,7 @@ import type { AppContext } from '../../platform/context'
 import { BadRequest, BusinessRule, Conflict, NotFound } from '../../platform/errors/AppError'
 import { withTransaction } from '../../platform/db/transaction'
 import { lockFor } from '../../platform/db/locks'
+import { payDecidedSince } from '../requests/requests.repository'
 import { logger } from '../../platform/logger'
 import { storage, storageKey } from '../../platform/storage'
 import { audit } from '../audit/audit.service'
@@ -154,6 +155,11 @@ export async function approveRun(ctx: AppContext, id: string, input: ApproveInpu
     if (!current || current.id !== id) throw NotFound('Payroll run not found')
     if (current.calculatedAt.getTime() !== run.calculatedAt.getTime()) {
       throw Conflict('The draft was recalculated a moment ago. Check the new figures, then approve.')
+    }
+    // Overtime or an encashment approved for this month since it was
+    // calculated is not in these payslips: recalculated first, it is paid.
+    if ((await payDecidedSince(tx, run.year, run.month, current.calculatedAt)) > 0) {
+      throw Conflict('Overtime or a leave encashment for this month was approved after it was calculated. Recalculate, check the figures, then approve.')
     }
 
     const moved = await repo.moveRunIf(tx, id, 'draft', {

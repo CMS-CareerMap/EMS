@@ -10,12 +10,18 @@ import type { ScopedDb } from '../../platform/db/scoped'
 export interface ReportFilters {
   departmentId?: string | undefined
   employeeId?: string | undefined
+  /** Whom the caller may report on — their data scope for the report's kind (client §46). */
+  people?: Prisma.EmployeeWhereInput | undefined
 }
 
+/** One AND, so it can sit beside another condition without either replacing the other. */
 function employeeFilter(f: ReportFilters): Prisma.EmployeeWhereInput {
   return {
-    ...(f.departmentId ? { departmentId: f.departmentId } : {}),
-    ...(f.employeeId ? { id: f.employeeId } : {}),
+    AND: [
+      f.departmentId ? { departmentId: f.departmentId } : {},
+      f.employeeId ? { id: f.employeeId } : {},
+      f.people ?? {},
+    ],
   }
 }
 
@@ -33,8 +39,8 @@ const dayAfter = (d: Date) => new Date(d.getTime() + 86400000)
 export async function employeesIn(db: ScopedDb, from: Date, to: Date, f: ReportFilters) {
   return db.employee.findMany({
     where: {
-      ...employeeFilter(f),
       AND: [
+        employeeFilter(f),
         { OR: [{ dateOfJoining: null }, { dateOfJoining: { lte: to } }] },
         {
           OR: [
@@ -173,6 +179,7 @@ export async function departmentName(db: ScopedDb, id: string): Promise<string |
 function payslipFilter(f: ReportFilters & { departmentName?: string | null }): Prisma.PayslipWhereInput {
   return {
     ...(f.employeeId ? { employeeId: f.employeeId } : {}),
+    ...(f.people ? { employee: f.people } : {}),
     // A department that does not exist matches nothing, rather than everything.
     ...(f.departmentId ? (f.departmentName ? { department: f.departmentName } : { id: { in: [] } }) : {}),
   }
@@ -251,4 +258,52 @@ export async function movements(db: ScopedDb, from: Date, to: Date, f: ReportFil
     }),
   ])
   return { joined, left }
+}
+
+/** Each day's marks against the shift (client §34–35): late, early, overtime worked. */
+export async function shiftMarks(db: ScopedDb, employeeIds: string[], from: Date, to: Date) {
+  if (employeeIds.length === 0) return []
+  return db.attendance.findMany({
+    where: { employeeId: { in: employeeIds }, date: { gte: from, lte: to } },
+    select: { employeeId: true, lateMinutes: true, earlyLeavingMinutes: true, overtimeMinutes: true },
+  })
+}
+
+/** Overtime claimed for days of the window, whatever became of it. */
+export async function overtimeClaims(db: ScopedDb, employeeIds: string[], from: Date, to: Date) {
+  if (employeeIds.length === 0) return []
+  return db.employeeRequest.findMany({
+    where: { employeeId: { in: employeeIds }, type: 'overtime', fromDate: { gte: from, lte: to } },
+    select: { employeeId: true, status: true, details: true },
+  })
+}
+
+/** Requests sent in the window (client §28–29), oldest first. */
+export async function requestsSent(db: ScopedDb, from: Date, to: Date, f: ReportFilters, reach: Prisma.EmployeeRequestWhereInput[]) {
+  return db.employeeRequest.findMany({
+    where: { createdAt: { gte: dayBefore(from), lt: dayAfter(dayAfter(to)) }, employee: employeeFilter(f), OR: reach },
+    select: {
+      number: true,
+      type: true,
+      status: true,
+      fromDate: true,
+      toDate: true,
+      createdAt: true,
+      decidedAt: true,
+      decidedByUserId: true,
+      employee: { select: { employeeCode: true, fullName: true, department: { select: { name: true } } } },
+    },
+    orderBy: { createdAt: 'asc' },
+    take: 2000,
+  })
+}
+
+/** The names of the people who decided — by their employee record, else their sign-in. */
+export async function deciderNames(db: ScopedDb, userIds: string[]): Promise<Map<string, string>> {
+  if (userIds.length === 0) return new Map()
+  const rows = await db.membership.findMany({
+    where: { userId: { in: userIds } },
+    select: { userId: true, user: { select: { email: true } }, employee: { select: { fullName: true } } },
+  })
+  return new Map(rows.map((r) => [r.userId, r.employee?.fullName ?? r.user.email]))
 }

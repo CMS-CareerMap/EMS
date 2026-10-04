@@ -13,6 +13,7 @@ import { leaveYearOf } from './leave.service'
 import * as repo from './leave.repository'
 import { assertWorkGoesUp, checkWork, loadWork } from '../organization/workRules.service'
 import { approvalWorld, deciderOf, peopleDecidedBy } from './leaveApprover.service'
+import { pendingEncashments } from '../requests/requests.repository'
 
 /**
  * Leave → Team Balances: everybody's balances, the year's grant, and
@@ -60,11 +61,12 @@ const sumOf = (value: { _sum: { days: unknown } }) => Number(value._sum.days ?? 
 async function planFor(db: AppContext['db'] | TxDb, ctx: AppContext, year: YearContext) {
   const people = await repo.peopleInScope(db, ctx.scopeFor('leave'))
   const ids = people.map((p) => p.id)
-  const [types, already, lastYear, lastYearPending] = await Promise.all([
+  const [types, already, lastYear, lastYearPending, lastYearEncashing] = await Promise.all([
     repo.activeLeaveTypes(db),
     repo.grantsMade(db, year.leaveYear),
     repo.ledgerTotals(db, ids, year.leaveYear - 1),
     repo.pendingTotals(db, ids, year.leaveYear - 1),
+    pendingEncashments(db, year.leaveYear - 1),
   ])
   // What is left of last year is its balance less what is still applied for
   // in it: those days are spoken for there, and are not carried.
@@ -72,6 +74,11 @@ async function planFor(db: AppContext['db'] | TxDb, ctx: AppContext, year: YearC
   for (const p of lastYearPending) {
     const key = `${p.employeeId}|${p.leaveTypeId}`
     left.set(key, (left.get(key) ?? 0) - sumOf(p))
+  }
+  // Days waiting to be encashed (client §36) are spoken for there too.
+  for (const e of lastYearEncashing) {
+    const key = `${e.employeeId}|${e.leaveTypeId}`
+    if (left.has(key)) left.set(key, (left.get(key) ?? 0) - Number(e.days ?? 0))
   }
   const entries = planGrant({
     leaveYear: year.leaveYear,

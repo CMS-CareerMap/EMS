@@ -46,10 +46,13 @@ model Notification {
 /// A company's choice to stop sending one kind of notice. No row means the
 /// catalogue's default, which is on.
 model NotificationSetting {
-  id             String  @id @default(uuid())
+  id             String   @id @default(uuid())
   organizationId String
   event          String
   enabled        Boolean
+  /// Also sent by email (client §45) — only once the server has a mail
+  /// account to send from. Null: the event's own default.
+  email          Boolean?
 
   updatedByUserId String?
   updatedAt       DateTime @updatedAt @db.Timestamptz(3)
@@ -57,4 +60,37 @@ model NotificationSetting {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, event])
+}
+
+/// Email waiting to go (client §45). Written in the same transaction as the
+/// notice it copies, and sent after — so a change that rolls back sends
+/// nothing, and a mail server that is down delays a message without losing it
+/// or holding up the change. Only written while email is set up.
+model EmailOutbox {
+  id             String @id @default(uuid())
+  organizationId String
+
+  toEmail String
+  subject String
+  body    String
+
+  status    EmailStatus @default(pending)
+  attempts  Int         @default(0)
+  lastError String?
+  sentAt    DateTime?   @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([organizationId, createdAt])
+}
+
+enum EmailStatus {
+  pending
+  sent
+  /// Gave up after repeated failures; the notice in the app still stands.
+  failed
 }

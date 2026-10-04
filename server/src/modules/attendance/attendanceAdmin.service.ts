@@ -1,17 +1,19 @@
 import type { AttendanceStatus } from '@prisma/client'
 import type { AppContext } from '../../platform/context'
-import { BadRequest, Forbidden, NotFound } from '../../platform/errors/AppError'
+import { BadRequest, Conflict, Forbidden, NotFound } from '../../platform/errors/AppError'
 import { logger } from '../../platform/logger'
 import {
   zonedToday,
   parseWallClock,
   isCalendarDate,
   fromDateColumn,
+  toDateColumn,
   type CalendarDate,
 } from '../../domain/shared/dates'
-import { hoursBetweenWallClock, classifyDay } from '../../domain/attendance/hours'
+import { hoursBetween, hoursBetweenWallClock } from '../../domain/attendance/hours'
+import { halfDayReason, marksOf, measureInstants, shiftRulesOf, type DayMeasure } from '../../domain/attendance/shiftRules'
 import * as repo from './attendance.repository'
-import { withTransaction } from '../../platform/db/transaction'
+import { withTransaction, type TxDb } from '../../platform/db/transaction'
 import { audit } from '../audit/audit.service'
 import { companyTimezone } from '../organization/organization.service'
 import { assertDaysOpen } from '../payroll/payrollLock.service'
@@ -199,17 +201,28 @@ export async function markAttendance(ctx: AppContext, input: MarkInput) {
   if (input.checkIn && start === null) throw BadRequest('Check-in must look like 09:30')
   if (input.checkOut && end === null) throw BadRequest('Check-out must look like 18:30')
 
+  const checkInAt = start !== null ? wallClockToInstant(input.date, start, zone) : null
+  const checkOutAt = end !== null ? wallClockToInstant(input.date, end, zone, end <= (start ?? 0)) : null
+
   if (start !== null && end !== null) {
     const result = hoursBetweenWallClock(start, end, breakMinutes)
     hoursWorked = result.hours
     if (result.warning) note = [note, result.warning].filter(Boolean).join(' · ')
+  }
 
-    // HR chose a status, and the hours may disagree with it. The hours win for
-    // present/half_day, because that is arithmetic — but an explicit
-    // `on_leave` or `holiday` is a decision and is left alone.
-    if (expectedHours && (status === 'present' || status === 'half_day')) {
-      status = classifyDay(result.hours, expectedHours).status
-    }
+  // Late, early and overtime against the shift (client §34–35). A day marked
+  // on leave or a holiday is a decision, not a working day: nothing to measure.
+  const worked = status === 'present' || status === 'half_day'
+  const measure: DayMeasure | null = worked
+    ? measureInstants({ rules: shiftRulesOf(employee.shift), date: input.date, timezone: zone, checkIn: checkInAt, checkOut: checkOutAt, hoursWorked })
+    : null
+  // HR chose a status, and the hours may disagree with it. The hours win for
+  // present/half_day, because that is arithmetic — but an explicit
+  // `on_leave` or `holiday` is a decision and is left alone.
+  if (measure?.classification) {
+    status = measure.classification.status
+    const why = halfDayReason(measure)
+    if (why) note = [note, why].filter(Boolean).join(' · ')
   }
 
   const row = await withTransaction(ctx.db, async (tx) => {
@@ -221,8 +234,8 @@ export async function markAttendance(ctx: AppContext, input: MarkInput) {
     const saved = await repo.upsertDay(tx, ctx.organizationId, {
       employeeId: input.employeeId,
       date: input.date,
-      checkIn: start !== null ? wallClockToInstant(input.date, start, zone) : null,
-      checkOut: end !== null ? wallClockToInstant(input.date, end, zone, end <= (start ?? 0)) : null,
+      checkIn: checkInAt,
+      checkOut: checkOutAt,
       status,
       source: 'manual',
       hoursWorked,
@@ -230,6 +243,7 @@ export async function markAttendance(ctx: AppContext, input: MarkInput) {
       shiftId: employee.shiftId,
       note,
       markedByUserId: ctx.userId,
+      ...(measure ? marksOf(measure) : {}),
     })
     // A day entered or corrected by hand changes somebody's pay; who did it,
     // and to what, is kept.
@@ -250,6 +264,83 @@ export async function markAttendance(ctx: AppContext, input: MarkInput) {
   })
 
   return row
+}
+
+/**
+ * Writes a day as an approved attendance correction request asked (client
+ * §29), inside the approver's transaction. A time the employee left out stays
+ * as it was recorded — somebody who forgot only to check out corrects only the
+ * check-out. The hours and the status are worked out as for a day HR marks.
+ * The request service has already checked the day is theirs, worked, and open.
+ */
+export async function writeCorrectedDay(
+  tx: TxDb,
+  ctx: AppContext,
+  input: { employeeId: string; date: CalendarDate; checkIn: string | null; checkOut: string | null; note: string },
+) {
+  const zone = await companyTimezone(ctx)
+  const employee = await repo.findEmployeeWithShift(tx, { scope: 'ORGANIZATION', employeeId: null }, input.employeeId)
+  if (!employee) throw NotFound('Employee not found')
+  const existing = await repo.findDay(tx, input.employeeId, toDateColumn(input.date))
+  // Approved leave is the leave: a correction cannot turn it into a short
+  // working day and take pay for a day already taken from the balance.
+  if (existing?.status === 'on_leave') {
+    throw Conflict(`${input.date} is a day of approved leave. Cancel or reverse the leave first if it was worked.`)
+  }
+
+  const start = input.checkIn ? parseWallClock(input.checkIn) : null
+  const end = input.checkOut ? parseWallClock(input.checkOut) : null
+  const checkIn = start !== null ? wallClockToInstant(input.date, start, zone) : (existing?.checkIn ?? null)
+  let checkOut = end !== null
+    ? wallClockToInstant(input.date, end, zone, start !== null && end <= start)
+    : (existing?.checkOut ?? null)
+  // A night shift's check-out alone, at or before the check-in on record, is
+  // the next morning — as a typed 22:00 to 06:00 is.
+  if (end !== null && start === null && checkIn && checkOut && checkOut <= checkIn) {
+    checkOut = wallClockToInstant(input.date, end, zone, true)
+  }
+  if (checkIn && checkOut && checkOut <= checkIn) throw BadRequest('The check-out must be after the check-in.')
+
+  const expectedHours = employee.shift ? Number(employee.shift.expectedHours) : null
+  let hoursWorked: number | null = null
+  // A holiday or weekly off worked stays one — the times are recorded, the
+  // day is not graded as a working day it never was (as marking keeps it).
+  const offDay = existing?.status === 'holiday' || existing?.status === 'weekly_off'
+  let status: AttendanceStatus = offDay ? existing.status : 'present'
+  let note = input.note
+  if (checkIn && checkOut) {
+    const result = hoursBetween(checkIn, checkOut, employee.shift?.breakMinutes ?? 0)
+    hoursWorked = result.hours
+    if (result.warning) note = `${note} · ${result.warning}`
+  }
+  const measure = measureInstants({ rules: shiftRulesOf(employee.shift), date: input.date, timezone: zone, checkIn, checkOut, hoursWorked })
+  if (measure.classification && !offDay) {
+    status = measure.classification.status
+    const why = halfDayReason(measure)
+    if (why) note = `${note} · ${why}`
+  }
+
+  const saved = await repo.upsertDay(tx, ctx.organizationId, {
+    employeeId: input.employeeId,
+    date: input.date,
+    checkIn,
+    checkOut,
+    status,
+    source: 'correction',
+    hoursWorked,
+    expectedHours,
+    shiftId: employee.shiftId,
+    note,
+    markedByUserId: ctx.userId,
+    ...(offDay ? {} : marksOf(measure)),
+  })
+  await audit(ctx, {
+    action: 'attendance.marked',
+    entityType: 'attendance',
+    entityId: saved.id,
+    details: { employeeId: input.employeeId, date: input.date, status, hoursWorked, via: 'correction_request' },
+  }, tx)
+  return { id: saved.id, status, hoursWorked }
 }
 
 /**

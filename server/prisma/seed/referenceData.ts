@@ -83,6 +83,9 @@ const SALARY_COMPONENTS = [
   { code: 'SPECIAL', label: 'Special Allowance', type: 'earning', countsForPf: false, taxable: true, displayOrder: 5 },
   // Entered per employee per month, never on a salary record (§A1.5).
   { code: 'INCENTIVE', label: 'Incentive', type: 'earning', countsForPf: false, taxable: true, displayOrder: 6, entry: 'monthly' },
+  // Client §40, entered monthly like an incentive. A bonus is outside ESI wages.
+  { code: 'BONUS', label: 'Bonus', type: 'earning', countsForPf: false, countsForEsi: false, taxable: true, displayOrder: 7, entry: 'monthly' },
+  { code: 'COMMISSION', label: 'Commission', type: 'earning', countsForPf: false, taxable: true, displayOrder: 8, entry: 'monthly' },
 ] as const
 
 /**

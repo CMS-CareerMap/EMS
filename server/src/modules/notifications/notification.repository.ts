@@ -78,12 +78,32 @@ export async function savedSettings(db: Db): Promise<Map<string, boolean>> {
   return new Map(rows.map((r) => [r.event, r.enabled]))
 }
 
-export async function saveSetting(tx: TxDb, organizationId: string, event: string, enabled: boolean, userId: string) {
+/** Which events are also emailed (client §45), where the company chose; the rest take the default. */
+export async function savedEmailChoices(db: Db): Promise<Map<string, boolean>> {
+  const rows = await db.notificationSetting.findMany({ where: { email: { not: null } }, select: { event: true, email: true } })
+  return new Map(rows.map((r) => [r.event, r.email === true]))
+}
+
+export async function saveSetting(tx: TxDb, organizationId: string, event: string, enabled: boolean, userId: string, email?: boolean) {
   await tx.notificationSetting.upsert({
     where: { organizationId_event: { organizationId, event } },
-    update: { enabled, updatedByUserId: userId },
-    create: { organizationId, event, enabled, updatedByUserId: userId },
+    update: { enabled, updatedByUserId: userId, ...(email === undefined ? {} : { email }) },
+    create: { organizationId, event, enabled, updatedByUserId: userId, email: email ?? null },
   })
+}
+
+/** The sign-in email of each of these logins that is still allowed in — where an emailed notice goes. */
+export async function loginEmails(db: Db, userIds: readonly string[]): Promise<string[]> {
+  const rows = await db.membership.findMany({
+    where: { userId: { in: [...userIds] }, status: 'active' },
+    select: { user: { select: { email: true } } },
+  })
+  return [...new Set(rows.map((r) => r.user.email).filter(Boolean))]
+}
+
+/** Email to send once this transaction commits (client §45). */
+export async function queueEmails(tx: TxDb, rows: { organizationId: string; toEmail: string; subject: string; body: string }[]): Promise<void> {
+  if (rows.length > 0) await tx.emailOutbox.createMany({ data: rows })
 }
 
 export interface NotificationValues {
@@ -170,4 +190,9 @@ export async function countOlderThan(db: ScopedDb, cutoff: Date): Promise<number
 export async function purgeOlderThan(db: ScopedDb, cutoff: Date): Promise<number> {
   const result = await db.notification.deleteMany({ where: { createdAt: { lt: cutoff } } })
   return result.count
+}
+
+/** A name and the person above them — for a notice about somebody joining or leaving. */
+export async function personBrief(db: Db, employeeId: string) {
+  return db.employee.findFirst({ where: { id: employeeId }, select: { fullName: true, employeeCode: true, reportingManagerId: true } })
 }

@@ -37,6 +37,8 @@ const STATUS: Record<string, string> = {
   holiday: 'Holiday',
   weekly_off: 'Weekly off',
 }
+/** Where somebody worked from (client §33) — blank for a day marked by hand. */
+const WORK_MODE: Record<string, string> = { office: 'Office', wfh: 'Work from home', on_duty: 'On duty', remote: 'Remote' }
 
 /** Where somebody stands in the lifecycle (client §43), as the list's Stage column says it. */
 const STAGE: Record<LifecycleStage, string> = {
@@ -150,7 +152,7 @@ export const getAttendanceExport: RequestHandler = async (req, res) => {
     }),
   }
 
-  const header: CsvCell[] = ['Employee Name', 'Employee Code', 'Department', 'Designation', 'Status', 'Check In', 'Check Out', 'Hours Worked', 'Note']
+  const header: CsvCell[] = ['Employee Name', 'Employee Code', 'Department', 'Designation', 'Status', 'Check In', 'Check Out', 'Hours Worked', 'Work Mode', 'Note']
   const body = roster.employees.map((e) => {
     const day = e.attendance[0]
     return [
@@ -162,6 +164,7 @@ export const getAttendanceExport: RequestHandler = async (req, res) => {
       day ? wallClock(day.checkIn, timezone) : null,
       day ? wallClock(day.checkOut, timezone) : null,
       day?.hoursWorked != null ? Number(day.hoursWorked) : null,
+      day?.workMode ? WORK_MODE[day.workMode] : null,
       day?.note ?? null,
     ] satisfies CsvCell[]
   })

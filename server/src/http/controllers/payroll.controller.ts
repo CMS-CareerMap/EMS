@@ -42,6 +42,8 @@ export const getComponents: RequestHandler = async (_req, res) => {
       label: row.label,
       type: row.type,
       counts_for_pf: row.countsForPf,
+      counts_for_esi: row.countsForEsi,
+      counts_for_pt: row.countsForPt,
       // "monthly" means entered per employee per month, never on a salary.
       entry: row.entry,
       taxable: row.taxable,
@@ -115,6 +117,12 @@ export const postCalculate: RequestHandler = async (req, res) => {
       pt_gender: calc.basis.ptGender,
       // Set when the Labour Codes' wages rule raised PF wages.
       wages_share: r.wagesShare ? { percent: r.wagesShare.percent, wages: r.wagesShare.wages, raised_to: r.wagesShare.raisedTo } : null,
+      // Approved overtime, leave encashed and loans recovered this month (client §35, §36, §40).
+      overtime: calc.basis.overtime,
+      encashment: calc.basis.encashment
+        ? { days: calc.basis.encashment.days, basis: calc.basis.encashment.basis, day_pay: calc.basis.encashment.dayPay, amount: calc.basis.encashment.amount, requests: calc.basis.encashment.requests }
+        : null,
+      loans: calc.basis.loans.map((l) => ({ loan_id: l.loanId, kind: l.kind, amount: l.amount, left_after: l.leftAfter })),
     },
 
     // Not an error list. Each is a fact the calculation had to assume around,

@@ -239,7 +239,25 @@ export interface UpsertInput {
   shiftId: string | null
   note: string | null
   markedByUserId: string
+  /** Measured against the shift (client §34–35); null when there was nothing to measure. */
+  lateMinutes?: number | null
+  earlyLeavingMinutes?: number | null
+  overtimeMinutes?: number | null
 }
+
+/** A shift's times and rules — what a day is measured against. */
+export const SHIFT_RULES_SELECT = {
+  startTime: true,
+  endTime: true,
+  breakMinutes: true,
+  expectedHours: true,
+  graceMinutes: true,
+  lateThresholdMinutes: true,
+  earlyLeavingMinutes: true,
+  minFullDayHours: true,
+  minHalfDayHours: true,
+  overtimeAfterMinutes: true,
+} as const
 
 /** Whether this person's day is already recorded — marking it again is correcting it. */
 export async function dayRecorded(db: TxDb, employeeId: string, date: CalendarDate): Promise<boolean> {
@@ -265,6 +283,9 @@ export async function upsertDay(
     shiftId: input.shiftId,
     note: input.note,
     markedByUserId: input.markedByUserId,
+    lateMinutes: input.lateMinutes ?? null,
+    earlyLeavingMinutes: input.earlyLeavingMinutes ?? null,
+    overtimeMinutes: input.overtimeMinutes ?? null,
   }
 
   const row = existing
@@ -360,7 +381,7 @@ export async function replaceDay(db: TxDb, organizationId: string, employeeId: s
  * Marking somebody's day is limited to the people one's attendance scope
  * covers (Day 21): a role marking for its team marks its team's days only.
  */
-export async function findEmployeeWithShift(db: ScopedDb, scope: ScopeContext, employeeId: string) {
+export async function findEmployeeWithShift(db: TxDb, scope: ScopeContext, employeeId: string) {
   return db.employee.findFirst({
     where: { AND: [employeesInScope(scope), { id: employeeId, archivedAt: null }] },
     include: { shift: true },
@@ -390,7 +411,7 @@ export async function importableEmployees(db: ScopedDb, scope: ScopeContext) {
       employeeCode: true,
       attendanceMode: true,
       shiftId: true,
-      shift: { select: { breakMinutes: true, expectedHours: true } },
+      shift: { select: SHIFT_RULES_SELECT },
     },
   })
 }

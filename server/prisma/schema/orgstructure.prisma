@@ -68,6 +68,26 @@ model Shift {
   /// Decimal because half-hours are real: 8.5 is a common shift.
   expectedHours Decimal @default(9) @db.Decimal(4, 2)
 
+  /// The shift's rules (client §34). Every one defaults to what the system did
+  /// before it had them, so a company that never opens them pays as it did.
+  ///
+  /// Minutes either side of the shift that count as neither late nor leaving
+  /// early.
+  graceMinutes         Int      @default(0)
+  /// Arriving more than this many minutes after the start makes the day a half
+  /// day at best. Null: arriving late is marked, never costs a day.
+  lateThresholdMinutes Int?
+  /// Leaving more than this many minutes before the end makes the day a half
+  /// day at best. Null: leaving early is marked, never costs a day.
+  earlyLeavingMinutes  Int?
+  /// Hours worked for a full day and for a half day. Null: three quarters and
+  /// half of the expected hours, as before.
+  minFullDayHours      Decimal? @db.Decimal(4, 2)
+  minHalfDayHours      Decimal? @db.Decimal(4, 2)
+  /// Work past the expected hours counts as overtime (client §35) once it
+  /// reaches this many minutes — and then all of it counts.
+  overtimeAfterMinutes Int      @default(30)
+
   createdAt  DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt  DateTime  @updatedAt @db.Timestamptz(3)
   archivedAt DateTime? @db.Timestamptz(3)

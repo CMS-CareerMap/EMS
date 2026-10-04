@@ -62,6 +62,18 @@ model Organization {
   /// Who may cancel leave already approved.
   leaveReversal            LeaveReversalBy     @default(manager_or_super_admin)
 
+  /// Who decides each kind of request (client §28–29), Settings → Approvals.
+  /// The person they report to, as with leave — except a profile change,
+  /// which HR reviews (client §27).
+  correctionApprover RequestApprover @default(manager)
+  wfhApprover        RequestApprover @default(manager)
+  overtimeApprover   RequestApprover @default(manager)
+  profileApprover    RequestApprover @default(hr)
+  encashmentApprover RequestApprover @default(hr)
+  /// Whether working from home (or on duty) still needs a location reading at
+  /// check-in (client §32). Off: the approved request is enough.
+  wfhGpsRequired     Boolean         @default(false)
+
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
@@ -106,6 +118,10 @@ model Organization {
 
   employmentEvents EmploymentEvent[]
   resignations     Resignation[]
+  requests         EmployeeRequest[]
+  loans            EmployeeLoan[]
+  loanRecoveries   LoanRecovery[]
+  emailOutbox      EmailOutbox[]
 
   auditLogs AuditLog[]
 }

@@ -60,6 +60,21 @@ const statutorySchema = z
   .strict()
 
 /**
+ * Personal details (client §42). Sent only by somebody who can see them —
+ * otherwise the blanks they were shown would be saved over the real values.
+ */
+const personalSchema = z
+  .object({
+    dateOfBirth: z.iso.date().nullish(),
+    nationality: optionalText(80),
+    address: optionalText(500),
+    emergencyContactName: optionalText(200),
+    emergencyContactRelation: optionalText(80),
+    emergencyContactPhone: optionalText(30),
+  })
+  .strict()
+
+/**
  * Giving the new employee a login, optionally.
  *
  * No password field. An invited user is created with `passwordHash = null` and
@@ -100,10 +115,13 @@ export const createEmployeeSchema = z
     reportingManagerId: z.uuid().nullish(),
 
     attendanceMode: z.enum(['app', 'biometric', 'manual']).optional(),
+    /// Office, hybrid (home on approved days) or remote (client §33).
+    workArrangement: z.enum(['office', 'hybrid', 'remote']).optional(),
     country: z.string().trim().length(2).optional(),
     currency: z.string().trim().length(3).optional(),
 
     statutory: statutorySchema.optional(),
+    personal: personalSchema.optional(),
     login: loginSchema.optional(),
     /// Somebody already working here, added to EMS: onboarded and confirmed
     /// on this day, so they do not start in onboarding and probation (the

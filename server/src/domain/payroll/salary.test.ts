@@ -249,3 +249,41 @@ describe('the wages rule against the ceiling, rounding and EPS', () => {
     expect(isEpsMember({ ...joinedAfterCutOff, pfWagesAtJoining: withWagesShare(10_000, 40_000, null) })).toBe(true)
   })
 })
+
+describe('components outside ESI wages or the PT gross (client §40)', () => {
+  const withBonus = (countsForEsi: boolean, countsForPt: boolean): SalaryInput => ({
+    components: [
+      { code: 'BASIC', label: 'Basic', amount: 9_000, type: 'earning', countsForPf: true },
+      { code: 'BONUS', label: 'Bonus', amount: 6_000, type: 'earning', countsForPf: false, entry: 'monthly', countsForEsi, countsForPt },
+    ],
+    paidDays: 30,
+    daysInMonth: 30,
+    month: 9,
+    year: 2026,
+    pf: { applicable: false, employeeRate: 12, employerRate: 12, restrictToCeiling: true, wageCeiling: 15_000, epsWageCeiling: 15_000, epsMember: true },
+    esi: { covered: true, employeeRate: 0.75, employerRate: 3.25 },
+    pt: {
+      state: 'Maharashtra',
+      gender: 'male',
+      slabs: [
+        { state: 'Maharashtra', gender: 'male', wageFrom: 0, wageTo: 10_000, amount: 175, februaryAmount: null },
+        { state: 'Maharashtra', gender: 'male', wageFrom: 10_000.01, wageTo: null, amount: 250, februaryAmount: 300 },
+      ],
+    },
+    tds: 0,
+  })
+
+  it('count every earning, as before, unless marked otherwise', () => {
+    const result = computeSalary(withBonus(true, true))
+    expect(result.grossEarnings).toBe(15_000)
+    expect(result.employeeEsi).toBe(113)
+    expect(result.professionalTax).toBe(250)
+  })
+
+  it('leave a bonus out of ESI wages and the PT gross when it is marked so — it is still paid', () => {
+    const result = computeSalary(withBonus(false, false))
+    expect(result.grossEarnings).toBe(15_000)
+    expect(result.employeeEsi).toBe(68)
+    expect(result.professionalTax).toBe(175)
+  })
+})

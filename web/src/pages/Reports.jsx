@@ -21,6 +21,8 @@ import { optionsNote } from '../lib/optionsNote'
 const REPORTS = [
   { id: 'attendance-summary', category: 'attendance', title: 'Monthly Attendance Summary', desc: 'Present, half days, absent, leave, and the working days nobody marked — per employee.', icon: Clock, filters: ['department', 'employee'] },
   { id: 'attendance-by-department', category: 'attendance', title: 'Department Attendance', desc: 'The same month, added up by department.', icon: BarChart2, filters: [] },
+  { id: 'shift-overtime', category: 'attendance', title: 'Late, Early & Overtime', desc: 'Days late and leaving early past each shift’s grace, overtime worked, and how much was claimed and approved.', icon: Clock, filters: ['department', 'employee'] },
+  { id: 'requests', category: 'attendance', title: 'Requests', desc: 'Every request sent in the month — corrections, work from home, overtime, encashment, profile changes — and what became of it.', icon: BarChart2, filters: ['department', 'employee'] },
   { id: 'leave-taken', category: 'leave', title: 'Leave Taken', desc: 'Approved leave inside the month, per employee and leave type.', icon: CalendarDays, filters: ['department', 'employee'] },
   { id: 'leave-balances', category: 'leave', title: 'Leave Balances', desc: 'What the leave ledger holds for the leave year, per employee.', icon: CalendarDays, filters: ['department', 'employee'] },
   { id: 'payroll-summary', category: 'payroll', title: 'Monthly Payroll', desc: 'Gross, each deduction and net pay per employee, from the month’s payroll run.', icon: Wallet, filters: ['department', 'employee'] },
@@ -28,6 +30,9 @@ const REPORTS = [
   { id: 'headcount', category: 'employee', title: 'Headcount', desc: 'Everybody employed at the end of the month, by department and type.', icon: Users, filters: ['department'] },
   { id: 'joiners-exits', category: 'employee', title: 'Joiners & Exits', desc: 'Who joined and who left in the month, with the dates.', icon: TrendingUp, filters: ['department'] },
 ]
+
+/** The right each kind of report needs (client §46) — the server checks it too, and shows only the caller's reach. */
+const CATEGORY_PERMISSION = { attendance: 'attendance:read', leave: 'leave:read', payroll: 'payroll:structure:read', employee: 'employee:read' }
 
 const CATEGORY_META = {
   attendance: { label: 'Attendance', color: 'text-blue-600', bar: 'bg-blue-600', tint: 'bg-blue-50 border-blue-200' },
@@ -211,7 +216,8 @@ function ReportPanel({ report, onClose }) {
 
 export default function Reports() {
   const [active, setActive] = useState(null)
-  const categories = Object.keys(CATEGORY_META)
+  const can = useAuthStore((s) => s.can)
+  const categories = Object.keys(CATEGORY_META).filter((cat) => can(CATEGORY_PERMISSION[cat]))
 
   return (
     <>

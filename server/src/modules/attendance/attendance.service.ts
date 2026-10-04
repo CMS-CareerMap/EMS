@@ -3,7 +3,8 @@ import { BadRequest, Conflict, Forbidden, NotFound } from '../../platform/errors
 import { logger } from '../../platform/logger'
 import { isUniqueViolation } from '../../platform/db/errors'
 import { zonedToday, toDateColumn, fromDateColumn, dayLabel, type CalendarDate } from '../../domain/shared/dates'
-import { hoursBetween, classifyDay } from '../../domain/attendance/hours'
+import { hoursBetween } from '../../domain/attendance/hours'
+import { halfDayReason, measureInstants, shiftRulesOf } from '../../domain/attendance/shiftRules'
 import {
   checkGeofence,
   geofenceMessage,
@@ -13,6 +14,8 @@ import {
 import * as repo from './attendance.repository'
 import { companyTimezone } from '../organization/organization.service'
 import { findActiveGeofence } from '../settings/settings.repository'
+import { awayOn, payPolicyOn, requestRules } from '../requests/requests.repository'
+import type { WorkMode } from '@prisma/client'
 
 /**
  * Punching in and out.
@@ -28,6 +31,8 @@ export interface PunchInput {
   latitude?: number | undefined
   longitude?: number | undefined
   accuracyMeters?: number | undefined
+  /** The browser's description of itself (client §31), kept short. Never trusted for anything. */
+  device?: string | undefined
 }
 
 export interface PunchResult {
@@ -38,6 +43,12 @@ export interface PunchResult {
   hoursWorked: number | null
   status: string
   geofence: { verified: boolean | null; distanceMeters: number | null; message: string } | null
+  /** Where the day was worked from (client §33). */
+  workMode: WorkMode | null
+  /** Against the shift (client §34–35); null when not measured. */
+  lateMinutes: number | null
+  earlyLeavingMinutes: number | null
+  overtimeMinutes: number | null
 }
 
 /** The caller's own employee record, plus the shift the day is measured against. */
@@ -129,7 +140,17 @@ export async function punchIn(ctx: AppContext, input: PunchInput): Promise<Punch
     throw Conflict('You have already checked in today.')
   }
 
-  const location = await verifyLocation(ctx, employee.attendanceMode, input)
+  // Away from the office on an approved request, or remote by arrangement
+  // (client §32–33): the office location is not asked for — unless the company
+  // wants a location reading even when working from home.
+  const away = await awayOn(ctx.db, employee.id, toDateColumn(today))
+  const workMode: WorkMode = away === 'work_from_home' ? 'wfh' : away === 'on_duty' ? 'on_duty' : employee.workArrangement === 'remote' ? 'remote' : 'office'
+  if (away && employee.attendanceMode === 'app' && (await requestRules(ctx.db, ctx.organizationId))?.wfhGpsRequired) {
+    if (input.latitude === undefined || input.longitude === undefined) {
+      throw Forbidden('Location is required to check in, even when working from home or on duty. Allow location access in your browser and try again.')
+    }
+  }
+  const location = workMode === 'office' ? await verifyLocation(ctx, employee.attendanceMode, input) : null
 
   if (location) {
     const { verdict, fence } = location
@@ -150,6 +171,8 @@ export async function punchIn(ctx: AppContext, input: PunchInput): Promise<Punch
 
   const verdict = location?.verdict
   const expectedHours = employee.shift ? Number(employee.shift.expectedHours) : null
+  // How late, against the shift's start (client §34). The rest waits for the check-out.
+  const { lateMinutes } = measureInstants({ rules: shiftRulesOf(employee.shift), date: today, timezone, checkIn: now, checkOut: null, hoursWorked: null })
 
   const data = {
     checkIn: now,
@@ -164,6 +187,9 @@ export async function punchIn(ctx: AppContext, input: PunchInput): Promise<Punch
     // Null, not false, when no check applied. "We did not look" and "we looked
     // and they were elsewhere" are different facts.
     geofenceVerified: verdict ? true : null,
+    workMode,
+    checkInDevice: input.device ? input.device.slice(0, 255) : null,
+    lateMinutes,
   }
 
   const row = existing
@@ -193,6 +219,10 @@ export async function punchIn(ctx: AppContext, input: PunchInput): Promise<Punch
           message: geofenceMessage(verdict, location!.fence),
         }
       : null,
+    workMode,
+    lateMinutes: row.lateMinutes,
+    earlyLeavingMinutes: null,
+    overtimeMinutes: null,
   }
 }
 
@@ -221,14 +251,27 @@ export async function punchOut(ctx: AppContext): Promise<PunchResult> {
   const breakMinutes = row.shift?.breakMinutes ?? 0
   const { hours, warning } = hoursBetween(row.checkIn, now, breakMinutes)
 
-  const expected = row.expectedHours ? Number(row.expectedHours) : 0
-  const classification = expected > 0 ? classifyDay(hours, expected) : null
+  // Measured against the shift the day began on, with the hours it was
+  // expected to be when it began — a shift edited since changes neither.
+  const rules = shiftRulesOf(row.shift)
+  const measure = measureInstants({
+    rules: rules && row.expectedHours ? { ...rules, expectedHours: Number(row.expectedHours) } : null,
+    date: today,
+    timezone,
+    checkIn: row.checkIn,
+    checkOut: now,
+    hoursWorked: hours,
+  })
+  const why = [warning, halfDayReason(measure)].filter(Boolean)
 
   const updated = await repo.updateDay(ctx.db, row.id, {
     checkOut: now,
     hoursWorked: hours,
-    ...(classification ? { status: classification.status } : {}),
-    ...(warning ? { note: [row.note, warning].filter(Boolean).join(' · ') } : {}),
+    lateMinutes: measure.lateMinutes,
+    earlyLeavingMinutes: measure.earlyLeavingMinutes,
+    overtimeMinutes: measure.overtimeMinutes,
+    ...(measure.classification ? { status: measure.classification.status } : {}),
+    ...(why.length ? { note: [row.note, ...why].filter(Boolean).join(' · ') } : {}),
   })
 
   logger.info('Punched out', { employeeId: employee.id, date: today, hours })
@@ -241,6 +284,10 @@ export async function punchOut(ctx: AppContext): Promise<PunchResult> {
     hoursWorked: hours,
     status: updated.status,
     geofence: null,
+    workMode: updated.workMode,
+    lateMinutes: updated.lateMinutes,
+    earlyLeavingMinutes: updated.earlyLeavingMinutes,
+    overtimeMinutes: updated.overtimeMinutes,
   }
 }
 
@@ -269,5 +316,31 @@ export async function myToday(ctx: AppContext): Promise<PunchResult | null> {
             distanceMeters: row.checkInDistanceMeters,
             message: row.geofenceVerified ? 'Location confirmed' : 'Location not confirmed',
           },
+    workMode: row.workMode,
+    lateMinutes: row.lateMinutes,
+    earlyLeavingMinutes: row.earlyLeavingMinutes,
+    overtimeMinutes: row.overtimeMinutes,
   }
+}
+
+export interface Workplace {
+  /** Where today is worked from, as check-in will record it (client §33). */
+  workMode: WorkMode
+  /** Whether check-in will ask for a location reading — the app asks the browser only then. */
+  locationNeeded: boolean
+  /** Whether the company pays overtime (client §35) — the app offers a claim only then. */
+  overtimeEnabled: boolean
+}
+
+/** Today's workplace for the caller: office, or away on an approved request, or remote. */
+export async function myWorkplace(ctx: AppContext): Promise<Workplace> {
+  const employee = await loadSelf(ctx)
+  const today = zonedToday(new Date(), await companyTimezone(ctx))
+  const away = await awayOn(ctx.db, employee.id, toDateColumn(today))
+  const workMode: WorkMode = away === 'work_from_home' ? 'wfh' : away === 'on_duty' ? 'on_duty' : employee.workArrangement === 'remote' ? 'remote' : 'office'
+  const overtimeEnabled = Boolean((await payPolicyOn(ctx.db, toDateColumn(today)))?.overtimeEnabled)
+  if (employee.attendanceMode !== 'app') return { workMode, locationNeeded: false, overtimeEnabled }
+  if (workMode === 'office') return { workMode, locationNeeded: Boolean(await findActiveGeofence(ctx.db)), overtimeEnabled }
+  const gpsWhenAway = Boolean(away && (await requestRules(ctx.db, ctx.organizationId))?.wfhGpsRequired)
+  return { workMode, locationNeeded: gpsWhenAway, overtimeEnabled }
 }

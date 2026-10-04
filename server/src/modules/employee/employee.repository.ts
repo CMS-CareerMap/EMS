@@ -253,3 +253,9 @@ export async function findCard(db: ScopedDb, id: string) {
     },
   })
 }
+
+/** A shift's name, for the audit log's old and new values. */
+export async function shiftName(db: TxDb, id: string | null): Promise<string | null> {
+  if (!id) return null
+  return (await db.shift.findFirst({ where: { id }, select: { name: true } }))?.name ?? null
+}

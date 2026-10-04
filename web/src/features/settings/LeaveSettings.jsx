@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Trash2, Edit2, X, Check, Archive, Info } from 'lucide-react'
+import { Plus, Trash2, Edit2, X, Check, Archive, Info, SlidersHorizontal } from 'lucide-react'
 import {
   usePayrollSettings, useSavePayroll,
   useLeaveTypes, useCreateLeaveType, useUpdateLeaveType, useArchiveLeaveType,
@@ -13,6 +13,8 @@ import WeeklyOffPicker from './WeeklyOffPicker'
 import { Section, Field, Toggle, inpSm } from './ui'
 import { MONTHS } from './format'
 import { formatDay } from '../../lib/dates'
+import LeaveTypeRulesDialog from './LeaveTypeRulesDialog'
+import { leaveRulesSummary } from '../../lib/rules'
 
 /**
  * The Leave Config tab.
@@ -126,6 +128,7 @@ function LeaveTypes() {
   const [adding, setAdding] = useState(false)
   const [notice, setNotice] = useState('')
   const [archiving, setArchiving] = useState(null)
+  const [ruling, setRuling] = useState(null)
 
   async function handleAdd(t) {
     const result = await createType.mutateAsync({
@@ -146,7 +149,7 @@ function LeaveTypes() {
   }
 
   return (
-    <Section title="Leave Types" desc="Days granted each leave year, whether they are paid, and what carries into the next year.">
+    <Section title="Leave Types" desc="Days granted each leave year, whether they are paid, and what carries into the next year. Each type's rules — notice, monthly accrual, who may use it, half days, encashment — are under its sliders button.">
       <div className="py-3 space-y-3">
         {notice && (
           <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-800">
@@ -170,7 +173,10 @@ function LeaveTypes() {
                 <LeaveTypeEditor key={t.id} type={t} onClose={() => setEditId(null)} />
               ) : (
                 <tr key={t.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
-                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{t.name}</td>
+                  <td className="px-4 py-3">
+                    <p className="text-sm font-medium text-gray-900">{t.name}</p>
+                    {leaveRulesSummary(t) && <p className="text-xs text-gray-400">{leaveRulesSummary(t)}</p>}
+                  </td>
                   <td className="px-4 py-3">
                     <span className="font-mono text-xs font-semibold text-gray-600 bg-gray-100 px-2 py-0.5 rounded">{t.code}</span>
                   </td>
@@ -179,6 +185,8 @@ function LeaveTypes() {
                   <td className="px-4 py-3 text-sm text-gray-700">{t.carry_forward ? `Up to ${t.carry_forward_cap} days` : 'No'}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1">
+                      <button type="button" onClick={() => setRuling(t)} title={`Rules of ${t.name}: notice, accrual, encashment`} aria-label={`Rules of ${t.name}`}
+                        className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600"><SlidersHorizontal className="w-3.5 h-3.5" /></button>
                       <button type="button" onClick={() => { setEditId(t.id); setAdding(false) }} title={`Change ${t.name}`}
                         className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600"><Edit2 className="w-3.5 h-3.5" /></button>
                       <button type="button" onClick={() => setArchiving(t)} disabled={archiveType.isPending} title={`Archive ${t.name}`}
@@ -200,6 +208,8 @@ function LeaveTypes() {
           </button>
         )}
       </div>
+
+      {ruling && <LeaveTypeRulesDialog type={ruling} onClose={() => setRuling(null)} />}
 
       {archiving && (
         <ConfirmDialog title={`Archive ${archiving.name}?`} confirmLabel="Archive" danger

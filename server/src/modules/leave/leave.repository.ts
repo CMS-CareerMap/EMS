@@ -151,6 +151,14 @@ export interface BalanceRow {
   balance: number
   pending: number
   available: number
+  /** Earned a twelfth a month (client §36), or all at once. */
+  accrual: 'yearly' | 'monthly'
+  /** Of the balance, what a monthly type has not earned yet — not available until it is. */
+  unearned: number
+  /** Whether unused days may be asked to be turned into pay (client §36). */
+  encashable: boolean
+  /** Whether half days may be taken (client §37). */
+  halfDayAllowed: boolean
 }
 
 /** Every leave type with this employee's balance in it, for the Balance tab. */
@@ -191,6 +199,10 @@ export async function balancesFor(
       // and letting somebody apply for days already spoken for is how two
       // approvals overdraw the same entitlement.
       available: Math.round((balance - held) * 2) / 2,
+      accrual: type.accrual,
+      unearned: 0,
+      encashable: type.encashable,
+      halfDayAllowed: type.halfDayAllowed,
     }
   })
 }
@@ -355,9 +367,25 @@ export async function activeEmployee(db: ScopedDb, scope: ScopeContext, id: stri
   return db.employee.findFirst({ where: { AND: [employeesInScope(scope), { id, archivedAt: null }] }, select: { id: true, fullName: true } })
 }
 
-/** The days somebody is employed: from joining to their last working day, either open. */
-export async function employmentWindow(db: ScopedDb, id: string) {
-  return db.employee.findFirst({ where: { id }, select: { dateOfJoining: true, lastWorkingDate: true } })
+/** The days somebody is employed: from joining to their last working day, either open — and who may take which types. */
+export async function employmentWindow(db: ScopedDb | TxDb, id: string) {
+  return db.employee.findFirst({ where: { id }, select: { dateOfJoining: true, lastWorkingDate: true, gender: true } })
+}
+
+/** The year's grant of each type, as granted — what a monthly-accrual type earns a twelfth of a month. */
+export async function openingGrants(db: ScopedDb | TxDb, employeeId: string, leaveYear: number): Promise<Map<string, number>> {
+  const rows = await db.leaveLedgerEntry.groupBy({
+    by: ['leaveTypeId'],
+    where: { employeeId, leaveYear, reason: 'opening_grant' },
+    _sum: { days: true },
+  })
+  return new Map(rows.map((r) => [r.leaveTypeId, Number(r._sum.days ?? 0)]))
+}
+
+/** Days of a type already turned into pay in a leave year (client §36), as a positive number. */
+export async function encashedDays(db: ScopedDb | TxDb, employeeId: string, leaveTypeId: string, leaveYear: number): Promise<number> {
+  const result = await db.leaveLedgerEntry.aggregate({ where: { employeeId, leaveTypeId, leaveYear, reason: 'encashed' }, _sum: { days: true } })
+  return -Number(result._sum.days ?? 0)
 }
 
 export async function activeLeaveType(db: ScopedDb, id: string) {

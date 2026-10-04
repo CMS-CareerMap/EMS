@@ -4,6 +4,7 @@ import { Section, Field, SaveBar, inp } from './ui'
 import DataState from '../../components/DataState'
 import { optionsNote } from '../../lib/optionsNote'
 import { useApprovalSettings, useCompanyTree, useSaveApprovalSettings } from '../../hooks/useCompanyTree'
+import RequestApprovals from './RequestApprovals'
 
 /**
  * Settings → Approvals (Day 22): the three things the company tree does not
@@ -26,9 +27,13 @@ export default function ApprovalsSettings() {
   return (
     // Not keyed by the version: a save brings a new one, and remounting the
     // form then threw away its "Saved" and any error it was showing.
-    <DataState query={settings}>
-      {(data) => <ApprovalsForm data={data} />}
-    </DataState>
+    <div className="space-y-6">
+      <DataState query={settings}>
+        {(data) => <ApprovalsForm data={data} />}
+      </DataState>
+      {/* Requests besides leave (client §28–29): their own settings, saved on their own. */}
+      <RequestApprovals />
+    </div>
   )
 }
 

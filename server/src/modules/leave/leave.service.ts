@@ -1,6 +1,6 @@
 import type { AppContext } from '../../platform/context'
 import { BadRequest, Conflict, Forbidden, NotFound } from '../../platform/errors/AppError'
-import { withTransaction } from '../../platform/db/transaction'
+import { withTransaction, type TxDb } from '../../platform/db/transaction'
 import { tellApprovers } from './leaveNotices'
 import { lockFor } from '../../platform/db/locks'
 import { logger } from '../../platform/logger'
@@ -22,6 +22,9 @@ import { assertMonthsOpen, monthsBetween } from '../payroll/payrollLock.service'
 import { mayDecide } from '../../domain/leave/approval'
 import { approvalWorld, approverNames, assertSomebodyDecides, deciderOf, peopleDecidedBy, rightsOn, type ApprovalWorld, type RequestRights } from './leaveApprover.service'
 import { recordApproval } from './leaveApproval.service'
+import { ruleProblem, type HalfDaySession } from '../../domain/leave/rules'
+import { accruedBy } from '../../domain/leave/grant'
+import { pendingEncashDays } from '../requests/requests.repository'
 
 /**
  * Applying for leave.
@@ -76,6 +79,27 @@ export interface PreviewInput {
   fromDate: CalendarDate
   toDate: CalendarDate
   halfDayDates?: CalendarDate[] | undefined
+  /** Which half of each half day (client §37). */
+  halfDaySessions?: Record<CalendarDate, HalfDaySession> | undefined
+}
+
+/**
+ * What of a monthly-accrual type's year is not earned yet by a day (client
+ * §36): the grant less what has accrued by that day's month. Nothing for a type
+ * granted yearly. Days carried in from last year are all earned already.
+ */
+export async function unearnedDays(
+  db: AppContext['db'] | TxDb,
+  employeeId: string,
+  type: { id: string; accrual: 'yearly' | 'monthly' },
+  leaveYear: number,
+  startMonth: number,
+  joined: CalendarDate | null,
+  asOf: CalendarDate,
+): Promise<number> {
+  if (type.accrual !== 'monthly') return 0
+  const grant = (await repo.openingGrants(db, employeeId, leaveYear)).get(type.id) ?? 0
+  return Math.max(0, grant - accruedBy({ grant, leaveYear, startMonth, joined, asOf }))
 }
 
 export interface PreviewResult {
@@ -125,13 +149,22 @@ export async function previewLeave(ctx: AppContext, input: PreviewInput): Promis
   const employeeId = await resolveEmployee(ctx, input.employeeId)
   const context = await leaveContext(ctx, input.fromDate, input.toDate)
 
+  const leaveType = await findLeaveType(ctx.db, input.leaveTypeId)
+  if (!leaveType) throw NotFound('That leave type does not exist')
+
+  for (const day of Object.keys(input.halfDaySessions ?? {})) {
+    if (!(input.halfDayDates ?? []).includes(day)) throw BadRequest(`${day} is not one of the half days.`)
+  }
+
   let counted: WorkingDaysResult
   try {
+    // A type counted in calendar days (maternity leave) counts the weekends
+    // and holidays inside it too (client §36).
     counted = workingDays({
       from: input.fromDate,
       to: input.toDate,
-      weeklyOffDays: context.weeklyOffDays,
-      holidays: context.holidays,
+      weeklyOffDays: leaveType.countsNonWorkingDays ? [] : context.weeklyOffDays,
+      holidays: leaveType.countsNonWorkingDays ? [] : context.holidays,
       halfDays: input.halfDayDates ?? [],
     })
   } catch (err) {
@@ -141,26 +174,49 @@ export async function previewLeave(ctx: AppContext, input: PreviewInput): Promis
 
   const leaveYear = leaveYearOf(input.fromDate, context.leaveYearStartMonth)
 
-  const leaveType = await findLeaveType(ctx.db, input.leaveTypeId)
-  if (!leaveType) throw NotFound('That leave type does not exist')
-
-  const [balance, pending] = await Promise.all([
-    repo.ledgerBalance(ctx.db, employeeId, input.leaveTypeId, leaveYear),
-    repo.pendingDays(ctx.db, employeeId, input.leaveTypeId, leaveYear),
-  ])
-
-  const available = Math.round((balance - pending) * 2) / 2
-  const annualQuota = Number(leaveType.annualQuota)
-
-  let problem: PreviewResult['problem'] = null
-
   // The employee lifecycle: leave is from days of their employment — not
   // before they join, nor after their last working day.
   const window = await repo.employmentWindow(ctx.db, employeeId)
   const joined = fromDateColumn(window?.dateOfJoining)
   const lastDay = fromDateColumn(window?.lastWorkingDate)
 
-  if (joined && input.fromDate < joined) {
+  const [balance, pendingLeave, encashing, unearned] = await Promise.all([
+    repo.ledgerBalance(ctx.db, employeeId, input.leaveTypeId, leaveYear),
+    repo.pendingDays(ctx.db, employeeId, input.leaveTypeId, leaveYear),
+    // Days waiting to be encashed are spoken for, as days applied for are.
+    pendingEncashDays(ctx.db, employeeId, input.leaveTypeId, leaveYear),
+    // Earned a month at a time: what is not earned by the month the leave starts is not there to take.
+    unearnedDays(ctx.db, employeeId, leaveType, leaveYear, context.leaveYearStartMonth, joined, input.fromDate),
+  ])
+
+  const pending = pendingLeave + encashing
+  const available = Math.round((balance - pending - unearned) * 2) / 2
+  const annualQuota = Number(leaveType.annualQuota)
+
+  let problem: PreviewResult['problem'] = null
+  const typeProblem = ruleProblem(
+    {
+      name: leaveType.name,
+      minNoticeDays: leaveType.minNoticeDays,
+      maxDaysPerRequest: leaveType.maxDaysPerRequest === null ? null : Number(leaveType.maxDaysPerRequest),
+      eligibleAfterDays: leaveType.eligibleAfterDays,
+      eligibleGender: leaveType.eligibleGender,
+      halfDayAllowed: leaveType.halfDayAllowed,
+    },
+    {
+      days: counted.days,
+      fromDate: input.fromDate,
+      today: zonedToday(new Date(), context.timezone),
+      ownApplication: employeeId === ctx.employeeId,
+      joined,
+      gender: window?.gender ?? null,
+      halfDays: (input.halfDayDates ?? []).length,
+    },
+  )
+
+  if (typeProblem) {
+    problem = typeProblem
+  } else if (joined && input.fromDate < joined) {
     problem = { reason: 'outside_employment', message: `That starts before the joining date, ${dayLabel(joined)}. Leave is for days of employment.` }
   } else if (lastDay && input.toDate > lastDay) {
     problem = { reason: 'outside_employment', message: `That runs past the last working day, ${dayLabel(lastDay)}. Leave is for days of employment.` }
@@ -183,7 +239,7 @@ export async function previewLeave(ctx: AppContext, input: PreviewInput): Promis
               // The number of days short, not just "insufficient balance".
               // One is actionable; the other sends somebody to ask HR what it
               // means.
-              message: `You are ${check.shortBy} day${check.shortBy === 1 ? '' : 's'} short. You have ${available} available.`,
+              message: `You are ${check.shortBy} day${check.shortBy === 1 ? '' : 's'} short. You have ${available} available${unearned > 0 ? ` by then — ${leaveType.name} is earned a month at a time` : ''}.`,
             }
     }
   }
@@ -266,11 +322,15 @@ export async function applyForLeave(ctx: AppContext, input: ApplyInput): Promise
 
     // Both read again under the lock: the balance too, because HR may have
     // corrected it between the preview and now.
-    const [balanceNow, held] = await Promise.all([
+    const [balanceNow, heldLeave, heldEncashing] = await Promise.all([
       repo.balanceOn(tx, employeeId, input.leaveTypeId, preview.leaveYear),
       repo.pendingDays(tx, employeeId, input.leaveTypeId, preview.leaveYear),
+      pendingEncashDays(tx, employeeId, input.leaveTypeId, preview.leaveYear),
     ])
-    if (balanceNow - held < preview.days) {
+    const held = heldLeave + heldEncashing
+    // What a monthly-accrual type has not earned yet is no more there now than in the preview.
+    const unearned = preview.balance.balance - preview.balance.pending - preview.balance.available
+    if (balanceNow - held - unearned < preview.days) {
       throw Conflict('Your balance changed while you were applying. Check it and try again.')
     }
 
@@ -288,6 +348,7 @@ export async function applyForLeave(ctx: AppContext, input: ApplyInput): Promise
       fromDate: toDateColumn(input.fromDate),
       toDate: toDateColumn(input.toDate),
       halfDayDates: input.halfDayDates ?? [],
+      halfDaySessions: input.halfDaySessions ?? {},
       days: preview.days,
       leaveYear: preview.leaveYear,
       reason: input.reason.trim(),
@@ -388,7 +449,15 @@ export async function myBalances(ctx: AppContext, employeeId?: string) {
   const today = zonedToday(new Date(), timezone)
   const leaveYear = leaveYearOf(today, policy?.leaveYearStartMonth ?? 4)
 
-  return { leaveYear, balances: await repo.balancesFor(ctx.db, target, leaveYear) }
+  const balances = await repo.balancesFor(ctx.db, target, leaveYear)
+  if (balances.some((b) => b.accrual === 'monthly')) {
+    const joined = fromDateColumn((await repo.employmentWindow(ctx.db, target))?.dateOfJoining)
+    for (const b of balances) {
+      b.unearned = await unearnedDays(ctx.db, target, { id: b.leaveTypeId, accrual: b.accrual }, leaveYear, policy?.leaveYearStartMonth ?? 4, joined, today)
+      b.available = Math.round((b.available - b.unearned) * 2) / 2
+    }
+  }
+  return { leaveYear, balances }
 }
 
 /**

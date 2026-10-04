@@ -21,10 +21,28 @@ const shiftFields = {
   expectedHours: z.number().min(0.5).max(24).multipleOf(0.25),
 }
 
-export const shiftSchema = z.object(shiftFields).strict()
+/** The shift's rules (client §34) — each optional, each defaulting to what applied before. */
+const minutes = (max: number) => z.number().int('Whole minutes').min(0).max(max)
+const hours = z.number().min(0.25).max(24).multipleOf(0.25, 'Quarter hours, such as 4.5 or 6.75')
+const shiftRules = {
+  graceMinutes: minutes(240).optional(),
+  lateThresholdMinutes: minutes(720).nullable().optional(),
+  earlyLeavingMinutes: minutes(720).nullable().optional(),
+  minFullDayHours: hours.nullable().optional(),
+  minHalfDayHours: hours.nullable().optional(),
+  overtimeAfterMinutes: minutes(720).optional(),
+}
+
+/** A half day cannot need more hours than a full one. */
+const halfWithinFull = (body: { minFullDayHours?: number | null | undefined; minHalfDayHours?: number | null | undefined }) =>
+  !(body.minFullDayHours && body.minHalfDayHours && body.minHalfDayHours > body.minFullDayHours)
+const halfWithinFullMessage = { path: ['minHalfDayHours'], message: 'A half day cannot need more hours than a full day' }
+
+export const shiftSchema = z.object({ ...shiftFields, ...shiftRules }).strict().refine(halfWithinFull, halfWithinFullMessage)
 
 export const shiftUpdateSchema = z
-  .object(shiftFields)
+  .object({ ...shiftFields, ...shiftRules })
   .partial()
   .strict()
   .refine((body) => Object.keys(body).length > 0, { message: 'Nothing to change' })
+  .refine(halfWithinFull, halfWithinFullMessage)

@@ -38,6 +38,13 @@ model SalaryComponent {
   /// like this change; a flag survives the change, a hardcoded rule does not.
   taxable Boolean @default(true)
 
+  /// Whether it counts in the wages ESI is paid on, and in the gross
+  /// professional tax is worked out from (client §40). An annual bonus is
+  /// usually outside ESI wages; whether it is outside PT depends on the
+  /// state. The accountant's call, as with PF.
+  countsForEsi Boolean @default(true)
+  countsForPt  Boolean @default(true)
+
   /// Display order on the payslip. Earnings and deductions each ordered within
   /// their own section.
   displayOrder Int @default(0)
@@ -320,15 +327,16 @@ model Payslip {
 
   createdAt DateTime @default(now()) @db.Timestamptz(3)
 
-  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   /// Cascade: discarding a draft run takes its payslips with it. A run that is
   /// not a draft cannot be discarded, which the service enforces.
-  run          PayrollRun    @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  run          PayrollRun     @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
   /// NoAction: a payslip is a statutory record, and deleting the employee must
   /// not delete it. NoAction rather than Restrict so that deleting a whole
   /// organization can still cascade through both.
-  employee     Employee      @relation(fields: [employeeId], references: [id], onDelete: NoAction)
+  employee     Employee       @relation(fields: [employeeId], references: [id], onDelete: NoAction)
   lines        PayslipLine[]
+  recoveries   LoanRecovery[]
 
   @@unique([organizationId, payrollRunId, employeeId])
   @@index([organizationId, employeeId, year, month])
@@ -467,4 +475,66 @@ model BankFileTemplate {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId])
+}
+
+/// A loan to an employee, or an advance on their salary (client §40), recovered
+/// from their pay a fixed amount a month until it is paid back.
+///
+/// What is left is never stored: it is the amount less what approved and paid
+/// payslips recovered, so a draft recalculated twice cannot recover twice.
+model EmployeeLoan {
+  id             String @id @default(uuid())
+  organizationId String
+  employeeId     String
+
+  kind LoanKind
+
+  /// What was lent.
+  amount      Decimal @db.Decimal(12, 2)
+  /// Recovered each month, the last month taking only what is left.
+  installment Decimal @db.Decimal(12, 2)
+
+  /// The first month recovered from.
+  startYear  Int
+  startMonth Int
+
+  note String?
+
+  /// Closed early — written off, or repaid in cash. Nothing more is recovered.
+  closedAt       DateTime? @db.Timestamptz(3)
+  closedNote     String?
+  closedByUserId String?
+
+  createdByUserId String?
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     Employee       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  recoveries   LoanRecovery[]
+
+  @@index([organizationId, employeeId])
+}
+
+enum LoanKind {
+  loan
+  advance
+}
+
+/// What one payslip recovered of one loan. Goes with the payslip: a draft
+/// recalculated or discarded takes its recoveries with it.
+model LoanRecovery {
+  id             String @id @default(uuid())
+  organizationId String
+  loanId         String
+  payslipId      String
+
+  amount Decimal @db.Decimal(12, 2)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  loan         EmployeeLoan @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  payslip      Payslip      @relation(fields: [payslipId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, loanId, payslipId])
+  @@index([organizationId, payslipId])
 }

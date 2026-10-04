@@ -37,6 +37,12 @@ const GENDERS = [
   ['other', 'Other'],
 ]
 
+const WORK_ARRANGEMENTS = [
+  ['office', 'At the office — home only on approved work-from-home days'],
+  ['hybrid', 'Hybrid — office and home, home days approved as requests'],
+  ['remote', 'Remote — checks in from anywhere'],
+]
+
 const ATTENDANCE_MODES = [
   ['app', 'App — punch in with location'],
   ['biometric', 'Biometric machine'],
@@ -73,6 +79,15 @@ function fromEmployee(employee) {
     shiftId: employee?.shift_id ?? '',
     reportingManagerId: employee?.reporting_manager_id ?? '',
     attendanceMode: employee?.attendance_mode ?? 'app',
+    workArrangement: employee?.work_arrangement ?? 'office',
+
+    // Personal details (client §42): read only by whoever sees statutory details.
+    dateOfBirth: employee?.date_of_birth ?? '',
+    nationality: employee?.nationality ?? '',
+    address: employee?.address ?? '',
+    emergencyContactName: employee?.emergency_contact_name ?? '',
+    emergencyContactRelation: employee?.emergency_contact_relation ?? '',
+    emergencyContactPhone: employee?.emergency_contact_phone ?? '',
 
     pan: employee?.pan ?? '',
     uan: employee?.uan ?? '',
@@ -93,6 +108,17 @@ function fromEmployee(employee) {
 
 /** A blank field is "not recorded", which the server stores as null. */
 const orNull = (value) => (value === '' || value === undefined ? null : value)
+
+function personalOf(form) {
+  return {
+    dateOfBirth: orNull(form.dateOfBirth),
+    nationality: orNull(form.nationality.trim()),
+    address: orNull(form.address.trim()),
+    emergencyContactName: orNull(form.emergencyContactName.trim()),
+    emergencyContactRelation: orNull(form.emergencyContactRelation.trim()),
+    emergencyContactPhone: orNull(form.emergencyContactPhone.trim()),
+  }
+}
 
 function statutoryOf(form) {
   return {
@@ -187,6 +213,7 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
       shiftId: orNull(form.shiftId),
       reportingManagerId: orNull(form.reportingManagerId),
       attendanceMode: form.attendanceMode,
+      workArrangement: form.workArrangement,
     }
 
     if (isEdit) body.lastWorkingDate = orNull(form.lastWorkingDate)
@@ -203,6 +230,9 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
       // A new employee gets a statutory record only if something was entered;
       // an existing one only if something changed.
       if (changed) body.statutory = next
+      // The same for personal details: sent only when something was entered or changed.
+      const personal = personalOf(form)
+      if (JSON.stringify(personal) !== JSON.stringify(personalOf(fromEmployee(initial)))) body.personal = personal
     }
 
     if (!isEdit && form.withLogin) {
@@ -346,6 +376,11 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
                     {ATTENDANCE_MODES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                   </select>
                 </Field>
+                <Field label="Work Arrangement" hint="Remote: no office location is asked at check-in. Hybrid: work from home on approved days.">
+                  <select value={form.workArrangement} onChange={(e) => set('workArrangement', e.target.value)} className={inp()} aria-label="Work arrangement">
+                    {WORK_ARRANGEMENTS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                </Field>
                 <div className="sm:col-span-2">
                   {/* For somebody already here, who they report to is the Super
                       Admin's to change (the company tree); a new joiner is placed
@@ -365,6 +400,34 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
                 </div>
               </div>
             </Section>
+
+            {/* Personal details (client §42) — only for somebody who can see them */}
+            {canSeeIdentity && (
+              <Section title="Personal Details">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field label="Date of Birth">
+                    <input type="date" value={form.dateOfBirth} onChange={(e) => set('dateOfBirth', e.target.value)} className={inp()} aria-label="Date of birth" />
+                  </Field>
+                  <Field label="Nationality">
+                    <input type="text" value={form.nationality} maxLength={80} onChange={(e) => set('nationality', e.target.value)} className={inp()} aria-label="Nationality" />
+                  </Field>
+                  <div className="sm:col-span-2">
+                    <Field label="Address">
+                      <textarea rows={2} value={form.address} maxLength={500} onChange={(e) => set('address', e.target.value)} className={inp()} aria-label="Address" />
+                    </Field>
+                  </div>
+                  <Field label="Emergency Contact">
+                    <input type="text" value={form.emergencyContactName} maxLength={200} onChange={(e) => set('emergencyContactName', e.target.value)} className={inp()} aria-label="Emergency contact" />
+                  </Field>
+                  <Field label="Relation">
+                    <input type="text" placeholder="e.g. Mother" value={form.emergencyContactRelation} maxLength={80} onChange={(e) => set('emergencyContactRelation', e.target.value)} className={inp()} aria-label="Emergency contact relation" />
+                  </Field>
+                  <Field label="Emergency Contact Phone">
+                    <input type="tel" value={form.emergencyContactPhone} maxLength={30} onChange={(e) => set('emergencyContactPhone', e.target.value)} className={inp()} aria-label="Emergency contact phone" />
+                  </Field>
+                </div>
+              </Section>
+            )}
 
             {/* Statutory — only for somebody who can see it */}
             {canSeeIdentity && (

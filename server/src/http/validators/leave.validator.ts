@@ -15,6 +15,8 @@ const dateRange = {
   /// Which days inside the range are half. An array rather than a flag: a
   /// week's leave can be half at either end.
   halfDayDates: z.array(z.iso.date()).max(60).optional(),
+  /// Which half of each of those days (client §37): first or second.
+  halfDaySessions: z.record(z.iso.date(), z.enum(['first_half', 'second_half'])).optional(),
   /// HR applying on somebody's behalf. An employee sending this for anybody
   /// but themselves is refused by the service.
   employeeId: z.uuid().optional(),

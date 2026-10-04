@@ -88,3 +88,8 @@ export function useSaveNotificationSettings() {
     onSuccess: (saved) => qc.setQueryData(['notifications', 'settings'], saved),
   })
 }
+
+/** Whether the server can send email (client §45), and as whom — set on the server, not here. */
+export function useEmailStatus({ enabled = true } = {}) {
+  return useQuery({ queryKey: ['notifications', 'email-status'], queryFn: async () => (await api.get('/notifications/email-status')).data, enabled, staleTime: 5 * 60_000 })
+}

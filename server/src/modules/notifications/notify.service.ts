@@ -10,6 +10,7 @@ import { topPeople, treePeople } from '../organization/tree.repository'
 import { isEnabled, NOTIFICATION_EVENTS, type NotificationEvent } from '../../domain/notifications/events'
 import * as repo from './notification.repository'
 import * as roleRepo from '../roles/roles.repository'
+import { appLink, emailReady } from '../../platform/email/mailer'
 
 /**
  * Sending a notice — always from the server, always inside the transaction of
@@ -39,7 +40,7 @@ export type Recipients =
    * notice is about. A verifier who checks one department's documents is not
    * told about another department's uploads.
    */
-  | { reaching: { permission: Permission; resource: ScopedResource; employeeId: string; work?: WorkKind } }
+  | { reaching: { permission: Permission; resource: ScopedResource; employeeId: string; work?: WorkKind; alsoHolding?: Permission } }
   /**
    * Whoever holds `permission` AND may do that kind of work on this employee
    * (Day 22: one's own, and a fellow worker's, goes up the tree). A notice
@@ -59,6 +60,8 @@ export interface Notice {
   entity?: { type: string; id: string }
   /** Tell the actor too — for notices ABOUT them, like a password change. */
   includeActor?: boolean
+  /** Never tell this employee's logins — the person a notice about them is for others. */
+  notAbout?: string
 }
 
 async function resolve(tx: TxDb, organizationId: string, to: Recipients): Promise<string[]> {
@@ -96,11 +99,11 @@ async function workers(tx: TxDb, organizationId: string, work: WorkKind, employe
 async function reaching(
   tx: TxDb,
   organizationId: string,
-  { permission, resource, employeeId, work }: { permission: Permission; resource: ScopedResource; employeeId: string; work?: WorkKind | undefined },
+  { permission, resource, employeeId, work, alsoHolding }: { permission: Permission; resource: ScopedResource; employeeId: string; work?: WorkKind | undefined; alsoHolding?: Permission | undefined },
 ): Promise<string[]> {
   const [all, place] = await Promise.all([roleRepo.membershipsHolding(tx, permission), repo.placeOf(tx, employeeId)])
   if (!place) return []
-  const holders = all.filter((m) => m.status !== 'inactive')
+  const holders = all.filter((m) => m.status !== 'inactive' && (!alsoHolding || m.roleDef.locked || m.roleDef.permissions.includes(alsoHolding)))
   // The scope as it APPLIES (toGrant), not as stored: a role without the
   // permission a scope belongs to reaches only its own rows there.
   const live = (work ? await workers(tx, organizationId, work, employeeId, holders) : holders)
@@ -141,9 +144,25 @@ export async function notify(ctx: NoticeActor, tx: TxDb, notice: Notice): Promis
     // role login is not news to their employee login.
     if (ctx.employeeId) for (const own of await repo.usersOfEmployee(tx, ctx.employeeId)) users.delete(own)
   }
+  if (notice.notAbout) for (const own of await repo.usersOfEmployee(tx, notice.notAbout)) users.delete(own)
   if (users.size === 0) return 0
 
   const rule = NOTIFICATION_EVENTS[notice.event]
+  // Also by email (client §45), when the server can send it and the company
+  // has not turned it off for this event — queued in this same transaction,
+  // so a change that rolls back sends nothing.
+  if (emailReady() && ((await repo.savedEmailChoices(tx)).get(notice.event) ?? true)) {
+    const to = await repo.loginEmails(tx, [...users])
+    await repo.queueEmails(
+      tx,
+      to.map((toEmail) => ({
+        organizationId: ctx.organizationId,
+        toEmail,
+        subject: notice.title.slice(0, 160),
+        body: `${notice.message}\n\nOpen it: ${appLink(notice.link)}\n\nThis is an automatic message from the company’s HR system. Reply to your HR team, not to this email.`,
+      })),
+    )
+  }
   return repo.createMany(
     tx,
     [...users].map((userId) => ({

@@ -18,6 +18,8 @@ import {
 import { mayDecide } from '../../domain/leave/approval'
 import { audit } from '../audit/audit.service'
 import { notify } from '../notifications/notify.service'
+import { tellLeft } from '../notifications/peopleNotices'
+import { closePendingOf } from '../requests/requests.repository'
 import { companyToday } from '../organization/organization.service'
 import { aboveCaller, assertMayChangeEmployment, checkWork, loadWork } from '../organization/workRules.service'
 import { approvalWorld, approverName, approverUsers, assertSomebodyDecides, deciderOf } from '../leave/leaveApprover.service'
@@ -848,6 +850,9 @@ export async function completeExit(
       lastDay = input.lastWorkingDate
     }
 
+    // Their requests' lock before their record changes — the order a decision
+    // takes them in — so leaving and an approval at the same moment queue.
+    await lockFor(tx, `requests:${employeeId}`)
     const users = await closeLoginsForExit(tx, ctx, employeeId)
     await repo.updatePerson(tx, employeeId, {
       lastWorkingDate: lastDay ? toDateColumn(lastDay) : null,
@@ -865,6 +870,12 @@ export async function completeExit(
       action: 'lifecycle.exited', entityType: 'employee', entityId: employeeId,
       details: { employeeId, reason: input.reason, lastWorkingDate: lastDay, previousLastWorkingDate: previous, loginsClosed: users.length, note: input.note },
     }, tx)
+    await tellLeft(ctx, tx, employeeId, lastDay, 'exit')
+    // What of theirs still waits — a correction, overtime, an encashment — is closed, with why.
+    const closedRequests = await closePendingOf(tx, employeeId, ctx.userId)
+    if (closedRequests > 0) {
+      await audit(ctx, { action: 'request.closed_on_leaving', entityType: 'employee', entityId: employeeId, details: { employeeId, closed: closedRequests } }, tx)
+    }
     return users
   })
   await endSessionsOf(closed)

@@ -2,6 +2,8 @@ import type { AppContext } from '../../platform/context'
 import { AppError, BadRequest, Conflict, Forbidden, NotFound } from '../../platform/errors/AppError'
 import { withTransaction, type TxDb } from '../../platform/db/transaction'
 import { lockFor } from '../../platform/db/locks'
+import { tellLeft } from '../notifications/peopleNotices'
+import { closePendingOf } from '../requests/requests.repository'
 import { isUniqueViolation } from '../../platform/db/errors'
 import { generateToken, hashInviteToken } from '../../platform/auth/tokenHash'
 import { logger } from '../../platform/logger'
@@ -368,6 +370,8 @@ export async function terminateUser(ctx: AppContext, membershipId: string): Prom
       // lock after the roles lock: a resignation cannot be handed in or
       // accepted while they are being removed.
       await lockFor(tx, `lifecycle:${current.employeeId}`)
+      // Their requests' lock before their record changes, the order a decision takes them in.
+      await lockFor(tx, `requests:${current.employeeId}`)
       const person = await lifecycleRepo.findPerson(tx, null, current.employeeId)
       const today = await companyToday(ctx)
       const joined = fromDateColumn(person?.dateOfJoining ?? null)
@@ -400,6 +404,12 @@ export async function terminateUser(ctx: AppContext, membershipId: string): Prom
         details: { via: 'access_removed', loginsClosed: logins.length, lastWorkingDate: lastDay, previousLastWorkingDate: before, ...(payrollClosed ? { payrollClosed } : {}) },
         createdByUserId: ctx.userId,
       })
+      // Their manager and HR hear that they have gone (client §45).
+      await tellLeft(ctx, tx, current.employeeId, lastDay, 'access_removed')
+      const closedRequests = await closePendingOf(tx, current.employeeId, ctx.userId)
+      if (closedRequests > 0) {
+        await audit(ctx, { action: 'request.closed_on_leaving', entityType: 'employee', entityId: current.employeeId, details: { employeeId: current.employeeId, closed: closedRequests } }, tx)
+      }
     }
     await audit(ctx, {
       action: 'user.terminated',

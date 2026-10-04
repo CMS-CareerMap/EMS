@@ -50,7 +50,7 @@ export async function clearAll(ctx: AppContext) {
 
 /** Every event, what it tells whom, and whether this company sends it. */
 export async function settings(ctx: AppContext) {
-  const saved = await repo.savedSettings(ctx.db)
+  const [saved, email] = await Promise.all([repo.savedSettings(ctx.db), repo.savedEmailChoices(ctx.db)])
   return NOTIFICATION_EVENT_KEYS.map((event) => {
     const rule = NOTIFICATION_EVENTS[event]
     return {
@@ -60,11 +60,13 @@ export async function settings(ctx: AppContext) {
       tells: rule.tells,
       optional: rule.optional,
       enabled: isEnabled(event, saved),
+      // Also emailed, once the server has a mail account to send from (client §45).
+      email: email.get(event) ?? true,
     }
   })
 }
 
-export async function saveSettings(ctx: AppContext, changes: { event: string; enabled: boolean }[]) {
+export async function saveSettings(ctx: AppContext, changes: { event: string; enabled: boolean; email?: boolean | undefined }[]) {
   for (const change of changes) {
     if (!isNotificationEvent(change.event)) throw BadRequest(`"${change.event}" is not a notification this system sends`)
     if (!NOTIFICATION_EVENTS[change.event].optional && !change.enabled) {
@@ -74,7 +76,7 @@ export async function saveSettings(ctx: AppContext, changes: { event: string; en
 
   await withTransaction(ctx.db, async (tx) => {
     for (const change of changes) {
-      await repo.saveSetting(tx, ctx.organizationId, change.event, change.enabled, ctx.userId)
+      await repo.saveSetting(tx, ctx.organizationId, change.event, change.enabled, ctx.userId, change.email)
     }
     await audit(ctx, {
       action: 'notification_settings.saved',

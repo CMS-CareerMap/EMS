@@ -13,7 +13,7 @@ export type NotificationKind = 'leave' | 'payroll' | 'document' | 'bank' | 'acco
 
 export interface EventRule {
   kind: NotificationKind
-  group: 'Leave' | 'Payroll' | 'Documents' | 'Bank accounts' | 'Employment' | 'Account'
+  group: 'Leave' | 'Requests' | 'Payroll' | 'Documents' | 'Bank accounts' | 'Employment' | 'Account'
   /** "A leave request is submitted" — what happened, for Settings. */
   label: string
   /** Who is told, in words, for Settings. */
@@ -88,6 +88,17 @@ export const NOTIFICATION_EVENTS = {
     label: 'Bank details are verified or rejected',
     tells: 'The employee they belong to',
   },
+  // Requests (client §28–29): attendance corrections, working from home or on duty, overtime, profile changes.
+  'request.submitted': {
+    kind: 'system', group: 'Requests', optional: true,
+    label: 'An employee sends a request, or withdraws one',
+    tells: 'Whoever decides it — the person they report to, or HR, as Settings → Approvals says for that kind of request',
+  },
+  'request.decided': {
+    kind: 'system', group: 'Requests', optional: true,
+    label: 'A request is approved or rejected',
+    tells: 'The employee who sent it',
+  },
   // The employee lifecycle (client §43).
   'employment.resignation_submitted': {
     kind: 'system', group: 'Employment', optional: true,
@@ -103,6 +114,17 @@ export const NOTIFICATION_EVENTS = {
     kind: 'system', group: 'Employment', optional: true,
     label: 'Onboarding is complete, probation is confirmed or extended, or somebody is transferred or promoted',
     tells: 'The employee it is about',
+  },
+  // Client §45: "Employee created", "Employee deactivated".
+  'employment.joined': {
+    kind: 'system', group: 'Employment', optional: true,
+    label: 'A new employee is added',
+    tells: 'The person they report to, and HR who keep employee records for them',
+  },
+  'employment.left': {
+    kind: 'system', group: 'Employment', optional: true,
+    label: 'An employee leaves, or their access is removed',
+    tells: 'The person they reported to, and HR who keep employee records for them',
   },
   'account.password_changed': {
     kind: 'account', group: 'Account', optional: false,

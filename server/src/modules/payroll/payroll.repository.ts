@@ -108,3 +108,64 @@ export async function createCoverage(
 export async function deleteCoverage(db: ScopedDb, employeeId: string, periodStart: Date) {
   return db.esiCoverage.deleteMany({ where: { employeeId, periodStart } })
 }
+
+// ── Overtime, leave encashment and loans (client §35, §36, §40) ─────────────
+
+/** Overtime approved to be paid this month, with what each day was expected to be. */
+export async function approvedOvertimeIn(db: ScopedDb, employeeId: string, year: number, month: number) {
+  const requests = await db.employeeRequest.findMany({
+    where: {
+      employeeId,
+      type: 'overtime',
+      status: 'approved',
+      AND: [{ details: { path: ['payYear'], equals: year } }, { details: { path: ['payMonth'], equals: month } }],
+    },
+    select: { number: true, fromDate: true, details: true },
+    orderBy: { fromDate: 'asc' },
+  })
+  const days = requests.length
+    ? await db.attendance.findMany({
+        where: { employeeId, date: { in: requests.flatMap((r) => (r.fromDate ? [r.fromDate] : [])) } },
+        select: { date: true, expectedHours: true, overtimeMinutes: true, shift: { select: { expectedHours: true } } },
+      })
+    : []
+  return { requests, days }
+}
+
+/** Leave encashments approved to be paid with this month's salary. */
+export async function encashmentsPaidIn(db: ScopedDb, employeeId: string, year: number, month: number) {
+  return db.employeeRequest.findMany({
+    where: {
+      employeeId,
+      type: 'leave_encashment',
+      status: 'approved',
+      AND: [{ details: { path: ['payYear'], equals: year } }, { details: { path: ['payMonth'], equals: month } }],
+    },
+    select: { number: true, details: true },
+    orderBy: { number: 'asc' },
+  })
+}
+
+/** Loans and advances still being recovered, from this month or earlier, with what other months' payslips took. */
+export async function loansRecoveringIn(db: ScopedDb, employeeId: string, year: number, month: number) {
+  const loans = await db.employeeLoan.findMany({
+    where: {
+      employeeId,
+      AND: [
+        { OR: [{ startYear: { lt: year } }, { startYear: year, startMonth: { lte: month } }] },
+        // Closed after this month's draft recovered from it: the recovery stands,
+        // as the amount left was worked out with it.
+        { OR: [{ closedAt: null }, { recoveries: { some: { payslip: { year, month } } } }] },
+      ],
+    },
+    select: {
+      id: true,
+      kind: true,
+      amount: true,
+      installment: true,
+      recoveries: { select: { amount: true, payslip: { select: { year: true, month: true } } } },
+    },
+    orderBy: { createdAt: 'asc' },
+  })
+  return loans
+}

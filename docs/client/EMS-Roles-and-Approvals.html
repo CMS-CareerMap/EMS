@@ -63,6 +63,7 @@
   <tr><td>HR negotiates salaries, so HR should see them.</td><td>HR can see salaries, but not change them, and not see their seniors' salaries. Accounts enters salaries (section 6).</td></tr>
   <tr><td>The owner does not need anybody's approval.</td><td>The owner's leave is recorded directly (section 3).</td></tr>
 <tr><td>Follow every employee from joining to leaving.</td><td>Each profile shows where the person is: onboarding, probation, confirmed, resigned, serving notice or left. HR takes each step; the reporting manager accepts a resignation (section 9).</td></tr>
+<tr><td>Corrections, work from home, overtime and profile changes need an approval, and the company sets the rules.</td><td>Employees send these as Requests; the reporting manager or HR approves. Shift, overtime and leave rules are settings the company can change (section 10).</td></tr>
 </table>
 
 <h2>2. Everybody works under somebody</h2>
@@ -254,18 +255,38 @@
 <li>The Super Admin can change the probation length and the notice period in Settings → Employee Lifecycle.</li>
 </ul>
 
-<h2>10. Other safety rules</h2>
+<h2>10. Requests, shifts and pay extras</h2>
+<p>Besides leave, employees ask for other things in one place: <strong>Requests</strong>. Each kind goes to one person, who approves or rejects it. A rejection always says why.</p>
+<table>
+<tr><th style="width:24%">Request</th><th>What it is for</th><th style="width:24%">Who decides, to start</th></tr>
+<tr><td><strong>Attendance correction</strong></td><td>A check-in or check-out that is missing or wrong. Once approved, the day is corrected.</td><td>Their reporting manager</td></tr>
+<tr><td><strong>Work from home / On duty</strong></td><td>Days away from the office (home, a client visit, travel). On those days they check in without the office location.</td><td>Their reporting manager</td></tr>
+<tr><td><strong>Overtime</strong></td><td>Time worked past the shift. Only overtime that is approved is paid, with that month's salary.</td><td>Their reporting manager</td></tr>
+<tr><td><strong>Leave encashment</strong></td><td>Unused leave turned into pay, for leave types that allow it.</td><td>HR</td></tr>
+<tr><td><strong>Profile change</strong></td><td>A change to their own phone, address, emergency contact and other personal details.</td><td>HR</td></tr>
+</table>
+<ul>
+<li><strong>The Super Admin chooses</strong> who decides each kind (the reporting manager or HR) in Settings → Approvals, and whether working from home still needs a location reading.</li>
+<li><strong>Shifts have rules.</strong> For each shift: a grace period, when coming late or leaving early makes it a half day, the hours a full day and a half day need, and when overtime starts (after 30 minutes past the shift, to start). Late arrivals and overtime show on the attendance screen and in the reports.</li>
+<li><strong>Overtime pay</strong> is off until you turn it on in Settings → Payroll Config, so nobody is paid overtime by surprise. Once on, it is twice an hour's pay to start; the rate, and whether it is worked out on the full salary or on Basic and DA, are set there too.</li>
+<li><strong>Each leave type has its own rules:</strong> days of notice, the most days in one go, who can take it (for example, maternity leave for women), when a new joiner can use it, whether it is earned all at once or a little each month, half days (first half or second half), and whether it can be encashed and how many days a year. All of these are off until HR sets them.</li>
+<li><strong>Salary parts:</strong> Accounts can add new earnings or deductions (a Site Allowance, a Bonus) and choose whether each counts for PF, ESI and professional tax. Bonus and Commission are there to start.</li>
+<li><strong>Loans and salary advances:</strong> Accounts records the amount and how much to take back each month. It comes off the payslip every month until it is paid back.</li>
+<li><strong>Email:</strong> every notice can also go by email, once the company's email account is connected to EMS. The Super Admin can keep any notice to the app only.</li>
+<li><strong>Reports</strong> show each person only what their role lets them see. HR does not see payroll reports.</li>
+</ul>
+<h2>11. Other safety rules</h2>
 <ul>
   <li><strong>Everything important is recorded.</strong> Sign-ins, role changes, salary changes, payroll steps, documents opened and files downloaded all go into the audit log. Nobody can edit or delete it.</li>
   <li><strong>Everybody sets their own password.</strong> There are no shared passwords. Each person gets a one-time link, valid for 72 hours, to set theirs.</li>
   <li><strong>Yearly leave is given in one step.</strong> New joiners get leave for the months left in the year. People who have left get none. Unused leave carries forward, up to the limit set for each leave type.</li>
   <li><strong>Payroll is approved by the Super Admin.</strong> Accounts prepares it; only the Super Admin approves it. Once approved, that month cannot be changed.</li>
-  <li><strong>PF and the Labour Codes.</strong> The new labour codes say PF must be worked out on at least half of the pay. EMS has a switch for this in Settings → Payroll Config, off to start. When your accountant confirms it applies, the Super Admin turns it on. The share (50%) can be changed if the government announces a new one. It applies from the next month's payroll. The Super Admin also chooses there which parts of the salary count for PF (Basic and DA to start; Special Allowance too, if your accountant says so). HR records on each employee's record whether they are in the pension scheme (EPS), from their PF record, so these settings never change it.</li>
+  <li><strong>PF and the Labour Codes.</strong> The new labour codes say PF must be worked out on at least half of the pay. EMS has a switch for this in Settings → Payroll Config, off to start. When your accountant confirms it applies, the Super Admin turns it on. The share (50%) can be changed if the government announces a new one. It applies from the next month's payroll. The Super Admin also chooses there which parts of the salary count for PF (Accounts can set it too, under Payroll → Components) (Basic and DA to start; Special Allowance too, if your accountant says so). HR records on each employee's record whether they are in the pension scheme (EPS), from their PF record, so these settings never change it.</li>
   <li><strong>Bank accounts are checked</strong> before any salary is paid into them (a setting, on to start). An account an employee sends in needs a photo of a cancelled cheque or passbook page.</li>
 </ul>
 
 <div class="keep">
-<h2>11. What happens next</h2>
+<h2>12. What happens next</h2>
 <ol>
   <li>Everything in this document is built, and tested for every role, on computer and on phone.</li>
   <li>EMS goes live. The Super Admin then sets up who reports to whom, the roles, and the role logins, directly in EMS. You do not need to send us any data.</li>
@@ -283,7 +304,7 @@
 </div>
 </div>
 
-<footer>EMS — CareerMap Solutions Pvt. Ltd. · Roles and approvals · 3 October 2026</footer>
+<footer>EMS — CareerMap Solutions Pvt. Ltd. · Roles and approvals · 4 October 2026</footer>
 </main>
 </body>
 </html>

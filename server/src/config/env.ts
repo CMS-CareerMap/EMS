@@ -77,6 +77,19 @@ const schema = z.object({
   /// How many daily backups to keep, and how many months' first backups.
   BACKUP_KEEP_DAILY: z.coerce.number().int().min(1).max(365).default(30),
   BACKUP_KEEP_MONTHLY: z.coerce.number().int().min(0).max(120).default(12),
+
+  // Email (client §45). All optional: without SMTP_HOST and SMTP_FROM nothing
+  // is emailed, and every notice still appears in the app.
+  SMTP_HOST: z.string().min(1).optional(),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
+  /** True for port 465 (TLS from the start); 587 upgrades with STARTTLS. */
+  SMTP_SECURE: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  SMTP_USER: z.string().min(1).optional(),
+  SMTP_PASS: z.string().min(1).optional(),
+  /** Who the mail is from: "CareerMap HR <hr@example.com>". */
+  SMTP_FROM: z.string().min(3).optional(),
+  /** Where the app is, for links in emails. Defaults to CORS_ORIGIN. */
+  APP_URL: z.url().optional(),
 }).refine((c) => c.JWT_ACCESS_SECRET !== c.JWT_REFRESH_SECRET, {
   path: ['JWT_REFRESH_SECRET'],
   message: 'JWT_REFRESH_SECRET must differ from JWT_ACCESS_SECRET',
