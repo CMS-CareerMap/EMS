@@ -27,6 +27,8 @@ export async function findEmployee(db: ScopedDb, employeeId: string) {
       dateOfJoining: true,
       lastWorkingDate: true,
       gender: true,
+      // The pension scheme stops at 58.
+      dateOfBirth: true,
       statutoryIdentity: {
         select: { ptState: true, pfApplicable: true, hasPriorPfMembership: true, epsMember: true },
       },
@@ -104,7 +106,16 @@ export async function createCoverage(
   return db.esiCoverage.create({ data: { organizationId, ...data } })
 }
 
-/** Removes a period's decision so it can be taken again. Redecide only. */
+/** The earliest salary record starting between two days — the first pay of somebody whose record begins mid-period. */
+export async function firstFinancialBetween(db: ScopedDb, employeeId: string, from: Date, to: Date) {
+  return db.employeeFinancial.findFirst({
+    where: { employeeId, effectiveFrom: { gt: from, lte: to } },
+    orderBy: { effectiveFrom: 'asc' },
+    select: { effectiveFrom: true },
+  })
+}
+
+/** Removes a period's decision so it can be taken again. */
 export async function deleteCoverage(db: ScopedDb, employeeId: string, periodStart: Date) {
   return db.esiCoverage.deleteMany({ where: { employeeId, periodStart } })
 }

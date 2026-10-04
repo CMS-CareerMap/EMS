@@ -2,10 +2,11 @@ import { createElement, useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import {
   UserCheck, UserX, Clock, CalendarDays, CircleDashed, Search,
-  ChevronLeft, ChevronRight, Download, Edit2, Calendar, Loader2,
+  ChevronLeft, ChevronRight, Download, Edit2, Calendar, Loader2, Upload,
 } from 'lucide-react'
 import MarkAttendanceModal from '../features/attendance/MarkAttendanceModal'
-import { useDayRoster, useMonthAttendance, useMarkAttendance } from '../hooks/useAttendance'
+import ImportAttendanceModal from '../features/attendance/ImportAttendanceModal'
+import { useDayRoster, useMonthAttendance, useMarkAttendance, useMonthlyHours } from '../hooks/useAttendance'
 import { useAuthStore } from '../stores/authStore'
 import { saveFromApi } from '../api/http'
 import { useDownload } from '../hooks/useDownload'
@@ -51,6 +52,71 @@ function initials(name) {
 }
 
 // ─── Monthly calendar ─────────────────────────────────────────────────────────
+
+/**
+ * Hours worked in the month, per person — the figure the client asked for
+ * ("jitne ghante usne work kiya vo dikhe"), summed by the server from the stored
+ * hours (Day 12), so it agrees with every day's row and with the payslip. The
+ * people are whoever the caller's attendance reaches: themselves, their team,
+ * or the company.
+ */
+function MonthTotals({ year, month }) {
+  const totals = useMonthlyHours(year, month)
+  const label = new Date(Date.UTC(year, month - 1, 1)).toLocaleString('en-IN', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-gray-100">
+        <p className="text-base font-semibold text-gray-900">Hours worked · {label}</p>
+        <p className="text-xs text-gray-500 mt-0.5">Expected is the shift’s hours for the days worked, half days counted as half.</p>
+      </div>
+      <DataState query={totals} compact isEmpty={(data) => !data.employees?.length}
+        empty={<p className="px-5 py-6 text-sm text-gray-400">No hours recorded this month yet.</p>}>
+        {(data) => (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm" aria-label={`Hours worked in ${label}`}>
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="px-5 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Employee</th>
+                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Hours</th>
+                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Expected</th>
+                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Present</th>
+                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Half</th>
+                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Absent</th>
+                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Leave</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {data.employees.map((e) => (
+                  <tr key={e.employee_uuid}>
+                    <td className="px-5 py-2.5">
+                      <p className="font-medium text-gray-900 whitespace-nowrap">{e.full_name}</p>
+                      <p className="text-xs text-gray-400">{e.employee_id}</p>
+                    </td>
+                    <td className="px-4 py-2.5 text-right font-semibold text-gray-900 whitespace-nowrap">{formatHours(e.total_hours)}</td>
+                    <td className="px-4 py-2.5 text-right text-gray-600 whitespace-nowrap">{formatHours(e.expected_hours)}</td>
+                    <td className="px-4 py-2.5 text-right text-gray-700">{e.days_present}</td>
+                    <td className="px-4 py-2.5 text-right text-gray-700">{e.days_half}</td>
+                    <td className="px-4 py-2.5 text-right text-gray-700">{e.days_absent}</td>
+                    <td className="px-4 py-2.5 text-right text-gray-700">{e.days_on_leave}</td>
+                  </tr>
+                ))}
+              </tbody>
+              {data.employees.length > 1 && (
+                <tfoot className="border-t border-gray-200 bg-gray-50">
+                  <tr>
+                    <td className="px-5 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">Total</td>
+                    <td className="px-4 py-2.5 text-right font-semibold text-gray-900 whitespace-nowrap">{formatHours(data.grand_total_hours)}</td>
+                    <td colSpan={5} />
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        )}
+      </DataState>
+    </div>
+  )
+}
 
 function MonthlyCalendar({ query, attendanceMap, year, month, today }) {
   const onStaff = useAuthStore((state) => Boolean(state.profile) && state.can('leave:apply'))
@@ -126,6 +192,7 @@ export default function Attendance() {
   const [deptFilter, setDeptFilter] = useState('All')
   const [search, setSearch]         = useState('')
   const [modalEmp, setModalEmp]     = useState(null)
+  const [importing, setImporting]   = useState(false)
   const { busy: exporting, start: startExport } = useDownload()
 
   const roster         = useDayRoster(date)
@@ -245,7 +312,8 @@ export default function Attendance() {
             <h2 className="text-2xl font-bold text-gray-900">Attendance</h2>
             <p className="text-sm text-gray-500 mt-0.5">{formatCalendarDay(date)}</p>
           </div>
-          <div className="flex items-center gap-2">
+          {/* Wraps on a phone: the view switch, Import and Export do not fit one 390px row. */}
+          <div className="flex flex-wrap items-center gap-2">
             {seesOthers && (
               <div className="flex items-center bg-gray-100 rounded-lg p-1">
                 <button onClick={() => setViewChoice('daily')}
@@ -259,6 +327,13 @@ export default function Attendance() {
                   <Calendar className="w-3.5 h-3.5" /> Monthly
                 </button>
               </div>
+            )}
+            {/* The biometric machine's file (Day 12): whoever may mark other people's days. */}
+            {canMark && (
+              <button onClick={() => setImporting(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors">
+                <Upload className="w-4 h-4" /> Import
+              </button>
             )}
             <button onClick={handleExportCSV} disabled={exporting === 'csv'}
               className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-60">
@@ -288,20 +363,22 @@ export default function Attendance() {
             // inert while the next day loads: the rows on screen are the last day's, and
             // editing one would save the old day's entry onto the new date.
             <div className={`space-y-5 transition-opacity ${roster.isPlaceholderData ? 'opacity-60' : ''}`} aria-busy={roster.isPlaceholderData} inert={roster.isPlaceholderData}>
-              {/* Month navigation for somebody who sees only their own days */}
-              {!seesOthers && (
+              {/* Month navigation in the monthly view — for one's own days, and for
+                  HR and managers, whose month's hours per person are below it. */}
+              {view === 'monthly' && (
                 <div className="flex items-center gap-2 border border-gray-200 rounded-lg overflow-hidden shrink-0 w-fit bg-white">
-                  <button onClick={() => setDate((d) => addDays(`${d.slice(0, 7)}-01`, -1).slice(0, 7) + '-01')}
+                  <button onClick={() => setDate((d) => addDays(`${d.slice(0, 7)}-01`, -1).slice(0, 7) + '-01')} aria-label="Previous month"
                     className="px-2.5 py-2 hover:bg-gray-50 text-slate-500 hover:text-slate-700 transition-colors border-r border-gray-200">
                     <ChevronLeft className="w-4 h-4" />
                   </button>
                   <input
                     type="month"
+                    aria-label="Month"
                     value={date.slice(0, 7)}
                     onChange={(e) => e.target.value && setDate(e.target.value + '-01')}
                     className="px-3 py-2 text-sm text-slate-700 focus:outline-none bg-transparent"
                   />
-                  <button onClick={() => setDate((d) => addDays(`${d.slice(0, 7)}-28`, 7).slice(0, 7) + '-01')}
+                  <button onClick={() => setDate((d) => addDays(`${d.slice(0, 7)}-28`, 7).slice(0, 7) + '-01')} aria-label="Next month"
                     className="px-2.5 py-2 hover:bg-gray-50 text-slate-500 hover:text-slate-700 transition-colors border-l border-gray-200">
                     <ChevronRight className="w-4 h-4" />
                   </button>
@@ -334,13 +411,16 @@ export default function Attendance() {
               )}
 
               {view === 'monthly' && (
-                <MonthlyCalendar
-                  query={monthAttendance}
-                  attendanceMap={attendanceMap}
-                  year={calYear}
-                  month={calMonth}
-                  today={today}
-                />
+                <>
+                  <MonthlyCalendar
+                    query={monthAttendance}
+                    attendanceMap={attendanceMap}
+                    year={calYear}
+                    month={calMonth}
+                    today={today}
+                  />
+                  <MonthTotals year={calYear} month={calMonth} />
+                </>
               )}
 
               {view === 'daily' && seesOthers && (
@@ -519,6 +599,7 @@ export default function Attendance() {
         onClose={() => setModalEmp(null)}
         onSave={handleSave}
       />
+      {importing && <ImportAttendanceModal onClose={() => setImporting(false)} />}
     </>
   )
 }

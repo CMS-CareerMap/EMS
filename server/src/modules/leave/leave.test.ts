@@ -186,6 +186,21 @@ describe('which leave year a date belongs to', () => {
 })
 
 describe('the preview', () => {
+  it('refuses a range across the start of the leave year: each year’s days come from its own balance', async () => {
+    await grant(aliceId, clId, 12)
+    await grant(aliceId, clId, 12, YEAR + 1)
+
+    const across = { leaveTypeId: clId, fromDate: `${YEAR + 1}-03-30`, toDate: `${YEAR + 1}-04-02` }
+    const res = await preview(across)
+    expect(res.body.data.problem).toMatchObject({ reason: 'crosses_leave_year' })
+    expect(res.body.data.problem.message).toMatch(new RegExp(`starts on 1 Apr ${YEAR + 1}`))
+    expect((await apply({ ...across, reason: 'Trip' })).status).toBeGreaterThanOrEqual(400)
+
+    // Either side alone is fine.
+    expect((await preview({ leaveTypeId: clId, fromDate: `${YEAR + 1}-03-30`, toDate: `${YEAR + 1}-03-31` })).body.data.problem).toBeNull()
+    expect((await preview({ leaveTypeId: clId, fromDate: `${YEAR + 1}-04-01`, toDate: `${YEAR + 1}-04-02` })).body.data.problem).toBeNull()
+  })
+
   it('counts working days, not calendar days', async () => {
     await grant(aliceId, clId, 12)
 

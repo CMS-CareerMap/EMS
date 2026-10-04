@@ -324,6 +324,19 @@ describe('own work goes up the tree', () => {
     expect((await of('hrA', emp.emp1)).body.data.history[0]).toMatchObject({ kind: 'promoted', details: { fromDesignation: 'Executive', toDesignation: 'Team Lead', via: 'edit' } })
     expect((await request(app).patch(`/api/employees/${emp.emp1}`).set('Authorization', as('hrA')).send({ designationId: executive })).status).toBe(200)
   })
+
+  it('holds on the rest of the record: own PF, a fellow HR person’s phone, a senior’s details', async () => {
+    // Opting oneself out of PF would change one's own pay with nobody seeing it.
+    const own = await request(app).patch(`/api/employees/${emp.hrA}`).set('Authorization', as('hrA')).send({ statutory: { pfApplicable: false } })
+    expect(own.status).toBe(403)
+    expect(own.body.error.message).toMatch(/^You cannot change your own record\. Ask for the change on My Details/)
+    expect((await request(app).patch(`/api/employees/${emp.hrB}`).set('Authorization', as('hrA')).send({ phone: '9800000001' })).status).toBe(403)
+    const senior = await request(app).patch(`/api/employees/${emp.mgrM}`).set('Authorization', as('hrA')).send({ phone: '9800000002' })
+    expect(senior.status).toBe(403)
+    expect(senior.body.error.message).toMatch(/above you in the company tree, so their record is changed by the Super Admin/)
+    // An ordinary employee's details are HR's to keep.
+    expect((await request(app).patch(`/api/employees/${emp.emp1}`).set('Authorization', as('hrA')).send({ phone: '9800000003' })).status).toBe(200)
+  })
 })
 
 describe('probation', () => {
@@ -513,6 +526,45 @@ describe('a resignation', () => {
     expect(after.body.data.stage).toBe('confirmed')
     expect(after.body.data.last_working_date).toBeNull()
     expect((await post('mgrM', `/api/lifecycle/resignations/${second}/cancel`, { note: 'Changed their mind' })).status).toBe(409)
+  })
+
+  it('accepted, settles the leave after the last working day: waiting cancelled, approved given back, across it refused', async () => {
+    // Not a Sunday, so each is a day of leave.
+    const workday = (offset: number) => { let d = addCalendarDays(today, offset); while (new Date(`${d}T00:00:00Z`).getUTCDay() === 0) d = addCalendarDays(d, 1); return d }
+    const yearOf = (d: string) => (Number(d.slice(5, 7)) >= 4 ? Number(d.slice(0, 4)) : Number(d.slice(0, 4)) - 1)
+    for (const leaveYear of new Set([yearOf(today), yearOf(addCalendarDays(today, 40))])) {
+      await prisma.leaveLedgerEntry.create({ data: { organizationId: orgId, employeeId: emp.emp3, leaveTypeId: clId, leaveYear, days: 12, reason: 'opening_grant' } })
+    }
+    const balance = async () => Number((await prisma.leaveLedgerEntry.aggregate({ where: { employeeId: emp.emp3, leaveTypeId: clId }, _sum: { days: true } }))._sum.days)
+    const applyFor = async (from: string, to: string) => {
+      const res = await post('emp3', '/api/leave-requests', { leaveTypeId: clId, fromDate: from, toDate: to, reason: 'Before I go' })
+      expect(res.status, JSON.stringify(res.body)).toBe(201)
+      return res.body.data.id as string
+    }
+    const approved = await applyFor(workday(24), workday(24))
+    expect((await post('mgrM', `/api/leave-requests/${approved}/approve`, {})).status).toBe(200)
+    const waiting = await applyFor(workday(27), workday(27))
+    const across = await applyFor(workday(12), workday(19))
+    const before = await balance()
+
+    const resigned = await post('emp3', '/api/lifecycle/resignations', { reason: 'Leaving for studies' })
+    const lastDay = workday(15)
+    expect((await post('mgrM', `/api/lifecycle/resignations/${resigned.body.data.resignation.id}/accept`, { lastWorkingDay: lastDay })).status).toBe(204)
+
+    const status = async (id: string) => (await prisma.leaveRequest.findUniqueOrThrow({ where: { id } })).status
+    expect(await status(waiting)).toBe('cancelled')
+    expect(await status(approved)).toBe('cancelled')
+    // The approved day comes back to the balance.
+    expect(await balance()).toBe(before + 1)
+    // Across the last day: left to its approver, who cannot approve it.
+    expect(await status(across)).toBe('pending')
+    const refused = await post('mgrM', `/api/leave-requests/${across}/approve`, {})
+    expect(refused.status).toBe(409)
+    expect(refused.body.error.message).toMatch(/runs past the last working day/)
+
+    // Leave them as the tests after this expect: staying on.
+    expect((await post('mgrM', `/api/leave-requests/${across}/reject`, { note: 'Past your last day' })).status).toBe(200)
+    expect((await post('mgrM', `/api/lifecycle/resignations/${resigned.body.data.resignation.id}/cancel`, { note: 'Staying on' })).status).toBe(204)
   })
 })
 

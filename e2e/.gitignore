@@ -1,0 +1,3 @@
+node_modules/
+# Fixtures, logs, screenshots, downloads, uploads: made by every run.
+.work/

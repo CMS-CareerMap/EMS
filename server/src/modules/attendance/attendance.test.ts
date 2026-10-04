@@ -33,6 +33,8 @@ const tokens: Record<string, string> = {}
 async function cleanup(): Promise<void> {
   const org = { organization: { name: { startsWith: PREFIX } } }
   await prisma.attendance.deleteMany({ where: org })
+  await prisma.leaveRequest.deleteMany({ where: org })
+  await prisma.leaveType.deleteMany({ where: org })
   await prisma.geofenceLocation.deleteMany({ where: org })
   await prisma.employee.deleteMany({ where: org })
   await prisma.membership.deleteMany({ where: org })
@@ -125,6 +127,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await prisma.attendance.deleteMany({ where: { organization: { name: { startsWith: PREFIX } } } })
+  await prisma.leaveRequest.deleteMany({ where: { organization: { name: { startsWith: PREFIX } } } })
 })
 
 afterAll(async () => {
@@ -217,18 +220,14 @@ describe('the geofence, now on the server', () => {
     expect(await prisma.attendance.count({ where: { employeeId: appEmpId } })).toBe(0)
   })
 
-  it('does not apply to a biometric employee', async () => {
-    // They are standing at the machine. Asking their phone where they are
-    // would prove nothing, so no reading is required and none is recorded.
+  it('refuses an app check-in from somebody on the biometric machine', async () => {
+    // Their day comes off the machine. An app punch from them would carry no
+    // location check at all — from home it would read as a day at the office.
     const res = await punchIn('bio', {})
 
-    expect(res.status).toBe(201)
-    expect(res.body.data.geofence).toBeNull()
-
-    const row = await prisma.attendance.findFirst({ where: { employeeId: bioEmpId } })
-    // Null, not false. "We did not look" is a different fact from "we looked
-    // and they were elsewhere".
-    expect(row?.geofenceVerified).toBeNull()
+    expect(res.status).toBe(403)
+    expect(res.body.error.message).toMatch(/biometric machine/)
+    expect(await prisma.attendance.count({ where: { employeeId: bioEmpId } })).toBe(0)
   })
 })
 
@@ -301,6 +300,213 @@ describe('punching out — the thing that never worked', () => {
     // never left and has to be corrected by hand.
     const res = await punchOut('app')
     expect(res.status).toBe(200)
+  })
+})
+
+describe('a night shift, checked out of the next morning (client §34)', () => {
+  // 22:00 to 06:00. The day is 9 Sep; the check-out is on the 10th.
+  let nightEmpId = ''
+  let nightShiftId = ''
+  let generalShiftId = ''
+
+  beforeAll(async () => {
+    const night = await prisma.shift.create({
+      data: { organizationId: orgId, name: 'Night', startTime: '22:00', endTime: '06:00', breakMinutes: 0, expectedHours: 8 },
+    })
+    nightShiftId = night.id
+    nightEmpId = (await makeUser('night', 'employee', { attendanceMode: 'app', shiftId: night.id }))!
+    generalShiftId = (await prisma.shift.findFirstOrThrow({ where: { organizationId: orgId, name: 'General' } })).id
+  })
+
+  /** A day of the night employee's on 9 Sep, checked in at `checkIn` (IST) and open unless `checkOut` is given. */
+  const dayOn9th = (shiftId: string, checkIn = '22:05', checkOut: string | null = null) =>
+    prisma.attendance.create({
+      data: {
+        organizationId: orgId, employeeId: nightEmpId, date: new Date(Date.UTC(2026, 8, 9)),
+        checkIn: new Date(`2026-09-09T${checkIn}:00+05:30`), status: 'present', source: 'punch', expectedHours: 8, shiftId,
+        ...(checkOut ? { checkOut: new Date(`2026-09-10T${checkOut}:00+05:30`), hoursWorked: 8 } : {}),
+      },
+    })
+
+  /** A request made at an IST wall-clock time on 10 Sep. */
+  async function at10Sep<T>(time: string, call: () => Promise<T>): Promise<T> {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(`2026-09-10T${time}:00+05:30`))
+    try {
+      return await call()
+    } finally {
+      vi.useRealTimers()
+    }
+  }
+
+  it('closes last night’s day at 06:00, not "not checked in today"', async () => {
+    const row = await dayOn9th(nightShiftId)
+
+    const res = await at10Sep('06:10', () => punchOut('night'))
+
+    expect(res.status).toBe(200)
+    expect(res.body.data.date).toBe('2026-09-09')
+    // 22:05 to 06:10, no break.
+    expect(res.body.data.hours_worked).toBeCloseTo(8.08, 1)
+    const stored = await prisma.attendance.findFirstOrThrow({ where: { id: row.id } })
+    expect(stored.checkOut?.getTime()).toBe(new Date('2026-09-10T06:10:00+05:30').getTime())
+    // Nothing was filed under the 10th.
+    expect(await prisma.attendance.count({ where: { employeeId: nightEmpId, date: new Date(Date.UTC(2026, 8, 10)) } })).toBe(0)
+  })
+
+  it('shows last night’s open day as the one to check out of', async () => {
+    await dayOn9th(nightShiftId)
+
+    const res = await at10Sep('05:00', () => request(app).get('/api/attendance/me/today').set('Authorization', at('night')))
+
+    expect(res.status).toBe(200)
+    expect(res.body.data.date).toBe('2026-09-09')
+    expect(res.body.data.check_out).toBeNull()
+  })
+
+  it('refuses a new check-in while last night’s day is open', async () => {
+    await dayOn9th(nightShiftId)
+
+    const res = await at10Sep('05:00', () => punchIn('night', goodReading))
+
+    expect(res.status).toBe(409)
+    expect(res.body.error.message).toMatch(/still checked in from 9 Sep/i)
+  })
+
+  it('after checking out in the morning, shows the night done — a Check In then cannot take tonight’s place', async () => {
+    await dayOn9th(nightShiftId, '22:05', '06:05')
+
+    const today = await at10Sep('06:30', () => request(app).get('/api/attendance/me/today').set('Authorization', at('night')))
+    expect(today.body.data.date).toBe('2026-09-09')
+    expect(today.body.data.check_out).toEqual(expect.any(String))
+
+    const early = await at10Sep('06:30', () => punchIn('night', goodReading))
+    expect(early.status).toBe(409)
+    expect(early.body.error.message).toMatch(/night shift of 9 Sep 2026 is checked out\. The next check-in opens at 18:00/)
+
+    // Tonight's check-in is free.
+    const tonight = await at10Sep('21:55', () => punchIn('night', goodReading))
+    expect(tonight.status).toBe(201)
+    expect(tonight.body.data.date).toBe('2026-09-10')
+  })
+
+  it('files a check-in after midnight under last night’s shift, so tonight’s is still free', async () => {
+    const late = await at10Sep('00:20', () => punchIn('night', goodReading))
+    expect(late.status).toBe(201)
+    expect(late.body.data.date).toBe('2026-09-09')
+    // 140 minutes after 22:00, on the 9th's clock.
+    expect(late.body.data.late_minutes).toBe(140)
+
+    const out = await at10Sep('06:00', () => punchOut('night'))
+    expect(out.status).toBe(200)
+    expect(out.body.data.date).toBe('2026-09-09')
+
+    const tonight = await at10Sep('21:58', () => punchIn('night', goodReading))
+    expect(tonight.status).toBe(201)
+    expect(tonight.body.data.date).toBe('2026-09-10')
+  })
+
+  it('leaves a forgotten day alone once twenty hours have passed', async () => {
+    await dayOn9th(nightShiftId)
+
+    // 22:05 on the 9th to 18:30 on the 10th: a day somebody forgot to close, for HR to correct.
+    const res = await at10Sep('18:30', () => punchOut('night'))
+
+    expect(res.status).toBe(400)
+    expect(res.body.error.message).toMatch(/not checked in/i)
+  })
+
+  it('does not carry over yesterday’s day shift left open, and today starts afresh', async () => {
+    await dayOn9th(generalShiftId, '09:31')
+
+    // Checked in 22½ hours ago: not today's.
+    const out = await at10Sep('08:00', () => punchOut('night'))
+    expect(out.status).toBe(400)
+    const res = await at10Sep('08:00', () => punchIn('night', goodReading))
+    expect(res.status).toBe(201)
+    expect(res.body.data.date).toBe('2026-09-10')
+  })
+
+  it('never blocks the next morning’s check-in with a short day left open — even begun in the afternoon', async () => {
+    // A morning on leave, in at 13:30, never checked out: under twenty hours later, still not today's.
+    await dayOn9th(generalShiftId, '13:30')
+    const res = await at10Sep('09:00', () => punchIn('night', goodReading))
+    expect(res.status).toBe(201)
+    expect(res.body.data.date).toBe('2026-09-10')
+  })
+
+  it('lets a long day that ran past midnight be checked out of', async () => {
+    await dayOn9th(generalShiftId, '09:30')
+
+    const res = await at10Sep('01:00', () => punchOut('night'))
+
+    expect(res.status).toBe(200)
+    expect(res.body.data.date).toBe('2026-09-09')
+  })
+})
+
+describe('a day of approved leave', () => {
+  // The app employee's General shift: 09:30 to 18:30, an hour's break, 9 hours.
+  let leaveTypeId = ''
+  const tenth = new Date(Date.UTC(2026, 8, 10))
+
+  beforeAll(async () => {
+    leaveTypeId = (await prisma.leaveType.create({ data: { organizationId: orgId, name: 'Casual Leave', code: 'CL', annualQuota: 12 } })).id
+  })
+
+  /** Leave on 10 Sep, approved, with the row approval writes — the whole day, or half of it (and which half). */
+  async function leaveOn10th(half: boolean, session: 'first_half' | 'second_half' | null = null) {
+    await prisma.leaveRequest.create({
+      data: {
+        organizationId: orgId, employeeId: appEmpId, leaveTypeId, fromDate: tenth, toDate: tenth,
+        halfDayDates: half ? ['2026-09-10'] : [], days: half ? 0.5 : 1, leaveYear: 2026, reason: 'Test', status: 'approved',
+        ...(session ? { halfDaySessions: { '2026-09-10': session } } : {}),
+      },
+    })
+    await prisma.attendance.create({ data: { organizationId: orgId, employeeId: appEmpId, date: tenth, status: 'on_leave', source: 'leave' } })
+  }
+
+  async function at10Sep<T>(time: string, call: () => Promise<T>): Promise<T> {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(`2026-09-10T${time}:00+05:30`))
+    try {
+      return await call()
+    } finally {
+      vi.useRealTimers()
+    }
+  }
+
+  it('refuses a check-in on a whole day of it: the leave is reversed first', async () => {
+    await leaveOn10th(false)
+
+    const res = await at10Sep('09:30', () => punchIn('app', goodReading))
+
+    expect(res.status).toBe(409)
+    expect(res.body.error.message).toMatch(/approved leave/)
+    const row = await prisma.attendance.findFirstOrThrow({ where: { employeeId: appEmpId, date: tenth } })
+    expect(row.status).toBe('on_leave')
+  })
+
+  it('grades the worked half of a half day as a half — not as a short full day, which was absent', async () => {
+    await leaveOn10th(true)
+
+    expect((await at10Sep('09:30', () => punchIn('app', goodReading))).status).toBe(201)
+    // 09:30 to 14:00 less the hour's break: 3½ hours, enough for half of 9.
+    const out = await at10Sep('14:00', () => punchOut('app'))
+
+    expect(out.status).toBe(200)
+    expect(out.body.data.hours_worked).toBeCloseTo(3.5, 1)
+    expect(out.body.data.status).toBe('half_day')
+  })
+
+  it('measures a morning on leave from the middle of the shift: in at 14:00 is on time, not hours late', async () => {
+    await leaveOn10th(true, 'first_half')
+
+    const inAt = await at10Sep('14:00', () => punchIn('app', goodReading))
+    expect(inAt.status).toBe(201)
+    expect(inAt.body.data.late_minutes).toBe(0)
+    const out = await at10Sep('18:30', () => punchOut('app'))
+    expect(out.body.data.status).toBe('half_day')
   })
 })
 

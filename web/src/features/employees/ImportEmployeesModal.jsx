@@ -116,7 +116,8 @@ export default function ImportEmployeesModal({ onClose }) {
                   {(lists) => (
                     <p className="text-xs text-gray-500">
                       Departments must be one of: {lists.departments.map((d) => d.name).join(', ')}.
-                      Anything else is flagged, not created — so a typo cannot become a new department.
+                      {lists.shifts?.length > 0 && <> The <span className="font-medium">shift</span> column, one of: {lists.shifts.map((s) => s.name).join(', ')} — it decides each day’s hours, break and late marks.</>}
+                      {' '}Anything else is flagged, not created — so a typo cannot become a new department.
                     </p>
                   )}
                 </DataState>

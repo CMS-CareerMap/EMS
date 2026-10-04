@@ -109,7 +109,11 @@ export async function saveBankAccount(ctx: AppContext, employeeId: string, input
   const employee = await repo.findEmployeeWithAccount(ctx.db, employeeId)
   if (!employee) throw NotFound('Employee not found')
 
-  if (input.markVerified) await refuseOwn(ctx, employeeId)
+  // Where somebody's salary goes is never set by themselves through Payroll,
+  // nor by a fellow Accounts person, nor for a senior — entering it as much as
+  // checking it. Otherwise one person could point a colleague's pay at their
+  // own account, leave it "pending", and send it with the bank file.
+  await refuseOwn(ctx, employeeId)
 
   const accountNumber = input.accountNumber.trim()
   const ifsc = input.ifsc.trim().toUpperCase()
@@ -151,6 +155,18 @@ export async function saveBankAccount(ctx: AppContext, employeeId: string, input
         throw Conflict(`This account was changed since you opened it${current ? ` — it now ends ${lastFour(current.accountNumber)}` : ''}. Open it again before saving.`)
       }
       await repo.saveAccount(tx, ctx.organizationId, employeeId, values)
+      // The person is told whenever somebody else changes the account their
+      // pay goes to — the one thing they would want to hear at once.
+      if (!sameAccount && employeeId !== ctx.employeeId) {
+        await notify(ctx, tx, {
+          event: 'bank.changed',
+          to: { employee: employeeId },
+          title: 'Your salary account was changed',
+          message: `Your salary will now be paid into the account ending ${lastFour(accountNumber)} (${ifsc})${previous ? `, instead of the one ending ${lastFour(previous.accountNumber)}` : ''}. If you did not ask for this, tell HR at once.`,
+          link: null,
+          entity: { type: 'employee', id: employeeId },
+        })
+      }
       await audit(ctx, {
         action: 'bank_account.saved',
         entityType: 'employee',

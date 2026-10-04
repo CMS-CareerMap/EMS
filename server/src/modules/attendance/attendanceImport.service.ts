@@ -3,9 +3,9 @@ import type { AppContext } from '../../platform/context'
 import { BadRequest, Forbidden } from '../../platform/errors/AppError'
 import { withTransaction } from '../../platform/db/transaction'
 import { logger } from '../../platform/logger'
-import { isCalendarDate, parseWallClock, toDateColumn, zonedToday } from '../../domain/shared/dates'
+import { addCalendarDays, dayLabel, fromDateColumn, isCalendarDate, parseWallClock, toDateColumn, zonedToday, type CalendarDate } from '../../domain/shared/dates'
 import { hoursBetweenWallClock } from '../../domain/attendance/hours'
-import { halfDayReason, marksOf, measureDay, shiftRulesOf, type DayMeasure } from '../../domain/attendance/shiftRules'
+import { forWorkedHalf, gradedBy, halfDayReason, marksOf, measureDay, withHalfDayLeave, type DayMeasure } from '../../domain/attendance/shiftRules'
 import * as repo from './attendance.repository'
 import { companyTimezone } from '../organization/organization.service'
 import { closedMonthKeys } from '../payroll/payrollLock.service'
@@ -119,6 +119,21 @@ export interface AttendanceImportInput {
   dryRun: boolean
 }
 
+/** Approved leave as "employeeId|YYYY-MM-DD" → the whole day, or half of it (and which half). */
+function leaveByDay(leave: { employeeId: string; fromDate: Date; toDate: Date; halfDayDates: string[]; halfDaySessions: unknown }[]) {
+  const map = new Map<string, repo.LeaveOnDay>()
+  for (const l of leave) {
+    const to = fromDateColumn(l.toDate)
+    for (let day = fromDateColumn(l.fromDate); day <= to; day = addCalendarDays(day, 1)) {
+      const key = `${l.employeeId}|${day}`
+      // A whole day — or a second half on a day that already has one — is the whole day.
+      const isHalf = l.halfDayDates.includes(day)
+      map.set(key, isHalf && !map.has(key) ? { kind: 'half', session: repo.sessionOf(l.halfDaySessions, day) } : { kind: 'full' })
+    }
+  }
+  return map
+}
+
 export async function importAttendance(
   ctx: AppContext,
   input: AttendanceImportInput,
@@ -166,7 +181,12 @@ export async function importAttendance(
     status: 'present' | 'half_day' | 'absent'
     note: string | null
     measure: DayMeasure | null
+    expectedHours: number | null
+    shiftId: string | null
   }[] = []
+  // Rows that read cleanly, graded once the days already recorded and the
+  // leave on them are known.
+  const candidates: { row: ImportRow; employee: (typeof employees)[number]; date: CalendarDate; start: number | null; end: number | null }[] = []
 
   let wouldOverwrite = 0
 
@@ -216,6 +236,12 @@ export async function importAttendance(
         field: 'date',
         message: `Payroll for that month is already ${closed.get(date.slice(0, 7))}, so its attendance can no longer change`,
       })
+    } else if (employee) {
+      // Not a working day of theirs: before they joined, or after they left.
+      const joined = fromDateColumn(employee.dateOfJoining)
+      const last = fromDateColumn(employee.lastWorkingDate)
+      if (joined && date < joined) issues.push({ field: 'date', message: `${employee.fullName} joined on ${dayLabel(joined)}, after this day` })
+      else if (last && date > last) issues.push({ field: 'date', message: `${employee.fullName}’s last working day was ${dayLabel(last)}, before this day` })
     }
 
     const start = rawIn ? parseTime(rawIn) : null
@@ -243,37 +269,65 @@ export async function importAttendance(
       }
     }
 
+    const row: ImportRow = { line, employeeCode, date: date ?? rawDate, checkIn: rawIn || null, checkOut: rawOut || null, hours: null, issues }
+    rows.push(row)
+    if (issues.length === 0 && employee && date) candidates.push({ row, employee, date, start, end })
+  }
+
+  // What is already recorded on these days, and the leave approved on them.
+  const ids = [...new Set(candidates.map((c) => c.employee.id))]
+  const days = candidates.map((c) => c.date).sort()
+  const [recorded, leave] = candidates.length
+    ? await Promise.all([
+        repo.recordedDays(ctx.db, ids, days[0]!, days[days.length - 1]!),
+        repo.approvedLeaveDays(ctx.db, ids, days[0]!, days[days.length - 1]!),
+      ])
+    : [[], []]
+  const recordedOn = new Map(recorded.map((r) => [`${r.employeeId}|${fromDateColumn(r.date)}`, r]))
+  const leaveOn = leaveByDay(leave)
+
+  for (const { row, employee, date, start, end } of candidates) {
+    const key = `${employee.id}|${date}`
+    const existing = recordedOn.get(key)
+    // A whole day of approved leave is the leave: a punch over it would charge
+    // the balance for a day worked. Half of one leaves the other half to grade.
+    const leave = leaveOn.get(key) ?? null
+    if (leave?.kind === 'full' && existing?.status === 'on_leave') {
+      row.issues.push({ field: 'date', message: `${employee.employeeCode} has approved leave on ${dayLabel(date)}. Reverse the leave first if they worked, or leave this line out.` })
+      continue
+    }
+    const halfLeave = leave?.kind === 'half'
+    // Graded against the shift the day was recorded on, if it was — not one assigned since.
+    const graded = gradedBy(existing, employee)
+    const rules = leave?.kind === 'half' ? forWorkedHalf(graded.rules, leave.session) : graded.rules
+
     let hours: number | null = null
-    let status: 'present' | 'half_day' | 'absent' = 'absent'
-    let note: string | null = null
+    // Neither time: the machine has nobody that day. One of the two: they were
+    // there, and forgot the other punch — present, as an app day with no
+    // check-out is, for HR to correct; never a whole day's pay docked for it.
+    let status: 'present' | 'half_day' | 'absent' = start === null && end === null ? 'absent' : 'present'
+    let note: string | null = start === null && end !== null ? 'No check-in on the machine' : start !== null && end === null ? 'No check-out on the machine' : null
     let measure: DayMeasure | null = null
 
-    if (employee && date && start !== null && end !== null) {
-      const result = hoursBetweenWallClock(start, end, employee.shift?.breakMinutes ?? 0)
+    if (start !== null && end !== null) {
+      const result = hoursBetweenWallClock(start, end, graded.breakMinutes)
       hours = result.hours
       // The machine's times are the company's wall clock; a check-out at or
       // before the check-in is the next morning, as hoursBetweenWallClock reads it.
-      measure = measureDay({ rules: shiftRulesOf(employee.shift), checkIn: start, checkOut: end <= start ? end + 1440 : end, hoursWorked: hours })
+      measure = measureDay({ rules, checkIn: start, checkOut: end <= start ? end + 1440 : end, hoursWorked: hours })
       note = [result.warning, halfDayReason(measure)].filter(Boolean).join(' · ') || null
-      status = measure.classification?.status ?? 'present'
+      const classification = halfLeave ? withHalfDayLeave(measure.classification) : measure.classification
+      status = classification?.status ?? 'present'
     }
 
-    rows.push({ line, employeeCode, date: date ?? rawDate, checkIn: rawIn || null, checkOut: rawOut || null, hours, issues })
-
-    if (issues.length === 0 && employee && date) {
-      prepared.push({ employee, date, start, end, hours, status, note, measure })
-    }
+    row.hours = hours
+    if (existing) wouldOverwrite += 1
+    prepared.push({ employee, date, start, end, hours, status, note, measure, expectedHours: graded.expectedHours, shiftId: graded.shiftId })
   }
 
-  // How many would replace an existing row. Shown in the preview because
-  // overwriting a day HR already corrected by hand is the thing somebody
-  // would want to know BEFORE pressing import, not after.
-  if (prepared.length > 0) {
-    wouldOverwrite = await repo.countExistingDays(
-      ctx.db,
-      prepared.map((p) => ({ employeeId: p.employee.id, date: toDateColumn(p.date) })),
-    )
-  }
+  // `wouldOverwrite` — how many replace a recorded day — is in the preview
+  // because overwriting a day HR corrected by hand is the thing somebody
+  // wants to know BEFORE pressing import, not after.
 
   // Replacing a recorded day is correcting it — its own tick. The preview
   // says so too: it promises what the import will do.
@@ -313,8 +367,8 @@ export async function importAttendance(
         // The whole reason this importer exists as its own path.
         source: 'biometric' as const,
         hoursWorked: row.hours,
-        expectedHours: row.employee.shift ? Number(row.employee.shift.expectedHours) : null,
-        shiftId: row.employee.shiftId,
+        expectedHours: row.expectedHours,
+        shiftId: row.shiftId,
         note: row.note,
         markedByUserId: ctx.userId,
         ...(row.measure ? marksOf(row.measure) : { lateMinutes: null, earlyLeavingMinutes: null, overtimeMinutes: null }),

@@ -79,8 +79,10 @@ const schema = z.object({
   BACKUP_KEEP_MONTHLY: z.coerce.number().int().min(0).max(120).default(12),
 
   // Email (client §45). All optional: without SMTP_HOST and SMTP_FROM nothing
-  // is emailed, and every notice still appears in the app.
-  SMTP_HOST: z.string().min(1).optional(),
+  // is emailed, and every notice still appears in the app. Set but EMPTY means
+  // off too — how a test stack keeps a developer's mail account out of reach
+  // (an empty variable is not replaced by the one in .env).
+  SMTP_HOST: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(1).optional()),
   SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
   /** True for port 465 (TLS from the start); 587 upgrades with STARTTLS. */
   SMTP_SECURE: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),

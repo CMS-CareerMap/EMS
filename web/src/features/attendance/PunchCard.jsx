@@ -4,7 +4,7 @@ import { useMyToday, useMyWorkplace, usePunchIn, usePunchOut } from '../../hooks
 import { WORK_MODES, minutesLabel } from '../../lib/requests'
 import DataState from '../../components/DataState'
 import { useAuthStore } from '../../stores/authStore'
-import { wallClockIn } from '../../lib/dates'
+import { calendarDayIn, formatDay, wallClockIn } from '../../lib/dates'
 
 /**
  * Check In / Check Out, for the employee themselves.
@@ -54,11 +54,13 @@ function Today({ today, punchIn, punchOut }) {
   const busy = punchIn.isPending || punchOut.isPending
   const checkedIn = Boolean(today?.check_in)
   const checkedOut = Boolean(today?.check_out)
+  // Last night's shift, still open this morning, is the day to check out of (client §34).
+  const lastNight = today?.date && today.date !== calendarDayIn(timezone)
 
   return (
     <>
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-900">Today</h3>
+        <h3 className="text-lg font-semibold text-gray-900">{lastNight ? `Shift of ${formatDay(today.date, { year: false })}` : 'Today'}</h3>
         {today?.status && (
           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 capitalize">
             {today.status.replace('_', ' ')}
@@ -86,7 +88,7 @@ function Today({ today, punchIn, punchOut }) {
         <div className="flex items-center gap-2 p-3 rounded-lg bg-gray-50 border border-gray-200">
           <Clock className="w-4 h-4 text-gray-400 shrink-0" />
           <span className="text-sm text-gray-700">
-            <strong className="text-gray-900">{today.hours_worked}</strong> hours worked today
+            <strong className="text-gray-900">{today.hours_worked}</strong> hours worked{lastNight ? '' : ' today'}
           </span>
         </div>
       )}

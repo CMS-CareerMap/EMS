@@ -12,7 +12,7 @@ import { mayGive } from '../user/user.policy'
 import { lockFor } from '../../platform/db/locks'
 import type { TxDb } from '../../platform/db/transaction'
 import { EMPLOYEE_ROLE } from '../../platform/authz/defaultRoles'
-import { listDepartments, listDesignations } from '../organization/masterData.repository'
+import { listDepartments, listDesignations, listShifts } from '../organization/masterData.repository'
 import * as repo from './employee.repository'
 import { audit } from '../audit/audit.service'
 
@@ -91,6 +91,7 @@ const HEADER_ALIASES: Record<string, string[]> = {
   confirmedOn: ['confirmed_on', 'confirmation_date', 'date_of_confirmation'],
   employmentType: ['employment_type', 'type'],
   department: ['department', 'dept'],
+  shift: ['shift', 'shift_name'],
   designation: ['designation', 'title', 'job_title'],
   pan: ['pan', 'pan_number'],
   gender: ['gender', 'sex'],
@@ -197,10 +198,11 @@ export async function importEmployees(
   }
 
   // Names, not ids. HR has a spreadsheet with "Sales" in it, not a uuid.
-  const [departments, designations, today] = await Promise.all([listDepartments(ctx.db), listDesignations(ctx.db), companyToday(ctx)])
+  const [departments, designations, shifts, today] = await Promise.all([listDepartments(ctx.db), listDesignations(ctx.db), listShifts(ctx.db), companyToday(ctx)])
 
   const departmentByName = new Map(departments.map((d) => [d.name.toLowerCase(), d.id]))
   const designationByName = new Map(designations.map((d) => [d.name.toLowerCase(), d.id]))
+  const shiftByName = new Map(shifts.map((s) => [s.name.toLowerCase(), s.id]))
 
   const existingCodes = new Set(
     (await repo.listEmployeeCodes(ctx.db)).map((e) =>
@@ -237,6 +239,12 @@ export async function importEmployees(
       employmentType: (raw.employmentType ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_') || undefined,
       pan: (raw.pan ?? '').trim().toUpperCase() || undefined,
       gender: normaliseGender(raw.gender),
+    }
+
+    // A PAN changes tax, and is entered by somebody who can see it (as on the
+    // Add Employee form) — a file is no way round that.
+    if (candidate.pan && !ctx.can('employee:identity:read')) {
+      issues.push({ field: 'pan', message: 'PAN is entered by somebody who can see it. Leave this column out, or ask HR to import the file.' })
     }
 
     const rawDate = (raw.dateOfJoining ?? '').trim()
@@ -334,6 +342,22 @@ export async function importEmployees(
       }
     }
 
+    // The shift their day is measured against — its break, its hours, late
+    // and early. Matched by name, as departments are; without one, nobody's
+    // day is graded and every imported person needed it set by hand.
+    const shiftName = (raw.shift ?? '').trim()
+    if (shiftName) {
+      const id = shiftByName.get(shiftName.toLowerCase())
+      if (id) {
+        candidate.shiftId = id
+      } else {
+        issues.push({
+          field: 'shift',
+          message: `There is no shift called "${shiftName}". Use one of: ${shifts.map((s) => s.name).join(', ') || 'none yet — add one in Settings'}.`,
+        })
+      }
+    }
+
     rows.push({ line, employeeCode, fullName, email, issues })
     if (issues.length === 0) prepared.push({ line, data: candidate, email })
   })
@@ -393,6 +417,7 @@ export async function importEmployees(
           : {}),
         departmentId: data.departmentId ?? null,
         designationId: data.designationId ?? null,
+        shiftId: data.shiftId ?? null,
         ...(data.gender ? { gender: data.gender as 'male' | 'female' | 'other' } : {}),
         // Where they start in the lifecycle: confirmed, or a new joiner.
         ...(await lifecycleStart(ctx, { dateOfJoining: data.dateOfJoining ?? null, confirmedOn: data.confirmedOn ?? null })),

@@ -23,7 +23,7 @@ import { mayDecide } from '../../domain/leave/approval'
 import { approvalWorld, approverNames, assertSomebodyDecides, deciderOf, peopleDecidedBy, rightsOn, type ApprovalWorld, type RequestRights } from './leaveApprover.service'
 import { recordApproval } from './leaveApproval.service'
 import { ruleProblem, type HalfDaySession } from '../../domain/leave/rules'
-import { accruedBy } from '../../domain/leave/grant'
+import { accruedBy, leaveYearBounds } from '../../domain/leave/grant'
 import { pendingEncashDays } from '../requests/requests.repository'
 
 /**
@@ -220,6 +220,15 @@ export async function previewLeave(ctx: AppContext, input: PreviewInput): Promis
     problem = { reason: 'outside_employment', message: `That starts before the joining date, ${dayLabel(joined)}. Leave is for days of employment.` }
   } else if (lastDay && input.toDate > lastDay) {
     problem = { reason: 'outside_employment', message: `That runs past the last working day, ${dayLabel(lastDay)}. Leave is for days of employment.` }
+  } else if (leaveYearOf(input.toDate, context.leaveYearStartMonth) !== leaveYear) {
+    // Each leave year's days come from that year's balance. Charging a range
+    // across the boundary to the year it starts in let lapsed days pay for
+    // the new year's — round the carry-forward rule and its cap.
+    const nextYearStarts = leaveYearBounds(leaveYear, context.leaveYearStartMonth).nextFrom
+    problem = {
+      reason: 'crosses_leave_year',
+      message: `That runs into the next leave year, which starts on ${dayLabel(nextYearStarts)}. Apply for the days before it and from it separately — each comes from its own year's balance.`,
+    }
   } else if (counted.days === 0) {
     problem = {
       reason: 'no_working_days',

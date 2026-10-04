@@ -109,6 +109,7 @@ export const AUDIT_ACTIONS = {
   'leave.recorded_directly': { label: 'Owner’s leave recorded', category: 'time' },
   'leave.rejected': { label: 'Leave rejected', category: 'time' },
   'leave.reversed': { label: 'Leave reversed', category: 'time' },
+  'leave.cancelled_on_leaving': { label: 'Leave cancelled: after the last working day', category: 'time' },
   'leave.granted': { label: 'Leave year granted', category: 'time' },
   'leave.balance_adjusted': { label: 'Leave balance corrected', category: 'time' },
   'attendance.marked': { label: 'Attendance marked', category: 'time' },
@@ -673,6 +674,8 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
     }
     case 'leave.reversed':
       return `Reversed ${who()}’s approved leave, returning ${count(d.daysReturned, 'day')}`
+    case 'leave.cancelled_on_leaving':
+      return `Cancelled ${who()}’s ${d.wasApproved ? 'approved' : 'waiting'} ${leave()}, ${day(d.fromDate)} to ${day(d.toDate)}: after their last working day, ${day(d.lastWorkingDay)}${d.wasApproved ? `, returning ${count(d.daysReturned, 'day')}` : ''}`
     case 'attendance.marked':
       return `Marked ${who()} ${ATTENDANCE_WORDS[String(d.status)] ?? 'attended'} on ${day(d.date)}${typeof d.hoursWorked === 'number' ? `, ${d.hoursWorked} hours` : ''}`
     case 'attendance.imported':

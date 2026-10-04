@@ -4,14 +4,14 @@ import { Conflict, NotFound } from '../../platform/errors/AppError'
 import { withTransaction } from '../../platform/db/transaction'
 import { lockFor } from '../../platform/db/locks'
 import { logger } from '../../platform/logger'
-import { toDateColumn, fromDateColumn, type CalendarDate } from '../../domain/shared/dates'
+import { toDateColumn, fromDateColumn, dayLabel, type CalendarDate } from '../../domain/shared/dates'
 import { workingDays, type Weekday } from '../../domain/leave/leaveDays'
 import * as repo from './leave.repository'
 import * as attendanceRepo from '../attendance/attendance.repository'
 import { getCurrentPolicy } from '../settings/settings.repository'
 import { listDaysOff } from '../holidays/holidays.repository'
 import { audit } from '../audit/audit.service'
-import { assertMonthsOpen, monthsBetween } from '../payroll/payrollLock.service'
+import { assertMonthsOpen, isOpenFrom, monthsBetween } from '../payroll/payrollLock.service'
 import { tellApplicant } from './leaveNotices'
 import { requestToAct } from './leaveApprover.service'
 import { halfDayNote, type HalfDaySession } from '../../domain/leave/rules'
@@ -80,6 +80,15 @@ export async function recordApproval(
   // too: a correction reading balance and days applied for must not see this
   // request half-way from one to the other.
   await lockFor(tx, `leave-apply:${request.employeeId}`)
+
+  // Leave is for days of employment. A request sent before a resignation was
+  // accepted can run past the last working day it set; approving it then would
+  // take days from the balance, and write leave, for days after they left.
+  const window = await repo.employmentWindow(tx, request.employeeId)
+  const lastDay = fromDateColumn(window?.lastWorkingDate)
+  if (lastDay && to > lastDay) {
+    throw Conflict(`This leave runs past the last working day, ${dayLabel(lastDay)}. Reject it, or ask for one that ends by then.`)
+  }
 
   // Approved only if still pending, compared and changed in one statement.
   // Two approvers clicking at the same moment — or one double click — would
@@ -163,6 +172,57 @@ export async function recordApproval(
     },
   }, tx)
   if (!how.direct) await tellApplicant(ctx, tx, request.id, 'approved', how.note)
+}
+
+/**
+ * Leave after somebody's last working day (client §43), once that day is set
+ * — by an accepted resignation, an exit, or their access removed. Nobody takes
+ * leave from a job they have left: leave waiting for a decision that falls
+ * wholly after it is cancelled; approved leave wholly after it is reversed and
+ * its days given back. Leave that runs across the day is left to its approver,
+ * who cannot approve it (recordApproval) — only reject it.
+ *
+ * In the caller's transaction, under the person's leave lock. Approved leave
+ * in a month whose payroll is signed off stays as it is.
+ */
+export async function settleLeaveAfter(ctx: AppContext, tx: TxDb, employeeId: string, lastDay: CalendarDate | null): Promise<number> {
+  await lockFor(tx, `leave-apply:${employeeId}`)
+  const after = await repo.requestsAfter(tx, employeeId, lastDay)
+  let settled = 0
+  for (const r of after) {
+    const wasApproved = r.status === 'approved'
+    if (wasApproved && !(await isOpenFrom(ctx, fromDateColumn(r.fromDate)))) continue
+    const note = lastDay ? `Cancelled: it falls after the last working day, ${dayLabel(lastDay)}.` : 'Cancelled: they never joined.'
+    const changed = await repo.changeStatusIf(tx, r.id, r.status, { status: 'cancelled', reviewedByUserId: ctx.userId, reviewedAt: new Date(), reviewNote: note })
+    if (!changed) continue
+    if (wasApproved) {
+      await repo.addLedgerEntry(tx, {
+        organizationId: ctx.organizationId,
+        employeeId,
+        leaveTypeId: r.leaveTypeId,
+        leaveYear: r.leaveYear,
+        days: Number(r.days),
+        reason: 'reversal',
+        leaveRequestId: r.id,
+        note,
+        createdByUserId: ctx.userId,
+      })
+      await attendanceRepo.deleteLeaveDays(tx, employeeId, r.fromDate, r.toDate)
+    }
+    // Told, in the same words: a reversal gives the days back, a waiting one is turned down.
+    await tellApplicant(ctx, tx, r.id, wasApproved ? 'reversed' : 'rejected', note)
+    await audit(ctx, {
+      action: 'leave.cancelled_on_leaving',
+      entityType: 'leave_request',
+      entityId: r.id,
+      details: {
+        employeeId, days: Number(r.days), fromDate: fromDateColumn(r.fromDate), toDate: fromDateColumn(r.toDate),
+        lastWorkingDay: lastDay, wasApproved, ...(wasApproved ? { daysReturned: Number(r.days) } : {}),
+      },
+    }, tx)
+    settled += 1
+  }
+  return settled
 }
 
 export async function approveLeave(

@@ -2,9 +2,21 @@ import type { AppContext } from '../../platform/context'
 import { BadRequest, Conflict, Forbidden, NotFound } from '../../platform/errors/AppError'
 import { logger } from '../../platform/logger'
 import { isUniqueViolation } from '../../platform/db/errors'
-import { zonedToday, toDateColumn, fromDateColumn, dayLabel, type CalendarDate } from '../../domain/shared/dates'
+import { zonedToday, toDateColumn, fromDateColumn, dayLabel, addCalendarDays, type CalendarDate } from '../../domain/shared/dates'
 import { hoursBetween } from '../../domain/attendance/hours'
-import { halfDayReason, measureInstants, shiftRulesOf } from '../../domain/attendance/shiftRules'
+import {
+  arrivingForLastNight,
+  forWorkedHalf,
+  halfDayReason,
+  isOvernight,
+  measureInstants,
+  nextCheckInOpens,
+  openDayCarries,
+  overnightDayOpen,
+  shiftRulesOf,
+  withHalfDayLeave,
+  type ShiftRow,
+} from '../../domain/attendance/shiftRules'
 import {
   checkGeofence,
   geofenceMessage,
@@ -113,37 +125,108 @@ async function verifyLocation(
   return { verdict: checkGeofence(reading, fence), fence }
 }
 
+/** The longest one stretch of work can be: an open check-in older than this is a day somebody forgot to close. */
+const LONGEST_DAY_MS = 20 * 60 * 60_000
+
+/**
+ * The day the caller is on: today's — or, while today's has not begun,
+ * yesterday's (client §34):
+ *   - still open: a 22:00 to 06:00 shift's morning, or a long day that ran
+ *     past midnight (until three hours before the shift starts again), is
+ *     checked out of on the next calendar day — never past twenty hours;
+ *   - checked out of a night shift this morning, by somebody still on nights:
+ *     that night stays the day shown until the next check-in opens, so a
+ *     Check In pressed at 06:01 cannot take tonight's place.
+ */
+async function currentDay(ctx: AppContext, employee: { id: string; shift: ShiftRow | null }, today: CalendarDate, timezone: string, now: Date) {
+  const row = await repo.findDayWithShift(ctx.db, employee.id, toDateColumn(today))
+  if (row?.checkIn) return { row, date: today }
+  const yesterday = addCalendarDays(today, -1)
+  const before = await repo.findDayWithShift(ctx.db, employee.id, toDateColumn(yesterday))
+  if (before?.checkIn) {
+    if (!before.checkOut && now.getTime() - before.checkIn.getTime() <= LONGEST_DAY_MS &&
+      openDayCarries({ rules: shiftRulesOf(before.shift), date: yesterday, timezone, now })) {
+      return { row: before, date: yesterday }
+    }
+    if (before.checkOut && isOvernight(shiftRulesOf(employee.shift)) && overnightDayOpen({ rules: shiftRulesOf(before.shift), date: yesterday, timezone, now })) {
+      return { row: before, date: yesterday }
+    }
+  }
+  return { row, date: today }
+}
+
 export async function punchIn(ctx: AppContext, input: PunchInput): Promise<PunchResult> {
   const employee = await loadSelf(ctx)
   // Never the machine clock's idea of a day. See domain/shared/dates.
   const timezone = await companyTimezone(ctx)
 
+  // The app's check-in is for people on app attendance. Somebody on the
+  // biometric machine or marked by HR has their day recorded there; an app
+  // punch from them carries no location check at all, so it is refused rather
+  // than taken on trust.
+  if (employee.attendanceMode !== 'app') {
+    throw Forbidden(employee.attendanceMode === 'biometric'
+      ? 'Your attendance is recorded by the biometric machine, not checked in on the app.'
+      : 'Your attendance is marked by HR, not checked in on the app.')
+  }
+
   const now = new Date()
   const today = zonedToday(now, timezone)
+
+  const { row: current, date: onDay } = await currentDay(ctx, employee, today, timezone, now)
+
+  // Still on an earlier day: that one is closed by checking out, not by a new one.
+  if (onDay !== today) {
+    if (current?.checkOut) {
+      const opens = nextCheckInOpens(shiftRulesOf(current.shift))
+      throw Conflict(`Your night shift of ${dayLabel(onDay)} is checked out.${opens ? ` The next check-in opens at ${opens}.` : ''}`)
+    }
+    throw Conflict(`You are still checked in from ${dayLabel(onDay)}. Check out first.`)
+  }
+
+  // The client asked for ONE punch pair per day. A second check-in is a
+  // double-tap or a confused user, not a new working day.
+  if (current?.checkIn) {
+    throw Conflict('You have already checked in today.')
+  }
+
+  // On a night shift, arriving between midnight and the shift's end is late
+  // for last night's shift, not early for tonight's — filed under yesterday,
+  // so tonight's check-in is still free.
+  let date = today
+  let existing = current
+  if (arrivingForLastNight({ rules: shiftRulesOf(employee.shift), today, timezone, now })) {
+    const yesterday = addCalendarDays(today, -1)
+    const before = await repo.findDayWithShift(ctx.db, employee.id, toDateColumn(yesterday))
+    if (!before?.checkIn) {
+      date = yesterday
+      existing = before
+    }
+  }
 
   // The employee lifecycle: a day before joining, or after the last working
   // day, is not a working day of theirs.
   const joined = fromDateColumn(employee.dateOfJoining)
-  if (joined && today < joined) {
+  if (joined && date < joined) {
     throw Forbidden(`You join on ${dayLabel(joined)}. Checking in opens on your first day.`)
   }
   const lastDay = fromDateColumn(employee.lastWorkingDate)
-  if (lastDay && today > lastDay) {
+  if (lastDay && date > lastDay) {
     throw Forbidden(`Your last working day was ${dayLabel(lastDay)}, so there is nothing to check in to.`)
   }
 
-  const existing = await repo.findDay(ctx.db, employee.id, toDateColumn(today))
-
-  // The client asked for ONE punch pair per day. A second check-in is a
-  // double-tap or a confused user, not a new working day.
-  if (existing?.checkIn) {
-    throw Conflict('You have already checked in today.')
+  // A day of approved leave is the leave. Somebody who comes in after all has
+  // the leave reversed first — or the balance would be charged for a day worked.
+  // A half day's leave leaves the other half to work, so that is checked in.
+  const leave = await repo.approvedLeaveOn(ctx.db, employee.id, date)
+  if (existing?.status === 'on_leave' && leave?.kind === 'full') {
+    throw Conflict(`${date === today ? 'Today is' : `${dayLabel(date)} is`} a day of approved leave. If you are working, ask for the leave to be reversed first.`)
   }
 
   // Away from the office on an approved request, or remote by arrangement
   // (client §32–33): the office location is not asked for — unless the company
   // wants a location reading even when working from home.
-  const away = await awayOn(ctx.db, employee.id, toDateColumn(today))
+  const away = await awayOn(ctx.db, employee.id, toDateColumn(date))
   const workMode: WorkMode = away === 'work_from_home' ? 'wfh' : away === 'on_duty' ? 'on_duty' : employee.workArrangement === 'remote' ? 'remote' : 'office'
   if (away && employee.attendanceMode === 'app' && (await requestRules(ctx.db, ctx.organizationId))?.wfhGpsRequired) {
     if (input.latitude === undefined || input.longitude === undefined) {
@@ -172,7 +255,9 @@ export async function punchIn(ctx: AppContext, input: PunchInput): Promise<Punch
   const verdict = location?.verdict
   const expectedHours = employee.shift ? Number(employee.shift.expectedHours) : null
   // How late, against the shift's start (client §34). The rest waits for the check-out.
-  const { lateMinutes } = measureInstants({ rules: shiftRulesOf(employee.shift), date: today, timezone, checkIn: now, checkOut: null, hoursWorked: null })
+  // A morning on leave starts the worked half at the middle of the shift.
+  const shiftRules = shiftRulesOf(employee.shift)
+  const { lateMinutes } = measureInstants({ rules: leave?.kind === 'half' ? forWorkedHalf(shiftRules, leave.session) : shiftRules, date, timezone, checkIn: now, checkOut: null, hoursWorked: null })
 
   const data = {
     checkIn: now,
@@ -195,7 +280,7 @@ export async function punchIn(ctx: AppContext, input: PunchInput): Promise<Punch
   const row = existing
     ? await repo.updateDay(ctx.db, existing.id, data)
     : await repo
-        .createDay(ctx.db, { organizationId: ctx.organizationId, employeeId: employee.id, date: toDateColumn(today), ...data })
+        .createDay(ctx.db, { organizationId: ctx.organizationId, employeeId: employee.id, date: toDateColumn(date), ...data })
         .catch((err: unknown) => {
           // Two taps at once: the other one created today's row a moment ago,
           // and the unique index refused this one. That is a 409, not a 500.
@@ -203,11 +288,11 @@ export async function punchIn(ctx: AppContext, input: PunchInput): Promise<Punch
           throw err
         })
 
-  logger.info('Punched in', { employeeId: employee.id, date: today })
+  logger.info('Punched in', { employeeId: employee.id, date })
 
   return {
     attendanceId: row.id,
-    date: today,
+    date,
     checkIn: row.checkIn,
     checkOut: null,
     hoursWorked: null,
@@ -232,9 +317,8 @@ export async function punchOut(ctx: AppContext): Promise<PunchResult> {
   const timezone = await companyTimezone(ctx)
 
   const now = new Date()
-  const today = zonedToday(now, timezone)
-
-  const row = await repo.findDayWithShift(ctx.db, employee.id, toDateColumn(today))
+  // Today's day — or last night's, on an overnight shift that ends this morning.
+  const { row, date: today } = await currentDay(ctx, employee, zonedToday(now, timezone), timezone, now)
 
   if (!row?.checkIn) {
     throw BadRequest('You have not checked in today, so there is nothing to check out of.')
@@ -254,14 +338,19 @@ export async function punchOut(ctx: AppContext): Promise<PunchResult> {
   // Measured against the shift the day began on, with the hours it was
   // expected to be when it began — a shift edited since changes neither.
   const rules = shiftRulesOf(row.shift)
+  const asBegun = rules && row.expectedHours ? { ...rules, expectedHours: Number(row.expectedHours) } : null
+  // Half the day on approved leave: the worked half is graded as a half.
+  const leave = await repo.approvedLeaveOn(ctx.db, employee.id, today)
+  const halfLeave = leave?.kind === 'half'
   const measure = measureInstants({
-    rules: rules && row.expectedHours ? { ...rules, expectedHours: Number(row.expectedHours) } : null,
+    rules: leave?.kind === 'half' ? forWorkedHalf(asBegun, leave.session) : asBegun,
     date: today,
     timezone,
     checkIn: row.checkIn,
     checkOut: now,
     hoursWorked: hours,
   })
+  const classification = halfLeave ? withHalfDayLeave(measure.classification) : measure.classification
   const why = [warning, halfDayReason(measure)].filter(Boolean)
 
   const updated = await repo.updateDay(ctx.db, row.id, {
@@ -270,7 +359,7 @@ export async function punchOut(ctx: AppContext): Promise<PunchResult> {
     lateMinutes: measure.lateMinutes,
     earlyLeavingMinutes: measure.earlyLeavingMinutes,
     overtimeMinutes: measure.overtimeMinutes,
-    ...(measure.classification ? { status: measure.classification.status } : {}),
+    ...(classification ? { status: classification.status } : {}),
     ...(why.length ? { note: [row.note, ...why].filter(Boolean).join(' · ') } : {}),
   })
 
@@ -296,9 +385,9 @@ export async function myToday(ctx: AppContext): Promise<PunchResult | null> {
   const employee = await loadSelf(ctx)
   // Never the machine clock's idea of a day. See domain/shared/dates.
   const timezone = await companyTimezone(ctx)
-  const today = zonedToday(new Date(), timezone)
-
-  const row = await repo.findDay(ctx.db, employee.id, toDateColumn(today))
+  const now = new Date()
+  // Last night's shift, until it is checked out of, is still the day to show.
+  const { row, date: today } = await currentDay(ctx, employee, zonedToday(now, timezone), timezone, now)
   if (!row) return null
 
   return {

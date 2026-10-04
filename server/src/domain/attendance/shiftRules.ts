@@ -149,6 +149,137 @@ export function measureInstants(input: {
   })
 }
 
+type ShiftWithBreak = ShiftRow & { breakMinutes: number }
+
+/**
+ * What a day is graded against: the shift it was recorded on, with the hours
+ * expected then — as a check-out is — or, for a day not yet recorded, the
+ * person's shift now. A shift changed since must not regrade old days.
+ */
+export function gradedBy(
+  existing: { shiftId: string | null; expectedHours: unknown; shift: ShiftWithBreak | null } | null | undefined,
+  employee: { shiftId: string | null; shift: ShiftWithBreak | null },
+) {
+  const recorded = existing?.shift ? existing : null
+  const shift = recorded ? recorded.shift : employee.shift
+  const expectedHours = recorded?.expectedHours != null ? Number(recorded.expectedHours) : employee.shift ? Number(employee.shift.expectedHours) : null
+  const rules = shiftRulesOf(shift)
+  return {
+    rules: rules && expectedHours !== null ? { ...rules, expectedHours } : rules,
+    expectedHours,
+    breakMinutes: shift?.breakMinutes ?? 0,
+    shiftId: recorded ? recorded.shiftId : employee.shiftId,
+  }
+}
+
+/**
+ * The rules for the half of a day that is not on approved leave: half the
+ * hours, half the minimums. Graded against the whole shift, the 4½ hours of a
+ * worked half fall short of a full day's half-day mark and the day came out
+ * absent — a half day's pay lost for a half that was worked.
+ */
+export function forWorkedHalf(rules: ShiftRules | null, leaveHalf: 'first_half' | 'second_half' | null = null): ShiftRules | null {
+  if (!rules) return null
+  const halved = {
+    ...rules,
+    expectedHours: rules.expectedHours / 2,
+    minFullDayHours: rules.minFullDayHours === null ? null : rules.minFullDayHours / 2,
+    minHalfDayHours: rules.minHalfDayHours === null ? null : rules.minHalfDayHours / 2,
+  }
+  // The worked half starts at the middle when the morning is on leave, and
+  // ends there when the afternoon is — or arriving after a morning's leave
+  // would be marked hours late.
+  const start = parseWallClock(rules.startTime)
+  const endClock = parseWallClock(rules.endTime)
+  if (!leaveHalf || start === null || endClock === null) return halved
+  const end = endClock <= start ? endClock + 1440 : endClock
+  const middle = (start + Math.round((end - start) / 2)) % 1440
+  const clock = `${String(Math.floor(middle / 60)).padStart(2, '0')}:${String(middle % 60).padStart(2, '0')}`
+  return leaveHalf === 'first_half' ? { ...halved, startTime: clock } : { ...halved, endTime: clock }
+}
+
+/**
+ * A day half on approved leave is at most a half day worked: enough for the
+ * half (a half day or better against `forWorkedHalf`) is a half day, too little
+ * is absent — payroll then pays the leave half and docks the other.
+ */
+export function withHalfDayLeave(classification: DayClassification | null): DayClassification | null {
+  if (!classification) return null
+  return { ...classification, status: classification.status === 'absent' ? 'absent' : 'half_day' }
+}
+
+/** A shift whose end comes at or before its start runs past midnight. */
+export function isOvernight(rules: ShiftRules | null): boolean {
+  if (!rules) return false
+  const start = parseWallClock(rules.startTime)
+  const end = parseWallClock(rules.endTime)
+  return start !== null && end !== null && end <= start
+}
+
+/**
+ * A check-in between midnight and an overnight shift's end belongs to the
+ * shift that began the evening before: somebody on 22:00–06:00 arriving at
+ * 00:15 is late for last night, not early for tonight.
+ */
+export function arrivingForLastNight(input: { rules: ShiftRules | null; today: CalendarDate; timezone: string; now: Date }): boolean {
+  if (!isOvernight(input.rules)) return false
+  const end = parseWallClock(input.rules!.endTime)!
+  return clockMinutes(input.now, input.today, input.timezone) < end
+}
+
+/**
+ * Whether a day begun on an overnight shift (22:00–06:00: its end is at or
+ * before its start) is still that shift at `now`. Its check-out falls on the
+ * next calendar day, so "today" has moved on while the day it belongs to has
+ * not. It stays the current day until FAR_MINUTES past the shift's end, the
+ * distance measureDay still measures; after that it is a day somebody forgot
+ * to close, and the next one starts afresh. A day shift is never carried over.
+ */
+export function overnightDayOpen(input: { rules: ShiftRules | null; date: CalendarDate; timezone: string; now: Date }): boolean {
+  const ends = overnightWindowEnds(input.rules)
+  if (ends === null) return false
+  const now = clockMinutes(input.now, input.date, input.timezone)
+  return now >= 1440 && now < ends
+}
+
+/** How early before a shift starts somebody may check in for it. */
+const EARLY_ARRIVAL_MINUTES = 2 * 60
+
+/**
+ * Minutes from the night's date where its day stops being "today": 12 hours
+ * past the shift's end, or two hours before the next night's start, whichever
+ * comes first — so even a 12-hour night can be checked into on time.
+ */
+function overnightWindowEnds(rules: ShiftRules | null): number | null {
+  if (!rules || !isOvernight(rules)) return null
+  const start = parseWallClock(rules.startTime)!
+  const end = parseWallClock(rules.endTime)! + 1440
+  return Math.min(end + FAR_MINUTES, start + 1440 - EARLY_ARRIVAL_MINUTES)
+}
+
+/** When a night shift's day stops being "today" — and the next check-in opens — as "18:00". Null for any other shift. */
+export function nextCheckInOpens(rules: ShiftRules | null): string | null {
+  const ends = overnightWindowEnds(rules)
+  if (ends === null) return null
+  const at = ends % 1440
+  return `${String(Math.floor(at / 60)).padStart(2, '0')}:${String(at % 60).padStart(2, '0')}`
+}
+
+/**
+ * Whether yesterday's day, still OPEN, is still the day to check out of.
+ * A night shift: until its window ends (above). Any other shift — or none —
+ * only through the small hours, for somebody who worked past midnight: until
+ * three hours before the shift starts again (06:00 with no shift). After that
+ * it is a day somebody forgot to close, and today starts afresh.
+ */
+export function openDayCarries(input: { rules: ShiftRules | null; date: CalendarDate; timezone: string; now: Date }): boolean {
+  if (isOvernight(input.rules)) return overnightDayOpen(input)
+  const start = input.rules ? parseWallClock(input.rules.startTime) : null
+  const until = start === null ? 6 * 60 : Math.max(0, start - 3 * 60)
+  const now = clockMinutes(input.now, input.date, input.timezone) - 1440
+  return now >= 0 && now < until
+}
+
 /** What a measure adds to a day's note: why a long enough day is still a half day. */
 export function halfDayReason(measure: DayMeasure): string | null {
   if (measure.reason === 'late') return `Half day: arrived ${minutesLabel(measure.lateMinutes ?? 0)} after the shift start`
