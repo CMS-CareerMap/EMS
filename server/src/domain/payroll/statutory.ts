@@ -136,6 +136,26 @@ export function isEpsMember(input: {
   return input.pfWagesAtJoining <= (input.epsWageCeiling ?? EPS_WAGE_CEILING)
 }
 
+/** No pension contribution is payable once a member is 58 (EPS 1995). */
+export const EPS_AGE_LIMIT = 58
+
+/**
+ * Where a month falls against somebody's 58th birthday: before it, the month
+ * it falls in, or after. From the first month wholly after it, the employer's
+ * pension share goes to EPF instead. The birthday month itself is split by
+ * the days on each side in the PF return, which this payroll does not do — so
+ * that month is left as it was and flagged for Accounts to check.
+ */
+export function epsAgeInMonth(dateOfBirth: string | null, year: number, month: number): 'under' | 'turns_this_month' | 'over' {
+  if (!dateOfBirth) return 'under'
+  const birthday = `${Number(dateOfBirth.slice(0, 4)) + EPS_AGE_LIMIT}${dateOfBirth.slice(4)}`
+  const first = `${year}-${String(month).padStart(2, '0')}-01`
+  const last = `${year}-${String(month).padStart(2, '0')}-${String(new Date(Date.UTC(year, month, 0)).getUTCDate()).padStart(2, '0')}`
+  if (birthday <= first) return 'over'
+  if (birthday <= last) return 'turns_this_month'
+  return 'under'
+}
+
 export function computePf(input: PfInput): PfResult {
   const ceiling = input.wageCeiling ?? PF_WAGE_CEILING
   const base = input.restrictToCeiling ? Math.min(input.pfWages, ceiling) : input.pfWages

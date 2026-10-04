@@ -332,6 +332,11 @@ export async function remove(ctx: AppContext, id: string) {
     if (doc.status !== 'pending' || doc.supersededAt) {
       throw Conflict('This document has already been checked. Ask HR if it needs to be removed.')
     }
+    // One's own upload, still waiting, is one's own to take back — not a file
+    // HR filed for them (an offer letter), which is HR's.
+    if (doc.uploadedByUserId !== ctx.userId) {
+      throw Conflict('HR put this document on your record. Ask HR if it needs to be removed.')
+    }
   } else if (!(own && doc.status === 'pending' && !doc.supersededAt)) {
     // Taking a checked file off — or anybody's file but one's own still
     // waiting — is checker's work: for one's own, or a fellow checker's, it

@@ -351,6 +351,36 @@ export async function findDay(db: TxDb, employeeId: string, date: Date) {
   return db.attendance.findFirst({ where: { employeeId, date } })
 }
 
+/** Approved leave on a day: all of it, half of it, or none. */
+/** Approved leave on a day: the whole day, or half of it — and which half, when the request says. */
+export type LeaveOnDay = { kind: 'full' } | { kind: 'half'; session: 'first_half' | 'second_half' | null } | null
+
+/** Which half of a day a request takes, from its sessions; null when it does not say. */
+export function sessionOf(sessions: unknown, date: CalendarDate): 'first_half' | 'second_half' | null {
+  const value = sessions && typeof sessions === 'object' ? (sessions as Record<string, unknown>)[date] : null
+  return value === 'first_half' || value === 'second_half' ? value : null
+}
+
+export async function approvedLeaveOn(db: TxDb, employeeId: string, date: CalendarDate): Promise<LeaveOnDay> {
+  const leave = await db.leaveRequest.findMany({
+    where: { employeeId, status: 'approved', fromDate: { lte: toDateColumn(date) }, toDate: { gte: toDateColumn(date) } },
+    select: { halfDayDates: true, halfDaySessions: true },
+  })
+  if (leave.length === 0) return null
+  // Two halves on one day are the whole day.
+  if (leave.length > 1 || !leave[0]!.halfDayDates.includes(date)) return { kind: 'full' }
+  return { kind: 'half', session: sessionOf(leave[0]!.halfDaySessions, date) }
+}
+
+/** Approved leave touching two days, for some people. */
+export async function approvedLeaveDays(db: ScopedDb | TxDb, employeeIds: string[], from: CalendarDate, to: CalendarDate) {
+  const leave = await db.leaveRequest.findMany({
+    where: { employeeId: { in: employeeIds }, status: 'approved', fromDate: { lte: toDateColumn(to) }, toDate: { gte: toDateColumn(from) } },
+    select: { employeeId: true, fromDate: true, toDate: true, halfDayDates: true, halfDaySessions: true },
+  })
+  return leave
+}
+
 export async function createDay(db: TxDb, data: Prisma.AttendanceUncheckedCreateInput) {
   return db.attendance.create({ data })
 }
@@ -389,7 +419,7 @@ export async function findEmployeeWithShift(db: TxDb, scope: ScopeContext, emplo
 }
 
 /** Today's row, with the shift that decides the break. */
-export async function findDayWithShift(db: ScopedDb, employeeId: string, date: Date) {
+export async function findDayWithShift(db: ScopedDb | TxDb, employeeId: string, date: Date) {
   return db.attendance.findFirst({ where: { employeeId, date }, include: { shift: true } })
 }
 
@@ -409,6 +439,9 @@ export async function importableEmployees(db: ScopedDb, scope: ScopeContext) {
     select: {
       id: true,
       employeeCode: true,
+      fullName: true,
+      dateOfJoining: true,
+      lastWorkingDate: true,
       attendanceMode: true,
       shiftId: true,
       shift: { select: SHIFT_RULES_SELECT },
@@ -416,10 +449,12 @@ export async function importableEmployees(db: ScopedDb, scope: ScopeContext) {
   })
 }
 
-/** How many of these person-days already have a row — what an import would replace. */
-export async function countExistingDays(db: ScopedDb, days: { employeeId: string; date: Date }[]) {
-  if (days.length === 0) return 0
-  return db.attendance.count({ where: { OR: days } })
+/** The days already recorded for some people between two dates, each with the shift it was recorded on. */
+export async function recordedDays(db: ScopedDb, employeeIds: string[], from: CalendarDate, to: CalendarDate) {
+  return db.attendance.findMany({
+    where: { employeeId: { in: employeeIds }, date: { gte: toDateColumn(from), lte: toDateColumn(to) } },
+    select: { employeeId: true, date: true, status: true, shiftId: true, expectedHours: true, shift: { select: SHIFT_RULES_SELECT } },
+  })
 }
 
 /**

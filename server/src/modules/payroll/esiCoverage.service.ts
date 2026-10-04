@@ -1,11 +1,11 @@
 import type { AppContext } from '../../platform/context'
 import { esiPeriodFor, isEsiEligible } from '../../domain/payroll/statutory'
-import { toDateColumn, fromDateColumn, type CalendarDate } from '../../domain/shared/dates'
+import { toDateColumn, fromDateColumn, monthKey, type CalendarDate } from '../../domain/shared/dates'
 import { logger } from '../../platform/logger'
 import { NotFound } from '../../platform/errors/AppError'
 import * as repo from './payroll.repository'
 import { isUniqueViolation } from '../../platform/db/errors'
-import { assertMonthsOpen, monthsBetween } from './payrollLock.service'
+import { assertMonthsOpen, closedMonthKeys, monthsBetween } from './payrollLock.service'
 
 /**
  * Who is covered by ESI, decided ONCE per contribution period.
@@ -34,6 +34,8 @@ import { assertMonthsOpen, monthsBetween } from './payrollLock.service'
 export type CoverageReason =
   | 'period_start'
   | 'joined_mid_period'
+  /** Paid from a day inside the period, with no salary on record before it (a go-live). */
+  | 'first_wage_in_period'
   | 'no_wage_on_record'
 
 export interface Coverage {
@@ -98,9 +100,47 @@ async function wageRateOn(
   const financial = await repo.findFinancialOn(ctx.db, employeeId, toDateColumn(day))
   if (!financial) return null
 
+  // The wages ESI is charged on — tested against the threshold on the same
+  // footing as the contributions are worked out (domain/payroll/salary.ts).
+  // Counting a component that is no ESI wage pushed people out of cover their
+  // contributable wage kept them in.
   return financial.components
-    .filter((row) => row.component.type === 'earning' && row.component.entry === 'fixed')
+    .filter((row) => row.component.type === 'earning' && row.component.entry === 'fixed' && row.component.countsForEsi !== false)
     .reduce((sum, row) => sum + Number(row.amount), 0)
+}
+
+/**
+ * The decision the records support today, or null when no salary is on
+ * record for any day of the period.
+ *
+ * Tested on the period's start, or the joining day for somebody who joined
+ * after it began — or, when the salary on record starts later still (a company
+ * entering everybody's pay from its go-live day), on that first salary's day.
+ * Finding nothing on the start day used to decide "not covered" for all six
+ * months, and nobody was told.
+ */
+async function decide(
+  ctx: AppContext,
+  employeeId: string,
+  joinedOn: CalendarDate | null,
+  period: { start: CalendarDate; end: CalendarDate },
+): Promise<Omit<Coverage, 'periodStart' | 'periodEnd'> | null> {
+  const joinedMidPeriod = joinedOn !== null && joinedOn > period.start && joinedOn <= period.end
+  let testedOn = joinedMidPeriod && joinedOn ? joinedOn : period.start
+  let reason: CoverageReason = joinedMidPeriod ? 'joined_mid_period' : 'period_start'
+
+  let wageRate = await wageRateOn(ctx, employeeId, testedOn)
+  if (wageRate === null) {
+    const first = await repo.firstFinancialBetween(ctx.db, employeeId, toDateColumn(testedOn), toDateColumn(period.end))
+    if (!first) return null
+    testedOn = fromDateColumn(first.effectiveFrom)
+    reason = 'first_wage_in_period'
+    wageRate = await wageRateOn(ctx, employeeId, testedOn)
+    if (wageRate === null) return null
+  }
+
+  const covered = isEsiEligible({ wageRate, threshold: await thresholdOn(ctx, testedOn) })
+  return { covered, lockedWageRate: wageRate, reason }
 }
 
 /**
@@ -127,46 +167,46 @@ export async function coverageFor(
   const employee = await repo.findEmployee(ctx.db, employeeId)
   if (!employee) throw NotFound('Employee not found')
 
-  const existing = await repo.findCoverage(ctx.db, employeeId, toDateColumn(period.start))
-  if (existing) return toCoverage(existing, period.start, period.end)
-
-  // The date the test is taken on: the period's start, or the joining date when
-  // somebody joined after it had already begun. Calendar dates compare as
-  // strings, with no time zone to get wrong.
+  // Calendar dates compare as strings, with no time zone to get wrong.
   const joined = employee.dateOfJoining ? fromDateColumn(employee.dateOfJoining) : null
-  const joinedMidPeriod = joined !== null && joined > period.start && joined <= period.end
-  const testedOn = joinedMidPeriod && joined ? joined : period.start
+  const decision = await decide(ctx, employeeId, joined, period)
 
-  const wageRate = await wageRateOn(ctx, employeeId, testedOn)
-
-  if (wageRate === null) {
-    // No salary on record. NOT treated as zero, which would read as "earns
-    // nothing, therefore covered" and enrol somebody on the strength of
-    // missing data. Not covered, recorded as such, and visible to whoever has
-    // to fix it.
-    logger.warn('ESI coverage decided with no salary on record', {
+  const existing = await repo.findCoverage(ctx.db, employeeId, toDateColumn(period.start))
+  if (existing) {
+    // A decision taken stands for its six months — a raise during the period
+    // changes nothing, which is the rule. Unless the wage it was taken ON has
+    // since been changed at the source (a revision back-dated to the test day,
+    // or a salary entered after a run found none), and no month of the period
+    // is signed off yet: then it is taken again on the records as they are.
+    // In paise: the stored rate is a decimal, the fresh one a sum of floats.
+    const paise = (rupees: number) => Math.round(rupees * 100)
+    const unchanged = decision === null || paise(Number(existing.lockedWageRate)) === paise(decision.lockedWageRate)
+    if (unchanged || !(await periodOpen(ctx, period))) return toCoverage(existing, period.start, period.end)
+    await repo.deleteCoverage(ctx.db, employeeId, toDateColumn(period.start))
+    logger.info('ESI coverage re-decided: the wage it was taken on has changed', {
       employeeId,
       period: period.label,
-    })
-
-    return persist(ctx, employeeId, {
-      covered: false,
-      lockedWageRate: 0,
-      reason: 'no_wage_on_record',
-      periodStart: period.start,
-      periodEnd: period.end,
+      was: { covered: existing.covered, wage: Number(existing.lockedWageRate) },
+      now: { covered: decision.covered, wage: decision.lockedWageRate },
     })
   }
 
-  const covered = isEsiEligible({ wageRate, threshold: await thresholdOn(ctx, testedOn) })
+  if (decision === null) {
+    // No salary on record for the period. NOT treated as zero, which would
+    // read as "earns nothing, therefore covered" and enrol somebody on the
+    // strength of missing data. Not covered — and not saved, so the period is
+    // decided properly once a salary is entered.
+    logger.warn('ESI coverage: no salary on record for the period', { employeeId, period: period.label })
+    return { covered: false, lockedWageRate: 0, reason: 'no_wage_on_record', periodStart: period.start, periodEnd: period.end }
+  }
 
-  return persist(ctx, employeeId, {
-    covered,
-    lockedWageRate: wageRate,
-    reason: joinedMidPeriod ? 'joined_mid_period' : 'period_start',
-    periodStart: period.start,
-    periodEnd: period.end,
-  })
+  return persist(ctx, employeeId, { ...decision, periodStart: period.start, periodEnd: period.end })
+}
+
+/** No month of the contribution period is signed off yet. */
+async function periodOpen(ctx: AppContext, period: { start: CalendarDate; end: CalendarDate }): Promise<boolean> {
+  const closed = await closedMonthKeys(ctx)
+  return monthsBetween(period.start, period.end).every((m) => !closed.has(monthKey(m.year, m.month)))
 }
 
 async function persist(ctx: AppContext, employeeId: string, coverage: Coverage): Promise<Coverage> {

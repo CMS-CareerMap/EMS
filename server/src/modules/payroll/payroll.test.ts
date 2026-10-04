@@ -416,6 +416,26 @@ describe('the pension split', () => {
     expect(d.employer.eps).toBe(1_000)
     expect(d.employer.epf).toBe(440)
   })
+
+  it('stops the pension at 58: the birthday month is flagged, every month after goes wholly to EPF', async () => {
+    const id = await hire({ salary: { BASIC: 12_000 }, dateOfJoining: '2010-01-01' })
+    // 58 on 15 September 2026.
+    await prisma.employee.update({ where: { id }, data: { dateOfBirth: new Date('1968-09-15T00:00:00Z') } })
+
+    const august = (await calculate({ employeeId: id, year: 2026, month: 8 })).body.data
+    expect(august.employer.eps).toBe(1_000)
+
+    const september = (await calculate({ employeeId: id, year: 2026, month: 9 })).body.data
+    expect(september.employer.eps).toBe(1_000)
+    expect(september.warnings.join(' ')).toMatch(/Turns 58 this month/)
+
+    const october = (await calculate({ employeeId: id, year: 2026, month: 10 })).body.data
+    expect(october.basis.eps_member).toBe(false)
+    expect(october.employer.eps).toBe(0)
+    expect(october.employer.epf).toBe(1_440)
+    // Not the "new member above the ceiling" warning: they were a member.
+    expect(october.warnings.join(' ')).not.toMatch(/Excluded from EPS/)
+  })
 })
 
 describe('ESI, locked for the contribution period', () => {
@@ -448,6 +468,55 @@ describe('ESI, locked for the contribution period', () => {
     expect(october.basis.esi.covered).toBe(false)
     expect(october.employee_esi).toBe(0)
     expect(await esiRows(id)).toBe(2)
+  })
+
+  it('tests somebody whose salary is first recorded mid-period (a go-live) on that first salary — not "no wage" for six months', async () => {
+    // Here since 2020; the company enters everybody's pay from 1 Nov, its go-live.
+    const id = await hire({ salary: { BASIC: 12_000, HRA: 6_000 }, dateOfJoining: '2020-01-01', salaryFrom: '2026-11-01' })
+
+    const november = (await calculate({ employeeId: id, year: 2026, month: 11 })).body.data
+    expect(november.basis.esi.covered).toBe(true)
+    expect(november.basis.esi.reason).toBe('first_wage_in_period')
+    expect(november.basis.esi.locked_wage_rate).toBe(18_000)
+    // 0.75% of 18,000.
+    expect(november.employee_esi).toBe(135)
+  })
+
+  it('tests the threshold on the wages ESI is charged on — a component that is no ESI wage does not push somebody out', async () => {
+    await prisma.salaryComponent.update({ where: { id: componentIds.SPECIAL }, data: { countsForEsi: false } })
+    try {
+      // 15,000 + 5,000 counts; the 1,600 does not: 20,000, under the threshold.
+      const id = await hire({ salary: { BASIC: 15_000, HRA: 5_000, SPECIAL: 1_600 } })
+      const d = (await calculate({ employeeId: id, year: 2026, month: 9 })).body.data
+      expect(d.basis.esi.covered).toBe(true)
+      expect(d.basis.esi.locked_wage_rate).toBe(20_000)
+    } finally {
+      await prisma.salaryComponent.update({ where: { id: componentIds.SPECIAL }, data: { countsForEsi: true } })
+    }
+  })
+
+  it('keeps a decision through a raise during the period — the rule', async () => {
+    const id = await hire({ salary: { BASIC: 10_000, HRA: 4_000, SPECIAL: 6_000 }, dateOfJoining: '2020-01-01' })
+    expect((await calculate({ employeeId: id, year: 2026, month: 5 })).body.data.basis.esi.covered).toBe(true)
+    // A raise from 1 July to 25,000 changes nothing until October.
+    await setSalary(id, '2026-07-01', { BASIC: 12_500, HRA: 5_000, SPECIAL: 7_500 })
+    const august = (await calculate({ employeeId: id, year: 2026, month: 8 })).body.data
+    expect(august.basis.esi.covered).toBe(true)
+    expect(august.basis.esi.locked_wage_rate).toBe(20_000)
+    expect(await esiRows(id)).toBe(1)
+  })
+
+  it('says so when a new salary starts inside the month — its days are not on this payslip', async () => {
+    const id = await hire({ salary: { BASIC: 30_000 }, dateOfJoining: '2020-01-01' })
+    await setSalary(id, '2026-10-15', { BASIC: 36_000 })
+
+    const october = (await calculate({ employeeId: id, year: 2026, month: 10 })).body.data
+    expect(october.gross_earnings).toBe(30_000)
+    expect(october.warnings.join(' ')).toMatch(/A new salary starts on 15 Oct 2026/)
+    // November is simply the new salary, with nothing to say.
+    const november = (await calculate({ employeeId: id, year: 2026, month: 11 })).body.data
+    expect(november.gross_earnings).toBe(36_000)
+    expect(november.warnings.join(' ')).not.toMatch(/A new salary starts/)
   })
 
   it('decides on the wage at the period start, even when July is looked at first', async () => {
@@ -503,9 +572,11 @@ describe('ESI, locked for the contribution period', () => {
       data: { amount: 5_400 },
     })
 
-    // Still locked on the old decision — the lock does not chase the data.
-    const still = (await calculate({ employeeId: id, year: 2026, month: 9 })).body.data
-    expect(still.basis.esi.covered).toBe(false)
+    // The wage the decision was taken on is corrected at its source, and no
+    // month of the period is signed off: the next calculation takes it again.
+    const corrected = (await calculate({ employeeId: id, year: 2026, month: 9 })).body.data
+    expect(corrected.basis.esi.covered).toBe(true)
+    expect(corrected.basis.esi.locked_wage_rate).toBe(18_000)
 
     const hrTry = await request(app)
       .post('/api/payroll/esi-coverage/redecide')

@@ -13,7 +13,7 @@ import { leaveYearOf } from './leave.service'
 import * as repo from './leave.repository'
 import { assertWorkGoesUp, checkWork, loadWork } from '../organization/workRules.service'
 import { approvalWorld, deciderOf, peopleDecidedBy } from './leaveApprover.service'
-import { pendingEncashments } from '../requests/requests.repository'
+import { pendingEncashDays, pendingEncashments } from '../requests/requests.repository'
 
 /**
  * Leave → Team Balances: everybody's balances, the year's grant, and
@@ -270,13 +270,15 @@ export async function adjustBalance(ctx: AppContext, input: AdjustInput) {
 
   const after = await withTransaction(ctx.db, async (tx) => {
     await lockFor(tx, `leave-apply:${employee.id}`)
-    const [balance, pending] = await Promise.all([
+    const [balance, pendingLeave, encashing] = await Promise.all([
       repo.balanceOn(tx, employee.id, type.id, year.leaveYear),
       repo.pendingDays(tx, employee.id, type.id, year.leaveYear),
+      pendingEncashDays(tx, employee.id, type.id, year.leaveYear),
     ])
+    const pending = pendingLeave + encashing
     const newBalance = toHalfDays(balance + input.days)
-    // Days already applied for are spoken for: taking them away would leave a
-    // pending request that could never be approved.
+    // Days already applied for — as leave, or to be encashed — are spoken for:
+    // taking them away would leave a request that could never be approved.
     if (newBalance - pending < 0) {
       throw Conflict(
         pending > 0

@@ -7,6 +7,7 @@ import DataState from '../../components/DataState'
 import { calendarDayIn, formatCalendarDay, formatDayOf } from '../../lib/dates'
 import { WaitingResignations } from './LifecycleCards'
 import WaitingRequestsBanner from '../requests/WaitingRequestsBanner'
+import { minutesLabel } from '../../lib/requests'
 
 // Leave types are the company's own: the names come from the server with each row.
 const LEAVE_STATUS_LABELS = { pending: 'Pending', approved: 'Approved', rejected: 'Rejected', cancelled: 'Cancelled' }
@@ -76,7 +77,7 @@ export default function EmployeeDashboard() {
 }
 
 function MyMonth({ data }) {
-  const { profile, presentDays, absentDays, leaveDays, weeklyOffDays, todayStatus, recentLeaves, leaveBalances, waitingForMe } = data
+  const { profile, presentDays, absentDays, leaveDays, weeklyOffDays, totalHours, todayStatus, recentLeaves, leaveBalances, waitingForMe } = data
 
   const monthName = new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
 
@@ -128,7 +129,9 @@ function MyMonth({ data }) {
           <div>
             <p className="text-2xl font-bold text-gray-900">{presentDays}</p>
             <p className="text-sm text-gray-500">Present · {monthName}</p>
-            <p className="text-xs text-gray-400 mt-1">{attendancePct}% attendance rate</p>
+            <p className="text-xs text-gray-400 mt-1">
+              {attendancePct}% attendance rate{totalHours > 0 ? ` · ${minutesLabel(Math.round(totalHours * 60))} worked` : ''}
+            </p>
           </div>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex items-center gap-4">

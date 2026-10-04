@@ -8,10 +8,19 @@ import {
   isCalendarDate,
   fromDateColumn,
   toDateColumn,
+  dayLabel,
   type CalendarDate,
 } from '../../domain/shared/dates'
 import { hoursBetween, hoursBetweenWallClock } from '../../domain/attendance/hours'
-import { halfDayReason, marksOf, measureInstants, shiftRulesOf, type DayMeasure } from '../../domain/attendance/shiftRules'
+import {
+  forWorkedHalf,
+  gradedBy,
+  halfDayReason,
+  marksOf,
+  measureInstants,
+  withHalfDayLeave,
+  type DayMeasure,
+} from '../../domain/attendance/shiftRules'
 import * as repo from './attendance.repository'
 import { withTransaction, type TxDb } from '../../platform/db/transaction'
 import { audit } from '../audit/audit.service'
@@ -149,6 +158,28 @@ export async function dayRoster(ctx: AppContext, date?: string) {
   return { date: day, employees, markGoesTo }
 }
 
+/** A day before somebody joined, or after their last working day, is no working day of theirs. */
+function assertEmployedOn(employee: { fullName: string; dateOfJoining: Date | null; lastWorkingDate: Date | null }, date: CalendarDate) {
+  const joined = fromDateColumn(employee.dateOfJoining)
+  if (joined && date < joined) throw BadRequest(`${employee.fullName} joined on ${dayLabel(joined)}, after ${dayLabel(date)}.`)
+  const last = fromDateColumn(employee.lastWorkingDate)
+  if (last && date > last) throw BadRequest(`${employee.fullName}’s last working day was ${dayLabel(last)}, before ${dayLabel(date)}.`)
+}
+
+/**
+ * Approved leave on a day being written. A whole day of it is the leave:
+ * recording work over it would charge the balance for a day worked, so the
+ * leave is reversed first. Half a day leaves the other half — graded as a half.
+ */
+async function halfLeaveOn(db: TxDb, employeeId: string, date: CalendarDate, recorded: AttendanceStatus | undefined) {
+  const leave = await repo.approvedLeaveOn(db, employeeId, date)
+  if (leave?.kind === 'full' && recorded === 'on_leave') {
+    throw Conflict(`${dayLabel(date)} is a day of approved leave. Reverse the leave first if it was worked.`)
+  }
+  // Which half is on leave, so the worked half is measured from its own start or end.
+  return leave?.kind === 'half' ? { session: leave.session } : null
+}
+
 export interface MarkInput {
   employeeId: string
   date: CalendarDate
@@ -187,9 +218,13 @@ export async function markAttendance(ctx: AppContext, input: MarkInput) {
   // Your own attendance — or that of somebody who marks attendance too — is
   // marked and corrected by the people above them in the company tree (Day 22).
   await assertWorkGoesUp(ctx, ctx.db, 'attendance', input.employeeId)
+  assertEmployedOn(employee, input.date)
 
-  const expectedHours = employee.shift ? Number(employee.shift.expectedHours) : null
-  const breakMinutes = employee.shift?.breakMinutes ?? 0
+  // A day already recorded is graded against the shift it was recorded on; a
+  // new one against the person's shift now.
+  const existing = await repo.findDayWithShift(ctx.db, input.employeeId, toDateColumn(input.date))
+  const halfLeave = await halfLeaveOn(ctx.db, input.employeeId, input.date, existing?.status)
+  const { rules: dayRules, expectedHours, breakMinutes, shiftId } = gradedBy(existing, employee)
 
   let hoursWorked: number | null = null
   let status = input.status
@@ -214,13 +249,14 @@ export async function markAttendance(ctx: AppContext, input: MarkInput) {
   // on leave or a holiday is a decision, not a working day: nothing to measure.
   const worked = status === 'present' || status === 'half_day'
   const measure: DayMeasure | null = worked
-    ? measureInstants({ rules: shiftRulesOf(employee.shift), date: input.date, timezone: zone, checkIn: checkInAt, checkOut: checkOutAt, hoursWorked })
+    ? measureInstants({ rules: halfLeave ? forWorkedHalf(dayRules, halfLeave.session) : dayRules, date: input.date, timezone: zone, checkIn: checkInAt, checkOut: checkOutAt, hoursWorked })
     : null
   // HR chose a status, and the hours may disagree with it. The hours win for
   // present/half_day, because that is arithmetic — but an explicit
   // `on_leave` or `holiday` is a decision and is left alone.
-  if (measure?.classification) {
-    status = measure.classification.status
+  const classification = halfLeave ? withHalfDayLeave(measure?.classification ?? null) : measure?.classification ?? null
+  if (measure && classification) {
+    status = classification.status
     const why = halfDayReason(measure)
     if (why) note = [note, why].filter(Boolean).join(' · ')
   }
@@ -240,7 +276,7 @@ export async function markAttendance(ctx: AppContext, input: MarkInput) {
       source: 'manual',
       hoursWorked,
       expectedHours,
-      shiftId: employee.shiftId,
+      shiftId,
       note,
       markedByUserId: ctx.userId,
       ...(measure ? marksOf(measure) : {}),
@@ -281,12 +317,15 @@ export async function writeCorrectedDay(
   const zone = await companyTimezone(ctx)
   const employee = await repo.findEmployeeWithShift(tx, { scope: 'ORGANIZATION', employeeId: null }, input.employeeId)
   if (!employee) throw NotFound('Employee not found')
-  const existing = await repo.findDay(tx, input.employeeId, toDateColumn(input.date))
-  // Approved leave is the leave: a correction cannot turn it into a short
-  // working day and take pay for a day already taken from the balance.
-  if (existing?.status === 'on_leave') {
-    throw Conflict(`${input.date} is a day of approved leave. Cancel or reverse the leave first if it was worked.`)
+  const existing = await repo.findDayWithShift(tx, input.employeeId, toDateColumn(input.date))
+  // Approved leave is the leave: a correction cannot turn a whole day of it
+  // into a short working day and take pay for a day already taken from the
+  // balance. Half a day of it leaves the other half, graded as a half.
+  const halfLeave = await halfLeaveOn(tx, input.employeeId, input.date, existing?.status)
+  if (existing?.status === 'on_leave' && !halfLeave) {
+    throw Conflict(`${dayLabel(input.date)} is marked as leave. Cancel or reverse the leave first if it was worked.`)
   }
+  const { rules: dayRules, expectedHours, breakMinutes, shiftId } = gradedBy(existing, employee)
 
   const start = input.checkIn ? parseWallClock(input.checkIn) : null
   const end = input.checkOut ? parseWallClock(input.checkOut) : null
@@ -301,7 +340,6 @@ export async function writeCorrectedDay(
   }
   if (checkIn && checkOut && checkOut <= checkIn) throw BadRequest('The check-out must be after the check-in.')
 
-  const expectedHours = employee.shift ? Number(employee.shift.expectedHours) : null
   let hoursWorked: number | null = null
   // A holiday or weekly off worked stays one — the times are recorded, the
   // day is not graded as a working day it never was (as marking keeps it).
@@ -309,13 +347,14 @@ export async function writeCorrectedDay(
   let status: AttendanceStatus = offDay ? existing.status : 'present'
   let note = input.note
   if (checkIn && checkOut) {
-    const result = hoursBetween(checkIn, checkOut, employee.shift?.breakMinutes ?? 0)
+    const result = hoursBetween(checkIn, checkOut, breakMinutes)
     hoursWorked = result.hours
     if (result.warning) note = `${note} · ${result.warning}`
   }
-  const measure = measureInstants({ rules: shiftRulesOf(employee.shift), date: input.date, timezone: zone, checkIn, checkOut, hoursWorked })
-  if (measure.classification && !offDay) {
-    status = measure.classification.status
+  const measure = measureInstants({ rules: halfLeave ? forWorkedHalf(dayRules, halfLeave.session) : dayRules, date: input.date, timezone: zone, checkIn, checkOut, hoursWorked })
+  const classification = halfLeave ? withHalfDayLeave(measure.classification) : measure.classification
+  if (classification && !offDay) {
+    status = classification.status
     const why = halfDayReason(measure)
     if (why) note = `${note} · ${why}`
   }
@@ -329,7 +368,7 @@ export async function writeCorrectedDay(
     source: 'correction',
     hoursWorked,
     expectedHours,
-    shiftId: employee.shiftId,
+    shiftId,
     note,
     markedByUserId: ctx.userId,
     ...(offDay ? {} : marksOf(measure)),

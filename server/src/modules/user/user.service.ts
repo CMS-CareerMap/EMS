@@ -28,6 +28,7 @@ import * as lifecycleRepo from '../lifecycle/lifecycle.repository'
 import { companyToday } from '../organization/organization.service'
 import { addCalendarDays, fromDateColumn, toDateColumn } from '../../domain/shared/dates'
 import { isOpenFrom } from '../payroll/payrollLock.service'
+import { settleLeaveAfter } from '../leave/leaveApproval.service'
 
 /**
  * The lock every change to roles or to who holds them takes (Day 21), so a
@@ -394,6 +395,8 @@ export async function terminateUser(ctx: AppContext, membershipId: string): Prom
         archivedAt: new Date(),
         lastWorkingDate: lastDay ? toDateColumn(lastDay) : null,
       })
+      // No leave is taken from a job they have left.
+      await settleLeaveAfter(ctx, tx, current.employeeId, lastDay)
       // Their employment history says they left, and a resignation still open is finished with.
       await lifecycleRepo.completeOpenResignations(tx, current.employeeId, ctx.userId)
       await lifecycleRepo.addEvent(tx, {

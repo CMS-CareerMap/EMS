@@ -16,7 +16,7 @@ import { findApprovalRules } from './organization.repository'
 export type WorkKind = 'bank' | 'leave_balance' | 'documents' | 'attendance' | 'incentive' | 'salary' | 'lifecycle' | 'profile'
 
 const WORK: Readonly<Record<WorkKind, { permissions: readonly Permission[]; ownVerb: string; noun: string }>> = {
-  bank: { permissions: ['employee:bank:manage'], ownVerb: 'check your own bank account', noun: 'bank account' },
+  bank: { permissions: ['employee:bank:manage'], ownVerb: 'enter or check your own bank account', noun: 'bank account' },
   leave_balance: { permissions: ['leave:balance:manage'], ownVerb: 'correct your own leave balance', noun: 'leave balance' },
   documents: { permissions: ['document:verify'], ownVerb: 'check your own documents', noun: 'documents' },
   // Not attendance:delete: nothing deletes attendance, so holding that tick
@@ -119,6 +119,27 @@ export async function assertMayChangeEmployment(ctx: AppContext, db: TxDb, targe
     throw Forbidden(`${loaded.names.get(targetId) ?? 'This person'} is above you in the company tree, so their employment record is changed by the Super Admin.`)
   }
   refuseUnlessAllowed(ctx, loaded, 'lifecycle', targetId)
+}
+
+/**
+ * A direct change to somebody's record (PATCH /employees/:id) — personal
+ * details, statutory facts such as whether PF applies, shift, attendance mode.
+ * The same rule as approving a profile change request (client §27): never
+ * one's own, nor a fellow reviewer's, nor a senior's. Those go up the tree.
+ */
+export async function assertMayChangeRecord(ctx: AppContext, db: TxDb, targetId: string): Promise<void> {
+  // The Super Admin keeps every record — nobody is above them to send it to,
+  // and the tree's own moves have their own guards (employee.service).
+  if (ctx.can('role:manage')) return
+  const loaded = await loadWork(db, ctx.organizationId, 'profile')
+  if (aboveCaller(ctx, loaded, targetId)) {
+    throw Forbidden(`${loaded.names.get(targetId) ?? 'This person'} is above you in the company tree, so their record is changed by the Super Admin.`)
+  }
+  const check = checkWork(ctx, loaded, targetId)
+  if (!check.allowed && check.own && !stuck(loaded, targetId)) {
+    throw Forbidden(`You cannot change your own record. Ask for the change on My Details (Request an update); it goes to ${check.ask}.`)
+  }
+  refuseUnlessAllowed(ctx, loaded, 'profile', targetId)
 }
 
 function refuseUnlessAllowed(ctx: AppContext, loaded: LoadedWork, kind: WorkKind, targetId: string): void {

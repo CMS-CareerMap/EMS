@@ -12,7 +12,7 @@ import {
 import { minutesLabel } from '../../domain/attendance/shiftRules'
 import { requestNumber } from '../../domain/requests/requests'
 import { monthCalendar, proration, type LopBasis } from '../../domain/payroll/payDays'
-import { isEpsMember, type Gender, type PtSlabRule } from '../../domain/payroll/statutory'
+import { EPS_AGE_LIMIT, epsAgeInMonth, isEpsMember, type Gender, type PtSlabRule } from '../../domain/payroll/statutory'
 import type { Weekday } from '../../domain/leave/leaveDays'
 import { toDateColumn, fromDateColumn, dayLabel, type CalendarDate } from '../../domain/shared/dates'
 import { listDaysOff } from '../holidays/holidays.repository'
@@ -231,6 +231,16 @@ export async function calculate(
     throw NotFound('No payroll policy was in force that month. Set the rates in Settings first.')
   }
 
+  // A salary that starts inside the month is paid from next month, as above —
+  // so the days at the new rate this month are not paid by this payslip, and
+  // nobody would know. Said, for Accounts to settle as arrears.
+  const startsMidMonth = await repo.firstFinancialBetween(ctx.db, employeeId, firstEmployedDay, toDateColumn(monthEnd))
+  if (startsMidMonth) {
+    warnings.push(
+      `A new salary starts on ${dayLabel(fromDateColumn(startsMidMonth.effectiveFrom))}. This month is paid on the earlier one: pay the difference for the days from then as arrears (a monthly entry), or start salary changes on the 1st.`,
+    )
+  }
+
   // A monthly component sitting on the salary record would be paid every
   // month at the same figure — a raise called an incentive — and prorated for
   // a short month. Neither reading is what anybody decided, so this refuses
@@ -388,14 +398,23 @@ export async function calculate(
   // later changes what counts as PF wages or the pension ceiling. Left blank,
   // payroll works it out from what they joined on.
   const recorded = identity?.epsMember ?? null
-  const epsMember = recorded ?? isEpsMember({
+  const member = recorded ?? isEpsMember({
     dateOfJoining: employee.dateOfJoining ? fromDateColumn(employee.dateOfJoining) : null,
     pfWagesAtJoining: wagesAtJoining(first, policyAtJoining),
     hasPriorMembership: identity?.hasPriorPfMembership ?? false,
     epsWageCeiling: Number(policy.epsWageCeiling),
   })
+  // A member stops contributing to the pension at 58, whatever they were.
+  const age = epsAgeInMonth(employee.dateOfBirth ? fromDateColumn(employee.dateOfBirth) : null, year, month)
+  const epsMember = member && age !== 'over'
+  if (pfApplicable && member && age === 'turns_this_month') {
+    warnings.push(
+      `Turns ${EPS_AGE_LIMIT} this month: pension (EPS) stops from the birthday, and the PF return splits this month's employer share by the days on each side. ` +
+        'From next month the whole employer share goes to EPF.',
+    )
+  }
 
-  if (pfApplicable && recorded === null && !epsMember) {
+  if (pfApplicable && recorded === null && !member) {
     warnings.push(
       'Excluded from EPS: worked out as a new PF member above the pension ceiling when they joined. ' +
         (identity?.hasPriorPfMembership == null ? 'Confirm they were never a member before — if they were, they belong in EPS. ' : '') +

@@ -1,0 +1,22 @@
+{
+  "name": "ems-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Browser tests for EMS on an isolated stack: the built web app on :5183, the compiled API on :4100, a local database",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "e2e": "node scripts/run.mjs",
+    "e2e:all": "node scripts/run.mjs --build --reset",
+    "seed": "node scripts/seed.mjs",
+    "up": "node scripts/up.mjs",
+    "demo": "node scripts/demo.mjs",
+    "perf": "node scripts/perf.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "^1.63.0"
+  }
+}

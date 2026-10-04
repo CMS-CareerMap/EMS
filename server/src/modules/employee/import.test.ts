@@ -197,6 +197,22 @@ describe('what the preview catches', () => {
 })
 
 describe('reading real spreadsheets', () => {
+  it('sets each person’s shift by its name — and names the shifts when one is not known', async () => {
+    const shift = await prisma.shift.create({ data: { organizationId: orgId, name: 'General', startTime: '09:30', endTime: '18:30', breakMinutes: 60, expectedHours: 9 } })
+    try {
+      const unknown = await upload(['employee_code,full_name,shift', `${PREFIX}-S1,Asha Menon,Nights`].join('\n'))
+      expect(unknown.body.data.rows[0].issues[0]).toMatchObject({ field: 'shift' })
+      expect(unknown.body.data.rows[0].issues[0].message).toMatch(/no shift called "Nights". Use one of: General/)
+
+      expect((await upload(['employee_code,full_name,shift', `${PREFIX}-S1,Asha Menon,general`].join('\n'), false)).status).toBe(201)
+      const employee = await prisma.employee.findFirstOrThrow({ where: { employeeCode: `${PREFIX}-S1` } })
+      expect(employee.shiftId).toBe(shift.id)
+    } finally {
+      await prisma.employee.deleteMany({ where: { employeeCode: `${PREFIX}-S1` } })
+      await prisma.shift.delete({ where: { id: shift.id } })
+    }
+  })
+
   it('accepts the header names other systems export', async () => {
     const csv = [
       'Employee ID,Name,Work Email,Mobile,DOJ,Dept,Job Title',

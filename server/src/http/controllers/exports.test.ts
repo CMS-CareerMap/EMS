@@ -132,7 +132,7 @@ describe('the attendance export', () => {
 describe('the import template', () => {
   it('has the columns the importer reads', async () => {
     const lines = linesOf((await csv('hr', '/api/employees/import/template')).body as Buffer)
-    expect(lines[0]).toBe('employee_code,full_name,email,personal_email,phone,date_of_joining,employment_type,department,designation,pan,gender,confirmed_on')
+    expect(lines[0]).toBe('employee_code,full_name,email,personal_email,phone,date_of_joining,employment_type,department,designation,shift,pan,gender,confirmed_on')
     // A new joiner, and somebody already working here (confirmed_on filled).
     expect(lines).toHaveLength(3)
     expect(lines[2]).toMatch(/,06\/07\/2025$/)

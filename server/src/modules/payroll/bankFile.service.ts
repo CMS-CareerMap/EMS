@@ -63,6 +63,16 @@ export async function saveTemplate(ctx: AppContext, input: BankFileTemplate) {
   const problems = templateProblems(template)
   if (problems.length > 0) throw BadRequest(problems.join(' '), problems)
 
+  // Paying into accounts nobody has checked is the Super Admin's call alone:
+  // otherwise whoever enters an account could also switch off the check that
+  // keeps an unverified one out of the bank file.
+  if (!template.onlyVerified && !ctx.can('role:manage')) {
+    const current = await getTemplate(ctx)
+    if (current.onlyVerified) {
+      throw Forbidden('Only the Super Admin can let the bank file pay into accounts nobody has checked.')
+    }
+  }
+
   await withTransaction(ctx.db, async (tx) => {
     await bankRepo.saveTemplate(tx, ctx.organizationId, {
       columns: template.columns as unknown as Prisma.InputJsonValue,

@@ -213,7 +213,7 @@ describe('your own work goes up the company tree', () => {
   it('sends a bank account’s check to the person above — not to the accountant themselves, nor another accountant', async () => {
     const own = await bank('accountant', 'accountant')
     expect(own.status).toBe(403)
-    expect(own.body.error.message).toBe(`You cannot check your own bank account. It goes to the person above you: ${names.acHead}.`)
+    expect(own.body.error.message).toBe(`You cannot enter or check your own bank account. It goes to the person above you: ${names.acHead}.`)
     // The accountant cannot check their head's either: a junior, not above.
     const junior = await bank('accountant', 'acHead')
     expect(junior.status).toBe(403)

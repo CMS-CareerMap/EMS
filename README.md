@@ -24,12 +24,15 @@ cd web    && npm install && npm run dev        # the app on :5173; /api is proxi
 ## Checks
 
 ```bash
-cd server && npm run typecheck && npm run lint && npm test   # types, the architecture rules (§A5), ~1,100 tests
+cd server && npm run typecheck && npm run lint && npm test   # types, the architecture rules (§A5), ~1,460 tests
 cd web    && npm run lint && npm run build
 cd server && npm run field-contract                          # rewrites docs/field-contract.json
+cd e2e    && npm install && npm run e2e:all                  # browser tests on the built app (e2e/README.md)
+cd e2e    && npm run demo                                    # a demo company to click through as every role (e2e/DEMO.md)
 ```
 
-The server tests run against a local database named in `server/.env.test`. They refuse to run against anything remote.
+The server tests and the browser tests run against local databases named from `server/.env.test`. They refuse to run against anything remote.
+What each requirement maps to, and what is still open: `docs/REQUIREMENTS_TRACEABILITY.md`.
 
 ## Production
 

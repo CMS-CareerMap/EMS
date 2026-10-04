@@ -176,9 +176,15 @@ describe('bank accounts', () => {
     // Your own work goes up the company tree (Day 22): nobody above the
     // accountant here, so to the Super Admin.
     expect(marked.status).toBe(403)
-    expect(marked.body.error.message).toBe('You cannot check your own bank account. It goes to the person above you: the Super Admin.')
+    expect(marked.body.error.message).toBe('You cannot enter or check your own bank account. It goes to the person above you: the Super Admin.')
+    // Nor enter it unchecked through Payroll: where one's own pay goes is set by
+    // somebody else (or sent in from one's own page, to be checked).
+    expect((await api('accounts').put(self, account({ accountHolderName: 'ANIL', accountNumber: '555566667777' }))).status).toBe(403)
 
-    expect((await api('accounts').put(self, account({ accountHolderName: 'ANIL', accountNumber: '555566667777' }))).status).toBe(200)
+    expect((await api('super_admin').put(self, account({ accountHolderName: 'ANIL', accountNumber: '555566667777' }))).status).toBe(200)
+    // Told at once that somebody else changed where their pay goes.
+    const told = await prisma.notification.findFirst({ where: { organizationId: orgId, event: 'bank.changed' }, orderBy: { createdAt: 'desc' } })
+    expect(told?.message).toMatch(/now be paid into the account ending 7777/)
     expect((await api('accounts').post(`${self}/verify`, { decision: 'verified', accountUpdatedAt: await seen(who.accountant!) })).status).toBe(403)
 
     // Somebody else can.
@@ -320,7 +326,16 @@ describe('the bank transfer file', () => {
     // An account nobody has checked yet, for the company that pays those too.
     await api('accounts').put(`/api/payroll/employees/${who.nobank}/bank-account`, account({ accountHolderName: 'NO BANK YET', accountNumber: '444455556666' }))
 
-    const saved = await api('accounts').put('/api/payroll/bank-file-template', {
+    // Paying into unchecked accounts is the Super Admin's call, not Accounts': whoever
+    // enters an account must not also switch off the check that keeps it out.
+    const refused = await api('accounts').put('/api/payroll/bank-file-template', {
+      columns: [{ header: 'AMT', field: 'amount' }, { header: 'ACCT', field: 'account_number' }],
+      includeHeader: false, dateFormat: 'DD-MM-YYYY', narration: 'SAL', onlyVerified: false,
+    })
+    expect(refused.status).toBe(403)
+    expect(refused.body.error.message).toMatch(/Only the Super Admin/)
+
+    const saved = await api('super_admin').put('/api/payroll/bank-file-template', {
       columns: [
         { header: 'TXN', field: 'fixed', text: 'N' },
         { header: 'AMT', field: 'amount' },

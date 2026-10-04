@@ -9,10 +9,12 @@ import * as repo from './notification.repository'
  * record — inside the transaction that adds or removes them.
  */
 
-function around(employeeId: string, managerId: string | null): Recipients {
+async function around(tx: TxDb, employeeId: string, managerId: string | null): Promise<Recipients> {
   return {
     all: [
-      ...(managerId ? [{ employee: managerId } as const] : []),
+      // The logins the manager decides from — not their employee login, which
+      // is for their own things only (Day 23).
+      ...(managerId ? [{ users: await repo.decidingUsersOfEmployee(tx, managerId) }] : []),
       { reaching: { permission: 'employee:update', resource: 'employee', employeeId } },
     ],
   }
@@ -23,7 +25,7 @@ export async function tellJoined(ctx: NoticeActor, tx: TxDb, employeeId: string,
   if (!person) return
   await notify(ctx, tx, {
     event: 'employment.joined',
-    to: around(employeeId, person.reportingManagerId),
+    to: await around(tx, employeeId, person.reportingManagerId),
     title: 'New employee added',
     message: `${person.fullName} (${person.employeeCode}) has been added${joining ? `, joining on ${dayLabel(joining)}` : ''}.`,
     link: `/employees?open=${employeeId}`,
@@ -38,7 +40,7 @@ export async function tellLeft(ctx: NoticeActor, tx: TxDb, employeeId: string, l
   const when = lastDay ? ` Last working day: ${dayLabel(lastDay)}.` : ''
   await notify(ctx, tx, {
     event: 'employment.left',
-    to: around(employeeId, person.reportingManagerId),
+    to: await around(tx, employeeId, person.reportingManagerId),
     title: how === 'exit' ? 'Employee has left' : 'Employee deactivated',
     message: how === 'exit'
       ? `${person.fullName} (${person.employeeCode})’s exit is complete, and their sign-in is closed.${when}`

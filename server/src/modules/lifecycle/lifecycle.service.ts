@@ -24,6 +24,7 @@ import { companyToday } from '../organization/organization.service'
 import { aboveCaller, assertMayChangeEmployment, checkWork, loadWork } from '../organization/workRules.service'
 import { approvalWorld, approverName, approverUsers, assertSomebodyDecides, deciderOf } from '../leave/leaveApprover.service'
 import { tellNewApprovers } from '../leave/leaveNotices'
+import { settleLeaveAfter } from '../leave/leaveApproval.service'
 import { assertManagerFits, assertNoNewReach, assertWithinReach, treeLock } from '../employee/employee.service'
 import { closeLoginsForExit, endSessionsOf, mayCloseLoginsForExit, rolesLock } from '../user/user.service'
 import { assertOpenFrom } from '../payroll/payrollLock.service'
@@ -704,6 +705,8 @@ export async function acceptResignation(ctx: AppContext, resignationId: string, 
     if (moved === 0) throw Conflict('This resignation was withdrawn or decided a moment ago. Reload to see it.')
     // Payroll pays to this day and not after.
     await repo.updatePerson(tx, r.employeeId, { lastWorkingDate: toDateColumn(input.lastWorkingDay) })
+    // And no leave is taken from a job they will have left.
+    await settleLeaveAfter(ctx, tx, r.employeeId, input.lastWorkingDay)
     await repo.addEvent(tx, {
       organizationId: ctx.organizationId, employeeId: r.employeeId, kind: 'resignation_accepted', effectiveDate: toDateColumn(today),
       details: { lastWorkingDay: input.lastWorkingDay, requestedLastDay: fromDateColumn(r.requestedLastDay), ...(asBackup ? { asBackup } : {}) },
@@ -860,6 +863,7 @@ export async function completeExit(
       status: 'inactive',
       archivedAt: new Date(),
     })
+    await settleLeaveAfter(ctx, tx, employeeId, lastDay)
     const open = p.resignations[0]
     if (open) await repo.moveResignation(tx, open.id, ['submitted', 'accepted'], { status: 'completed', closedByUserId: ctx.userId, closedAt: new Date() })
     await repo.addEvent(tx, {

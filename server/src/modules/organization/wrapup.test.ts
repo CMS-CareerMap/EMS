@@ -237,12 +237,18 @@ describe('user management follows the tree as well as the role order', () => {
 })
 
 describe('leave that nobody could see', () => {
-  it('keeps a leaver’s waiting request in their manager’s Team Requests', async () => {
-    const req = await apply('leaver', day(4))
+  it('keeps a leaver’s waiting request in their manager’s Team Requests — and cancels the one after they left', async () => {
+    // Last week, while still here: still theirs to decide.
+    const req = await apply('leaver', day(-1))
     expect(req.status, JSON.stringify(req.body)).toBe(201)
+    // After the last working day removing access sets (today): nobody takes leave from a job they have left.
+    const later = await apply('leaver', day(4))
+    expect(later.status, JSON.stringify(later.body)).toBe(201)
     expect((await request(app).delete(`/api/users/${login.leaver}`).set('Authorization', as('boss'))).status).toBe(204)
     const team = await get('mgrM', '/api/leave-requests/team')
-    expect((team.body.data.requests as { id: string }[]).map((r) => r.id)).toContain(req.body.data.id)
+    const ids = (team.body.data.requests as { id: string }[]).map((r) => r.id)
+    expect(ids).toContain(req.body.data.id)
+    expect((await prisma.leaveRequest.findUniqueOrThrow({ where: { id: later.body.data.id } })).status).toBe('cancelled')
     expect((await post('mgrM', `/api/leave-requests/${req.body.data.id}/approve`)).status).toBe(200)
   })
 

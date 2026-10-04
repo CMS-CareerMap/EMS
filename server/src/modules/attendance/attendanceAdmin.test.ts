@@ -32,6 +32,8 @@ const tokens: Record<string, string> = {}
 async function cleanup(): Promise<void> {
   const org = { organization: { name: { startsWith: PREFIX } } }
   await prisma.attendance.deleteMany({ where: org })
+  await prisma.leaveRequest.deleteMany({ where: org })
+  await prisma.leaveType.deleteMany({ where: org })
   await prisma.employee.deleteMany({ where: org })
   await prisma.membership.deleteMany({ where: org })
   await prisma.user.deleteMany({ where: { email: { startsWith: PREFIX } } })
@@ -536,5 +538,97 @@ describe('the day roster', () => {
 
   it('refuses a date it cannot read', async () => {
     expect((await get('/day?date=14-09-2026')).status).toBe(422)
+  })
+})
+
+describe('leave and employment on the days written (marking, import)', () => {
+  const tenth = '2026-04-10'
+  let leaveTypeId = ''
+
+  beforeAll(async () => {
+    leaveTypeId = (await prisma.leaveType.create({ data: { organizationId: orgId, name: 'Casual Leave', code: 'CL', annualQuota: 12 } })).id
+  })
+
+  beforeEach(async () => {
+    await prisma.leaveRequest.deleteMany({ where: { organizationId: orgId } })
+  })
+
+  /** Alice's approved leave on 10 Apr — the whole day or half — with the row approval writes. */
+  async function aliceOnLeave(half: boolean) {
+    await prisma.leaveRequest.create({
+      data: {
+        organizationId: orgId, employeeId: aliceId, leaveTypeId, fromDate: toDateColumn(tenth), toDate: toDateColumn(tenth),
+        halfDayDates: half ? [tenth] : [], days: half ? 0.5 : 1, leaveYear: 2026, reason: 'Test', status: 'approved',
+      },
+    })
+    await prisma.attendance.create({ data: { organizationId: orgId, employeeId: aliceId, date: toDateColumn(tenth), status: 'on_leave', source: 'leave' } })
+  }
+  const mark = (body: object) => request(app).post('/api/attendance/mark').set('Authorization', as('hr')).send(body)
+  const upload = (csv: string, dryRun = true) => request(app).post('/api/attendance/import').set('Authorization', as('hr')).send({ csv, dryRun })
+
+  it('refuses marking work over a whole day of approved leave', async () => {
+    await aliceOnLeave(false)
+    const res = await mark({ employeeId: aliceId, date: tenth, status: 'present', checkIn: '09:30', checkOut: '18:30' })
+    expect(res.status).toBe(409)
+    expect(res.body.error.message).toMatch(/approved leave/)
+  })
+
+  it('grades the worked half of a half day of leave as a half, not a short full day', async () => {
+    await aliceOnLeave(true)
+    // 09:30 to 14:00 less the hour's break: 3½ hours, enough for half of 9 — absent against the whole shift.
+    const res = await mark({ employeeId: aliceId, date: tenth, status: 'present', checkIn: '09:30', checkOut: '14:00' })
+    expect(res.status).toBe(201)
+    expect(res.body.data.status).toBe('half_day')
+  })
+
+  it('import: a whole day of leave is a problem on its line; a half day is graded as a half', async () => {
+    await aliceOnLeave(false)
+    const full = await upload(['employee_id,date,in_time,out_time', `${PREFIX}-alice,10/04/2026,09:30,18:30`].join('\n'))
+    expect(full.body.data.summary.invalid).toBe(1)
+    expect(full.body.data.rows[0].issues[0].message).toMatch(/approved leave/)
+
+    await prisma.leaveRequest.deleteMany({ where: { organizationId: orgId } })
+    await prisma.attendance.deleteMany({ where: { employeeId: aliceId } })
+    await aliceOnLeave(true)
+    const half = await upload(['employee_id,date,in_time,out_time', `${PREFIX}-alice,10/04/2026,09:30,14:00`].join('\n'), false)
+    expect(half.status).toBe(201)
+    const row = await prisma.attendance.findFirstOrThrow({ where: { employeeId: aliceId, date: toDateColumn(tenth) } })
+    expect(row.status).toBe('half_day')
+  })
+
+  it('import: a day with only a check-in is present with a note, never a whole day docked as absent', async () => {
+    const res = await upload(['employee_id,date,in_time,out_time', `${PREFIX}-bob,13/04/2026,09:05,`].join('\n'), false)
+    expect(res.status).toBe(201)
+    const row = await prisma.attendance.findFirstOrThrow({ where: { employeeId: bobId, date: toDateColumn('2026-04-13') } })
+    expect(row.status).toBe('present')
+    expect(row.note).toMatch(/No check-out/)
+  })
+
+  it('refuses a day before somebody joined — marking and import alike', async () => {
+    await prisma.employee.update({ where: { id: strangerId }, data: { dateOfJoining: toDateColumn('2026-05-01') } })
+    try {
+      const marked = await mark({ employeeId: strangerId, date: '2026-04-20', status: 'present', checkIn: '09:30', checkOut: '18:30' })
+      expect(marked.status).toBe(400)
+      expect(marked.body.error.message).toMatch(/joined on 1 May 2026/)
+      const imported = await upload(['employee_id,date,in_time,out_time', `${PREFIX}-stranger,20/04/2026,09:30,18:30`].join('\n'))
+      expect(imported.body.data.rows[0].issues[0].message).toMatch(/joined on 1 May 2026/)
+    } finally {
+      await prisma.employee.update({ where: { id: strangerId }, data: { dateOfJoining: null } })
+    }
+  })
+
+  it('grades a recorded day against the shift it was recorded on, not one assigned since', async () => {
+    // Bob's day was punched on a 13:00–22:00 shift; his shift is now General (09:30–18:30).
+    const late = await prisma.shift.create({ data: { organizationId: orgId, name: 'Late', startTime: '13:00', endTime: '22:00', breakMinutes: 60, expectedHours: 9, earlyLeavingMinutes: 60 } })
+    await prisma.attendance.create({ data: { organizationId: orgId, employeeId: bobId, date: toDateColumn('2026-04-14'), status: 'present', source: 'punch', shiftId: late.id, expectedHours: 9 } })
+    const res = await mark({ employeeId: bobId, date: '2026-04-14', status: 'present', checkIn: '13:00', checkOut: '22:00' })
+    expect(res.status).toBe(201)
+    // Against General this left 3½ hours "late" and the day's status follows the Late shift's rules: present, no early leaving.
+    expect(res.body.data.status).toBe('present')
+    const row = await prisma.attendance.findFirstOrThrow({ where: { employeeId: bobId, date: toDateColumn('2026-04-14') } })
+    expect(row.shiftId).toBe(late.id)
+    expect(row.earlyLeavingMinutes).toBe(0)
+    await prisma.attendance.deleteMany({ where: { shiftId: late.id } })
+    await prisma.shift.delete({ where: { id: late.id } })
   })
 })

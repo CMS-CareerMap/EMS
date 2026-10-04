@@ -127,18 +127,23 @@ export default function BankAccounts() {
                     <td className="px-4 py-3">
                       {canManage && (
                         <div className="flex justify-end gap-1.5">
-                          {a && a.verification_status !== 'verified' && (row.may_check === false ? (
-                            // Own work goes up the company tree (Day 22): whom it goes to instead.
-                            <span className="self-center text-xs text-gray-400 italic">Check goes to {row.check_goes_to}</span>
+                          {row.may_check === false ? (
+                            // Own work goes up the company tree (Day 22) — entering an
+                            // account as much as checking it: whom it goes to instead.
+                            <span className="self-center text-xs text-gray-400 italic">Entered and checked by {row.check_goes_to}</span>
                           ) : (
-                            <button onClick={() => setReviewing(row)} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold">
-                              <ShieldCheck className="w-3.5 h-3.5" /> Check
-                            </button>
-                          ))}
-                          <button onClick={() => setEditing(row)} aria-label={`${a ? 'Edit' : 'Add'} ${row.full_name}'s bank account`}
-                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-700 text-xs font-medium">
-                            {a ? <Pencil className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />} {a ? 'Edit' : 'Add'}
-                          </button>
+                            <>
+                              {a && a.verification_status !== 'verified' && (
+                                <button onClick={() => setReviewing(row)} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold">
+                                  <ShieldCheck className="w-3.5 h-3.5" /> Check
+                                </button>
+                              )}
+                              <button onClick={() => setEditing(row)} aria-label={`${a ? 'Edit' : 'Add'} ${row.full_name}'s bank account`}
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-700 text-xs font-medium">
+                                {a ? <Pencil className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />} {a ? 'Edit' : 'Add'}
+                              </button>
+                            </>
+                          )}
                         </div>
                       )}
                     </td>

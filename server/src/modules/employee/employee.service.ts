@@ -16,9 +16,10 @@ import { buildTree } from '../../domain/org/companyTree'
 import { namesOf, treePeople } from '../organization/tree.repository'
 import { findApprovalRules } from '../organization/organization.repository'
 import { tellNewApprovers } from '../leave/leaveNotices'
+import { settleLeaveAfter } from '../leave/leaveApproval.service'
 import * as lifecycleRepo from '../lifecycle/lifecycle.repository'
 import { lifecycleSettings } from '../lifecycle/lifecycle.repository'
-import { assertMayChangeEmployment } from '../organization/workRules.service'
+import { assertMayChangeEmployment, assertMayChangeRecord } from '../organization/workRules.service'
 import { assertOpenFrom } from '../payroll/payrollLock.service'
 import { companyToday } from '../organization/organization.service'
 import { defaultProbationEnd } from '../../domain/org/lifecycle'
@@ -521,6 +522,10 @@ export async function updateEmployee(
   const joiningChanged = input.dateOfJoining !== undefined && input.dateOfJoining !== joinedBefore
   // The joining date too: it moves pay and the end of probation.
   if (designationChanged || departmentChanged || lastDayChanged || joiningChanged) await assertMayChangeEmployment(ctx, ctx.db, existing.id)
+  // And the rest of the record — whether PF applies, a PAN, a shift change
+  // somebody's pay: never one's own, a fellow HR person's or a senior's
+  // (client §27, Day 22). Those go up the tree, as a profile change request does.
+  await assertMayChangeRecord(ctx, ctx.db, existing.id)
   // Pay is worked out from both dates: a month whose payroll is approved keeps them.
   if (lastDayChanged) {
     const earlier = [lastDayBefore, lastDayAfter].filter((d): d is string => Boolean(d)).sort()[0]!
@@ -601,6 +606,9 @@ export async function updateEmployee(
     if (Object.keys(data).length > 0) {
       await repo.updateEmployee(tx, id, data)
     }
+    // A last working day set here, as by an accepted resignation: no leave is
+    // taken from a job they will have left.
+    if (lastDayChanged && lastDayAfter) await settleLeaveAfter(ctx, tx, id, lastDayAfter)
 
     // The work record's old and new values are written out. Contact, personal
     // and statutory details are named only (below): a PAN or a phone number

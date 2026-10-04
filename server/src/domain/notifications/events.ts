@@ -88,6 +88,12 @@ export const NOTIFICATION_EVENTS = {
     label: 'Bank details are verified or rejected',
     tells: 'The employee they belong to',
   },
+  // A security notice: where somebody's salary goes was changed by somebody else.
+  'bank.changed': {
+    kind: 'bank', group: 'Bank accounts', optional: false,
+    label: 'Somebody else changes an employee’s salary account',
+    tells: 'The employee it belongs to',
+  },
   // Requests (client §28–29): attendance corrections, working from home or on duty, overtime, profile changes.
   'request.submitted': {
     kind: 'system', group: 'Requests', optional: true,

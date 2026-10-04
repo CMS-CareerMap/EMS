@@ -3,6 +3,7 @@ import type { ScopedDb } from '../../platform/db/scoped'
 import type { TxDb } from '../../platform/db/transaction'
 import type { ScopeContext } from '../../platform/authz/scope'
 import { employeesInScope, ownedRowsInScope } from '../../platform/authz/scopeWhere'
+import { toDateColumn, type CalendarDate } from '../../domain/shared/dates'
 
 /**
  * Leave requests and balances.
@@ -204,6 +205,14 @@ export async function balancesFor(
       encashable: type.encashable,
       halfDayAllowed: type.halfDayAllowed,
     }
+  })
+}
+
+/** Waiting or approved leave that starts after a day — all of it, when there is no day (never joined). */
+export async function requestsAfter(db: TxDb, employeeId: string, day: CalendarDate | null) {
+  return db.leaveRequest.findMany({
+    where: { employeeId, status: { in: ['pending', 'approved'] }, ...(day ? { fromDate: { gt: toDateColumn(day) } } : {}) },
+    select: { id: true, status: true, leaveTypeId: true, leaveYear: true, days: true, fromDate: true, toDate: true },
   })
 }
 
