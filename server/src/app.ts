@@ -23,6 +23,7 @@ import { notificationsRouter } from './http/routes/notifications.routes'
 import { reportsRouter } from './http/routes/reports.routes'
 import { auditRouter } from './http/routes/audit.routes'
 import { lifecycleRouter } from './http/routes/lifecycle.routes'
+import { requestsRouter } from './http/routes/requests.routes'
 import { leaveBalancesRouter } from './http/routes/leaveBalances.routes'
 import { rolesRouter } from './http/routes/roles.routes'
 import { companyTreeRouter } from './http/routes/companyTree.routes'
@@ -88,6 +89,7 @@ export function createApp() {
   app.use('/api/reports', reportsRouter)
   app.use('/api/audit-log', auditRouter)
   app.use('/api/lifecycle', lifecycleRouter)
+  app.use('/api/requests', requestsRouter)
 
   // Express 5 uses path-to-regexp v8: a bare '*' throws at startup.
   app.use('/{*splat}', notFound)

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Check, X, Edit2, Archive, Loader2 } from 'lucide-react'
+import { Plus, Check, X, Edit2, Archive, Loader2, SlidersHorizontal } from 'lucide-react'
 import { useMasterData } from '../../hooks/useEmployees'
 import {
   useAddNamed, useRenameNamed, useArchiveNamed,
@@ -7,6 +7,8 @@ import {
 } from '../../hooks/useMasterDataAdmin'
 import DataState from '../../components/DataState'
 import ConfirmDialog from '../../components/ConfirmDialog'
+import ShiftRulesDialog from './ShiftRulesDialog'
+import { rulesSummary } from '../../lib/rules'
 
 /**
  * The company's departments, designations and shifts.
@@ -155,6 +157,7 @@ function Shifts({ rows }) {
   const [editId, setEditId] = useState(null)
   const [editForm, setEditForm] = useState(EMPTY_SHIFT)
   const [archiving, setArchiving] = useState(null)
+  const [ruling, setRuling] = useState(null)
 
   async function handleAdd(e) {
     e.preventDefault()
@@ -189,7 +192,7 @@ function Shifts({ rows }) {
   )
 
   return (
-    <Card title="Shifts" desc="Daily hours are read against a shift's expected hours. Changing a shift affects days recorded from now on — past days keep what they were measured against.">
+    <Card title="Shifts" desc="Daily hours are read against a shift's expected hours, and its rules (the sliders button) mark lateness, leaving early and overtime. Changing a shift affects days recorded from now on — past days keep what they were measured against.">
       <div className="border border-gray-200 rounded-xl overflow-x-auto">
         <table className="w-full min-w-160">
           <thead>
@@ -212,12 +215,16 @@ function Shifts({ rows }) {
                   </>
                 ) : (
                   <>
-                    <td className="px-3 py-2.5 text-sm font-medium text-gray-900">{row.name}</td>
+                    <td className="px-3 py-2.5">
+                      <p className="text-sm font-medium text-gray-900">{row.name}</p>
+                      <p className="text-xs text-gray-400">{rulesSummary(row)}</p>
+                    </td>
                     <td className="px-3 py-2.5 text-sm text-gray-700">{row.start_time}</td>
                     <td className="px-3 py-2.5 text-sm text-gray-700">{row.end_time}</td>
                     <td className="px-3 py-2.5 text-sm text-gray-700">{row.break_minutes}</td>
                     <td className="px-3 py-2.5 text-sm text-gray-700">{row.expected_hours}</td>
                     <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                      <button onClick={() => setRuling(row)} className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600" title="Rules: grace, late, overtime" aria-label={`Rules of ${row.name}`}><SlidersHorizontal className="w-3.5 h-3.5" /></button>
                       <button onClick={() => startEdit(row)} className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600" title="Edit"><Edit2 className="w-3.5 h-3.5" /></button>
                       <button onClick={() => setArchiving(row)} disabled={archive.isPending} className="p-1.5 rounded-lg hover:bg-amber-50 text-gray-400 hover:text-amber-600" title="Archive"><Archive className="w-3.5 h-3.5" /></button>
                     </td>
@@ -238,6 +245,8 @@ function Shifts({ rows }) {
           </tbody>
         </table>
       </div>
+
+      {ruling && <ShiftRulesDialog shift={ruling} onClose={() => setRuling(null)} />}
 
       {archiving && (
         <ConfirmDialog title={`Archive the "${archiving.name}" shift?`} confirmLabel="Archive" danger

@@ -48,7 +48,7 @@ enum BankVerificationStatus {
 }
 
 model Employee {
-  id             String  @id @default(uuid())
+  id             String @id @default(uuid())
   organizationId String
 
   employeeCode  String
@@ -71,12 +71,12 @@ model Employee {
   /// probation; confirmed; a resignation → resigned, then serving notice.
   ///
   /// The day HR finished onboarding them. Null while onboarding is open.
-  onboardedOn      DateTime? @db.Date
+  onboardedOn      DateTime?   @db.Date
   /// When their probation ends — the company's probation months from joining,
   /// unless HR set or extended it.
-  probationEndDate DateTime? @db.Date
+  probationEndDate DateTime?   @db.Date
   /// The day they were confirmed. Null while on probation.
-  confirmedOn      DateTime? @db.Date
+  confirmedOn      DateTime?   @db.Date
   /// Why they left, once their exit is complete.
   exitReason       ExitReason?
 
@@ -100,7 +100,18 @@ model Employee {
   designationId String?
   shiftId       String?
 
-  attendanceMode AttendanceMode @default(app)
+  attendanceMode  AttendanceMode  @default(app)
+  /// Office, hybrid (home on approved days) or remote (client §33).
+  workArrangement WorkArrangement @default(office)
+
+  /// Personal details (client §42). Shown to the person and to whoever reads
+  /// statutory details; changed by them only through a profile change request.
+  dateOfBirth              DateTime? @db.Date
+  nationality              String?
+  address                  String?
+  emergencyContactName     String?
+  emergencyContactRelation String?
+  emergencyContactPhone    String?
 
   /// Overrides the organization's values when an employee sits elsewhere.
   country  String @default("IN")
@@ -145,6 +156,8 @@ model Employee {
   documents         EmployeeDocument[]
   employmentEvents  EmploymentEvent[]
   resignations      Resignation[]
+  requests          EmployeeRequest[]
+  loans             EmployeeLoan[]
 
   @@unique([organizationId, employeeCode])
   @@index([organizationId, archivedAt])

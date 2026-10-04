@@ -1,0 +1,99 @@
+/// Requests (client §28–29): one approval engine for everything an employee
+/// asks for besides leave — a correction to a day's attendance, working from
+/// home or on duty, overtime, a change to their profile. One level only: the
+/// person whose decision it is approves or rejects, and that is the end of it.
+
+/// What is asked for.
+enum RequestType {
+  /// "My punch is wrong / missing for this day."
+  attendance_correction
+  /// Working from home on these days: no office location needed to check in.
+  work_from_home
+  /// Out on company work (a client visit, business travel): the same, as on duty.
+  on_duty
+  /// Extra hours worked beyond the shift, to be paid.
+  overtime
+  /// A change to their own personal details, which they cannot edit themselves.
+  profile_change
+  /// Unused leave turned into pay (client §36), paid with the month's salary.
+  leave_encashment
+}
+
+enum RequestStatus {
+  pending
+  approved
+  rejected
+  withdrawn
+}
+
+/// Who decides a type of request (Settings → Approvals).
+enum RequestApprover {
+  /// The person they report to in the company tree — as with leave.
+  manager
+  /// Whoever does that kind of work: attendance for a correction, employee
+  /// records for a profile change — within their reach, never their own.
+  hr
+}
+
+/// Where a day was worked from (client §33), set when they check in.
+enum WorkMode {
+  office
+  wfh
+  on_duty
+  remote
+}
+
+/// How somebody works as a rule (client §33).
+enum WorkArrangement {
+  /// At the office; checks in within the office location.
+  office
+  /// At the office, working from home on approved days.
+  hybrid
+  /// Remotely: no office location is ever needed to check in.
+  remote
+}
+
+/// One request. `details` holds what its type needs — the day and the times
+/// for a correction, the minutes for overtime, the fields for a profile change.
+model EmployeeRequest {
+  id             String @id @default(uuid())
+  organizationId String
+  employeeId     String
+
+  /// The number people quote: "REQ-1042".
+  number Int @default(autoincrement())
+
+  type   RequestType
+  status RequestStatus @default(pending)
+
+  /// The day — or the first and last days — it is about. Null for a profile change.
+  fromDate DateTime? @db.Date
+  toDate   DateTime? @db.Date
+
+  details Json   @default("{}")
+  reason  String
+
+  submittedByUserId String
+
+  /// What decided it: who, when, and — for a rejection — why.
+  decidedByUserId String?
+  decidedAt       DateTime? @db.Timestamptz(3)
+  decisionNote    String?
+
+  /// One optional file in support — a photo of the gate register, a letter.
+  attachmentKey    String?
+  attachmentName   String?
+  attachmentType   String?
+  attachmentBytes  Int?
+  attachmentSha256 String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, number])
+  @@index([organizationId, status])
+  @@index([organizationId, employeeId, type])
+}

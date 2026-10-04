@@ -28,14 +28,7 @@ export const getMasterData: RequestHandler = async (_req, res) => {
     data: {
       departments: data.departments,
       designations: data.designations,
-      shifts: data.shifts.map((shift) => ({
-        id: shift.id,
-        name: shift.name,
-        start_time: shift.startTime,
-        end_time: shift.endTime,
-        break_minutes: shift.breakMinutes,
-        expected_hours: Number(shift.expectedHours),
-      })),
+      shifts: data.shifts.map((row) => ({ ...shiftRules(row), id: row.id, name: row.name })),
     },
     meta: { requestId: res.locals.requestId },
   })
@@ -45,22 +38,40 @@ function named(row: { id: string; name: string; archivedAt: Date | null }) {
   return { id: row.id, name: row.name, archived: row.archivedAt !== null }
 }
 
-function shift(row: {
-  id: string
-  name: string
+interface ShiftRow {
   startTime: string
   endTime: string
   breakMinutes: number
   expectedHours: Prisma.Decimal
-  archivedAt: Date | null
-}) {
+  graceMinutes: number
+  lateThresholdMinutes: number | null
+  earlyLeavingMinutes: number | null
+  minFullDayHours: Prisma.Decimal | null
+  minHalfDayHours: Prisma.Decimal | null
+  overtimeAfterMinutes: number
+}
+
+/** A shift's times and rules (client §34). */
+function shiftRules(row: ShiftRow) {
   return {
-    id: row.id,
-    name: row.name,
     start_time: row.startTime,
     end_time: row.endTime,
     break_minutes: row.breakMinutes,
     expected_hours: Number(row.expectedHours),
+    grace_minutes: row.graceMinutes,
+    late_threshold_minutes: row.lateThresholdMinutes,
+    early_leaving_minutes: row.earlyLeavingMinutes,
+    min_full_day_hours: row.minFullDayHours === null ? null : Number(row.minFullDayHours),
+    min_half_day_hours: row.minHalfDayHours === null ? null : Number(row.minHalfDayHours),
+    overtime_after_minutes: row.overtimeAfterMinutes,
+  }
+}
+
+function shift(row: ShiftRow & { id: string; name: string; archivedAt: Date | null }) {
+  return {
+    id: row.id,
+    name: row.name,
+    ...shiftRules(row),
     archived: row.archivedAt !== null,
   }
 }

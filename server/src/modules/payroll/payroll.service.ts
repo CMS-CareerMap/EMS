@@ -7,11 +7,14 @@ import {
   withWagesShare,
   type SalaryResult,
   type SalaryComponentValue,
+  type SalaryInput,
 } from '../../domain/payroll/salary'
+import { minutesLabel } from '../../domain/attendance/shiftRules'
+import { requestNumber } from '../../domain/requests/requests'
 import { monthCalendar, proration, type LopBasis } from '../../domain/payroll/payDays'
 import { isEpsMember, type Gender, type PtSlabRule } from '../../domain/payroll/statutory'
 import type { Weekday } from '../../domain/leave/leaveDays'
-import { toDateColumn, fromDateColumn, type CalendarDate } from '../../domain/shared/dates'
+import { toDateColumn, fromDateColumn, dayLabel, type CalendarDate } from '../../domain/shared/dates'
 import { listDaysOff } from '../holidays/holidays.repository'
 import { coverageFor, type Coverage } from './esiCoverage.service'
 import * as repo from './payroll.repository'
@@ -110,9 +113,17 @@ export interface Calculation {
     epsMember: boolean
     ptState: string | null
     ptGender: Gender
+    /** Approved overtime paid this month (client §35), and how. */
+    overtime: { minutes: number; rate: number; basis: 'gross' | 'basic'; amount: number; requests: string[] } | null
+    /** Leave encashed and paid this month (client §36). */
+    encashment: { days: number; basis: 'gross' | 'basic'; dayPay: number; amount: number; requests: string[] } | null
+    /** Loans and advances recovered this month (client §40), and what is left of each after. */
+    loans: { loanId: string; kind: 'loan' | 'advance'; amount: number; leftAfter: number }[]
     /** Set when something was missing and the calculation had to assume. */
     warnings: string[]
   }
+  /** What this month recovers of each loan — written beside the payslip, so a draft discarded takes it back. */
+  recoveries: { loanId: string; amount: number }[]
 }
 
 /**
@@ -237,6 +248,8 @@ export async function calculate(
     amount: Number(row.amount),
     type: row.component.type,
     countsForPf: row.component.countsForPf,
+    countsForEsi: row.component.countsForEsi,
+    countsForPt: row.component.countsForPt,
     entry: 'fixed',
   }))
 
@@ -272,6 +285,8 @@ export async function calculate(
         amount,
         type: component.type,
         countsForPf: component.countsForPf,
+        countsForEsi: component.countsForEsi,
+        countsForPt: component.countsForPt,
         entry: 'monthly',
       })
     }
@@ -304,6 +319,32 @@ export async function calculate(
 
   if (days.fellBackToCalendar) {
     warnings.push('The calendar has no working days this month, so pay was divided by calendar days instead.')
+  }
+
+  // Approved overtime and leave encashment (client §35–36), paid as entered
+  // lines: a day's pay is the month's fixed earnings on the company's basis —
+  // all of them, or those that count for PF — over the month's pay days, as
+  // for loss of pay; an hour's is that over the day's expected hours.
+  const fullMonth = (basis: 'gross' | 'basic') =>
+    financial.components
+      .filter((row) => row.component.type === 'earning' && row.component.entry === 'fixed' && (basis === 'gross' || row.component.countsForPf))
+      .reduce((sum, row) => sum + Number(row.amount), 0)
+  const dayPay = (basis: 'gross' | 'basic') => (days.payBasisDays > 0 ? fullMonth(basis) / days.payBasisDays : 0)
+  const overtime = await overtimePay(ctx, employeeId, year, month, policy, dayPay(policy.overtimeBasis), warnings)
+  if (overtime && overtime.amount > 0) {
+    components.push({ code: 'OT', label: 'Overtime', amount: overtime.amount, type: 'earning', countsForPf: false, countsForEsi: true, countsForPt: true, entry: 'monthly' })
+  }
+  const encashed = await repo.encashmentsPaidIn(ctx.db, employeeId, year, month)
+  const encashedDays = encashed.reduce((sum, r) => sum + Number((r.details as { days?: number }).days ?? 0), 0)
+  if (encashedDays > 0 && !(dayPay(policy.encashmentBasis) > 0)) {
+    warnings.push(`${encashedDays} day${encashedDays === 1 ? '' : 's'} of leave were encashed, but the salary has no ${policy.encashmentBasis === 'basic' ? 'Basic or DA' : 'fixed earnings'} to work a day's pay out from, so nothing was paid. Check Settings → Payroll Config.`)
+  }
+  const encashment = encashedDays > 0
+    ? { days: encashedDays, basis: policy.encashmentBasis, dayPay: paise(dayPay(policy.encashmentBasis)), amount: paise(encashedDays * dayPay(policy.encashmentBasis)), requests: encashed.map((r) => requestNumber(r.number)) }
+    : null
+  if (encashment && encashment.amount > 0) {
+    // Outside ESI wages, as the ESIC reads leave encashment; inside the PT gross.
+    components.push({ code: 'LEAVE_ENC', label: 'Leave encashment', amount: encashment.amount, type: 'earning', countsForPf: false, countsForEsi: false, countsForPt: true, entry: 'monthly' })
   }
 
   const identity = employee.statutoryIdentity
@@ -364,7 +405,7 @@ export async function calculate(
 
   const esi = await coverageFor(ctx, employeeId, year, month)
 
-  const result = computeSalary({
+  const input: SalaryInput = {
     components,
     paidDays: days.paidDays,
     daysInMonth: total,
@@ -388,7 +429,19 @@ export async function calculate(
     },
     pt: { state: ptState, gender: ptGender, slabs },
     tds: options.tds ?? 0,
-  })
+  }
+
+  // Loans and advances (client §40): this month's installment of each, taken
+  // only from what the month pays — never into a negative salary.
+  const beforeLoans = computeSalary(input)
+  const loans = await loanRecoveries(ctx, employeeId, year, month, beforeLoans.netPayable, warnings)
+  for (const kind of ['loan', 'advance'] as const) {
+    const amount = paise(loans.filter((l) => l.kind === kind).reduce((sum, l) => sum + l.amount, 0))
+    if (amount > 0) {
+      components.push({ code: kind === 'loan' ? 'LOAN' : 'ADVANCE', label: kind === 'loan' ? 'Loan recovery' : 'Salary advance recovery', amount, type: 'deduction', countsForPf: false, entry: 'monthly' })
+    }
+  }
+  const result = loans.length > 0 ? computeSalary(input) : beforeLoans
 
   if (result.netPayable < 0) {
     warnings.push('Deductions exceed earnings this month, so net pay is negative.')
@@ -429,9 +482,91 @@ export async function calculate(
       epsMember,
       ptState,
       ptGender,
+      overtime,
+      encashment,
+      loans: loans.map((l) => ({ loanId: l.loanId, kind: l.kind, amount: l.amount, leftAfter: l.leftAfter })),
       warnings,
     },
+    recoveries: loans.map((l) => ({ loanId: l.loanId, amount: l.amount })),
   }
+}
+
+/** Two decimal places, as every amount on a payslip. */
+const paise = (value: number) => Math.round(value * 100) / 100
+
+/**
+ * The month's approved overtime, paid at the company's rate (client §35). An
+ * approved claim pays no more than the day still records — a day corrected
+ * down after approval pays what it now shows, and says so.
+ */
+async function overtimePay(
+  ctx: AppContext,
+  employeeId: string,
+  year: number,
+  month: number,
+  policy: { overtimeRate: unknown; overtimeBasis: 'gross' | 'basic' },
+  dayPay: number,
+  warnings: string[],
+) {
+  const { requests, days } = await repo.approvedOvertimeIn(ctx.db, employeeId, year, month)
+  if (requests.length === 0) return null
+  if (!(dayPay > 0)) {
+    warnings.push(`Overtime was approved (${requests.map((r) => requestNumber(r.number)).join(', ')}), but the salary has no ${policy.overtimeBasis === 'basic' ? 'Basic or DA' : 'fixed earnings'} to work an hour's pay out from, so none was paid. Check Settings → Payroll Config.`)
+    return null
+  }
+  // An approved claim is paid, at the rate of the month it is paid in — the
+  // switch decides whether overtime can be claimed, not whether a claim
+  // already approved is honoured.
+  const rate = Number(policy.overtimeRate)
+  const byDate = new Map(days.map((d) => [fromDateColumn(d.date), d]))
+  let minutes = 0
+  let amount = 0
+  for (const r of requests) {
+    const date = fromDateColumn(r.fromDate)
+    if (!date) continue
+    const day = byDate.get(date)
+    const asked = Number((r.details as { minutes?: number }).minutes ?? 0)
+    const paid = Math.min(asked, day?.overtimeMinutes ?? 0)
+    if (paid < asked) {
+      warnings.push(`${requestNumber(r.number)} approved ${minutesLabel(asked)} of overtime on ${dayLabel(date)}, but that day now records ${minutesLabel(day?.overtimeMinutes ?? 0)}; ${minutesLabel(paid)} was paid.`)
+    }
+    let expected = Number(day?.expectedHours ?? day?.shift?.expectedHours ?? 0)
+    if (!(expected > 0)) {
+      expected = 8
+      warnings.push(`No shift hours are recorded for ${dayLabel(date)}, so an hour of overtime was paid as an eighth of a day.`)
+    }
+    minutes += paid
+    amount += (paid / 60) * (dayPay / expected) * rate
+  }
+  return { minutes, rate, basis: policy.overtimeBasis, amount: paise(amount), requests: requests.map((r) => requestNumber(r.number)) }
+}
+
+/**
+ * This month's installment of each loan and advance still owed (client §40):
+ * the installment, or what is left if less — and no more than the month pays,
+ * so a short month recovers less rather than paying a negative salary.
+ * What other months' payslips recovered is counted; this month's own draft is
+ * not, so recalculating it never recovers twice.
+ */
+async function loanRecoveries(ctx: AppContext, employeeId: string, year: number, month: number, netBeforeLoans: number, warnings: string[]) {
+  const loans = await repo.loansRecoveringIn(ctx.db, employeeId, year, month)
+  let room = Math.max(0, netBeforeLoans)
+  const out: { loanId: string; kind: 'loan' | 'advance'; amount: number; leftAfter: number }[] = []
+  for (const loan of loans) {
+    const recovered = loan.recoveries
+      .filter((r) => !(r.payslip.year === year && r.payslip.month === month))
+      .reduce((sum, r) => sum + Number(r.amount), 0)
+    const left = paise(Number(loan.amount) - recovered)
+    if (left <= 0) continue
+    const due = Math.min(Number(loan.installment), left)
+    const take = paise(Math.min(due, room))
+    const what = loan.kind === 'loan' ? 'loan' : 'salary advance'
+    if (take < due) warnings.push(`Only ₹${take} of this month’s ₹${due} ${what} installment was recovered — the month’s pay does not cover more. The rest stays owed.`)
+    if (take <= 0) continue
+    room = paise(room - take)
+    out.push({ loanId: loan.id, kind: loan.kind, amount: take, leftAfter: paise(left - take) })
+  }
+  return out
 }
 
 export async function listComponents(ctx: AppContext) {

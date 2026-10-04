@@ -47,6 +47,10 @@ export const TENANT_MODELS = [
   'NotificationSetting',
   'EmploymentEvent',
   'Resignation',
+  'EmployeeRequest',
+  'EmployeeLoan',
+  'LoanRecovery',
+  'EmailOutbox',
 ] as const
 
 export const TENANT_MODEL_SET: ReadonlySet<string> = new Set(TENANT_MODELS)

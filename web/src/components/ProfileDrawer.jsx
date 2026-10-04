@@ -7,6 +7,7 @@ import { changePassword } from '../api/auth'
 import { useAuthStore } from '../stores/authStore'
 import MyBankAccount from '../features/payroll/MyBankAccount'
 import MyEmployment from '../features/employees/MyEmployment'
+import MyDetails from '../features/requests/MyDetails'
 import { useEscape } from '../hooks/useEscape'
 import { useMyDashboardStats } from '../hooks/useDashboard'
 import { roleLabel } from '../lib/roles'
@@ -314,6 +315,8 @@ export default function ProfileDrawer() {
             {/* Where they stand from joining to leaving, and their resignation (client §43). */}
             {profile && (
               <>
+                <MyDetails />
+                <hr className="border-gray-100" />
                 <MyEmployment />
                 <hr className="border-gray-100" />
               </>

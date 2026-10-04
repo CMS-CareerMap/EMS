@@ -14,6 +14,7 @@ import { audit } from '../audit/audit.service'
 import { assertMonthsOpen, monthsBetween } from '../payroll/payrollLock.service'
 import { tellApplicant } from './leaveNotices'
 import { requestToAct } from './leaveApprover.service'
+import { halfDayNote, type HalfDaySession } from '../../domain/leave/rules'
 
 /**
  * Deciding on leave.
@@ -56,6 +57,7 @@ export interface ApprovableRequest {
   fromDate: Date
   toDate: Date
   halfDayDates: string[]
+  halfDaySessions?: unknown
 }
 
 /**
@@ -141,7 +143,7 @@ export async function recordApproval(
       // half are whatever they actually punched — not something this can
       // invent. Null says "not recorded", which is true.
       hoursWorked: null,
-      note: day.counted === 0.5 ? 'Half day leave' : null,
+      note: day.counted === 0.5 ? halfDayNote((request.halfDaySessions as Record<string, HalfDaySession> | null)?.[day.date]) : null,
       markedByUserId: ctx.userId,
     })
   }

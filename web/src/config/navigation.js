@@ -8,6 +8,7 @@ import {
   FileText,
   BarChart2,
   Settings,
+  Inbox,
 } from 'lucide-react'
 import { DECIDES_LEAVE } from '../stores/authStore'
 
@@ -33,6 +34,9 @@ export const NAV_GROUPS = [
       // Or deciding somebody's leave (Day 22): whoever has people under them
       // approves their leave, whatever their role's leave rights.
       { to: '/leave', icon: CalendarDays, label: 'Leave', permission: ['leave:read', DECIDES_LEAVE] },
+      // Requests (client §28–29): anybody who asks for leave asks here too; and
+      // whoever decides — the person somebody reports to, or HR.
+      { to: '/requests', icon: Inbox, label: 'Requests', permission: ['leave:apply', 'attendance:update', 'employee:update', 'leave:balance:manage', DECIDES_LEAVE] },
       // Any of these: HR enters Incentive here without seeing anybody's pay,
       // and a role given only bank accounts reaches its Bank accounts tab.
       { to: '/payroll', icon: Wallet, label: 'Payroll', permission: ['payroll:structure:read', 'payroll:entry:manage', 'employee:bank:read'] },

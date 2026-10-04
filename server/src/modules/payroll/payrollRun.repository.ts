@@ -87,6 +87,28 @@ export async function attendanceForMonth(db: ScopedDb, employeeIds: string[], mo
   })
 }
 
+/**
+ * Requests still waiting that would change this month's pay (client §29, §35,
+ * §36): a correction for one of its days, overtime for one of its days or an
+ * earlier one, and leave encashment.
+ */
+export async function pendingRequestsForMonth(db: ScopedDb, employeeIds: string[], monthStart: Date, monthEnd: Date) {
+  return db.employeeRequest.findMany({
+    where: {
+      employeeId: { in: employeeIds },
+      status: 'pending',
+      OR: [
+        { type: 'attendance_correction', fromDate: { gte: monthStart, lte: monthEnd } },
+        // Overtime from an earlier month, signed off since, is paid with this one once approved.
+        { type: 'overtime', fromDate: { lte: monthEnd } },
+        { type: 'leave_encashment' },
+      ],
+    },
+    select: { employeeId: true, number: true, type: true, fromDate: true },
+    orderBy: { number: 'asc' },
+  })
+}
+
 /** Approved leave, and leave still waiting for a decision, that touches the month. */
 export async function leaveForMonth(db: ScopedDb, employeeIds: string[], monthStart: Date, monthEnd: Date) {
   return db.leaveRequest.findMany({
@@ -214,6 +236,8 @@ export interface NewPayslip {
   basis: Prisma.InputJsonValue
   warnings: string[]
   lines: NewPayslipLine[]
+  /** What it recovers of each loan or advance (client §40). */
+  recoveries: { loanId: string; amount: number }[]
 }
 
 /**
@@ -230,7 +254,7 @@ export async function insertPayslips(
   const rows = payslips.map((slip) => ({ id: randomUUID(), slip }))
 
   await tx.payslip.createMany({
-    data: rows.map(({ id, slip: { lines: _lines, ...values } }) => ({
+    data: rows.map(({ id, slip: { lines: _lines, recoveries: _recoveries, ...values } }) => ({
       ...values,
       id,
       organizationId,
@@ -242,6 +266,11 @@ export async function insertPayslips(
     slip.lines.map((line) => ({ ...line, organizationId, payslipId: id })),
   )
   if (lines.length > 0) await tx.payslipLine.createMany({ data: lines })
+
+  const recoveries = rows.flatMap(({ id, slip }) =>
+    slip.recoveries.map((r) => ({ organizationId, loanId: r.loanId, payslipId: id, amount: r.amount })),
+  )
+  if (recoveries.length > 0) await tx.loanRecovery.createMany({ data: recoveries })
 }
 
 /** Lines go with them — the foreign key cascades. */

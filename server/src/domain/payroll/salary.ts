@@ -42,6 +42,13 @@ export interface SalaryComponentValue {
    * the arithmetic treated a decision as a rate.
    */
   entry?: 'fixed' | 'monthly'
+  /**
+   * Whether an earning counts in the wages ESI is paid on, and in the gross
+   * professional tax is worked out from (client §40). Left out: it counts, as
+   * every earning did before these existed. A bonus is usually outside ESI.
+   */
+  countsForEsi?: boolean
+  countsForPt?: boolean
 }
 
 export interface SalaryInput {
@@ -180,6 +187,8 @@ export function computeSalary(input: SalaryInput): SalaryResult {
 
   let grossEarnings = 0
   let pfWagesFull = 0
+  let esiGross = 0
+  let ptGross = 0
 
   for (const component of input.components) {
     const amount =
@@ -195,6 +204,8 @@ export function computeSalary(input: SalaryInput): SalaryResult {
       // half the PF wages — contributions follow what was earned, not what the
       // contract says.
       if (component.countsForPf) pfWagesFull = paise(pfWagesFull + amount)
+      if (component.countsForEsi !== false) esiGross = paise(esiGross + amount)
+      if (component.countsForPt !== false) ptGross = paise(ptGross + amount)
     } else {
       componentDeductions.push({ code: component.code, label: component.label, amount })
     }
@@ -224,7 +235,7 @@ export function computeSalary(input: SalaryInput): SalaryResult {
     : null
 
   const esi = computeEsi({
-    grossPaid: grossEarnings,
+    grossPaid: esiGross,
     employeeRate: input.esi.employeeRate,
     employerRate: input.esi.employerRate,
     covered: input.esi.covered,
@@ -235,7 +246,7 @@ export function computeSalary(input: SalaryInput): SalaryResult {
     gender: input.pt.gender,
     // Against the gross actually paid. A month of unpaid leave that drops
     // somebody into a lower slab genuinely lowers their PT.
-    gross: grossEarnings,
+    gross: ptGross,
     month: input.month,
     slabs: input.pt.slabs,
   })

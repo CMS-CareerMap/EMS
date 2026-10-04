@@ -3,6 +3,7 @@ import {
   deleteAll,
   getNotifications,
   getNotificationSettings,
+  getEmailStatus,
   getUnreadCount,
   postRead,
   postReadAll,
@@ -20,6 +21,7 @@ export const notificationsRouter = Router()
 notificationsRouter.use(authenticate)
 
 notificationsRouter.get('/settings', authorize('settings:read'), getNotificationSettings)
+notificationsRouter.get('/email-status', authorize('settings:read'), getEmailStatus)
 notificationsRouter.put('/settings', authorize('settings:update'), putNotificationSettings)
 
 notificationsRouter.get('/', authorize('notification:read'), getNotifications)

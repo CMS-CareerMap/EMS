@@ -1,5 +1,5 @@
 import type { AppContext } from '../../platform/context'
-import { NotFound, Conflict } from '../../platform/errors/AppError'
+import { BadRequest, NotFound, Conflict } from '../../platform/errors/AppError'
 import { logger } from '../../platform/logger'
 import * as repo from './masterData.repository'
 import { withAudit } from '../audit/audit.service'
@@ -100,7 +100,23 @@ export async function archiveNamed(ctx: AppContext, kind: repo.NamedKind, id: st
   return archived
 }
 
-export async function addShift(ctx: AppContext, input: Required<repo.ShiftFields>) {
+/**
+ * A shift's hours that add up (client §34): a full day needs no more than the
+ * shift's expected hours — or nobody working it would ever be present — and a
+ * half day less than a full one.
+ */
+function assertHoursFit(s: { expectedHours: unknown; minFullDayHours?: unknown; minHalfDayHours?: unknown }): void {
+  const expected = Number(s.expectedHours)
+  const full = s.minFullDayHours == null ? expected * 0.75 : Number(s.minFullDayHours)
+  const half = s.minHalfDayHours == null ? expected * 0.5 : Number(s.minHalfDayHours)
+  if (s.minFullDayHours != null && full > expected) {
+    throw BadRequest(`A full day cannot need more than the shift's ${expected} hours.`)
+  }
+  if (half > full) throw BadRequest(`A half day (${half} h) cannot need more hours than a full day (${full} h).`)
+}
+
+export async function addShift(ctx: AppContext, input: Required<repo.ShiftFields> & repo.ShiftRuleFields) {
+  assertHoursFit(input)
   const existing = await repo.findShiftByName(ctx.db, input.name.trim())
   if (existing && !existing.archivedAt) throw Conflict(`A shift called "${existing.name}" already exists`)
 
@@ -127,7 +143,7 @@ export async function addShift(ctx: AppContext, input: Required<repo.ShiftFields
  * recorded keep the expected hours they were measured against — the attendance
  * row stores its own copy — so editing a shift never rewrites last month.
  */
-export async function editShift(ctx: AppContext, id: string, input: repo.ShiftFields) {
+export async function editShift(ctx: AppContext, id: string, input: repo.ShiftFields & repo.ShiftRuleFields) {
   const row = await repo.findShiftById(ctx.db, id)
   if (!row) throw NotFound('That shift does not exist')
 
@@ -135,11 +151,23 @@ export async function editShift(ctx: AppContext, id: string, input: repo.ShiftFi
     const clash = await repo.findShiftByName(ctx.db, input.name.trim())
     if (clash && clash.id !== id) throw Conflict(`A shift called "${clash.name}" already exists`)
   }
+  // Checked against what is stored, as changed: a change to one figure can upset another.
+  assertHoursFit({
+    expectedHours: input.expectedHours ?? row.expectedHours,
+    minFullDayHours: input.minFullDayHours !== undefined ? input.minFullDayHours : row.minFullDayHours,
+    minHalfDayHours: input.minHalfDayHours !== undefined ? input.minHalfDayHours : row.minHalfDayHours,
+  })
 
   return withAudit(
     ctx,
     (tx) => repo.updateShift(tx, id, { ...input, ...(input.name !== undefined ? { name: input.name.trim() } : {}) }),
-    () => ({ action: 'master_data.changed', entityType: 'shift', entityId: id, details: { kind: 'shift', name: row.name, changes: input } }),
+    () => ({
+      action: 'master_data.changed',
+      entityType: 'shift',
+      entityId: id,
+      // The old value beside each new one (client §47).
+      details: { kind: 'shift', name: row.name, changes: input, before: Object.fromEntries(Object.keys(input).map((k) => [k, asStored((row as Record<string, unknown>)[k])])) },
+    }),
   )
 }
 
@@ -152,4 +180,9 @@ export async function archiveShift(ctx: AppContext, id: string) {
     (tx) => repo.updateShift(tx, id, { archivedAt: new Date() }),
     () => ({ action: 'master_data.archived', entityType: 'shift', entityId: id, details: { kind: 'shift', name: row.name } }),
   )
+}
+
+/** A stored value as the audit log keeps it — a Decimal as its number. */
+function asStored(value: unknown): unknown {
+  return value !== null && typeof value === 'object' && 'toNumber' in value ? (value as { toNumber(): number }).toNumber() : value
 }

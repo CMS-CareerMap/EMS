@@ -47,7 +47,7 @@ model Role {
   /// Whose information the role reaches, per module:
   /// { "employee": "ORGANIZATION", "leave": "DIRECT_REPORTS", … }.
   /// A module missing here means the role's own rows only.
-  scopes Json
+  scopes      Json
 
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)

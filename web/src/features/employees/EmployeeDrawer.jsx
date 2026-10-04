@@ -55,6 +55,7 @@ const STATUS_CLASS = {
 }
 
 const ATTENDANCE_MODE = { app: 'App punch-in', biometric: 'Biometric machine', manual: 'Marked by HR' }
+const WORK_ARRANGEMENT = { office: 'At the office', hybrid: 'Hybrid — office and home', remote: 'Remote' }
 const GENDER = { male: 'Male', female: 'Female', other: 'Other' }
 
 function money(value) {
@@ -162,6 +163,7 @@ export default function EmployeeDrawer({ employee, onClose, onEdit }) {
               <InfoRow icon={Clock} label="Shift"
                 value={employee.shift ? `${employee.shift.name} (${employee.shift.start_time}–${employee.shift.end_time})` : '—'} />
               <InfoRow icon={Fingerprint} label="Attendance" value={ATTENDANCE_MODE[employee.attendance_mode] ?? '—'} />
+              <InfoRow icon={Building2} label="Work Arrangement" value={WORK_ARRANGEMENT[employee.work_arrangement] ?? '—'} />
               {/* Who their leave goes to (Day 22: the company tree). One who has left decides nothing. */}
               <InfoRow icon={Users} label="Reports to"
                 value={employee.reporting_manager_name
@@ -171,6 +173,19 @@ export default function EmployeeDrawer({ employee, onClose, onEdit }) {
                   : 'Nobody above'} />
               <InfoRow icon={UserRound} label="Gender" value={GENDER[employee.gender] ?? 'Not recorded'} />
             </Section>
+
+            {/* Personal details (client §42) — sent only to whoever reads statutory details. */}
+            {Object.hasOwn(employee, 'date_of_birth') && (
+              <Section title="Personal Details">
+                <InfoRow icon={Calendar} label="Date of Birth" value={employee.date_of_birth ? formatDate(employee.date_of_birth) : 'Not recorded'} />
+                <InfoRow icon={UserRound} label="Nationality" value={employee.nationality || 'Not recorded'} />
+                <InfoRow icon={Building2} label="Address" value={employee.address || 'Not recorded'} />
+                <InfoRow icon={Phone} label="Emergency Contact"
+                  value={employee.emergency_contact_name
+                    ? `${employee.emergency_contact_name}${employee.emergency_contact_relation ? ` (${employee.emergency_contact_relation})` : ''}${employee.emergency_contact_phone ? ` · ${employee.emergency_contact_phone}` : ''}`
+                    : 'Not recorded'} />
+              </Section>
+            )}
 
             {/* Where they stand from joining to leaving (client §43), with the steps the caller may take. */}
             <Section title="Employment">

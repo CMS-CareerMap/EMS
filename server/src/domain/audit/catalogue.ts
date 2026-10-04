@@ -76,6 +76,15 @@ export const AUDIT_ACTIONS = {
   'lifecycle.resignation_cancelled': { label: 'Resignation called off', category: 'people' },
   'lifecycle.exited': { label: 'Exit completed', category: 'people' },
   'lifecycle.settings_updated': { label: 'Lifecycle settings changed', category: 'settings' },
+  // Requests (client §28–29)
+  'request.submitted': { label: 'Request sent', category: 'time' },
+  'request.approved': { label: 'Request approved', category: 'time' },
+  'request.rejected': { label: 'Request rejected', category: 'time' },
+  'request.withdrawn': { label: 'Request withdrawn', category: 'time' },
+  'request.attachment_added': { label: 'File added to a request', category: 'documents' },
+  'request.attachment_downloaded': { label: 'Request file opened', category: 'exports' },
+  'request.settings_updated': { label: 'Request approval settings changed', category: 'settings' },
+  'request.closed_on_leaving': { label: 'Requests closed on leaving', category: 'people' },
   // Pay
   'salary.set': { label: 'Salary set', category: 'pay' },
   'payroll.run_created': { label: 'Payroll calculated', category: 'pay' },
@@ -110,6 +119,13 @@ export const AUDIT_ACTIONS = {
   'approvals.updated': { label: 'Approval settings changed', category: 'settings' },
   'policy.updated': { label: 'Payroll rules changed', category: 'settings' },
   'salary_component.pf_changed': { label: 'What counts as PF wages changed', category: 'settings' },
+  'salary_component.created': { label: 'Salary component added', category: 'settings' },
+  'salary_component.restored': { label: 'Salary component restored', category: 'settings' },
+  'salary_component.updated': { label: 'Salary component changed', category: 'settings' },
+  'salary_component.archived': { label: 'Salary component archived', category: 'settings' },
+  'loan.recorded': { label: 'Loan or advance recorded', category: 'pay' },
+  'loan.closed': { label: 'Loan or advance closed', category: 'pay' },
+  'loan.deleted': { label: 'Loan or advance removed', category: 'pay' },
   'pt_table.set': { label: 'Professional tax slabs set', category: 'settings' },
   'geofence.saved': { label: 'Office location saved', category: 'settings' },
   'geofence.deleted': { label: 'Office location removed', category: 'settings' },
@@ -292,6 +308,49 @@ export function humanise(key: string): string {
 function listOf(words: string[]): string {
   if (words.length <= 1) return words[0] ?? ''
   return `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`
+}
+
+const REQUEST_WORDS: Record<string, string> = {
+  attendance_correction: 'attendance correction',
+  work_from_home: 'work-from-home request',
+  on_duty: 'on-duty request',
+  overtime: 'overtime request',
+  profile_change: 'profile change',
+  leave_encashment: 'leave encashment request',
+}
+
+/** "attendance correction REQ-0042". */
+function requestRef(d: Record<string, unknown>): string {
+  return `${REQUEST_WORDS[String(d.type)] ?? 'request'} REQ-${String(d.number ?? '').padStart(4, '0')}`
+}
+
+/** ": phone 98… → 99…; address …" — the old and the new value of each (client §47). */
+function changeList(value: unknown): string {
+  if (!value || typeof value !== 'object') return ''
+  // A field kept by name only (a private detail) is null: it is named, never valued.
+  const parts = Object.entries(value as Record<string, { from?: unknown; to?: unknown } | null>).map(
+    ([field, c]) => (c ? `${humanise(field)} ${shown(c.from)} → ${shown(c.to)}` : humanise(field)),
+  )
+  return parts.length ? `: ${parts.join('; ')}` : ''
+}
+
+/** A stored value as words: text as it is, a number as digits, a switch as on or off. */
+function shown(value: unknown): string {
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  if (typeof value === 'boolean') return value ? 'on' : 'off'
+  return text(value) ?? '(blank)'
+}
+
+/**
+ * ": grace minutes 0 → 10; accrual yearly → monthly" — from a row that kept
+ * `changes` (the new values) and `before` (the old) side by side (client §47).
+ * Empty when there is no `before`: older rows named the fields only.
+ */
+function beforeAfter(d: Details): string {
+  if (!d.changes || typeof d.changes !== 'object' || !d.before || typeof d.before !== 'object') return ''
+  const changes = d.changes as Record<string, unknown>
+  const before = d.before as Record<string, unknown>
+  return changeList(Object.fromEntries(Object.keys(changes).map((k) => [k, { from: before[k], to: changes[k] }])))
 }
 
 function fieldsOf(value: unknown): string {
@@ -500,13 +559,22 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
     case 'employee.created':
       return d.withLogin ? `Added ${who()} with a ${roleLabel(d.role, names, d.roleName)} login` : `Added ${who()}`
     case 'employee.updated': {
-      const fields = fieldsOf([d.fields, d.statutoryFields].flatMap((f) => (Array.isArray(f) ? f : [])))
+      const all = [d.fields, d.statutoryFields].flatMap((f) => (Array.isArray(f) ? f : [])) as unknown[]
       // A move in the company tree (Day 22) says where to.
       const moved = 'managerTo' in d
         ? d.managerTo
           ? `; now reports to ${names.employee(d.managerTo) ?? 'somebody else'}`
           : '; now has nobody above them'
         : ''
+      // The work record's old and new values (client §47); the rest by name only.
+      const changed = d.changes && typeof d.changes === 'object' ? (d.changes as Record<string, unknown>) : {}
+      if (Object.keys(changed).length > 0) {
+        const covered = new Set(Object.keys(changed).map((k) => (k === 'department' || k === 'designation' || k === 'shift' ? `${k}Id` : k)))
+        covered.add('reportingManagerId')
+        const others = fieldsOf(all.filter((f) => typeof f === 'string' && !covered.has(f)))
+        return `Changed ${who()}’s record${changeList(changed)}${others ? `; also ${others}` : ''}${moved}`
+      }
+      const fields = fieldsOf(all)
       return fields ? `Changed ${who()}’s ${fields}${moved}` : `Changed ${who()}’s record${moved}`
     }
     case 'employee.imported':
@@ -532,6 +600,22 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
       return `Called off ${who()}’s resignation — they are staying`
     case 'lifecycle.exited':
       return `Completed ${who()}’s exit: last working day ${day(d.lastWorkingDate)}, ${EXIT_WORDS[String(d.reason)] ?? 'left'}${Number(d.loginsClosed) > 0 ? `, ${count(d.loginsClosed, 'login')} closed` : ''}`
+    case 'request.submitted':
+      return `${d.recordedDirectly ? 'Recorded' : 'Sent'} ${requestRef(d)}${d.recordedDirectly ? ' (the owner’s: no approval needed)' : ''}`
+    case 'request.approved':
+      return `Approved ${who()}’s ${requestRef(d)}${d.asBackup ? ', standing in' : ''}${changeList(d.changes)}`
+    case 'request.rejected':
+      return `Rejected ${who()}’s ${requestRef(d)}${text(d.note) ? `: ${text(d.note)}` : ''}`
+    case 'request.withdrawn':
+      return `Withdrew ${requestRef(d)}`
+    case 'request.attachment_added':
+      return `Added ${text(d.fileName) ?? 'a file'} to REQ-${String(d.number ?? '').padStart(4, '0')}`
+    case 'request.attachment_downloaded':
+      return `Opened ${text(d.fileName) ?? 'the file'} of REQ-${String(d.number ?? '').padStart(4, '0')}`
+    case 'request.closed_on_leaving':
+      return `Closed ${count(d.closed, 'waiting request')} of ${who()}, who has left`
+    case 'request.settings_updated':
+      return 'Changed who decides each kind of request'
     case 'lifecycle.settings_updated':
       return `Set probation to ${count(d.probationMonths, 'month')} and the notice period to ${count(d.noticePeriodDays, 'day')}`
 
@@ -612,6 +696,20 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
       return `${POLICY_KINDS[String(d.kind)] ?? 'Changed the payroll rules'}${fieldsOf(d.changes) ? ` (${fieldsOf(d.changes)})` : ''} from ${day(d.effectiveFrom)}`
     case 'salary_component.pf_changed':
       return `${d.countsForPf ? 'Counted' : 'Stopped counting'} ${text(d.label) ?? 'a salary component'} as PF wages`
+    case 'salary_component.created':
+      return `Added the salary component “${text(d.label) ?? text(d.code) ?? 'unnamed'}” (${text(d.code) ?? '?'})`
+    case 'salary_component.restored':
+      return `Restored the salary component “${text(d.label) ?? text(d.code) ?? 'unnamed'}” (${text(d.code) ?? '?'})`
+    case 'salary_component.updated':
+      return `Changed the salary component ${text(d.code) ?? 'unnamed'}${beforeAfter(d) || ` (${fieldsOf(d.changes) || 'details'})`}`
+    case 'salary_component.archived':
+      return `Archived the salary component “${text(d.label) ?? text(d.code) ?? 'unnamed'}”`
+    case 'loan.recorded':
+      return `Recorded ${d.kind === 'advance' ? 'a salary advance' : 'a loan'} of ${money(d.amount)} for ${who()}, recovered ${money(d.installment)} a month from ${month({ year: d.startYear, month: d.startMonth })}`
+    case 'loan.closed':
+      return `Closed ${d.kind === 'advance' ? 'the salary advance' : 'the loan'} of ${who()} with ${money(d.left)} still owed${text(d.note) ? `: ${text(d.note)}` : ''}`
+    case 'loan.deleted':
+      return `Removed ${d.kind === 'advance' ? 'a salary advance' : 'a loan'} of ${money(d.amount)} recorded for ${who()} — nothing had been recovered`
     case 'pt_table.set':
       return `Set the professional tax slabs for ${text(d.state) ?? 'a state'} from ${day(d.effectiveFrom)} (${count(Array.isArray(d.slabs) ? d.slabs.length : NaN, 'slab')})`
     case 'geofence.saved':
@@ -623,7 +721,7 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
     case 'leave_type.restored':
       return `Restored the leave type “${text(d.name) ?? text(d.code) ?? 'unnamed'}”`
     case 'leave_type.updated':
-      return `Changed the leave type “${names.leaveType(row.entityId) ?? names.leaveType(d.code) ?? text(d.code) ?? 'unnamed'}” (${fieldsOf(d.changes) || 'details'})`
+      return `Changed the leave type “${names.leaveType(row.entityId) ?? names.leaveType(d.code) ?? text(d.code) ?? 'unnamed'}”${beforeAfter(d) || ` (${fieldsOf(d.changes) || 'details'})`}`
     case 'leave_type.archived':
       return `Archived the leave type “${text(d.name) ?? text(d.code) ?? 'unnamed'}”`
     case 'holiday.added':
@@ -642,7 +740,7 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
     case 'master_data.renamed':
       return `Renamed the ${MASTER_KINDS[String(d.kind)] ?? 'list entry'} “${text(d.from) ?? 'unnamed'}” to “${text(d.to) ?? 'unnamed'}”`
     case 'master_data.changed':
-      return `Changed the shift “${text(d.name) ?? 'unnamed'}” (${fieldsOf(d.changes) || 'details'})`
+      return `Changed the shift “${text(d.name) ?? 'unnamed'}”${beforeAfter(d) || ` (${fieldsOf(d.changes) || 'details'})`}`
     case 'master_data.archived':
       return `Archived the ${MASTER_KINDS[String(d.kind)] ?? 'list entry'} “${text(d.name) ?? 'unnamed'}”`
     case 'notification_settings.saved': {

@@ -13,7 +13,7 @@ import { findApprovalRules } from './organization.repository'
  * on somebody's record asks here first, and a refusal names the person to ask.
  */
 
-export type WorkKind = 'bank' | 'leave_balance' | 'documents' | 'attendance' | 'incentive' | 'salary' | 'lifecycle'
+export type WorkKind = 'bank' | 'leave_balance' | 'documents' | 'attendance' | 'incentive' | 'salary' | 'lifecycle' | 'profile'
 
 const WORK: Readonly<Record<WorkKind, { permissions: readonly Permission[]; ownVerb: string; noun: string }>> = {
   bank: { permissions: ['employee:bank:manage'], ownVerb: 'check your own bank account', noun: 'bank account' },
@@ -27,6 +27,8 @@ const WORK: Readonly<Record<WorkKind, { permissions: readonly Permission[]; ownV
   // The employee lifecycle (client §43): nobody confirms, promotes, transfers
   // or completes the exit of themselves, or of somebody who does it too.
   lifecycle: { permissions: ['employee:lifecycle:manage'], ownVerb: 'change your own employment record', noun: 'employment record' },
+  // Approving a profile change (client §27): never one's own, nor a fellow reviewer's.
+  profile: { permissions: ['employee:update'], ownVerb: 'approve a change to your own profile', noun: 'profile' },
 }
 
 export interface WorkCheck {

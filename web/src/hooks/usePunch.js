@@ -11,6 +11,19 @@ import { api } from '../api/http'
 
 const KEY = ['attendance', 'me', 'today']
 
+/**
+ * Where today is worked from — the office, home or on duty by an approved
+ * request, or remote (client §32–33) — and whether check-in will need a
+ * location reading. The browser is asked for one only then.
+ */
+export function useMyWorkplace({ enabled = true } = {}) {
+  return useQuery({
+    queryKey: [...KEY, 'workplace'],
+    queryFn: async () => (await api.get('/attendance/me/workplace')).data,
+    enabled,
+  })
+}
+
 export function useMyToday() {
   return useQuery({
     queryKey: KEY,
@@ -67,7 +80,13 @@ export function usePunchIn() {
       // The reading is taken HERE and sent. The server decides — this app has
       // no say in whether the location passes, which is the entire point of
       // moving the check off the client.
-      const position = await getPosition()
+      // Asked fresh: a request approved since the page opened counts.
+      const where = await queryClient.fetchQuery({
+        queryKey: [...KEY, 'workplace'],
+        queryFn: async () => (await api.get('/attendance/me/workplace')).data,
+        staleTime: 0,
+      })
+      const position = where.location_needed ? await getPosition() : {}
       return (await api.post('/attendance/punch-in', position)).data
     },
     // Returned: the button stays busy until today's row shows the punch, so
@@ -92,6 +111,8 @@ export function usePunchOut() {
     onSuccess: () => Promise.all([
       queryClient.invalidateQueries({ queryKey: KEY }),
       queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+      // The month's rows too: a day's overtime is there to claim at once.
+      queryClient.invalidateQueries({ queryKey: ['attendance'] }),
     ]),
   })
 }

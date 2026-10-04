@@ -6,6 +6,7 @@ import { useAuthStore } from '../../stores/authStore'
 import DataState from '../../components/DataState'
 import { calendarDayIn, formatCalendarDay, formatDayOf } from '../../lib/dates'
 import { WaitingResignations } from './LifecycleCards'
+import WaitingRequestsBanner from '../requests/WaitingRequestsBanner'
 
 // Leave types are the company's own: the names come from the server with each row.
 const LEAVE_STATUS_LABELS = { pending: 'Pending', approved: 'Approved', rejected: 'Rejected', cancelled: 'Cancelled' }
@@ -64,6 +65,7 @@ export default function EmployeeDashboard() {
 
       {/* Somebody with people under them accepts their resignations, whatever their role. */}
       <WaitingResignations />
+      <WaitingRequestsBanner />
 
       {/* The punch card above has its own request, so it stays usable when this one fails. */}
       <DataState query={stats}>

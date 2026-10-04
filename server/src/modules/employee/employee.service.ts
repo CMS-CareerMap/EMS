@@ -22,6 +22,7 @@ import { assertMayChangeEmployment } from '../organization/workRules.service'
 import { assertOpenFrom } from '../payroll/payrollLock.service'
 import { companyToday } from '../organization/organization.service'
 import { defaultProbationEnd } from '../../domain/org/lifecycle'
+import { tellJoined } from '../notifications/peopleNotices'
 
 /**
  * Employee reads and writes.
@@ -132,6 +133,18 @@ export interface CreateEmployeeInput {
   shiftId?: string | null | undefined
   reportingManagerId?: string | null | undefined
   attendanceMode?: 'app' | 'biometric' | 'manual' | undefined
+  workArrangement?: 'office' | 'hybrid' | 'remote' | undefined
+  /** Personal details (client §42), written only by somebody who can read them. */
+  personal?:
+    | {
+        dateOfBirth?: string | null | undefined
+        nationality?: string | null | undefined
+        address?: string | null | undefined
+        emergencyContactName?: string | null | undefined
+        emergencyContactRelation?: string | null | undefined
+        emergencyContactPhone?: string | null | undefined
+      }
+    | undefined
   country?: string | undefined
   currency?: string | undefined
   statutory?:
@@ -182,10 +195,24 @@ function assertLeavesAfterJoining(dateOfJoining: string | null, lastWorkingDate:
  * role that edits records but holds no identity read could, would change
  * deductions nobody on that side can see.
  */
-function assertMayWriteStatutory(ctx: AppContext, input: { statutory?: unknown }): void {
+function assertMayWriteStatutory(ctx: AppContext, input: { statutory?: unknown; personal?: unknown }): void {
   if (input.statutory !== undefined && !ctx.can('employee:identity:read')) {
     throw Forbidden('PAN, UAN, PF and ESIC details are entered by somebody who can see them. Ask HR.')
   }
+  if (input.personal !== undefined && !ctx.can('employee:identity:read')) {
+    throw Forbidden('Personal details are entered by somebody who can see them. Ask HR.')
+  }
+}
+
+/** Personal details as columns: only those sent, a date as a date column. */
+function personalData(personal: CreateEmployeeInput['personal']): Record<string, unknown> {
+  if (!personal) return {}
+  const data: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(personal)) {
+    if (value === undefined) continue
+    data[key] = key === 'dateOfBirth' ? (value ? toDateColumn(value) : null) : value
+  }
+  return data
 }
 
 function asConflict(err: unknown): never {
@@ -362,6 +389,8 @@ export async function createEmployee(
       shiftId: input.shiftId ?? null,
       reportingManagerId: input.reportingManagerId ?? null,
       ...(input.attendanceMode ? { attendanceMode: input.attendanceMode } : {}),
+      ...(input.workArrangement ? { workArrangement: input.workArrangement } : {}),
+      ...personalData(input.personal),
       ...(input.country ? { country: input.country.toUpperCase() } : {}),
       ...(input.currency ? { currency: input.currency.toUpperCase() } : {}),
       ...lifecycle,
@@ -401,6 +430,8 @@ export async function createEmployee(
       entityId: employee.id,
       details: { employeeCode: employee.employeeCode, withLogin: Boolean(input.login), role: input.login?.role ?? null, roleName },
     }, tx)
+    // Their manager and HR hear of a new joiner (client §45).
+    await tellJoined(ctx, tx, employee.id, input.dateOfJoining ?? null)
 
     return employee.id
   }).catch(asConflict)
@@ -502,6 +533,8 @@ export async function updateEmployee(
 
   await withTransaction(ctx.db, async (tx) => {
     const data: Record<string, unknown> = {}
+    // The old value beside the new, for the audit log (client §47).
+    const changes: Record<string, { from: unknown; to: unknown }> = {}
 
     if (managerChanged) {
       await lockFor(tx, treeLock(ctx.organizationId))
@@ -526,6 +559,8 @@ export async function updateEmployee(
       const event = { organizationId: ctx.organizationId, employeeId: existing.id, effectiveDate: toDateColumn(today), createdByUserId: ctx.userId }
       if (designationChanged) await lifecycleRepo.addEvent(tx, { ...event, kind: 'promoted', details: { fromDesignation, toDesignation, via: 'edit' } })
       if (departmentChanged) await lifecycleRepo.addEvent(tx, { ...event, kind: 'transferred', details: { fromDepartment, toDepartment, via: 'edit' } })
+      if (designationChanged) changes.designation = { from: fromDesignation, to: toDesignation }
+      if (departmentChanged) changes.department = { from: fromDepartment, to: toDepartment }
     }
 
     if (input.employeeCode !== undefined) data.employeeCode = input.employeeCode.trim()
@@ -558,11 +593,27 @@ export async function updateEmployee(
     if (input.shiftId !== undefined) data.shiftId = input.shiftId
     if (managerChanged) data.reportingManagerId = after.reportingManagerId
     if (input.attendanceMode !== undefined) data.attendanceMode = input.attendanceMode
+    if (input.workArrangement !== undefined) data.workArrangement = input.workArrangement
+    Object.assign(data, personalData(input.personal))
     if (input.country !== undefined) data.country = input.country?.toUpperCase()
     if (input.currency !== undefined) data.currency = input.currency?.toUpperCase()
 
     if (Object.keys(data).length > 0) {
       await repo.updateEmployee(tx, id, data)
+    }
+
+    // The work record's old and new values are written out. Contact, personal
+    // and statutory details are named only (below): a PAN or a phone number
+    // has no business in a log more people will one day read than hold the
+    // permission to see it.
+    const was = existing as unknown as Record<string, unknown>
+    for (const key of ['employeeCode', 'fullName', 'employmentType', 'attendanceMode', 'workArrangement', 'country', 'currency'] as const) {
+      if (key in data && data[key] !== was[key]) changes[key] = { from: was[key] ?? null, to: data[key] ?? null }
+    }
+    if (joiningChanged) changes.dateOfJoining = { from: joinedBefore, to: input.dateOfJoining ?? null }
+    if (lastDayChanged) changes.lastWorkingDate = { from: lastDayBefore, to: lastDayAfter }
+    if ('shiftId' in data && data.shiftId !== existing.shiftId) {
+      changes.shift = { from: await repo.shiftName(tx, existing.shiftId), to: await repo.shiftName(tx, (data.shiftId as string | null) ?? null) }
     }
 
     if (input.statutory) {
@@ -608,6 +659,7 @@ export async function updateEmployee(
         details: {
           fields: Object.keys(data),
           statutoryFields,
+          changes,
           // Who they reported to before and after: the company tree's history (Day 22).
           ...(managerChanged ? { managerFrom: before.reportingManagerId, managerTo: after.reportingManagerId } : {}),
         },

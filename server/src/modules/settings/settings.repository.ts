@@ -116,6 +116,15 @@ export interface LeaveTypeValues {
   isPaid: boolean
   carryForward: boolean
   carryForwardCap: number
+  minNoticeDays: number
+  maxDaysPerRequest: number | null
+  eligibleAfterDays: number
+  eligibleGender: 'male' | 'female' | 'other' | null
+  accrual: 'yearly' | 'monthly'
+  halfDayAllowed: boolean
+  countsNonWorkingDays: boolean
+  encashable: boolean
+  encashMaxDaysPerYear: number | null
 }
 
 export async function createLeaveType(db: TxDb, organizationId: string, values: LeaveTypeValues) {

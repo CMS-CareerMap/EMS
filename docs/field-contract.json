@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-10-03",
+  "generatedAt": "2026-10-04",
   "note": "Field names the frontend reads, pinned so the API cannot quietly stop sending one. A serializer that stops sending one of these will render an empty cell rather than an error, so check new serializers against this list. Regenerate with: cd server && npm run field-contract",
-  "fieldCount": 220,
+  "fieldCount": 263,
   "allFields": [
     "absent_days",
     "absent_today",
@@ -43,16 +43,23 @@
     "changed_from_default",
     "check_goes_to",
     "check_in",
+    "check_in_device",
     "check_out",
+    "closed_note",
     "component_code",
     "component_label",
     "confirmed_on",
     "content_type",
+    "correction_approver",
     "correction_goes_to",
+    "counts_for_esi",
     "counts_for_pf",
+    "counts_for_pt",
+    "counts_non_working_days",
     "created_at",
     "date_format",
     "date_formats",
+    "date_of_birth",
     "date_of_joining",
     "days_in_month",
     "days_not_yet_happened",
@@ -60,13 +67,20 @@
     "decided_by",
     "decided_by_whom",
     "decides_for",
+    "decision_note",
     "department_id",
     "designation_id",
     "display_order",
     "distance_meters",
+    "early_leaving_minutes",
     "effective_date",
     "effective_from",
     "effective_to",
+    "eligible_after_days",
+    "eligible_gender",
+    "emergency_contact_name",
+    "emergency_contact_phone",
+    "emergency_contact_relation",
     "employee_code",
     "employee_count",
     "employee_id",
@@ -76,6 +90,9 @@
     "employment_from",
     "employment_to",
     "employment_type",
+    "encash_max_days_per_year",
+    "encashment_approver",
+    "encashment_basis",
     "end_time",
     "entry_goes_to",
     "eps_member",
@@ -91,23 +108,30 @@
     "expires_at",
     "february_amount",
     "file_name",
+    "first_part",
     "fiscal_year_start_month",
     "from_date",
     "full_name",
     "goes_to",
+    "grace_minutes",
     "gross_earnings",
     "gross_monthly",
     "half_day",
+    "half_day_allowed",
     "half_days",
     "has_manager",
     "has_prior_pf_membership",
     "has_proof",
     "hours_worked",
+    "in_draft",
     "include_header",
     "is_owner",
     "is_weekly_off_today",
+    "last_part",
     "last_working_date",
     "last_working_day",
+    "late_minutes",
+    "late_threshold_minutes",
     "leave_balances",
     "leave_days",
     "leave_type",
@@ -117,6 +141,7 @@
     "leave_year_start_month",
     "legal_name",
     "lifecycle_stage",
+    "location_needed",
     "login_active",
     "login_invited",
     "lop_basis",
@@ -126,12 +151,16 @@
     "mark_goes_to",
     "marked_on_leave_without_request",
     "max_accuracy_meters",
+    "max_days_per_request",
     "max_gross",
     "max_upload_mb",
     "may_check",
     "may_correct",
     "may_enter",
+    "min_full_day_hours",
     "min_gross",
+    "min_half_day_hours",
+    "min_notice_days",
     "monthly_amount",
     "net_payable",
     "no_joining_date",
@@ -145,6 +174,12 @@
     "on_leave_today",
     "onboarded_on",
     "only_verified",
+    "overtime_after_minutes",
+    "overtime_approver",
+    "overtime_basis",
+    "overtime_enabled",
+    "overtime_minutes",
+    "overtime_rate",
     "owner_id",
     "paid_days",
     "paid_on",
@@ -175,6 +210,7 @@
     "pro_rated",
     "probation_end_date",
     "probation_months",
+    "profile_approver",
     "pt_state",
     "radius_meters",
     "recent_joiners",
@@ -193,7 +229,10 @@
     "sandwich_rule",
     "scope_question",
     "shift_id",
+    "start_month",
     "start_time",
+    "start_year",
+    "submitted_at",
     "submitted_by",
     "submitted_by_employee",
     "submitted_on",
@@ -222,7 +261,11 @@
     "weekly_off",
     "weekly_off_days",
     "weekly_off_today",
-    "with_login"
+    "wfh_approver",
+    "wfh_gps_required",
+    "with_login",
+    "work_arrangement",
+    "work_mode"
   ],
   "byFile": {
     "web/src/components/NotificationPanel.jsx": [
@@ -250,7 +293,12 @@
       "check_in",
       "check_out",
       "distance_meters",
-      "hours_worked"
+      "hours_worked",
+      "late_minutes",
+      "location_needed",
+      "overtime_enabled",
+      "overtime_minutes",
+      "work_mode"
     ],
     "web/src/features/dashboard/EmployeeDashboard.jsx": [
       "attendance_mode",
@@ -311,9 +359,13 @@
     ],
     "web/src/features/employees/AddEmployeeModal.jsx": [
       "attendance_mode",
+      "date_of_birth",
       "date_of_joining",
       "department_id",
       "designation_id",
+      "emergency_contact_name",
+      "emergency_contact_phone",
+      "emergency_contact_relation",
       "employee_id",
       "employment_type",
       "end_time",
@@ -329,7 +381,8 @@
       "pt_state",
       "reporting_manager_id",
       "shift_id",
-      "start_time"
+      "start_time",
+      "work_arrangement"
     ],
     "web/src/features/employees/EmployeeDrawer.jsx": [
       "attendance_mode",
@@ -338,7 +391,11 @@
       "bank_proof_name",
       "bank_verification_remarks",
       "bank_verification_status",
+      "date_of_birth",
       "date_of_joining",
+      "emergency_contact_name",
+      "emergency_contact_phone",
+      "emergency_contact_relation",
       "employee_id",
       "employment_type",
       "end_time",
@@ -355,7 +412,8 @@
       "reporting_manager_left",
       "reporting_manager_name",
       "salary_effective_from",
-      "start_time"
+      "start_time",
+      "work_arrangement"
     ],
     "web/src/features/employees/EmployeeLogins.jsx": [
       "archived_at",
@@ -424,7 +482,10 @@
       "submitted_on"
     ],
     "web/src/features/leave/ApplyLeaveModal.jsx": [
+      "first_part",
       "from_date",
+      "half_day_allowed",
+      "last_part",
       "leave_type_id",
       "to_date"
     ],
@@ -477,6 +538,19 @@
       "pay_date",
       "payslip_id",
       "template_saved"
+    ],
+    "web/src/features/payroll/ComponentsTab.jsx": [
+      "counts_for_esi",
+      "counts_for_pf",
+      "counts_for_pt"
+    ],
+    "web/src/features/payroll/LoansTab.jsx": [
+      "closed_note",
+      "employee_code",
+      "full_name",
+      "in_draft",
+      "start_month",
+      "start_year"
     ],
     "web/src/features/payroll/MonthlyEntries.jsx": [
       "component_code",
@@ -562,6 +636,13 @@
       "full_name",
       "may_enter"
     ],
+    "web/src/features/requests/NewRequestDialog.jsx": [
+      "decided_by_whom",
+      "leave_type_id",
+      "max_upload_mb",
+      "overtime_enabled",
+      "overtime_minutes"
+    ],
     "web/src/features/settings/ApprovalsSettings.jsx": [
       "can_sign_in",
       "no_manager_approver_can_sign_in",
@@ -596,6 +677,15 @@
       "leave_year_start_month",
       "weekly_off"
     ],
+    "web/src/features/settings/LeaveTypeRulesDialog.jsx": [
+      "counts_non_working_days",
+      "eligible_after_days",
+      "eligible_gender",
+      "encash_max_days_per_year",
+      "half_day_allowed",
+      "max_days_per_request",
+      "min_notice_days"
+    ],
     "web/src/features/settings/LifecycleSettings.jsx": [
       "notice_period_days",
       "probation_months"
@@ -610,6 +700,7 @@
       "counts_for_pf",
       "effective_from",
       "effective_to",
+      "encashment_basis",
       "eps_wage_ceiling",
       "esi_employee",
       "esi_employer",
@@ -619,6 +710,9 @@
       "lop_basis",
       "max_gross",
       "min_gross",
+      "overtime_basis",
+      "overtime_enabled",
+      "overtime_rate",
       "pay_day",
       "payslip_lock",
       "pf_employee",
@@ -630,11 +724,30 @@
       "wages_share_enabled",
       "wages_share_percent"
     ],
+    "web/src/features/settings/RequestApprovals.jsx": [
+      "correction_approver",
+      "encashment_approver",
+      "overtime_approver",
+      "profile_approver",
+      "wfh_approver",
+      "wfh_gps_required"
+    ],
     "web/src/features/settings/RolesSettings.jsx": [
       "built_in",
       "changed_from_default",
       "parent_key",
       "scope_question"
+    ],
+    "web/src/features/settings/ShiftRulesDialog.jsx": [
+      "early_leaving_minutes",
+      "end_time",
+      "expected_hours",
+      "grace_minutes",
+      "late_threshold_minutes",
+      "min_full_day_hours",
+      "min_half_day_hours",
+      "overtime_after_minutes",
+      "start_time"
     ],
     "web/src/features/settings/UserAccess.jsx": [
       "employee_code",
@@ -690,21 +803,47 @@
       "max_upload_mb",
       "tds_enabled"
     ],
+    "web/src/hooks/usePunch.js": [
+      "location_needed"
+    ],
     "web/src/hooks/useRoles.js": [
       "parent_key"
     ],
     "web/src/hooks/useSettings.js": [
       "approved_leave_affected"
     ],
+    "web/src/lib/requests.js": [
+      "from_date",
+      "to_date"
+    ],
+    "web/src/lib/rules.js": [
+      "counts_non_working_days",
+      "early_leaving_minutes",
+      "eligible_after_days",
+      "eligible_gender",
+      "encash_max_days_per_year",
+      "grace_minutes",
+      "half_day_allowed",
+      "late_threshold_minutes",
+      "max_days_per_request",
+      "min_full_day_hours",
+      "min_notice_days",
+      "overtime_after_minutes"
+    ],
     "web/src/pages/Attendance.jsx": [
       "check_in",
+      "check_in_device",
       "check_out",
+      "early_leaving_minutes",
       "employee_code",
       "employee_id",
       "full_name",
       "half_day",
       "hours_worked",
-      "mark_goes_to"
+      "late_minutes",
+      "mark_goes_to",
+      "overtime_minutes",
+      "work_mode"
     ],
     "web/src/pages/Employees.jsx": [
       "date_of_joining",
@@ -739,6 +878,16 @@
     "web/src/pages/Reports.jsx": [
       "employee_id",
       "full_name"
+    ],
+    "web/src/pages/Requests.jsx": [
+      "as_backup",
+      "decided_by",
+      "decided_by_whom",
+      "decision_note",
+      "employee_code",
+      "full_name",
+      "max_upload_mb",
+      "submitted_at"
     ]
   }
 }

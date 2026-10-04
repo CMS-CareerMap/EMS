@@ -20,6 +20,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Employees = lazy(() => import('./pages/Employees'))
 const Attendance = lazy(() => import('./pages/Attendance'))
 const Leave = lazy(() => import('./pages/Leave'))
+const Requests = lazy(() => import('./pages/Requests'))
 const Payroll = lazy(() => import('./pages/Payroll'))
 const MyPayslips = lazy(() => import('./pages/MyPayslips'))
 const Reports = lazy(() => import('./pages/Reports'))
@@ -124,6 +125,9 @@ export default function App() {
           <Route path="/leave" element={<Leave />} />
         </Route>
 
+        <Route element={<ProtectedRoute permission={ROUTE_PERMISSIONS['/requests']} />}>
+          <Route path="/requests" element={<Requests />} />
+        </Route>
         <Route element={<ProtectedRoute permission={ROUTE_PERMISSIONS['/payroll']} />}>
           <Route path="/payroll" element={<Payroll />} />
         </Route>

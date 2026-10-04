@@ -19,7 +19,34 @@ import DataState from '../../components/DataState'
  * will be charged with — shown before anything is submitted.
  */
 
-const EMPTY = { leave_type_id: '', from_date: '', to_date: '', reason: '' }
+const EMPTY = { leave_type_id: '', from_date: '', to_date: '', reason: '', first_part: 'full', last_part: 'full' }
+
+/**
+ * Which days are half, and which half (client §37): one day can be the first
+ * or the second half; a longer leave can start from the second half of its
+ * first day and end with the first half of its last.
+ */
+function halvesOf(form, allowed) {
+  const dates = []
+  const sessions = {}
+  if (!allowed || !form.from_date || !form.to_date || form.to_date < form.from_date) return { dates, sessions }
+  if (form.from_date === form.to_date) {
+    if (form.first_part !== 'full') {
+      dates.push(form.from_date)
+      sessions[form.from_date] = form.first_part
+    }
+    return { dates, sessions }
+  }
+  if (form.first_part === 'second_half') {
+    dates.push(form.from_date)
+    sessions[form.from_date] = 'second_half'
+  }
+  if (form.last_part === 'first_half') {
+    dates.push(form.to_date)
+    sessions[form.to_date] = 'first_half'
+  }
+  return { dates, sessions }
+}
 
 function isComplete(form) {
   return Boolean(form.leave_type_id && form.from_date && form.to_date && form.to_date >= form.from_date)
@@ -41,6 +68,8 @@ export default function ApplyLeaveModal({ open, onClose, onSave, saving }) {
   const typeId = form.leave_type_id || balances[0]?.leave_type_id || ''
   const current = { ...form, leave_type_id: typeId }
   const selected = balances.find((b) => b.leave_type_id === typeId)
+  const halfDaysFor = (id) => balances.find((b) => b.leave_type_id === id)?.half_day_allowed !== false
+  const halves = halvesOf(current, halfDaysFor(typeId))
 
   function set(field, value) {
     const next = { ...current, [field]: value }
@@ -50,10 +79,13 @@ export default function ApplyLeaveModal({ open, onClose, onSave, saving }) {
     // Asked as soon as the question is complete, so the cost is on screen
     // before the Submit button is.
     if (field !== 'reason' && isComplete(next)) {
+      const halves = halvesOf(next, halfDaysFor(next.leave_type_id))
       preview.mutate({
         leave_type_id: next.leave_type_id,
         from_date: next.from_date,
         to_date: next.to_date,
+        half_day_dates: halves.dates,
+        half_day_sessions: halves.sessions,
       })
     } else if (field !== 'reason') {
       preview.reset()
@@ -92,6 +124,8 @@ export default function ApplyLeaveModal({ open, onClose, onSave, saving }) {
       leave_type_id: typeId,
       from_date: current.from_date,
       to_date: current.to_date,
+      half_day_dates: halves.dates,
+      half_day_sessions: halves.sessions,
       reason: current.reason.trim(),
     }).then(() => true, () => false)
 
@@ -161,6 +195,37 @@ export default function ApplyLeaveModal({ open, onClose, onSave, saving }) {
             </div>
           </div>
 
+          {/* Full day, or which half (client §37) — where the type allows half days. */}
+          {isComplete(current) && halfDaysFor(typeId) && (
+            current.from_date === current.to_date ? (
+              <label className="block space-y-1.5">
+                <span className="text-sm font-medium text-gray-600">Day</span>
+                <select value={current.first_part} onChange={(e) => set('first_part', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white">
+                  <option value="full">Full day</option>
+                  <option value="first_half">First half</option>
+                  <option value="second_half">Second half</option>
+                </select>
+              </label>
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                <label className="block space-y-1.5">
+                  <span className="text-sm font-medium text-gray-600">First day</span>
+                  <select value={current.first_part === 'second_half' ? 'second_half' : 'full'} onChange={(e) => set('first_part', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white">
+                    <option value="full">Full day</option>
+                    <option value="second_half">From the second half</option>
+                  </select>
+                </label>
+                <label className="block space-y-1.5">
+                  <span className="text-sm font-medium text-gray-600">Last day</span>
+                  <select value={current.last_part} onChange={(e) => set('last_part', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white">
+                    <option value="full">Full day</option>
+                    <option value="first_half">Until the first half</option>
+                  </select>
+                </label>
+              </div>
+            )
+          )}
+
           {/* The server's count — weekly offs and holidays already taken out */}
           {preview.isPending && (
             <p className="text-sm text-gray-400 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Counting working days…</p>
@@ -170,7 +235,7 @@ export default function ApplyLeaveModal({ open, onClose, onSave, saving }) {
               <div className="flex items-center gap-2 px-3 py-2.5 bg-blue-50 border border-blue-100 rounded-lg">
                 <CalendarDays className="w-4 h-4 text-blue-500 shrink-0" />
                 <p className="text-sm text-blue-700 font-medium">
-                  {result.days} working day{result.days !== 1 ? 's' : ''} · {selected?.name}
+                  {result.days} day{result.days !== 1 ? 's' : ''} of leave · {selected?.name}
                   <span className="font-normal text-blue-600"> · {result.balance.available} available</span>
                 </p>
               </div>

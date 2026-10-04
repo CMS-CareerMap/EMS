@@ -37,7 +37,7 @@ export interface StoredFile {
   sha256: string
 }
 
-type Kind = 'employee-document' | 'bank-proof' | 'company-document'
+type Kind = 'employee-document' | 'bank-proof' | 'company-document' | 'request-attachment'
 
 /**
  * Validates and stores an upload. The returned `id` is the row's id to use, so

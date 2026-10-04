@@ -73,7 +73,7 @@ export const PERMISSION_MODULES: readonly PermissionModule[] = [
       { key: 'employee:read', label: 'See employee records' },
       { key: 'employee:create', label: 'Add employees', requires: ['employee:read'] },
       { key: 'employee:update', label: 'Edit employee records', requires: ['employee:read'] },
-      { key: 'employee:identity:read', label: 'See PAN, UAN, PF and ESIC numbers', requires: ['employee:read'] },
+      { key: 'employee:identity:read', label: 'See PAN, UAN, PF and ESIC numbers, and personal details (date of birth, address, emergency contact)', requires: ['employee:read'] },
       {
         key: 'employee:lifecycle:manage',
         label: 'Run onboarding, probation, transfers, promotions and exits',

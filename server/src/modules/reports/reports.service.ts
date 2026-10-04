@@ -1,5 +1,8 @@
 import type { AppContext } from '../../platform/context'
-import { BadRequest } from '../../platform/errors/AppError'
+import { BadRequest, Forbidden } from '../../platform/errors/AppError'
+import type { Permission } from '../../platform/authz/permissions'
+import type { ScopedResource } from '../../platform/authz/scope'
+import { employeesInScope } from '../../platform/authz/scopeWhere'
 import type { Weekday } from '../../domain/leave/leaveDays'
 import { attendancePercent, leaveDaysWithin, notMarkedDays, type Calendar } from '../../domain/reports/reportMath'
 import {
@@ -14,10 +17,12 @@ import {
 } from '../../domain/shared/dates'
 import { companyToday, companyTimezone } from '../organization/organization.service'
 import { leaveYearOf } from '../leave/leave.service'
+import { REQUEST_LABELS, requestNumber } from '../../domain/requests/requests'
+import { requestReach } from '../requests/requests.service'
 import * as repo from './reports.repository'
 
 /**
- * The eight reports on the Reports page, worked out here from the records.
+ * The reports on the Reports page, worked out here from the records.
  *
  * Each one comes back as columns, rows and totals — the page draws any report
  * with the same table, and the CSV export is made from the very same rows
@@ -38,6 +43,8 @@ export const REPORT_IDS = [
   'pf-esi',
   'headcount',
   'joiners-exits',
+  'shift-overtime',
+  'requests',
 ] as const
 
 export type ReportId = (typeof REPORT_IDS)[number]
@@ -78,6 +85,8 @@ export const REPORT_TITLES: Record<ReportId, string> = {
   'pf-esi': 'PF and ESI contributions',
   headcount: 'Headcount',
   'joiners-exits': 'Joiners and exits',
+  'shift-overtime': 'Late, early and overtime',
+  requests: 'Requests',
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -611,7 +620,116 @@ async function joinersExits(ctx: AppContext, p: ReportParams): Promise<Omit<Repo
   }
 }
 
+/**
+ * Late arrivals, early leaving and overtime (client §34–35) for each person:
+ * what the shift rules recorded, and what of the overtime was claimed and
+ * approved — only approved overtime is paid.
+ */
+async function shiftReport(ctx: AppContext, p: ReportParams): Promise<Omit<ReportResult, 'id' | 'title'>> {
+  const window = monthWindow(p.year, p.month)
+  const { people } = await peopleIn(ctx, window, p)
+  const ids = people.map((x) => x.employee.id)
+  const [marks, claims] = await Promise.all([
+    repo.shiftMarks(ctx.db, ids, toDateColumn(window.from), toDateColumn(window.to)),
+    repo.overtimeClaims(ctx.db, ids, toDateColumn(window.from), toDateColumn(window.to)),
+  ])
+  const hours = (minutes: number) => round2(minutes / 60)
+  const rows: ReportRow[] = people.map(({ employee: e }) => {
+    const mine = marks.filter((m) => m.employeeId === e.id)
+    const late = mine.filter((m) => (m.lateMinutes ?? 0) > 0)
+    const early = mine.filter((m) => (m.earlyLeavingMinutes ?? 0) > 0)
+    const claimed = claims.filter((c) => c.employeeId === e.id)
+    const minutesOf = (status: string) =>
+      claimed.filter((c) => c.status === status).reduce((s, c) => s + Number((c.details as { minutes?: number }).minutes ?? 0), 0)
+    return {
+      employee_code: e.employeeCode,
+      full_name: e.fullName,
+      department: e.department?.name ?? null,
+      late_days: late.length,
+      late_hours: hours(late.reduce((s, m) => s + (m.lateMinutes ?? 0), 0)),
+      early_days: early.length,
+      early_hours: hours(early.reduce((s, m) => s + (m.earlyLeavingMinutes ?? 0), 0)),
+      overtime_worked: hours(mine.reduce((s, m) => s + (m.overtimeMinutes ?? 0), 0)),
+      overtime_waiting: hours(minutesOf('pending')),
+      overtime_approved: hours(minutesOf('approved')),
+    }
+  })
+  const keys = ['late_days', 'late_hours', 'early_days', 'early_hours', 'overtime_worked', 'overtime_waiting', 'overtime_approved']
+  return {
+    period: monthName(p.year, p.month),
+    columns: [
+      { key: 'employee_code', label: 'Code', type: 'text' },
+      { key: 'full_name', label: 'Employee', type: 'text' },
+      { key: 'department', label: 'Department', type: 'text' },
+      { key: 'late_days', label: 'Days late', type: 'number' },
+      { key: 'late_hours', label: 'Late by (hours)', type: 'hours' },
+      { key: 'early_days', label: 'Days left early', type: 'number' },
+      { key: 'early_hours', label: 'Early by (hours)', type: 'hours' },
+      { key: 'overtime_worked', label: 'Overtime worked', type: 'hours' },
+      { key: 'overtime_waiting', label: 'Overtime waiting', type: 'hours' },
+      { key: 'overtime_approved', label: 'Overtime approved', type: 'hours' },
+    ],
+    rows,
+    totals: { employee_code: null, full_name: `Total (${rows.length})`, department: null, ...Object.fromEntries(keys.map((k) => [k, sum(rows, k)])) },
+    notes: [
+      'Late and early are counted past each shift’s grace period; overtime once past its threshold (Settings → Shifts).',
+      'Only approved overtime is paid, with the month’s salary.',
+    ],
+    chart: null,
+  }
+}
+
+const REQUEST_STATUS: Record<string, string> = { pending: 'Waiting', approved: 'Approved', rejected: 'Rejected', withdrawn: 'Withdrawn' }
+
+/** Every request sent in the month (client §28–29), and what became of it. */
+async function requestsReport(ctx: AppContext, p: ReportParams): Promise<Omit<ReportResult, 'id' | 'title'>> {
+  const window = monthWindow(p.year, p.month)
+  const [found, timezone] = await Promise.all([
+    // Kind by kind, as the Requests page shows them: a profile change only to
+    // whoever may see personal details, an encashment only to whoever keeps balances.
+    repo.requestsSent(ctx.db, toDateColumn(window.from), toDateColumn(window.to), { ...p, people: undefined }, requestReach(ctx)),
+    companyTimezone(ctx),
+  ])
+  const sent = found.filter((r) => {
+    const day = zonedToday(r.createdAt, timezone)
+    return day >= window.from && day <= window.to
+  })
+  const names = await repo.deciderNames(ctx.db, [...new Set(sent.flatMap((r) => (r.decidedByUserId ? [r.decidedByUserId] : [])))])
+  const rows: ReportRow[] = sent.map((r) => ({
+    number: requestNumber(r.number),
+    employee_code: r.employee.employeeCode,
+    full_name: r.employee.fullName,
+    department: r.employee.department?.name ?? null,
+    kind: REQUEST_LABELS[r.type],
+    for_days: r.fromDate ? (r.toDate && fromDateColumn(r.toDate) !== fromDateColumn(r.fromDate) ? `${dayLabel(fromDateColumn(r.fromDate))} – ${dayLabel(fromDateColumn(r.toDate))}` : dayLabel(fromDateColumn(r.fromDate))) : null,
+    sent_on: zonedToday(r.createdAt, timezone),
+    status: REQUEST_STATUS[r.status] ?? r.status,
+    decided_by: r.decidedByUserId ? (names.get(r.decidedByUserId) ?? null) : null,
+  }))
+  const waiting = sent.filter((r) => r.status === 'pending').length
+  return {
+    period: monthName(p.year, p.month),
+    columns: [
+      { key: 'number', label: 'Request', type: 'text' },
+      { key: 'employee_code', label: 'Code', type: 'text' },
+      { key: 'full_name', label: 'Employee', type: 'text' },
+      { key: 'department', label: 'Department', type: 'text' },
+      { key: 'kind', label: 'Kind', type: 'text' },
+      { key: 'for_days', label: 'For', type: 'text' },
+      { key: 'sent_on', label: 'Sent on', type: 'date' },
+      { key: 'status', label: 'Status', type: 'text' },
+      { key: 'decided_by', label: 'Decided by', type: 'text' },
+    ],
+    rows,
+    totals: { number: null, employee_code: null, full_name: `${rows.length} sent · ${waiting} waiting`, department: null, kind: null, for_days: null, sent_on: null, status: null, decided_by: null },
+    notes: ['Requests sent in the month, by the day they were sent. Leave has its own reports.'],
+    chart: null,
+  }
+}
+
 const BUILDERS: Record<ReportId, (ctx: AppContext, p: ReportParams) => Promise<Omit<ReportResult, 'id' | 'title'>>> = {
+  'shift-overtime': shiftReport,
+  requests: requestsReport,
   'attendance-summary': attendanceSummary,
   'attendance-by-department': attendanceByDepartment,
   'leave-taken': leaveTaken,
@@ -622,12 +740,37 @@ const BUILDERS: Record<ReportId, (ctx: AppContext, p: ReportParams) => Promise<O
   'joiners-exits': joinersExits,
 }
 
+/**
+ * What each report needs (client §46, §59: "report visibility must follow user
+ * permissions"): the right that reads that kind of record, and the reach it is
+ * measured in. Holding "See reports" opens the page; each report then shows
+ * only what its own right and reach show — payroll reports to whoever reads
+ * payroll, and nobody's salary to HR because HR holds the reports page.
+ */
+const REPORT_ACCESS: Record<ReportId, { permission: Permission; resource: ScopedResource; needs: string }> = {
+  'attendance-summary': { permission: 'attendance:read', resource: 'attendance', needs: 'see attendance' },
+  'attendance-by-department': { permission: 'attendance:read', resource: 'attendance', needs: 'see attendance' },
+  'shift-overtime': { permission: 'attendance:read', resource: 'attendance', needs: 'see attendance' },
+  requests: { permission: 'attendance:read', resource: 'attendance', needs: 'see attendance' },
+  'leave-taken': { permission: 'leave:read', resource: 'leave', needs: 'see leave' },
+  'leave-balances': { permission: 'leave:read', resource: 'leave', needs: 'see leave' },
+  'payroll-summary': { permission: 'payroll:structure:read', resource: 'compensation', needs: 'see payroll' },
+  'pf-esi': { permission: 'payroll:structure:read', resource: 'compensation', needs: 'see payroll' },
+  headcount: { permission: 'employee:read', resource: 'employee', needs: 'see employees' },
+  'joiners-exits': { permission: 'employee:read', resource: 'employee', needs: 'see employees' },
+}
+
 export function isReportId(value: string): value is ReportId {
   return (REPORT_IDS as readonly string[]).includes(value)
 }
 
 export async function runReport(ctx: AppContext, id: ReportId, params: ReportParams): Promise<ReportResult> {
   if (params.month < 1 || params.month > 12) throw BadRequest('Month must be between 1 and 12')
-  const built = await BUILDERS[id](ctx, params)
+  const access = REPORT_ACCESS[id]
+  if (!ctx.can(access.permission)) throw Forbidden(`${REPORT_TITLES[id]} needs the right to ${access.needs}, which your role does not have.`)
+  const scope = ctx.scopeFor(access.resource)
+  // The whole company is no condition at all.
+  const people = scope.scope === 'ORGANIZATION' ? undefined : employeesInScope(scope)
+  const built = await BUILDERS[id](ctx, { ...params, people })
   return { id, title: REPORT_TITLES[id], ...built }
 }

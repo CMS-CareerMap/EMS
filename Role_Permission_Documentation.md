@@ -263,6 +263,38 @@ Employee applies (from their employee login)
 - **Reverse:** once approved, by the manager or the Super Admin (Settings → Approvals), never by the person it belongs to. The days go back to the balance and come off the attendance. A month whose payroll is approved cannot be changed.
 - **Granting the year:** HR or the Super Admin, under Leave → Team Balances. Joiners get the months that are left, to the nearest half day. Unused days carry over up to each type's cap. Nothing is granted twice.
 - **Correcting a balance:** HR or the Super Admin, in whole or half days, with a reason the employee sees. One's own goes up the tree (§6).
+- **Half days:** one day can be the first or the second half; a longer leave can start from the second half of its first day and end with the first half of its last. Off for a type that is taken in whole days only.
+- **Each type's rules** (Settings → Leave Config, the sliders button; HR or the Super Admin): days of notice (leave already begun, such as sick leave applied on return, is never refused for notice, and nor is leave a manager records for somebody), the most days in one application, days of service before it can be used, women or men only (from the gender on the employee record), earned all at once or a twelfth a month (then only what is earned by the month a leave starts can be taken), whether weekends and holidays inside it count, and encashment with a yearly cap. Every rule starts off, so nothing changes until it is set.
+
+### Requests
+
+```
+Employee sends a request (Requests → New request)
+  → whoever decides that kind (Settings → Approvals) → Approve or Reject (a reason is required)
+  → approval takes effect at once
+```
+
+| Kind | Decided by, to start | What approval does |
+|------|----------------------|--------------------|
+| Attendance correction | The person they report to | Writes the corrected times on that day; hours, status, late and overtime are worked out again. A day of approved leave is refused; a holiday or weekly off worked stays one. A check-out at or before the check-in is the next morning (a night shift) |
+| Work from home / On duty | The person they report to | On those days they check in without the office location (or with a location reading, if the company asks for one) |
+| Overtime | The person they report to | Paid at the company's overtime rate with the salary of the month it was worked — or the next month still open |
+| Leave encashment | HR (whoever keeps leave balances) | Takes the days off the balance; paid with this month's salary (or the next month still open) |
+| Profile change | HR — whoever keeps employee records **and** may read personal details | Updates their personal details; the audit log names what changed (the name with its old and new value) |
+
+- A request is one's own, like leave: it is sent from a login that may apply for leave — for Admin and Accounts, the employee login (§7).
+- "HR" means whoever holds that kind of work and reaches the person; one's own, and a fellow HR person's, goes up the tree (§6). The owner's requests are recorded approved.
+- A correction for a month whose payroll is approved is refused. Overtime can be claimed only for a day that recorded it, no more than it recorded, and only while the company pays overtime (the switch as it is today — turned on today, yesterday's long day can be claimed). A claim once approved is paid, at the rate of the month it is paid in.
+- Overtime and encashment are never paid after the month somebody leaves in: once that payroll is approved, they are refused (pay them with the final settlement). Leaving closes whatever of theirs still waits.
+- A payroll that an overtime claim or encashment approved after its calculation would change is not approved until it is recalculated.
+- The person can withdraw a request while it waits, and an approved work-from-home or on-duty request before its first day. A file (PDF or photo) can go with a request.
+- HR (and anybody who corrects attendance or keeps balances) sees **All requests** within their reach; a request waiting for somebody shows on their dashboard.
+
+### Shifts and overtime
+
+- Each shift has rules (Settings → Organisation → Shifts, the sliders button): a grace period at either end; a late threshold and an early-leaving threshold past which a day is at best a half day (off to start); the hours a full and a half day need (three quarters and half of the shift to start); and when overtime starts (30 minutes past the expected hours to start — then all of it counts).
+- Lateness, leaving early and overtime are worked out when a day has its times — at check-out, when HR marks or corrects a day, and on a biometric import — and shown on the attendance roster and the person's check-in card.
+- Only approved overtime is paid, and only once the company turns overtime on (Settings → Payroll Config; off to start, so nobody is paid overtime by surprise). The rate (twice to start) and what an hour is worked out from (the full salary, or Basic and DA) are there too. Lateness and overtime are recorded on the days either way.
 
 ### Employee lifecycle
 
@@ -308,7 +340,11 @@ Accounts sets salaries → creates the month's run (draft) → recalculates as n
 - **Mark paid** stores every payslip as a PDF with a SHA-256 hash. A paid month cannot change.
 - One's own salary, TDS and incentive go up the tree (§6).
 - **The Labour Codes wages rule** (Settings → Payroll Config, the Super Admin's; off to start): PF wages are at least a set share of what each person earned in the month — one half, changeable when the government notifies another share. Like every payroll rule it applies from the next month's payroll: a month is worked out on the rules in force on its first day. A payslip it changed says so ("PF wages raised from … to 50% of gross earned"), and the payslip PDF stays as the client approved it.
-- **What counts as PF wages** (Settings → Payroll Config, the Super Admin's): a switch per earning — Basic and DA to start; Special Allowance, say, when the accountant decides. A payroll calculated after a change follows it; a month past draft keeps what it was paid on. Pension (EPS) membership recorded on an employee's record (Statutory Details, from their PF record) does not change with it; left blank, payroll works it out from what they joined on.
+- **Salary components** (Payroll → Components; Accounts and the Super Admin): add an earning or a deduction, on the salary record or entered each month, and say whether it counts for PF, ESI and professional tax. Bonus (outside ESI) and Commission are there to start. A component somebody is paid keeps its kind; it can be archived only when no salary in force and no open month uses it.
+- **Overtime and leave encashment** are paid as their own payslip lines from approved requests; leave encashment counts for professional tax but not for ESI.
+- **Loans and salary advances** (Payroll → Loans & advances; Accounts and the Super Admin): an amount and a monthly recovery from a month. Each payslip recovers the installment, never more than the month pays; a draft recalculated twice recovers once. Close one repaid in cash or written off; remove one only while nothing has been recovered.
+- **Before approval** the run lists every correction, overtime claim or encashment still waiting for that month, as it lists waiting leave.
+- **What counts as PF wages** (Settings → Payroll Config, the Super Admin; and Payroll → Components, Accounts — decided 4 Oct 2026 to leave both): a switch per earning — Basic and DA to start; Special Allowance, say, when the accountant decides. A payroll calculated after a change follows it; a month past draft keeps what it was paid on. Pension (EPS) membership recorded on an employee's record (Statutory Details, from their PF record) does not change with it; left blank, payroll works it out from what they joined on.
 
 ### Bank accounts
 
@@ -321,12 +357,19 @@ Accounts sets salaries → creates the month's run (draft) → recalculates as n
 - The bell shows each login its own notices.
 - A leave request goes to the person who decides it (the Super Admin when that is the Super Admin). A document sent in goes to whoever checks documents and whose scope reaches the person; a bank account sent in goes to whoever checks bank accounts.
 - Nobody is told about their own action, from either of their logins.
+- A request goes to whoever decides its kind; the person is told the decision. A new employee, and somebody who leaves, is told to the person they report to and to HR who keep their record.
 - The Super Admin turns each kind on or off. The password-changed notice is always sent. Notices older than 180 days are cleared by the maintenance job.
+- **Email:** once the server is given a mail account (SMTP settings on the server), each notice is also emailed to the sign-in email of whoever it tells, unless its email switch is off (Settings → Notifications). Mail goes after the change is saved; a mail server that is down delays it, and it is tried five times.
 
 ### Audit log
 
 - Records every sign-in and refused sign-in, every refused request, every change to roles, logins, the company tree and the approval settings, every salary change, each payroll step, every file opened and every file that leaves the system.
 - Each entry says in words what happened, with names, and the role the person held at the time.
+- A change to an employee's work record (name, code, dates, department, designation, shift, employment type, work arrangement), to a shift, a leave type or a salary component shows the old and the new value. Contact, personal and statutory details are named, not written out — an approved profile change too.
+
+### Reports
+
+- The Reports page needs "See reports". Each report then needs the right to read its kind of record — attendance, leave, payroll or employees — and shows only the people that right reaches. So HR given the Reports page sees no payroll report unless it also reads payroll.
 - Read on Settings → Audit Log: the Super Admin only, unless `audit:read` is given to a role (with a warning). Nobody can change or delete an entry.
 
 ---

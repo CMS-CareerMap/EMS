@@ -117,6 +117,12 @@ export const policySchema = z
     sandwichRule: z.boolean().optional(),
     /** Whether income tax (TDS) is deducted through payroll at all. */
     tdsEnabled: z.boolean().optional(),
+
+    // Overtime and leave encashment (client §35–36).
+    overtimeEnabled: z.boolean().optional(),
+    overtimeRate: z.number().min(1, 'At least the ordinary rate, 1').max(5, 'At most 5 times').refine((v) => Number(v.toFixed(2)) === v, 'At most two decimal places, such as 1.5 or 2').optional(),
+    overtimeBasis: z.enum(['gross', 'basic']).optional(),
+    encashmentBasis: z.enum(['gross', 'basic']).optional(),
   })
   .strict()
 
@@ -150,6 +156,16 @@ export const leaveTypeSchema = z
     isPaid: z.boolean().optional(),
     carryForward: z.boolean().optional(),
     carryForwardCap: z.number().min(0).max(365).optional(),
+    // The type's rules (client §36–37).
+    minNoticeDays: z.number().int().min(0).max(365).optional(),
+    maxDaysPerRequest: z.number().min(0.5).max(365).multipleOf(0.5).nullable().optional(),
+    eligibleAfterDays: z.number().int().min(0).max(3650).optional(),
+    eligibleGender: z.enum(['male', 'female', 'other']).nullable().optional(),
+    accrual: z.enum(['yearly', 'monthly']).optional(),
+    halfDayAllowed: z.boolean().optional(),
+    countsNonWorkingDays: z.boolean().optional(),
+    encashable: z.boolean().optional(),
+    encashMaxDaysPerYear: z.number().min(0.5).max(365).multipleOf(0.5).nullable().optional(),
   })
   .strict()
   .refine(

@@ -44,6 +44,12 @@ function dayFields(record: Omit<AttendanceRow, 'employee'>) {
     geofence_verified: record.geofenceVerified,
     distance_meters: record.checkInDistanceMeters,
     accuracy_meters: record.checkInAccuracyMeters,
+    // Where it was worked from (client §33), and the device that checked in (§31).
+    work_mode: record.workMode,
+    check_in_device: record.checkInDevice,
+    late_minutes: record.lateMinutes,
+    early_leaving_minutes: record.earlyLeavingMinutes,
+    overtime_minutes: record.overtimeMinutes,
 
     note: record.note,
   }

@@ -57,6 +57,7 @@ function request(row: LeaveRequestRow, list?: LeaveList) {
     from_date: fromDateColumn(row.fromDate),
     to_date: fromDateColumn(row.toDate),
     half_day_dates: row.halfDayDates,
+    half_day_sessions: row.halfDaySessions,
     days: num(row.days),
     leave_year: row.leaveYear,
 
@@ -171,6 +172,10 @@ export const getBalances: RequestHandler = async (req, res) => {
         // rather than one number that means neither.
         pending: b.pending,
         available: b.available,
+        accrual: b.accrual,
+        unearned: b.unearned,
+        encashable: b.encashable,
+        half_day_allowed: b.halfDayAllowed,
       })),
     },
     meta: { requestId: res.locals.requestId },

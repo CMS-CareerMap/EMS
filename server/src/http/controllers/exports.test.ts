@@ -113,8 +113,8 @@ describe('the attendance export', () => {
     const res = await csv('hr', '/api/attendance/export?date=2026-09-25')
     expect(res.headers['content-disposition']).toBe('attachment; filename="attendance-2026-09-25.csv"')
     const lines = linesOf(res.body as Buffer)
-    expect(lines[0]).toBe('Employee Name,Employee Code,Department,Designation,Status,Check In,Check Out,Hours Worked,Note')
-    expect(lines).toContain('"Rao, ""Ravi""",EX-1,Sales,,Present,09:30,18:45,9.25,')
+    expect(lines[0]).toBe('Employee Name,Employee Code,Department,Designation,Status,Check In,Check Out,Hours Worked,Work Mode,Note')
+    expect(lines).toContain('"Rao, ""Ravi""",EX-1,Sales,,Present,09:30,18:45,9.25,,')
     expect(lines.find((l) => l.includes('EX-2'))).toContain(',Not marked,')
   })
 

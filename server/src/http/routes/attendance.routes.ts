@@ -1,6 +1,6 @@
 import { Router, json } from 'express'
 import { getAttendanceExport } from '../controllers/exports.controller'
-import { postPunchIn, postPunchOut, getMyToday } from '../controllers/attendance.controller'
+import { postPunchIn, postPunchOut, getMyToday, getMyWorkplace } from '../controllers/attendance.controller'
 import {
   getAttendance,
   getMonthlySummary,
@@ -29,6 +29,7 @@ attendanceRouter.use(authenticate)
 attendanceRouter.post('/punch-in', authorize('attendance:punch'), postPunchIn)
 attendanceRouter.post('/punch-out', authorize('attendance:punch'), postPunchOut)
 attendanceRouter.get('/me/today', authorize('attendance:punch'), getMyToday)
+attendanceRouter.get('/me/workplace', authorize('attendance:punch'), getMyWorkplace)
 
 // Reading other people's attendance. What "other people" means is the data
 // scope — the whole company for HR, direct reports for a manager — applied in

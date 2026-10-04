@@ -1,5 +1,5 @@
 import type { RequestHandler } from 'express'
-import { punchIn, punchOut, myToday, type PunchResult } from '../../modules/attendance/attendance.service'
+import { punchIn, punchOut, myToday, myWorkplace, type PunchResult } from '../../modules/attendance/attendance.service'
 import { punchInSchema } from '../validators/attendance.validator'
 import { parseBody } from '../validators/parse'
 import { appContext } from '../context'
@@ -13,6 +13,10 @@ function payload(result: PunchResult) {
     check_out: isoInstant(result.checkOut),
     hours_worked: result.hoursWorked,
     status: result.status,
+    work_mode: result.workMode,
+    late_minutes: result.lateMinutes,
+    early_leaving_minutes: result.earlyLeavingMinutes,
+    overtime_minutes: result.overtimeMinutes,
     geofence: result.geofence
       ? {
           verified: result.geofence.verified,
@@ -34,7 +38,13 @@ export const postPunchIn: RequestHandler = async (req, res) => {
   const ctx = appContext(res)
   const input = parseBody(punchInSchema, req.body ?? {})
 
-  const result = await punchIn(ctx, input)
+  // The device that checked in (client §31): what the browser says it is.
+  const result = await punchIn(ctx, {
+    latitude: input.latitude,
+    longitude: input.longitude,
+    accuracyMeters: input.accuracyMeters,
+    device: req.get('user-agent') ?? undefined,
+  })
 
   res.status(201).json({ data: payload(result), meta: { requestId: res.locals.requestId } })
 }
@@ -45,6 +55,12 @@ export const postPunchOut: RequestHandler = async (_req, res) => {
   const result = await punchOut(ctx)
 
   res.status(200).json({ data: payload(result), meta: { requestId: res.locals.requestId } })
+}
+
+/** GET /api/attendance/me/workplace — office, home, on duty or remote today, and whether check-in needs a location. */
+export const getMyWorkplace: RequestHandler = async (_req, res) => {
+  const where = await myWorkplace(appContext(res))
+  res.status(200).json({ data: { work_mode: where.workMode, location_needed: where.locationNeeded, overtime_enabled: where.overtimeEnabled }, meta: { requestId: res.locals.requestId } })
 }
 
 /** GET /api/attendance/me/today — which button the app should show. */

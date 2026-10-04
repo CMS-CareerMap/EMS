@@ -76,13 +76,14 @@ export function useTeamLeave({ enabled = true } = {}) {
  * asked for and not yet decided. Showing only the raw balance is how somebody
  * applies for days already spoken for.
  */
-export function useLeaveBalances() {
+export function useLeaveBalances({ enabled = true } = {}) {
   return useQuery({
     queryKey: keys.balances,
     queryFn: async () => {
       const payload = await api.get('/leave-requests/balances')
       return payload.data.balances
     },
+    enabled,
   })
 }
 
@@ -95,13 +96,14 @@ export function useLeaveBalances() {
  */
 export function usePreviewLeave() {
   return useMutation({
-    mutationFn: async ({ leave_type_id, from_date, to_date, half_day_dates }) =>
+    mutationFn: async ({ leave_type_id, from_date, to_date, half_day_dates, half_day_sessions }) =>
       (
         await api.post('/leave-requests/preview', {
           leaveTypeId: leave_type_id,
           fromDate: from_date,
           toDate: to_date,
           ...(half_day_dates?.length ? { halfDayDates: half_day_dates } : {}),
+          ...(half_day_sessions && Object.keys(half_day_sessions).length ? { halfDaySessions: half_day_sessions } : {}),
         })
       ).data,
   })
@@ -114,7 +116,7 @@ export function useApplyLeave() {
     // No `days` field. The server counts it from the dates, the weekly-off
     // pattern and the holiday calendar — a number sent from here would be a
     // claim, and the balance would believe it.
-    mutationFn: async ({ leave_type_id, from_date, to_date, reason, half_day_dates, employee_id }) =>
+    mutationFn: async ({ leave_type_id, from_date, to_date, reason, half_day_dates, half_day_sessions, employee_id }) =>
       (
         await api.post('/leave-requests', {
           leaveTypeId: leave_type_id,
@@ -122,6 +124,7 @@ export function useApplyLeave() {
           toDate: to_date,
           reason,
           ...(half_day_dates?.length ? { halfDayDates: half_day_dates } : {}),
+          ...(half_day_sessions && Object.keys(half_day_sessions).length ? { halfDaySessions: half_day_sessions } : {}),
           ...(employee_id ? { employeeId: employee_id } : {}),
         })
       ).data,

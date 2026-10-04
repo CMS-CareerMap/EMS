@@ -213,3 +213,49 @@ export const bankFileQuerySchema = z
     payDate: z.iso.date('The payment date, as YYYY-MM-DD').optional(),
   })
   .strict()
+
+// ── Salary components (client §40) ──────────────────────────────────────────
+
+const componentFields = {
+  code: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z][A-Za-z0-9_]{1,15}$/, 'A code is 2–16 letters, digits or _, starting with a letter — for example SITE_ALLOW'),
+  label: z.string().trim().min(1, 'Give it a name').max(60),
+  type: z.enum(['earning', 'deduction']),
+  entry: z.enum(['fixed', 'monthly']),
+  countsForPf: z.boolean(),
+  countsForEsi: z.boolean(),
+  countsForPt: z.boolean(),
+  taxable: z.boolean(),
+  displayOrder: z.number().int().min(0).max(999),
+}
+
+export const componentSchema = z
+  .object(componentFields)
+  .partial({ type: true, entry: true, countsForPf: true, countsForEsi: true, countsForPt: true, taxable: true, displayOrder: true })
+  .strict()
+
+export const componentUpdateSchema = z
+  .object(componentFields)
+  .partial()
+  .strict()
+  .refine((body) => Object.keys(body).length > 0, { message: 'Nothing to change' })
+
+// ── Loans and salary advances (client §40) ──────────────────────────────────
+
+const rupees = z.number().positive('More than nothing').max(10_000_000).refine((v) => Number(v.toFixed(2)) === v, 'At most two decimal places')
+
+export const loanSchema = z
+  .object({
+    employeeId: z.uuid('Choose an employee'),
+    kind: z.enum(['loan', 'advance']),
+    amount: rupees,
+    installment: rupees,
+    startYear: z.number().int().min(2000).max(2100),
+    startMonth: z.number().int().min(1).max(12),
+    note: z.string().trim().max(500).nullish(),
+  })
+  .strict()
+
+export const loanCloseSchema = z.object({ note: z.string().trim().min(3, 'Say why — written off, repaid in cash…').max(500) }).strict()

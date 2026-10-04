@@ -6,6 +6,8 @@ import MonthlyEntries from '../features/payroll/MonthlyEntries'
 import TdsDirectives from '../features/payroll/TdsDirectives'
 import BankAccounts from '../features/payroll/BankAccounts'
 import BankFileFormat from '../features/payroll/BankFileFormat'
+import ComponentsTab from '../features/payroll/ComponentsTab'
+import LoansTab from '../features/payroll/LoansTab'
 
 /**
  * Payroll.
@@ -23,6 +25,8 @@ const TABS = [
   { id: 'salary', label: 'Salary structure', permission: 'payroll:structure:read', Component: SalaryStructures },
   { id: 'incentives', label: 'Incentives', permission: 'payroll:entry:manage', Component: MonthlyEntries },
   { id: 'tds', label: 'Income tax (TDS)', permission: 'payroll:structure:read', Component: TdsDirectives },
+  { id: 'loans', label: 'Loans & advances', permission: 'payroll:structure:read', Component: LoansTab },
+  { id: 'components', label: 'Components', permission: 'payroll:structure:read', Component: ComponentsTab },
   { id: 'bank', label: 'Bank accounts', permission: 'employee:bank:read', Component: BankAccounts },
   { id: 'bank-format', label: 'Bank file format', permission: 'payroll:structure:read', Component: BankFileFormat },
 ]

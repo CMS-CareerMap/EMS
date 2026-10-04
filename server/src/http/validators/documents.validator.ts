@@ -71,6 +71,6 @@ export const notificationListQuerySchema = z
 
 export const notificationSettingsSchema = z
   .object({
-    changes: z.array(z.object({ event: z.string().min(1).max(60), enabled: z.boolean() }).strict()).min(1).max(50),
+    changes: z.array(z.object({ event: z.string().min(1).max(60), enabled: z.boolean(), email: z.boolean().optional() }).strict()).min(1).max(60),
   })
   .strict()

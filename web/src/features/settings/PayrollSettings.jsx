@@ -42,6 +42,16 @@ const FIELDS = [
   ['lop_basis', 'lopBasis'],
   ['sandwich_rule', 'sandwichRule'],
   ['tds_enabled', 'tdsEnabled'],
+  ['overtime_enabled', 'overtimeEnabled'],
+  ['overtime_rate', 'overtimeRate'],
+  ['overtime_basis', 'overtimeBasis'],
+  ['encashment_basis', 'encashmentBasis'],
+]
+
+/** What a day's or an hour's pay is worked out from (overtime, leave encashment). */
+const PAY_BASES = [
+  { value: 'gross', label: 'The full salary (every fixed earning)' },
+  { value: 'basic', label: 'Basic and DA (what counts for PF)' },
 ]
 
 const DAYS = Array.from({ length: 28 }, (_, i) => i + 1)
@@ -67,8 +77,8 @@ const LOP_BASES = [
 
 /** A form value as the server wants it: numbers as numbers, blank as null. */
 function asValue(key, value) {
-  if (key === 'pf_restrict_to_ceiling' || key === 'sandwich_rule' || key === 'tds_enabled' || key === 'wages_share_enabled') return Boolean(value)
-  if (key === 'lop_basis') return value || null
+  if (key === 'pf_restrict_to_ceiling' || key === 'sandwich_rule' || key === 'tds_enabled' || key === 'wages_share_enabled' || key === 'overtime_enabled') return Boolean(value)
+  if (key === 'lop_basis' || key === 'overtime_basis' || key === 'encashment_basis') return value || null
   if (value === '' || value == null) return null
   return Number(value)
 }
@@ -223,6 +233,25 @@ function PolicyForm({ policy, history, canEdit }) {
         </Field>
         <Field label="Sandwich Rule" hint="On: a weekly off or holiday between two days of loss of pay is unpaid too — absent Saturday and Monday costs the Sunday as well.">
           <Toggle checked={Boolean(form.sandwich_rule)} onChange={(v) => set('sandwich_rule', v)} disabled={!canEdit} label="Apply the sandwich rule" />
+        </Field>
+      </Section>
+
+      <Section title="Overtime and Leave Encashment" desc="What approved overtime and encashed leave pay. A day's pay is the month's amount on the basis below over the month's pay days, as for loss of pay; an hour's is that over the shift's expected hours.">
+        <Field label="Pay overtime" hint="Off: employees cannot claim overtime, and none is paid. Overtime is claimed through Requests once it is recorded, and paid only when approved.">
+          <Toggle checked={Boolean(form.overtime_enabled)} onChange={(v) => set('overtime_enabled', v)} disabled={!canEdit} label="Pay overtime" />
+        </Field>
+        <Field label="Overtime Rate" hint={`Times an hour's ordinary pay. Twice is what the Factories Act and most shops-and-establishments acts ask. At ${form.overtime_rate || 2}×, an hour on ₹30,000 a month and an 8-hour day is about ₹${Math.round((30000 / 30 / 8) * (Number(form.overtime_rate) || 2)).toLocaleString('en-IN')}.`}>
+          <input type="number" min="1" max="5" step="0.25" className={`${inpSm} w-28`} value={form.overtime_rate ?? ''} onChange={(e) => set('overtime_rate', e.target.value)} disabled={!canEdit || !form.overtime_enabled} aria-label="Overtime rate, times ordinary pay" />
+        </Field>
+        <Field label="Overtime Paid On" hint="The ordinary rate of wages is usually the full salary less any bonus.">
+          <select className={`${inpSm} w-full sm:w-auto max-w-full`} value={form.overtime_basis ?? 'gross'} onChange={(e) => set('overtime_basis', e.target.value)} disabled={!canEdit || !form.overtime_enabled} aria-label="Overtime paid on">
+            {PAY_BASES.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
+          </select>
+        </Field>
+        <Field label="Leave Encashed On" hint="One day's pay on this basis for each day encashed. Which leave types can be encashed, and how many days a year, is set on each leave type.">
+          <select className={`${inpSm} w-full sm:w-auto max-w-full`} value={form.encashment_basis ?? 'basic'} onChange={(e) => set('encashment_basis', e.target.value)} disabled={!canEdit} aria-label="Leave encashed on">
+            {PAY_BASES.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
+          </select>
         </Field>
       </Section>
 

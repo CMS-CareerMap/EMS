@@ -14,6 +14,7 @@ import { typeColourOf } from '../../lib/leaveTypes'
 import { ROLE_LABELS } from '../../lib/roles'
 import { calendarDayIn, formatCalendarDay, formatDayOf } from '../../lib/dates'
 import { LifecycleCard, WaitingResignations } from './LifecycleCards'
+import WaitingRequestsBanner from '../requests/WaitingRequestsBanner'
 
 
 function initials(name) {
@@ -115,6 +116,7 @@ export default function HRDashboard() {
 
       {/* Resignations whose writers report to the caller — accepted here, as leave is decided. */}
       <WaitingResignations />
+      <WaitingRequestsBanner />
 
       {/* Every card below is drawn from this one answer: one error for all of them, never cards of zeros. */}
       <DataState query={stats}>

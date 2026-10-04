@@ -5,6 +5,7 @@ import { isoInstant } from '../../domain/shared/dates'
 import { idParamSchema, notificationListQuerySchema, notificationSettingsSchema } from '../validators/documents.validator'
 import { parseBody } from '../validators/parse'
 import { appContext } from '../context'
+import { emailFrom, emailReady } from '../../platform/email/mailer'
 
 /**
  * The bell. A person's own notices only — there is no route that writes one;
@@ -72,7 +73,15 @@ export const getNotificationSettings: RequestHandler = async (_req, res) => {
   res.status(200).json({ data: await notifications.settings(ctx), meta: { requestId: res.locals.requestId } })
 }
 
-/** PUT /api/notifications/settings  { changes: [{ event, enabled }] } */
+/**
+ * GET /api/notifications/email-status — whether the server can send email
+ * (client §45), and as whom. Set in the server's environment, never here.
+ */
+export const getEmailStatus: RequestHandler = async (_req, res) => {
+  res.status(200).json({ data: { ready: emailReady(), from: emailFrom() }, meta: { requestId: res.locals.requestId } })
+}
+
+/** PUT /api/notifications/settings  { changes: [{ event, enabled, email? }] } */
 export const putNotificationSettings: RequestHandler = async (req, res) => {
   const ctx = appContext(res)
   const { changes } = parseBody(notificationSettingsSchema, req.body)

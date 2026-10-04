@@ -22,6 +22,32 @@ model LeaveType {
   carryForward    Boolean @default(false)
   carryForwardCap Decimal @default(0) @db.Decimal(5, 2)
 
+  /// The type's rules (client §36). Each defaults to what applied before it
+  /// existed: no notice, no cap, open to everybody from their first day,
+  /// granted for the year at once, half days allowed, weekends and holidays
+  /// not counted, never encashed.
+  ///
+  /// Days ahead an application must be made. A day already started (sick
+  /// leave applied on return) is not refused by this — only one too soon.
+  minNoticeDays        Int          @default(0)
+  /// The most days one application may cover. Null: no limit beyond the balance.
+  maxDaysPerRequest    Decimal?     @db.Decimal(5, 2)
+  /// Days of service before the type may be used — 80 days for maternity
+  /// benefit under the Code on Social Security, for example.
+  eligibleAfterDays    Int          @default(0)
+  /// Who may use it, when only one gender may (maternity, paternity). Null: anybody.
+  eligibleGender       Gender?
+  /// Granted for the whole year at once, or earned a twelfth a month — the
+  /// grant is the same, what may be USED by a month is what has been earned.
+  accrual              LeaveAccrual @default(yearly)
+  halfDayAllowed       Boolean      @default(true)
+  /// Counts the weekends and holidays inside a request (maternity leave runs
+  /// in calendar days). Off: only working days are counted.
+  countsNonWorkingDays Boolean      @default(false)
+  /// Unused days may be turned into pay, at most this many a leave year.
+  encashable           Boolean      @default(false)
+  encashMaxDaysPerYear Decimal?     @db.Decimal(5, 2)
+
   createdAt  DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt  DateTime  @updatedAt @db.Timestamptz(3)
   archivedAt DateTime? @db.Timestamptz(3)
@@ -99,6 +125,16 @@ enum LeaveLedgerReason {
   reversal
   /// A manual correction by HR. Requires a note.
   adjustment
+  /// Turned into pay by an approved encashment request (client §36).
+  encashed
+}
+
+/// How a leave type's yearly grant becomes usable.
+enum LeaveAccrual {
+  /// All of it from the start of the year.
+  yearly
+  /// A twelfth for each month of the year reached — by the month a leave starts in.
+  monthly
 }
 
 /// One application for leave.
@@ -123,7 +159,11 @@ model LeaveRequest {
   /// An array rather than a `isHalfDay` flag, because a week's leave can have a
   /// half day at either end — somebody leaving at lunch on Friday and returning
   /// at lunch the following Thursday. A single boolean cannot say which.
-  halfDayDates String[] @default([])
+  halfDayDates    String[] @default([])
+  /// Which half of each of those days is taken (client §37): a date to
+  /// "first_half" or "second_half". A date missing here was applied for before
+  /// halves were asked, and is just a half day.
+  halfDaySessions Json     @default("{}")
 
   /// What this actually costs, computed by domain/leave/leaveDays — weekends
   /// and holidays already removed. Stored rather than recomputed, so a holiday

@@ -152,3 +152,26 @@ export function planGrant(input: {
 
   return entries
 }
+
+/**
+ * What of a year's grant has been earned by a day, for a type that accrues
+ * monthly (client §36): a twelfth for each month of the year reached — counted
+ * from the month somebody joined, for a grant pro-rated from joining — rounded
+ * to the half day. The month the day falls in counts as reached.
+ */
+export function accruedBy(input: {
+  grant: number
+  leaveYear: number
+  startMonth: number
+  joined: CalendarDate | null
+  asOf: CalendarDate
+}): number {
+  const { from, nextFrom } = leaveYearBounds(input.leaveYear, input.startMonth)
+  const spanStart = input.joined && input.joined > from ? `${input.joined.slice(0, 7)}-01` : from
+  const months = (a: CalendarDate, b: CalendarDate) =>
+    (Number(b.slice(0, 4)) - Number(a.slice(0, 4))) * 12 + (Number(b.slice(5, 7)) - Number(a.slice(5, 7)))
+  const span = months(spanStart, nextFrom)
+  if (span <= 0 || input.grant <= 0) return 0
+  const reached = Math.max(0, Math.min(span, months(spanStart, input.asOf) + 1))
+  return toHalfDays((input.grant * reached) / span)
+}

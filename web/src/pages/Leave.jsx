@@ -349,6 +349,12 @@ function BalanceTab() {
                       {b.pending} day{b.pending === 1 ? '' : 's'} awaiting approval
                     </p>
                   )}
+                  {/* Earned a twelfth a month (client §36): what is granted but not earned yet. */}
+                  {b.unearned > 0 && (
+                    <p className="text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-2 py-1">
+                      {b.unearned} more day{b.unearned === 1 ? '' : 's'} earned through the year, a month at a time
+                    </p>
+                  )}
                 </div>
               )
             })}

@@ -98,9 +98,22 @@ export interface DayClassification {
   shortfallHours: number
 }
 
-export function classifyDay(worked: number, expectedHours: number): DayClassification {
+export function classifyDay(
+  worked: number,
+  expectedHours: number,
+  /** The shift's own minimums (client §34), when it has them — hours, not fractions. */
+  minimums: { full: number | null; half: number | null } = { full: null, half: null },
+): DayClassification {
   const expected = expectedHours > 0 ? expectedHours : 0
   const shortfall = round(Math.max(0, expected - worked))
+
+  if (expected > 0 && (minimums.full !== null || minimums.half !== null)) {
+    const full = minimums.full ?? expected * FULL_DAY_FRACTION
+    const half = Math.min(minimums.half ?? expected * HALF_DAY_FRACTION, full)
+    if (worked < half) return { status: 'absent', shortfallHours: shortfall }
+    if (worked < full) return { status: 'half_day', shortfallHours: shortfall }
+    return { status: 'present', shortfallHours: shortfall }
+  }
 
   // A half day means HALF. Below that it is absent — anything looser pays a
   // half day for two hours of work, which is a decision nobody made on purpose.

@@ -21,6 +21,8 @@ enum AttendanceSource {
   /// Generated from an approved leave request (Day 14), so a leave day is a
   /// real row rather than a gap that reports have to interpret.
   leave
+  /// Set by an approved attendance correction request (client §29).
+  correction
 }
 
 enum AttendanceStatus {
@@ -80,6 +82,20 @@ model Attendance {
   /// Null means no check was made — a biometric or manual row, where a GPS
   /// reading would be meaningless rather than merely missing.
   geofenceVerified Boolean?
+
+  /// Where the day was worked from (client §33), and the device that checked
+  /// in (client §31) — the browser's own description, cut short.
+  workMode      WorkMode?
+  checkInDevice String?
+
+  /// Measured against the shift when the day has its times (client §34–35).
+  /// Null: no shift, or no time to measure. Late and early are the minutes
+  /// past the start and short of the end, recorded only beyond the grace;
+  /// overtime the minutes past the expected hours, once past the threshold.
+  /// Overtime here is what was WORKED — what is paid is an approved request.
+  lateMinutes         Int?
+  earlyLeavingMinutes Int?
+  overtimeMinutes     Int?
 
   /// Free text. HR's reason for a manual entry or a correction.
   note String?

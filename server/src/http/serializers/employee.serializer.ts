@@ -71,6 +71,8 @@ function base(employee: EmployeeRow) {
     status: employee.status,
 
     attendance_mode: employee.attendanceMode,
+    // Office, hybrid or remote (client §33).
+    work_arrangement: employee.workArrangement,
     shift_id: employee.shiftId,
     shift: employee.shift
       ? {
@@ -261,6 +263,17 @@ function identity(employee: EmployeeRow) {
   }
 }
 
+function personal(employee: EmployeeRow) {
+  return {
+    date_of_birth: fromDateColumn(employee.dateOfBirth),
+    nationality: employee.nationality,
+    address: employee.address,
+    emergency_contact_name: employee.emergencyContactName,
+    emergency_contact_relation: employee.emergencyContactRelation,
+    emergency_contact_phone: employee.emergencyContactPhone,
+  }
+}
+
 export function serializeEmployee(employee: EmployeeRow, access: FieldAccess) {
   // A salary outside the caller's salary scope is left OUT, never sent as
   // nulls — nulls would read as "no salary recorded", which is not the truth.
@@ -271,6 +284,8 @@ export function serializeEmployee(employee: EmployeeRow, access: FieldAccess) {
     ...(seesSalary ? compensation(employee) : {}),
     ...(access.includeBank ? bank(employee) : {}),
     ...(access.includeIdentity ? identity(employee) : {}),
+    // Personal details (client §42): to whoever reads statutory details, and to the person.
+    ...(access.includeIdentity || employee.id === access.lifecycleOf.employeeId ? personal(employee) : {}),
     ...(access.includeLogins ? logins(employee) : {}),
   }
 }

@@ -1,4 +1,5 @@
 import { createElement, useState, useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import {
   UserCheck, UserX, Clock, CalendarDays, CircleDashed, Search,
   ChevronLeft, ChevronRight, Download, Edit2, Calendar, Loader2,
@@ -10,14 +11,16 @@ import { saveFromApi } from '../api/http'
 import { useDownload } from '../hooks/useDownload'
 import { calendarDayIn, addDays, wallClockIn, formatCalendarDay, formatDay } from '../lib/dates'
 import DataState from '../components/DataState'
+import { WORK_MODES, minutesLabel } from '../lib/requests'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
  * The statuses the server has — no more, no fewer. The old list had `late` and
- * `wfh`, which do not exist (WFH is a leave type, applied for like any other),
- * and lacked `on_leave` and `holiday`, which do — so leave days rendered as
- * blank and a Late card counted nothing, for ever.
+ * `wfh`, which are not statuses (working from home is an approved request, and
+ * shows beside the check-in as the day's work mode), and lacked `on_leave` and
+ * `holiday`, which are — so leave days rendered as blank and a Late card
+ * counted nothing, for ever.
  */
 const STATUS_META = {
   present:    { label: 'Present',    cls: 'bg-green-100 text-green-700',    dot: 'bg-green-500' },
@@ -50,6 +53,7 @@ function initials(name) {
 // ─── Monthly calendar ─────────────────────────────────────────────────────────
 
 function MonthlyCalendar({ query, attendanceMap, year, month, today }) {
+  const onStaff = useAuthStore((state) => Boolean(state.profile) && state.can('leave:apply'))
   const daysInMonth = new Date(year, month, 0).getDate()
   const firstDay    = new Date(year, month - 1, 1).getDay()
   const monthLabel  = new Date(year, month - 1, 1).toLocaleString('en-IN', { month: 'long', year: 'numeric' })
@@ -93,6 +97,10 @@ function MonthlyCalendar({ query, attendanceMap, year, month, today }) {
           })}
         </div>
       </DataState>
+      {/* A missed or wrong punch is put right by whoever decides corrections (client §28). */}
+      {onStaff && <p className="mt-4 text-xs text-gray-500">
+        A day looks wrong? <Link to="/requests?new=attendance_correction" className="font-medium text-blue-600 hover:text-blue-700">Request a correction</Link>
+      </p>}
     </div>
   )
 }
@@ -141,6 +149,13 @@ export default function Attendance() {
     check_out: wallClockIn(timezone, emp.attendance?.check_out),
     hours_worked: emp.attendance?.hours_worked ?? null,
     note: emp.attendance?.note ?? '',
+    // Where they worked from (client §33) and what they checked in on — office days say nothing.
+    work_mode: emp.attendance?.work_mode ?? null,
+    check_in_device: emp.attendance?.check_in_device ?? null,
+    // Against the shift (client §34–35): late past the grace, overtime past its threshold.
+    late_minutes: emp.attendance?.late_minutes ?? null,
+    early_leaving_minutes: emp.attendance?.early_leaving_minutes ?? null,
+    overtime_minutes: emp.attendance?.overtime_minutes ?? null,
     // Own work goes up the company tree (Day 22): whom this day goes to, when not the caller.
     mark_goes_to: emp.mark_goes_to ?? null,
   })), [rosterData, timezone])
@@ -429,9 +444,15 @@ export default function Attendance() {
                                   <p className="text-xs text-gray-400">{rec.designation || '—'}</p>
                                 </td>
                                 <td className="px-4 py-3.5">
-                                  <span className={`text-sm font-medium ${rec.check_in ? 'text-gray-900' : 'text-gray-300'}`}>
+                                  <span className={`text-sm font-medium ${rec.check_in ? 'text-gray-900' : 'text-gray-300'}`} title={rec.check_in_device ?? undefined}>
                                     {rec.check_in || '—'}
                                   </span>
+                                  {rec.late_minutes > 0 && (
+                                    <span className="block mt-0.5 w-fit px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 text-[11px] font-medium">Late {minutesLabel(rec.late_minutes)}</span>
+                                  )}
+                                  {rec.work_mode && rec.work_mode !== 'office' && (
+                                    <span className="block mt-0.5 w-fit px-1.5 py-0.5 rounded bg-teal-50 text-teal-700 text-[11px] font-medium">{WORK_MODES[rec.work_mode]}</span>
+                                  )}
                                 </td>
                                 <td className="px-4 py-3.5">
                                   <span className={`text-sm ${rec.check_out ? 'text-gray-900' : 'text-gray-300'}`}>
@@ -440,6 +461,12 @@ export default function Attendance() {
                                 </td>
                                 <td className="px-4 py-3.5">
                                   <span className="text-sm text-gray-700">{formatHours(rec.hours_worked)}</span>
+                                  {rec.overtime_minutes > 0 && (
+                                    <span className="block mt-0.5 w-fit px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[11px] font-medium">+{minutesLabel(rec.overtime_minutes)} overtime</span>
+                                  )}
+                                  {rec.early_leaving_minutes > 0 && (
+                                    <span className="block mt-0.5 w-fit px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 text-[11px] font-medium">Left {minutesLabel(rec.early_leaving_minutes)} early</span>
+                                  )}
                                 </td>
                                 <td className="px-4 py-3.5">
                                   {meta ? (
