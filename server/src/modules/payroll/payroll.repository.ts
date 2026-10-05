@@ -1,4 +1,5 @@
 import type { ScopedDb } from '../../platform/db/scoped'
+import type { TxDb } from '../../platform/db/transaction'
 
 /**
  * Everything a salary calculation reads, and nothing it writes.
@@ -115,8 +116,17 @@ export async function firstFinancialBetween(db: ScopedDb, employeeId: string, fr
   })
 }
 
+/** Every salary record that starts after `from` and by `to`, in order, with its components — the changes inside a month. */
+export async function financialsStartingBetween(db: ScopedDb, employeeId: string, from: Date, to: Date) {
+  return db.employeeFinancial.findMany({
+    where: { employeeId, effectiveFrom: { gt: from, lte: to } },
+    orderBy: { effectiveFrom: 'asc' },
+    include: { components: { include: { component: true } } },
+  })
+}
+
 /** Removes a period's decision so it can be taken again. */
-export async function deleteCoverage(db: ScopedDb, employeeId: string, periodStart: Date) {
+export async function deleteCoverage(db: ScopedDb | TxDb, employeeId: string, periodStart: Date) {
   return db.esiCoverage.deleteMany({ where: { employeeId, periodStart } })
 }
 

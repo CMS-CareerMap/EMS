@@ -5,6 +5,7 @@
 // (mgr); Hema is HR, Anil Accounts, Sunita the Super Admin.
 import { chromium } from 'playwright-core'
 import { WORK, REPO, STORAGE as STORE, psql } from '../lib/env.mjs'
+import { openMyProfile, openEmployeeProfile, signOutVia, menuLinks, menuLink } from '../lib/ui.mjs'
 import { readFileSync, mkdirSync } from 'node:fs'
 
 const BASE = 'http://localhost:5183'
@@ -70,7 +71,7 @@ async function open(who, viewport = { width: 1366, height: 900 }) {
   page.on('pageerror', (e) => pageErrors.push(`${who}: ${e.message}`))
   page.on('response', (r) => { if (r.status() >= 500 && r.url().includes('/api/')) serverErrors.push(`${who} ${r.request().method()} ${r.url().split('/api')[1]} ${r.status()}`) })
   await page.goto(`${BASE}/signin`)
-  await page.getByPlaceholder('you@careermap.in or EMP001').fill(fx.users[who])
+  await page.getByLabel('Work Email or Employee ID').fill(fx.users[who])
   await page.getByPlaceholder('Enter your password').fill(fx.password)
   await page.getByRole('button', { name: 'Sign In' }).click()
   await page.waitForURL((url) => !url.pathname.startsWith('/signin'), { timeout: 20_000 })
@@ -99,12 +100,21 @@ async function decide(page, number, verdict, note = '') {
   await d.getByRole('button', { name: verdict === 'approve' ? 'Approve' : 'Reject', exact: true }).click()
   await toast(page, `${number} is ${verdict === 'approve' ? 'approved' : 'rejected'}`)
 }
+/** The kinds a new request starts from, as the chooser names them. */
+const KIND_LABEL = {
+  attendance_correction: 'Attendance correction', work_from_home: 'Work from home', on_duty: 'On duty',
+  overtime: 'Overtime', leave_encashment: 'Leave encashment', profile_change: 'Profile change',
+}
+/** New request → the kinds → the one wanted; the dialog is then its form. */
+async function chooseKind(page, kind) {
+  await page.getByRole('list', { name: 'Kinds of request' }).getByRole('button', { name: new RegExp(`^${KIND_LABEL[kind]}`) }).click()
+  await page.getByRole('dialog', { name: KIND_LABEL[kind] }).waitFor({ timeout: 20_000 })
+}
 async function newRequest(page, kind) {
   await go(page, '/requests')
   await page.getByRole('button', { name: 'New request' }).click()
-  const d = dialog(page)
-  await d.getByLabel(/^What do you need?/).selectOption(kind)
-  return d
+  await chooseKind(page, kind)
+  return dialog(page)
 }
 /** Chooses the option whose words match — Playwright wants an exact label. */
 async function pick(select, pattern) {
@@ -133,8 +143,7 @@ try {
   section('Priya asks HR to change her details')
   const priya = await open('emp')
   await settle(priya)
-  await priya.getByRole('button', { name: /Signed in as/ }).first().click()
-  await priya.getByRole('button', { name: 'My Profile' }).click()
+  await openMyProfile(priya, 'My details')
   const details = priya.getByRole('region', { name: 'My details' })
   await details.waitFor({ timeout: 20_000 })
   check('My Profile shows her details', await details.getByText('Emergency contact').first().waitFor({ timeout: 20_000 }).then(() => true, () => false))
@@ -142,7 +151,7 @@ try {
   await priya.waitForURL(/\/requests/, { timeout: 20_000 })
   const profileDialog = dialog(priya)
   await profileDialog.getByLabel('Phone', { exact: true }).waitFor({ timeout: 20_000 })
-  check('…which opens a profile change', await profileDialog.getByLabel(/^What do you need?/).inputValue() === 'profile_change')
+  check('…which opens a profile change', (await profileDialog.getAttribute('aria-label')) === 'Profile change')
   await profileDialog.getByLabel('Phone', { exact: true }).fill('9822012345')
   await profileDialog.getByLabel('Emergency contact', { exact: true }).fill('Suresh Deshmukh')
   await profileDialog.getByLabel('Reason', { exact: true }).fill('New number after moving')
@@ -168,7 +177,8 @@ try {
   const wfhReq = await requestNumber(priya)
   const manoj = await open('mgr')
   await settle(manoj)
-  check('Manoj’s dashboard says a request waits', await seen(manoj.getByText(/request(s)? waiting for you/).first()))
+  // The home page's "Waiting for you" card lists it, as a Work from home request.
+  check('Manoj’s dashboard says a request waits', await seen(manoj.getByRole('region', { name: 'Waiting for you' }).getByRole('listitem').filter({ hasText: 'Priya Deshmukh' }).filter({ hasText: 'Work from home' }).first()))
   await decide(manoj, wfhReq, 'approve')
 
   section('A correction Manoj rejects, with a reason Priya sees')
@@ -324,7 +334,8 @@ try {
   await go(phone, '/requests')
   check('Requests fits a phone', (await sideways(phone)) <= 0)
   await phone.getByRole('button', { name: 'New request' }).click()
-  await dialog(phone).getByLabel(/^What do you need?/).selectOption('overtime')
+  check('the kinds of request fit a phone', (await sideways(phone)) <= 0)
+  await chooseKind(phone, 'overtime')
   check('the overtime form fits', (await sideways(phone)) <= 0)
   await shot(phone, 'phone-overtime')
   const phoneAcc = await open('acc', PHONE)

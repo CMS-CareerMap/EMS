@@ -176,8 +176,9 @@ export function useWithdrawLeave() {
   })
 }
 
-export function useHolidays(year) {
+export function useHolidays(year, { enabled = true } = {}) {
   return useQuery({
+    enabled,
     queryKey: [...keys.holidays, year ?? 'all'],
     queryFn: async () =>
       // /holidays, not /settings/holidays: the settings route was Super Admin

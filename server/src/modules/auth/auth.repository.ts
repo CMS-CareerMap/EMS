@@ -1,6 +1,6 @@
 import type { AccountStatus } from '@prisma/client'
 import { unsafeDb } from '../../platform/db/unsafe'
-import { toGrant, type RoleGrant } from '../../platform/authz/grant'
+import { ownThingsOnly, toGrant, type RoleGrant, type RoleRowForGrant } from '../../platform/authz/grant'
 import { roleForGrant } from './session.repository'
 import { isSelfServiceLogin } from '../../domain/org/logins'
 import { EMPLOYEE_ROLE } from '../../platform/authz/defaultRoles'
@@ -59,18 +59,30 @@ const membershipInclude = {
 type LoginRow = { id: string; role: string; status: AccountStatus }
 type IncludedMembership = LoginRow & {
   organization: { leaveNoManagerApproverId: string | null }
+  roleDef: RoleRowForGrant
   employee: { id: string; fullName: string; employeeCode: string; attendanceMode: string; _count: { directReports: number }; memberships: LoginRow[] } | null
+}
+
+/**
+ * The login's role as it applies — its own rows only for the employee login of
+ * somebody with a live role login (Day 23), whatever the Employee role reaches.
+ * The same as authenticate reads it on every request (session.repository).
+ */
+function grantOf(membership: IncludedMembership): RoleGrant {
+  const grant = toGrant(membership.roleDef)
+  const e = membership.employee
+  return e && isSelfServiceLogin(membership, e.memberships, EMPLOYEE_ROLE) ? ownThingsOnly(grant) : grant
 }
 
 /** The employee as the session shows it, and whether they decide anybody's leave. */
 function personOf(membership: IncludedMembership, grant: RoleGrant) {
   const e = membership.employee
-  const ownThingsOnly = Boolean(e && isSelfServiceLogin(membership, e.memberships, EMPLOYEE_ROLE))
+  const selfServiceOnly = Boolean(e && isSelfServiceLogin(membership, e.memberships, EMPLOYEE_ROLE))
   return {
     employee: e ? { id: e.id, fullName: e.fullName, employeeCode: e.employeeCode, attendanceMode: e.attendanceMode } : null,
     decidesLeave:
       grant.permissions.has('role:manage') ||
-      Boolean(e && !ownThingsOnly && (e._count.directReports > 0 || membership.organization.leaveNoManagerApproverId === e.id)),
+      Boolean(e && !selfServiceOnly && (e._count.directReports > 0 || membership.organization.leaveNoManagerApproverId === e.id)),
   }
 }
 
@@ -85,7 +97,7 @@ export async function findIdentityByEmail(email: string): Promise<AuthIdentity |
   const membership = user?.memberships[0]
   if (!user || !membership) return null
 
-  const grant = toGrant(membership.roleDef)
+  const grant = grantOf(membership)
   return {
     userId: user.id,
     email: user.email,
@@ -149,7 +161,7 @@ export async function findIdentityByEmployeeCode(code: string): Promise<AuthIden
             : undefined
   if (!membership) return null
 
-  const grant = toGrant(membership.roleDef)
+  const grant = grantOf(membership)
   return {
     userId: membership.user.id,
     email: membership.user.email,
@@ -183,7 +195,7 @@ export async function findIdentityByUserId(userId: string): Promise<AuthIdentity
   const membership = user?.memberships[0]
   if (!user || !membership) return null
 
-  const grant = toGrant(membership.roleDef)
+  const grant = grantOf(membership)
   return {
     userId: user.id,
     email: user.email,

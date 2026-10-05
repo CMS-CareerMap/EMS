@@ -1,10 +1,9 @@
 {
   "generatedAt": "2026-10-04",
   "note": "Field names the frontend reads, pinned so the API cannot quietly stop sending one. A serializer that stops sending one of these will render an empty cell rather than an error, so check new serializers against this list. Regenerate with: cd server && npm run field-contract",
-  "fieldCount": 263,
+  "fieldCount": 265,
   "allFields": [
     "absent_days",
-    "absent_today",
     "accept_as_backup",
     "accept_resignation",
     "account_ending",
@@ -61,8 +60,14 @@
     "date_formats",
     "date_of_birth",
     "date_of_joining",
+    "day_off",
+    "days_absent",
+    "days_half",
     "days_in_month",
     "days_not_yet_happened",
+    "days_off",
+    "days_on_leave",
+    "days_present",
     "decided_at",
     "decided_by",
     "decided_by_whom",
@@ -84,6 +89,7 @@
     "employee_code",
     "employee_count",
     "employee_id",
+    "employee_uuid",
     "employer_esi",
     "employer_pf",
     "employment_days",
@@ -114,6 +120,7 @@
     "full_name",
     "goes_to",
     "grace_minutes",
+    "grand_total_hours",
     "gross_earnings",
     "gross_monthly",
     "half_day",
@@ -126,7 +133,7 @@
     "in_draft",
     "include_header",
     "is_owner",
-    "is_weekly_off_today",
+    "is_self",
     "last_part",
     "last_working_date",
     "last_working_day",
@@ -167,11 +174,10 @@
     "no_manager_approver_can_sign_in",
     "no_manager_approver_id",
     "no_manager_approver_name",
-    "not_marked_today",
+    "not_marked",
     "notice_period_days",
     "on_behalf",
     "on_leave",
-    "on_leave_today",
     "onboarded_on",
     "only_verified",
     "overtime_after_minutes",
@@ -191,9 +197,6 @@
     "payable_days",
     "payslip_id",
     "payslip_lock",
-    "pending_for_me",
-    "pending_leave_count",
-    "pending_leaves",
     "person_id",
     "person_left",
     "personal_email",
@@ -206,15 +209,15 @@
     "pf_wage_ceiling",
     "pf_wages",
     "present_days",
-    "present_today",
     "pro_rated",
     "probation_end_date",
     "probation_months",
     "profile_approver",
     "pt_state",
     "radius_meters",
-    "recent_joiners",
+    "recent_days",
     "recent_leaves",
+    "recently_left",
     "remaining_days",
     "replaced_at",
     "reporting_manager_designation",
@@ -239,11 +242,10 @@
     "tds_enabled",
     "template_saved",
     "this_month",
-    "this_week",
+    "to_check",
     "to_date",
     "total_days",
     "total_deductions",
-    "total_employees",
     "total_hours",
     "total_rows",
     "unmarked_days",
@@ -260,74 +262,105 @@
     "waiting_for_me",
     "weekly_off",
     "weekly_off_days",
-    "weekly_off_today",
     "wfh_approver",
     "wfh_gps_required",
     "with_login",
     "work_arrangement",
-    "work_mode"
+    "work_mode",
+    "would_overwrite"
   ],
   "byFile": {
+    "web/src/components/CommandPalette.jsx": [
+      "attendance_mode",
+      "employee_id",
+      "full_name"
+    ],
+    "web/src/components/MobileMenu.jsx": [
+      "full_name"
+    ],
     "web/src/components/NotificationPanel.jsx": [
       "created_at"
     ],
-    "web/src/components/ProfileDrawer.jsx": [
-      "date_of_joining",
-      "employee_id",
-      "full_name",
-      "reporting_manager_designation",
-      "reporting_manager_name"
-    ],
-    "web/src/components/Sidebar.jsx": [
-      "full_name"
-    ],
     "web/src/components/TopBar.jsx": [
       "full_name"
+    ],
+    "web/src/features/attendance/DayBar.jsx": [
+      "weekly_off"
+    ],
+    "web/src/features/attendance/ImportAttendanceModal.jsx": [
+      "employee_id",
+      "total_rows",
+      "would_overwrite"
     ],
     "web/src/features/attendance/MarkAttendanceModal.jsx": [
       "check_in",
       "check_out",
       "full_name"
     ],
+    "web/src/features/attendance/MonthCalendar.jsx": [
+      "check_in",
+      "check_out",
+      "days_off",
+      "hours_worked"
+    ],
+    "web/src/features/attendance/MonthTotals.jsx": [
+      "days_absent",
+      "days_half",
+      "days_on_leave",
+      "days_present",
+      "employee_id",
+      "employee_uuid",
+      "expected_hours",
+      "full_name",
+      "grand_total_hours",
+      "total_hours"
+    ],
     "web/src/features/attendance/PunchCard.jsx": [
       "check_in",
       "check_out",
       "distance_meters",
+      "end_time",
       "hours_worked",
       "late_minutes",
       "location_needed",
       "overtime_enabled",
       "overtime_minutes",
+      "start_time",
       "work_mode"
     ],
-    "web/src/features/dashboard/EmployeeDashboard.jsx": [
+    "web/src/features/attendance/SelfAttendance.jsx": [
       "attendance_mode",
+      "break_minutes",
+      "check_in",
+      "check_out",
       "date_of_joining",
-      "from_date",
-      "full_name",
-      "leave_type_name",
-      "remaining_days",
-      "to_date",
-      "total_days"
-    ],
-    "web/src/features/dashboard/HRDashboard.jsx": [
-      "can_decide",
-      "date_of_joining",
+      "days_off",
+      "early_leaving_minutes",
       "employee_id",
-      "from_date",
-      "full_name",
-      "leave_type",
-      "leave_type_name",
-      "to_date"
+      "employee_uuid",
+      "end_time",
+      "expected_hours",
+      "hours_worked",
+      "late_minutes",
+      "overtime_minutes",
+      "start_time",
+      "total_hours",
+      "weekly_off_days",
+      "work_mode"
     ],
-    "web/src/features/dashboard/LifecycleCards.jsx": [
-      "as_backup",
-      "decided_by",
+    "web/src/features/attendance/TeamDay.jsx": [
+      "check_in",
+      "check_in_device",
+      "check_out",
+      "early_leaving_minutes",
       "employee_code",
-      "employee_id",
       "full_name",
-      "requested_last_day",
-      "submitted_on"
+      "half_day",
+      "hours_worked",
+      "late_minutes",
+      "mark_goes_to",
+      "overtime_minutes",
+      "work_mode"
     ],
     "web/src/features/documents/Checklist.jsx": [
       "check_goes_to",
@@ -381,37 +414,6 @@
       "pt_state",
       "reporting_manager_id",
       "shift_id",
-      "start_time",
-      "work_arrangement"
-    ],
-    "web/src/features/employees/EmployeeDrawer.jsx": [
-      "attendance_mode",
-      "bank_account",
-      "bank_name",
-      "bank_proof_name",
-      "bank_verification_remarks",
-      "bank_verification_status",
-      "date_of_birth",
-      "date_of_joining",
-      "emergency_contact_name",
-      "emergency_contact_phone",
-      "emergency_contact_relation",
-      "employee_id",
-      "employment_type",
-      "end_time",
-      "eps_member",
-      "esi_number",
-      "full_name",
-      "has_prior_pf_membership",
-      "lifecycle_stage",
-      "personal_email",
-      "pf_acc_no",
-      "pf_applicable",
-      "pt_state",
-      "reporting_manager_designation",
-      "reporting_manager_left",
-      "reporting_manager_name",
-      "salary_effective_from",
       "start_time",
       "work_arrangement"
     ],
@@ -480,6 +482,63 @@
       "probation_end_date",
       "requested_last_day",
       "submitted_on"
+    ],
+    "web/src/features/home/CompanyCards.jsx": [
+      "by_department",
+      "date_of_joining",
+      "full_name",
+      "last_working_date",
+      "recently_left",
+      "uploaded_at"
+    ],
+    "web/src/features/home/LifecycleCard.jsx": [
+      "employee_id",
+      "full_name"
+    ],
+    "web/src/features/home/MyCards.jsx": [
+      "applied_on",
+      "check_in",
+      "check_out",
+      "day_off",
+      "from_date",
+      "hours_worked",
+      "leave_type_name",
+      "net_payable",
+      "paid_on",
+      "remaining_days",
+      "submitted_at",
+      "to_date",
+      "total_days"
+    ],
+    "web/src/features/home/PayrollCards.jsx": [
+      "calculated_at",
+      "employee_id",
+      "employer_esi",
+      "employer_pf",
+      "full_name",
+      "paid_on",
+      "to_check"
+    ],
+    "web/src/features/home/TeamCards.jsx": [
+      "as_backup",
+      "can_decide",
+      "check_in",
+      "day_off",
+      "decided_by",
+      "employee_code",
+      "employee_id",
+      "from_date",
+      "full_name",
+      "half_day",
+      "is_self",
+      "late_minutes",
+      "leave_type_name",
+      "not_marked",
+      "on_leave",
+      "requested_last_day",
+      "submitted_on",
+      "to_date",
+      "work_mode"
     ],
     "web/src/features/leave/ApplyLeaveModal.jsx": [
       "first_part",
@@ -656,7 +715,6 @@
       "user_id"
     ],
     "web/src/features/settings/CompanySettings.jsx": [
-      "date_format",
       "legal_name",
       "max_accuracy_meters",
       "radius_meters"
@@ -765,29 +823,16 @@
     ],
     "web/src/hooks/useDashboard.js": [
       "absent_days",
-      "absent_today",
-      "by_department",
       "half_days",
-      "is_weekly_off_today",
       "leave_balances",
       "leave_days",
-      "not_marked_today",
-      "on_leave",
-      "on_leave_today",
-      "pending_for_me",
-      "pending_leave_count",
-      "pending_leaves",
       "present_days",
-      "present_today",
-      "recent_joiners",
+      "recent_days",
       "recent_leaves",
       "this_month",
-      "this_week",
-      "total_employees",
       "total_hours",
       "waiting_for_me",
-      "weekly_off_days",
-      "weekly_off_today"
+      "weekly_off_days"
     ],
     "web/src/hooks/useDocuments.js": [
       "max_upload_mb"
@@ -811,6 +856,10 @@
     ],
     "web/src/hooks/useSettings.js": [
       "approved_leave_affected"
+    ],
+    "web/src/lib/attendance.js": [
+      "check_in",
+      "check_out"
     ],
     "web/src/lib/requests.js": [
       "from_date",
@@ -838,12 +887,49 @@
       "employee_code",
       "employee_id",
       "full_name",
-      "half_day",
       "hours_worked",
       "late_minutes",
       "mark_goes_to",
       "overtime_minutes",
       "work_mode"
+    ],
+    "web/src/pages/Dashboard.jsx": [
+      "attendance_mode",
+      "can_decide",
+      "full_name"
+    ],
+    "web/src/pages/EmployeeProfile.jsx": [
+      "archived_at",
+      "attendance_mode",
+      "bank_account",
+      "bank_name",
+      "bank_proof_name",
+      "bank_verification_remarks",
+      "bank_verification_status",
+      "date_of_birth",
+      "date_of_joining",
+      "emergency_contact_name",
+      "emergency_contact_phone",
+      "emergency_contact_relation",
+      "employee_id",
+      "employment_type",
+      "end_time",
+      "eps_member",
+      "esi_number",
+      "full_name",
+      "has_prior_pf_membership",
+      "last_working_date",
+      "lifecycle_stage",
+      "personal_email",
+      "pf_acc_no",
+      "pf_applicable",
+      "pt_state",
+      "reporting_manager_designation",
+      "reporting_manager_left",
+      "reporting_manager_name",
+      "salary_effective_from",
+      "start_time",
+      "work_arrangement"
     ],
     "web/src/pages/Employees.jsx": [
       "date_of_joining",
@@ -874,6 +960,13 @@
       "net_payable",
       "paid_on",
       "total_deductions"
+    ],
+    "web/src/pages/MyProfile.jsx": [
+      "date_of_joining",
+      "employee_id",
+      "full_name",
+      "reporting_manager_designation",
+      "reporting_manager_name"
     ],
     "web/src/pages/Reports.jsx": [
       "employee_id",

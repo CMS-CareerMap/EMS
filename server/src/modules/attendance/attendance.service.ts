@@ -25,7 +25,7 @@ import {
 } from '../../domain/attendance/geofence'
 import * as repo from './attendance.repository'
 import { companyTimezone } from '../organization/organization.service'
-import { findActiveGeofence } from '../settings/settings.repository'
+import { findActiveGeofence, getCurrentPolicy } from '../settings/settings.repository'
 import { awayOn, payPolicyOn, requestRules } from '../requests/requests.repository'
 import type { WorkMode } from '@prisma/client'
 
@@ -419,17 +419,35 @@ export interface Workplace {
   locationNeeded: boolean
   /** Whether the company pays overtime (client §35) — the app offers a claim only then. */
   overtimeEnabled: boolean
+  /** Their shift as it stands, for the day's timeline and the Timings card; null with none set. */
+  shift: { name: string; startTime: string; endTime: string; breakMinutes: number } | null
+  /** The company's weekly off days, 0 = Sunday. */
+  weeklyOffDays: number[]
+  /** The day they joined: their attendance log starts there, not with days before it shown as missed. */
+  dateOfJoining: CalendarDate | null
 }
 
 /** Today's workplace for the caller: office, or away on an approved request, or remote. */
 export async function myWorkplace(ctx: AppContext): Promise<Workplace> {
   const employee = await loadSelf(ctx)
   const today = zonedToday(new Date(), await companyTimezone(ctx))
-  const away = await awayOn(ctx.db, employee.id, toDateColumn(today))
+  const [away, payPolicy, policy] = await Promise.all([
+    awayOn(ctx.db, employee.id, toDateColumn(today)),
+    payPolicyOn(ctx.db, toDateColumn(today)),
+    getCurrentPolicy(ctx.db),
+  ])
   const workMode: WorkMode = away === 'work_from_home' ? 'wfh' : away === 'on_duty' ? 'on_duty' : employee.workArrangement === 'remote' ? 'remote' : 'office'
-  const overtimeEnabled = Boolean((await payPolicyOn(ctx.db, toDateColumn(today)))?.overtimeEnabled)
-  if (employee.attendanceMode !== 'app') return { workMode, locationNeeded: false, overtimeEnabled }
-  if (workMode === 'office') return { workMode, locationNeeded: Boolean(await findActiveGeofence(ctx.db)), overtimeEnabled }
+  const overtimeEnabled = Boolean(payPolicy?.overtimeEnabled)
+  const about = {
+    overtimeEnabled,
+    shift: employee.shift
+      ? { name: employee.shift.name, startTime: employee.shift.startTime, endTime: employee.shift.endTime, breakMinutes: employee.shift.breakMinutes }
+      : null,
+    weeklyOffDays: policy?.weeklyOffDays ?? [0],
+    dateOfJoining: fromDateColumn(employee.dateOfJoining),
+  }
+  if (employee.attendanceMode !== 'app') return { workMode, locationNeeded: false, ...about }
+  if (workMode === 'office') return { workMode, locationNeeded: Boolean(await findActiveGeofence(ctx.db)), ...about }
   const gpsWhenAway = Boolean(away && (await requestRules(ctx.db, ctx.organizationId))?.wfhGpsRequired)
-  return { workMode, locationNeeded: gpsWhenAway, overtimeEnabled }
+  return { workMode, locationNeeded: gpsWhenAway, ...about }
 }

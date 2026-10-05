@@ -111,9 +111,10 @@ export const getEmployeeImportTemplate: RequestHandler = async (_req, res) => {
     filename: 'employee-import-template.csv',
     bytes: csvBytes([
       // confirmed_on: for somebody already working here — left empty, a new joiner.
-      ['employee_code', 'full_name', 'email', 'personal_email', 'phone', 'date_of_joining', 'employment_type', 'department', 'designation', 'shift', 'pan', 'gender', 'confirmed_on'],
-      ['CMS-1001', 'Priya Sharma', 'priya@company.in', null, '9876543210', '01/10/2026', 'full_time', 'Sales', 'Executive', 'General', null, 'female', null],
-      ['CMS-0412', 'Ravi Patil', 'ravi@company.in', null, '9876500000', '06/01/2025', 'full_time', 'Sales', 'Executive', 'General', null, 'male', '06/07/2025'],
+      // date_of_birth: payroll stops the pension (EPS) at 58 from it.
+      ['employee_code', 'full_name', 'email', 'personal_email', 'phone', 'date_of_joining', 'employment_type', 'department', 'designation', 'shift', 'pan', 'gender', 'confirmed_on', 'date_of_birth'],
+      ['CMS-1001', 'Priya Sharma', 'priya@company.in', null, '9876543210', '01/10/2026', 'full_time', 'Sales', 'Executive', 'General', null, 'female', null, '14/03/1996'],
+      ['CMS-0412', 'Ravi Patil', 'ravi@company.in', null, '9876500000', '06/01/2025', 'full_time', 'Sales', 'Executive', 'General', null, 'male', '06/07/2025', '22/11/1990'],
     ]),
     contentType: CSV,
   })

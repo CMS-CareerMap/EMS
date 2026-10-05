@@ -1,9 +1,11 @@
+import { field } from '../../components/ui/styles'
 import { useEffect, useRef, useState } from 'react'
 import { Search, CheckCircle2, Clock, FolderOpen } from 'lucide-react'
 import { useCompliance, useChecklist } from '../../hooks/useDocuments'
 import Checklist from './Checklist'
 import DataState from '../../components/DataState'
 import { when } from './meta'
+import { Avatar, Card, EmptyState } from '../../components/ui/bits'
 
 /**
  * HR's view: where everybody stands against the required documents, what is
@@ -80,12 +82,12 @@ export default function EmployeeDocuments({ types, limits, selected, onSelect })
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name or code"
-              className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm bg-white" />
+              className={`w-full pl-9 ${field}`} />
           </div>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Show">
             {FILTERS.map((f) => (
-              <button key={f.id} onClick={() => setFilter(f.id)}
-                className={`px-2.5 py-1 rounded-full text-xs font-medium border ${filter === f.id ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+              <button key={f.id} onClick={() => setFilter(f.id)} aria-pressed={filter === f.id}
+                className={`h-7 px-2.5 rounded-full text-xs font-semibold border transition-colors ${filter === f.id ? 'bg-gray-900 border-gray-900 text-white' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
                 {f.label}
               </button>
             ))}
@@ -97,11 +99,14 @@ export default function EmployeeDocuments({ types, limits, selected, onSelect })
                 const complete = e.verified === e.required
                 return (
                   <button key={e.employee_id} onClick={() => onSelect(e.employee_id)}
-                    className={`w-full text-left p-3 rounded-xl border transition-colors ${active ? 'border-blue-500 bg-blue-50/60 ring-1 ring-blue-500' : 'border-gray-200 bg-white hover:bg-gray-50'}`}>
+                    className={`w-full text-left p-3 rounded-xl border transition-colors ${active ? 'border-brand-500 bg-brand-50/60 ring-1 ring-brand-500' : 'border-gray-200 bg-white hover:bg-gray-50'}`}>
                     <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-gray-900 truncate">{e.full_name}</p>
-                        <p className="text-[11px] text-gray-500 truncate"><span className="font-mono">{e.employee_code}</span>{e.department ? ` · ${e.department}` : ''}</p>
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <Avatar name={e.full_name} size="sm" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-gray-900 truncate">{e.full_name}</p>
+                          <p className="text-[11px] text-gray-500 truncate"><span className="font-mono">{e.employee_code}</span>{e.department ? ` · ${e.department}` : ''}</p>
+                        </div>
                       </div>
                       {complete ? (
                         <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" aria-label="All required documents verified" />
@@ -123,11 +128,11 @@ export default function EmployeeDocuments({ types, limits, selected, onSelect })
 
         <div className="lg:col-span-2 scroll-mt-4" ref={detail}>
           {!selected ? (
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm py-20 text-center">
-              <FolderOpen className="w-10 h-10 mx-auto text-gray-300" />
-              <p className="mt-2 text-sm font-medium text-gray-600">Choose somebody from the list</p>
-              <p className="text-xs text-gray-400">Their documents open here, to check, upload or remove.</p>
-            </div>
+            <Card>
+              <EmptyState icon={FolderOpen} title="Choose somebody from the list" className="py-16">
+                Their documents open here, to check, upload or remove.
+              </EmptyState>
+            </Card>
           ) : (
             <DataState query={checklist}>
               {(data) => <Checklist data={data} types={types} limits={limits} reviewer canUpload />}

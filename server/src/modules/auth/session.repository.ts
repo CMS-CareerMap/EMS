@@ -1,6 +1,6 @@
 import type { AccountStatus } from '@prisma/client'
 import { unsafeDb } from '../../platform/db/unsafe'
-import { toGrant, type RoleGrant } from '../../platform/authz/grant'
+import { ownThingsOnly, toGrant, type RoleGrant } from '../../platform/authz/grant'
 import type { TreePlace } from '../../platform/authz/scope'
 import { buildTree, placeIn } from '../../domain/org/companyTree'
 import { holdsSuperAdmin, isSelfServiceLogin } from '../../domain/org/logins'
@@ -199,14 +199,17 @@ export async function findAuthState(membershipId: string): Promise<AuthState | n
 
   if (!membership) return null
 
+  const selfServiceOnly = Boolean(membership.employee && isSelfServiceLogin(membership, membership.employee.memberships, EMPLOYEE_ROLE))
+  const grant = toGrant(membership.roleDef)
   return {
     userId: membership.user.id,
     tokenVersion: membership.user.tokenVersion,
-    grant: toGrant(membership.roleDef),
+    // Their own rows only, whatever the Employee role reaches (Day 23).
+    grant: selfServiceOnly ? ownThingsOnly(grant) : grant,
     status: membership.status,
     employeeId: membership.employee?.id ?? null,
     departmentId: membership.employee?.departmentId ?? null,
-    selfServiceOnly: Boolean(membership.employee && isSelfServiceLogin(membership, membership.employee.memberships, EMPLOYEE_ROLE)),
+    selfServiceOnly,
   }
 }
 

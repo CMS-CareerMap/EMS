@@ -1,8 +1,10 @@
+import { btn } from '../../components/ui/styles'
 import { useRef, useState } from 'react'
 import { X, Upload, Download, Loader2, CheckCircle2, AlertCircle, Copy, Check } from 'lucide-react'
 import { useImportEmployees, useMasterData } from '../../hooks/useEmployees'
 import { saveFromApi } from '../../api/http'
 import DataState from '../../components/DataState'
+import { EscapeCloses } from '../../hooks/useEscape'
 
 /**
  * Importing a roster from a spreadsheet.
@@ -79,14 +81,19 @@ export default function ImportEmployeesModal({ onClose }) {
   const problems = preview?.rows.filter((row) => row.issues.length > 0) ?? []
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl my-8 overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-gray-950/45 backdrop-blur-[2px] p-3 sm:p-4 overflow-y-auto"
+      role="dialog" aria-modal="true" aria-label="Import Employees">
+      {/* Escape closes it too, as every other dialog does — but not while the
+          import runs, nor on its result, whose invitation links are shown once:
+          a stray key would throw them away. Done or × closes those. */}
+      {!importer.isPending && !result && <EscapeCloses onClose={onClose} />}
+      <div className="bg-white rounded-2xl shadow-[0_30px_70px_-20px_rgba(26,16,41,0.5)] w-full max-w-3xl my-6 sm:my-8 overflow-hidden">
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
           <div>
             <h2 className="text-lg font-semibold text-gray-900">Import Employees</h2>
             <p className="text-sm text-gray-400 mt-0.5">From a CSV file — checked before anything is saved</p>
           </div>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} aria-label="Close" className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -121,14 +128,14 @@ export default function ImportEmployeesModal({ onClose }) {
                     </p>
                   )}
                 </DataState>
-                <button onClick={downloadTemplate} className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-800">
+                <button onClick={downloadTemplate} className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-600 hover:text-brand-800">
                   <Download className="w-4 h-4" /> Download a template
                 </button>
               </div>
 
               <input ref={fileInput} type="file" accept=".csv,text/csv" onChange={handleFile} className="hidden" />
               <button onClick={() => fileInput.current?.click()} disabled={importer.isPending}
-                className="w-full border-2 border-dashed border-gray-300 hover:border-blue-400 rounded-xl py-8 flex flex-col items-center gap-2 text-gray-500 hover:text-blue-600 transition-colors">
+                className="w-full border-2 border-dashed border-gray-300 hover:border-brand-400 rounded-xl py-8 flex flex-col items-center gap-2 text-gray-500 hover:text-brand-600 transition-colors">
                 {importer.isPending ? <Loader2 className="w-6 h-6 animate-spin" /> : <Upload className="w-6 h-6" />}
                 <span className="text-sm font-medium">{fileName || 'Choose a CSV file'}</span>
                 {fileName && <span className="text-xs text-gray-400">Choose again to replace it</span>}
@@ -187,13 +194,13 @@ export default function ImportEmployeesModal({ onClose }) {
                 </div>
               )}
 
-              <div className="flex justify-end gap-3">
-                <button onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50">
+              <div className="flex flex-wrap justify-end gap-3">
+                <button onClick={onClose} className={btn.secondary}>
                   Cancel
                 </button>
                 <button onClick={handleImport}
                   disabled={!preview || problems.length > 0 || preview.summary.valid === 0 || importer.isPending}
-                  className="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium flex items-center gap-2">
+                  className={btn.primary}>
                   {importer.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
                   Import {preview?.summary.valid ? `${preview.summary.valid} employees` : ''}
                 </button>
@@ -221,7 +228,7 @@ function ImportDone({ result, copied, onCopy, onClose }) {
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <p className="text-sm font-semibold text-gray-900">Invitation links</p>
-            <button onClick={() => onCopy(everything, 'all')} className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-800">
+            <button onClick={() => onCopy(everything, 'all')} className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-600 hover:text-brand-800">
               {copied === 'all' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />} Copy all
             </button>
           </div>
@@ -237,7 +244,7 @@ function ImportDone({ result, copied, onCopy, onClose }) {
                   <p className="text-xs text-gray-400 font-mono truncate">{linkFor(invite.token)}</p>
                 </div>
                 <button onClick={() => onCopy(linkFor(invite.token), invite.email)}
-                  className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-semibold">
+                  className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-brand-50 text-brand-700 hover:bg-brand-100 text-xs font-semibold">
                   {copied === invite.email ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />} Copy
                 </button>
               </div>
@@ -247,7 +254,7 @@ function ImportDone({ result, copied, onCopy, onClose }) {
       )}
 
       <div className="flex justify-end">
-        <button onClick={onClose} className="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium">Done</button>
+        <button onClick={onClose} className={btn.primary}>Done</button>
       </div>
     </div>
   )

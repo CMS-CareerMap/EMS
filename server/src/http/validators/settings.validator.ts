@@ -54,7 +54,8 @@ export const companySchema = z
         }
       }, 'Choose a time zone from the list, such as Asia/Kolkata')
       .optional(),
-    dateFormat: z.enum(['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD']).optional(),
+    // No date format: it was stored and never used — every screen, payslip and
+    // file shows dates one way. (The bank file has its own, in its template.)
     // Upper-case codes, as they are compared: ISO 3166 country, ISO 4217 currency.
     country: z.string().trim().regex(/^[A-Z]{2}$/, 'A two-letter country code, such as IN').optional(),
     currency: z.string().trim().regex(/^[A-Z]{3}$/, 'A three-letter currency code, such as INR').optional(),

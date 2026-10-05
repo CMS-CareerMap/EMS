@@ -7,6 +7,7 @@
 // Day 20 seed (reset20.sh). Priya (emp) reports to Manoj (mgr).
 import { chromium } from 'playwright-core'
 import { WORK, REPO, STORAGE as STORE, psql } from '../lib/env.mjs'
+import { openMyProfile, openEmployeeProfile, signOutVia, menuLinks, menuLink } from '../lib/ui.mjs'
 import { readFileSync, mkdirSync } from 'node:fs'
 
 const BASE = 'http://localhost:5183'
@@ -64,7 +65,7 @@ async function open(who, viewport = { width: 1366, height: 900 }) {
   page.on('pageerror', (e) => pageErrors.push(`${who}: ${e.message}`))
   page.on('response', (r) => { if (r.status() >= 500 && r.url().includes('/api/')) serverErrors.push(`${who} ${r.request().method()} ${r.url().split('/api')[1]} ${r.status()}`) })
   await page.goto(`${BASE}/signin`)
-  await page.getByPlaceholder('you@careermap.in or EMP001').fill(fx.users[who])
+  await page.getByLabel('Work Email or Employee ID').fill(fx.users[who])
   await page.getByPlaceholder('Enter your password').fill(fx.password)
   await page.getByRole('button', { name: 'Sign In' }).click()
   await page.waitForURL((url) => !url.pathname.startsWith('/signin'), { timeout: 20_000 })
@@ -138,7 +139,8 @@ try {
   await go(arjun, '/requests')
   check('the Admin reaches Requests, with no All tab', (await arjun.getByRole('tab', { name: 'All requests' }).count()) === 0)
   check('…and sends none from the role login — that is the employee login’s, like leave', (await arjun.getByRole('button', { name: 'New request' }).count()) === 0)
-  await arjun.getByRole('tab', { name: /To decide/ }).click()
+  // "To decide" is the Admin's one section, so no tab strip is drawn for it.
+  check('…To decide being the one section, there is no tab strip', (await arjun.getByRole('tab').count()) === 0)
   check('…and is given no profile change to decide', await seen(arjun.getByText('Nothing is waiting for you.')))
   await shot(arjun, 'admin-requests')
   await go(hema, '/requests?tab=decide')
@@ -147,12 +149,15 @@ try {
   await dialog(hema).getByRole('button', { name: 'Approve', exact: true }).click()
   await toast(hema, `${profile.body.data.number} is approved`)
 
-  section('Personal details in the drawer — HR yes, the manager no')
+  section('Personal details on the profile — HR yes, the manager no')
+  // An older link to somebody (?open=) goes to their profile page.
   await go(hema, `/employees?open=${E.priya.id}`)
+  check('an old “open” link lands on her profile page', hema.url().endsWith(`/employees/${E.priya.id}`), hema.url())
   check('HR sees Priya’s emergency contact', await seen(hema.getByText(/Suresh Deshmukh · 9822000000/)))
-  await go(manoj, `/employees?open=${E.priya.id}`)
-  await manoj.getByText('Employee Profile').waitFor({ timeout: 20_000 })
-  check('the manager does not', (await manoj.getByText('Personal Details', { exact: true }).count()) === 0)
+  await go(manoj, `/employees/${E.priya.id}`)
+  await manoj.getByRole('heading', { name: 'Priya Deshmukh', level: 1 }).waitFor({ timeout: 20_000 })
+  await manoj.getByText('Employment details').waitFor({ timeout: 20_000 })
+  check('the manager does not', (await manoj.getByText('Personal details', { exact: true }).count()) === 0)
 
   section('Anil edits, archives and restores a component')
   check('a component to work on', (await api('acc', 'POST', '/payroll/components', { code: 'SITE', label: 'Site Allowance', entry: 'monthly' })).status === 201)
@@ -217,7 +222,7 @@ try {
   await dialog(hema).getByRole('button', { name: 'Save rules' }).click()
   await toast(hema, 'Casual Leave: rules saved')
   await go(priya, '/leave')
-  await priya.getByRole('button', { name: 'Leave Balance' }).click()
+  await priya.getByRole('tab', { name: 'Leave Balance' }).click()
   check('the balance says the rest is earned through the year', await seen(priya.getByText(/earned through the year, a month at a time/).first()))
   await priya.getByRole('button', { name: 'Apply for Leave' }).click()
   const modal = priya.locator('form', { hasText: 'Leave Type' })

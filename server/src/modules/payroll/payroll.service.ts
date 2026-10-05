@@ -11,10 +11,11 @@ import {
 } from '../../domain/payroll/salary'
 import { minutesLabel } from '../../domain/attendance/shiftRules'
 import { requestNumber } from '../../domain/requests/requests'
-import { monthCalendar, proration, type LopBasis } from '../../domain/payroll/payDays'
+import { arrearsFor, monthCalendar, proration, type LopBasis } from '../../domain/payroll/payDays'
+import { money as rupees } from '../../domain/audit/catalogue'
 import { EPS_AGE_LIMIT, epsAgeInMonth, isEpsMember, type Gender, type PtSlabRule } from '../../domain/payroll/statutory'
 import type { Weekday } from '../../domain/leave/leaveDays'
-import { toDateColumn, fromDateColumn, dayLabel, type CalendarDate } from '../../domain/shared/dates'
+import { toDateColumn, fromDateColumn, dayLabel, addCalendarDays, type CalendarDate } from '../../domain/shared/dates'
 import { listDaysOff } from '../holidays/holidays.repository'
 import { coverageFor, type Coverage } from './esiCoverage.service'
 import * as repo from './payroll.repository'
@@ -131,6 +132,11 @@ export interface Calculation {
  * recorded as 'other', or not recorded at all, is matched against that — the
  * only honest reading of a table the state wrote with two columns.
  */
+/** "10 Oct 2026 and 20 Oct 2026"; three or more with commas. */
+function listOfDays(days: string[]): string {
+  return days.length > 1 ? `${days.slice(0, -1).join(', ')} and ${days[days.length - 1]}` : (days[0] ?? '')
+}
+
 function ptGenderOf(gender: 'male' | 'female' | 'other' | null): Gender {
   return gender === 'male' || gender === 'female' ? gender : 'any'
 }
@@ -233,13 +239,9 @@ export async function calculate(
 
   // A salary that starts inside the month is paid from next month, as above —
   // so the days at the new rate this month are not paid by this payslip, and
-  // nobody would know. Said, for Accounts to settle as arrears.
-  const startsMidMonth = await repo.firstFinancialBetween(ctx.db, employeeId, firstEmployedDay, toDateColumn(monthEnd))
-  if (startsMidMonth) {
-    warnings.push(
-      `A new salary starts on ${dayLabel(fromDateColumn(startsMidMonth.effectiveFrom))}. This month is paid on the earlier one: pay the difference for the days from then as arrears (a monthly entry), or start salary changes on the 1st.`,
-    )
-  }
+  // nobody would know. Said below, with the figure, for Accounts to settle as arrears.
+  // To their last day this month: a change after it touches none of their days.
+  const changes = await repo.financialsStartingBetween(ctx.db, employeeId, firstEmployedDay, toDateColumn(window.to))
 
   // A monthly component sitting on the salary record would be paid every
   // month at the same figure — a raise called an incentive — and prorated for
@@ -331,6 +333,49 @@ export async function calculate(
     warnings.push('The calendar has no working days this month, so pay was divided by calendar days instead.')
   }
 
+  // Each new salary's own days — from its start to the next one's, or their
+  // last day — on the same basis as the month, against the salary this month
+  // pays: Accounts enters a figure rather than working one out (or starts
+  // changes on the 1st, which avoids it). Nothing said when none of their
+  // days are at a new rate.
+  if (changes.length > 0) {
+    const grossOf = (rows: { amount: unknown; component: { type: string; entry: string } }[]) =>
+      rows.filter((row) => row.component.type === 'earning' && row.component.entry === 'fixed').reduce((sum, row) => sum + Number(row.amount), 0)
+    const paidGross = grossOf(financial.components)
+    const pieces = changes.map((change, i) => {
+      const from = fromDateColumn(change.effectiveFrom)!
+      const next = changes[i + 1]
+      const to = next ? addCalendarDays(fromDateColumn(next.effectiveFrom)!, -1) : window.to
+      const difference = grossOf(change.components) - paidGross
+      return { from, difference, ...arrearsFor({ lopBasis: days.lopBasis, calendar, window: { from: window.from, to }, changeFrom: from, monthlyDifference: difference }) }
+    })
+    // Added before rounding, so two changes give the paisa one would.
+    const total = Math.round(pieces.reduce((sum, p) => sum + (p.payBasisDays > 0 ? (p.difference * p.payableDays) / p.payBasisDays : 0), 0) * 100) / 100
+    const daysAtNewRate = pieces.reduce((sum, p) => sum + p.payableDays, 0)
+    const single = pieces.length === 1 ? pieces[0]! : null
+    const starts = single
+      ? `A new${total < 0 ? ', lower' : ''} salary starts on ${dayLabel(single.from)}`
+      : `New salaries start on ${listOfDays(pieces.map((p) => dayLabel(p.from)))}`
+    const how = single
+      ? `${rupees(Math.abs(single.difference))} a month × ${single.payableDays} of ${single.payBasisDays} days`
+      : 'each for its own days'
+    // Already entered: said, so it is not entered twice.
+    const arrearsEntered = Number(options.monthlyAmounts?.ARREARS ?? 0)
+    if (daysAtNewRate > 0 && total > 0) {
+      warnings.push(
+        `${starts}. This month is paid on the earlier one: the days from then are short by ${rupees(total)} (${how}, before any loss of pay on those days). ` +
+          (arrearsEntered > 0 ? `${rupees(arrearsEntered)} is entered as Arrears this month.` : 'Enter it as Arrears for this month, or start salary changes on the 1st.'),
+      )
+    } else if (daysAtNewRate > 0 && total < 0) {
+      warnings.push(
+        `${starts}. This month is paid on the earlier one: the days from then are overpaid by ${rupees(-total)} (${how}). ` +
+          'Recover it next month with a monthly deduction (add one under Payroll → Components if there is none), or start salary changes on the 1st.',
+      )
+    } else if (daysAtNewRate > 0) {
+      warnings.push(`${starts}, with the same gross. This month is paid on the earlier one; how it is split may differ from the new one.`)
+    }
+  }
+
   // Approved overtime and leave encashment (client §35–36), paid as entered
   // lines: a day's pay is the month's fixed earnings on the company's basis —
   // all of them, or those that count for PF — over the month's pay days, as
@@ -407,6 +452,11 @@ export async function calculate(
   // A member stops contributing to the pension at 58, whatever they were.
   const age = epsAgeInMonth(employee.dateOfBirth ? fromDateColumn(employee.dateOfBirth) : null, year, month)
   const epsMember = member && age !== 'over'
+  // Without a date of birth the age is unknown, and is read as under 58: the
+  // pension would go on being paid past it, with nothing to say so.
+  if (pfApplicable && member && !employee.dateOfBirth) {
+    warnings.push(`No date of birth is recorded, so the pension (EPS) cannot be stopped at ${EPS_AGE_LIMIT}. Record it in the employee's personal details.`)
+  }
   if (pfApplicable && member && age === 'turns_this_month') {
     warnings.push(
       `Turns ${EPS_AGE_LIMIT} this month: pension (EPS) stops from the birthday, and the PF return splits this month's employer share by the days on each side. ` +

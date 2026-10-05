@@ -1,7 +1,89 @@
 @import "tailwindcss";
 
-* {
-  font-family: 'Inter', sans-serif;
+/*
+ * The CareerMap look, taken from the logo: orange → pink → purple → sky.
+ *
+ * `brand` is the purple of the logo's "S" and carries every action — buttons,
+ * links, focus rings, the selected tab. The full gradient is kept for a few
+ * places that should catch the eye (the home banner, the active line under a
+ * tab, Check In) — used everywhere it would stop meaning anything.
+ *
+ * The greys are tinted towards the logo's plum, so white cards sit on a page
+ * that belongs to the same family rather than on a cold blue-grey. `gray` and
+ * `slate` stay the neutral scales by name; only their shade changes.
+ */
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --color-brand-50: #F7F0FF;
+  --color-brand-100: #EFE1FE;
+  --color-brand-200: #DFC4FD;
+  --color-brand-300: #C99BFA;
+  --color-brand-400: #AD6CF4;
+  --color-brand-500: #9B45EE;
+  --color-brand-600: #8B2FE6;
+  --color-brand-700: #7322CC;
+  --color-brand-800: #5E1DA6;
+  --color-brand-900: #4C1A85;
+  --color-brand-950: #2F0A57;
+
+  --color-gray-50: #FAF8FD;
+  --color-gray-100: #F4F1F8;
+  --color-gray-200: #ECE8F3;
+  --color-gray-300: #DAD4E4;
+  --color-gray-400: #A39DB4;
+  --color-gray-500: #6E6784;
+  --color-gray-600: #534C66;
+  --color-gray-700: #3F3753;
+  --color-gray-800: #2A2340;
+  --color-gray-900: #1C1430;
+  --color-gray-950: #120C21;
+
+  --color-slate-50: #FAF8FD;
+  --color-slate-100: #F4F1F8;
+  --color-slate-200: #ECE8F3;
+  --color-slate-300: #DAD4E4;
+  --color-slate-400: #A39DB4;
+  --color-slate-500: #6E6784;
+  --color-slate-600: #534C66;
+  --color-slate-700: #3F3753;
+  --color-slate-800: #2A2340;
+  --color-slate-900: #1C1430;
+  --color-slate-950: #120C21;
+
+  /* The page behind the cards, and the sidebar. */
+  --color-canvas: #F5F3F9;
+  --color-side: #1A1029;
+  --color-side-2: #24173A;
+  --color-side-ink: #A99FC0;
+
+  --shadow-sm: 0 1px 2px rgb(28 20 48 / 0.04), 0 4px 14px rgb(28 20 48 / 0.04);
+  --shadow-md: 0 6px 20px -6px rgb(28 20 48 / 0.12);
+}
+
+/* The logo's sweep, and its pale wash for highlighted figures. */
+@utility bg-logo {
+  background-image: linear-gradient(100deg, #FFA04A 0%, #FF5C8A 30%, #D04FE6 55%, #9B3CF0 75%, #3EC3FA 100%);
+}
+@utility bg-logo-soft {
+  background-image: linear-gradient(100deg, #FFF1E6 0%, #FFE8F1 35%, #F6EAFE 65%, #E6F6FE 100%);
+}
+@utility text-logo {
+  background-image: linear-gradient(100deg, #FFA04A 0%, #FF5C8A 30%, #D04FE6 55%, #9B3CF0 75%, #3EC3FA 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Figures line up in columns. */
+.tabular-nums,
+table td {
+  font-variant-numeric: tabular-nums;
 }
 
 /*

@@ -9,8 +9,11 @@ import {
   fromDateColumn,
   toDateColumn,
   dayLabel,
+  addCalendarDays,
   type CalendarDate,
 } from '../../domain/shared/dates'
+import { listDaysOffNamed } from '../holidays/holidays.repository'
+import { listPolicies } from '../settings/settings.repository'
 import { hoursBetween, hoursBetweenWallClock } from '../../domain/attendance/hours'
 import {
   forWorkedHalf,
@@ -70,6 +73,52 @@ export interface MonthlySummaryResult {
   }[]
   /** Every employee's hours added together, for the company figure. */
   grandTotalHours: number
+}
+
+export interface MonthCalendar {
+  year: number
+  month: number
+  /** The working week's days off, Sunday as 0. */
+  weeklyOffDays: number[]
+  /** Every day off in the month, in order: a holiday by its name, or a weekly off. */
+  daysOff: { date: CalendarDate; kind: 'holiday' | 'weekly_off'; name: string | null }[]
+}
+
+/**
+ * The company's days off in a month, for the attendance calendar.
+ *
+ * Nobody marks a holiday or a weekly off, so a calendar drawn from attendance
+ * rows alone showed those days blank — as if the person had simply not come.
+ * A holiday wins over a weekly off on the same day, as the dashboard and the
+ * leave count decide it.
+ */
+export async function monthCalendar(ctx: AppContext, year: number, month: number): Promise<MonthCalendar> {
+  if (month < 1 || month > 12) throw BadRequest('Month must be between 1 and 12')
+
+  const first = `${year}-${String(month).padStart(2, '0')}-01` as CalendarDate
+  const last = fromDateColumn(new Date(Date.UTC(year, month, 0))) as CalendarDate
+  const [policies, rows] = await Promise.all([
+    listPolicies(ctx.db),
+    listDaysOffNamed(ctx.db, toDateColumn(first), toDateColumn(last)),
+  ])
+
+  // The month by the rules in force as it began — as payroll counts a month,
+  // by one policy throughout — not by today's weekly offs: policies are dated.
+  // The latest one begun by then (`listPolicies` is newest first); before the
+  // first, the earliest; with none at all, Sunday — as leave is counted, and
+  // as the column defaults.
+  const inForce = policies.find((p) => fromDateColumn(p.effectiveFrom)! <= first) ?? policies.at(-1)
+  const weeklyOffDays = [...(inForce?.weeklyOffDays ?? [0])]
+  const holidays = new Map(rows.filter((r) => r.type === 'public').map((r) => [fromDateColumn(r.date), r.name]))
+  const offRows = new Set(rows.filter((r) => r.type === 'weekly_off').map((r) => fromDateColumn(r.date)))
+
+  const daysOff: MonthCalendar['daysOff'] = []
+  for (let day = first; day <= last; day = addCalendarDays(day, 1)) {
+    if (holidays.has(day)) daysOff.push({ date: day, kind: 'holiday', name: holidays.get(day) ?? null })
+    else if (weeklyOffDays.includes(new Date(`${day}T00:00:00Z`).getUTCDay()) || offRows.has(day)) daysOff.push({ date: day, kind: 'weekly_off', name: null })
+  }
+
+  return { year, month, weeklyOffDays, daysOff }
 }
 
 /**
@@ -262,6 +311,8 @@ export async function markAttendance(ctx: AppContext, input: MarkInput) {
   }
 
   const row = await withTransaction(ctx.db, async (tx) => {
+    // Again under the month's payroll lock: a month approved since the check above is refused, not missed.
+    await assertDaysOpen(ctx, [input.date], 'a change to attendance on that day', tx)
     // Marking a day already recorded — a punch, or an earlier entry — is
     // correcting it, which is its own tick on the Roles screen.
     if (!ctx.can('attendance:update') && (await repo.dayRecorded(tx, input.employeeId, input.date))) {

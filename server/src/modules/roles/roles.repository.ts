@@ -114,13 +114,15 @@ export async function membershipsHolding(db: Db, permission: string) {
   return db.membership.findMany({
     where: { roleDef: { permissions: { has: permission } } },
     select: {
+      id: true,
       userId: true,
       status: true,
       role: true,
       // The whole role, so its scopes are read as they apply (`toGrant`), and a Super Admin is known.
       roleDef: { select: { key: true, name: true, permissions: true, scopes: true, locked: true } },
-      // Where the holder sits — what their team and department scopes are measured from.
-      employee: { select: { id: true, departmentId: true } },
+      // Where the holder sits — what their team and department scopes are measured from —
+      // and their other logins: an employee login beside a live role login reaches only its own (Day 23).
+      employee: { select: { id: true, departmentId: true, memberships: { select: { id: true, role: true, status: true } } } },
     },
   })
 }

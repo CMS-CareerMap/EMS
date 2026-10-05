@@ -88,9 +88,16 @@ function firstPayDayChanged(previous: CalendarDate | null, next: CalendarDate | 
   return addCalendarDays(dates[0]!, 1)
 }
 
-async function assertPayOpen(ctx: AppContext, previous: CalendarDate | null, next: CalendarDate | null): Promise<void> {
+/**
+ * Given the step's transaction, under the payroll locks of the months it
+ * reaches — taken after the person's leave lock, which settling their leave
+ * takes too, so the order is the one every holder uses.
+ */
+async function assertPayOpen(ctx: AppContext, previous: CalendarDate | null, next: CalendarDate | null, tx?: TxDb, employeeId?: string): Promise<void> {
   const from = firstPayDayChanged(previous, next)
-  if (from) await assertOpenFrom(ctx, from, 'a change to the last working day')
+  if (!from) return
+  if (tx && employeeId) await lockFor(tx, `leave-apply:${employeeId}`)
+  await assertOpenFrom(ctx, from, 'a change to the last working day', tx)
 }
 
 function assertDateInRange(value: CalendarDate, label: string, p: repo.PersonRow, latest: CalendarDate | null): void {
@@ -262,7 +269,11 @@ async function buildView(ctx: AppContext, person: repo.PersonRow, self: boolean)
   const work = loaded && !above ? checkWork(ctx, loaded, person.id) : null
   const runs = Boolean(work?.allowed)
 
-  const detailed = self || ownRecord || ctx.can('role:manage') || (manages && !above) || decision.allowed
+  // The record in full — its history, and a resignation not yet accepted — for
+  // the person, whoever runs it, whoever accepts their resignation and the
+  // Super Admin. Not a fellow HR person who may only read it: their own record
+  // goes up the tree, and a resignation is not announced before it is accepted.
+  const detailed = self || ownRecord || ctx.can('role:manage') || runs || decision.allowed
   const open = person.resignations[0] ?? null
   // A resignation not yet accepted is not announced: the directory shows where they stood before it.
   const stage = detailed ? stageFor(person, today) : stageOf({ ...factsOf(person), resignation: open?.status === 'accepted' ? { status: 'accepted' } : null }, today)
@@ -382,6 +393,8 @@ export async function summary(ctx: AppContext): Promise<LifecycleSummary> {
   // a senior's resignation is not the caller's to see before it is accepted.
   for (const p of people.filter((person) => !aboveCaller(ctx, loaded, person.id))) {
     const stage = stageFor(p, today)
+    // Nor a fellow HR person's resignation not yet accepted: their record is not the caller's to run.
+    if (stage === 'resigned' && !ctx.can('role:manage') && !checkWork(ctx, loaded, p.id).allowed) continue
     const item = (date: Date | null): SummaryItem => ({
       employeeId: p.id,
       fullName: p.fullName,
@@ -698,7 +711,8 @@ export async function acceptResignation(ctx: AppContext, resignationId: string, 
     const submittedOn = fromDateColumn(r.submittedOn)
     if (input.lastWorkingDay < submittedOn) throw BadRequest(`The last working day cannot be before the resignation was handed in, on ${dayLabel(submittedOn)}.`)
     assertDateInRange(input.lastWorkingDay, 'The last working day', p, null)
-    await assertPayOpen(ctx, fromDateColumn(p.lastWorkingDate), input.lastWorkingDay)
+    // Under the months' payroll locks, before anything is written: refused rather than missed.
+    await assertPayOpen(ctx, fromDateColumn(p.lastWorkingDate), input.lastWorkingDay, tx, r.employeeId)
     const moved = await repo.moveResignation(tx, r.id, ['submitted'], {
       status: 'accepted', lastWorkingDay: toDateColumn(input.lastWorkingDay), decidedByUserId: ctx.userId, decidedAt: new Date(), decisionNote: input.note,
     })
@@ -747,7 +761,7 @@ export async function cancelResignation(ctx: AppContext, resignationId: string, 
     if (!current || (current.status !== 'submitted' && current.status !== 'accepted')) throw Conflict('This resignation is no longer open. Reload to see it.')
     const lastDay = fromDateColumn(p.lastWorkingDate)
     const clearsLastDay = current.status === 'accepted' && lastDay !== null && lastDay === fromDateColumn(current.lastWorkingDay)
-    if (clearsLastDay) await assertPayOpen(ctx, lastDay, null)
+    if (clearsLastDay) await assertPayOpen(ctx, lastDay, null, tx, r.employeeId)
     const moved = await repo.moveResignation(tx, r.id, ['submitted', 'accepted'], { status: 'cancelled', closedByUserId: ctx.userId, closedAt: new Date(), closeNote: note })
     if (moved === 0) throw Conflict('This resignation changed a moment ago. Reload to see it.')
     if (clearsLastDay) await repo.updatePerson(tx, r.employeeId, { lastWorkingDate: null })
@@ -856,6 +870,10 @@ export async function completeExit(
     // Their requests' lock before their record changes — the order a decision
     // takes them in — so leaving and an approval at the same moment queue.
     await lockFor(tx, `requests:${employeeId}`)
+    // Under the months' payroll locks — after their requests' and leave locks,
+    // before anything is written: a month approved since the check above is
+    // refused rather than missed.
+    if (lastDay) await assertPayOpen(ctx, previous, lastDay, tx, employeeId)
     const users = await closeLoginsForExit(tx, ctx, employeeId)
     await repo.updatePerson(tx, employeeId, {
       lastWorkingDate: lastDay ? toDateColumn(lastDay) : null,

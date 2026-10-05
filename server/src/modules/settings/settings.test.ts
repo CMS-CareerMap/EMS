@@ -82,7 +82,6 @@ describe('the Company tab, which used to discard everything', () => {
       email: 'hello@example.com',
       website: 'https://example.com',
       timezone: 'Asia/Kolkata',
-      dateFormat: 'DD/MM/YYYY' as const,
       currency: 'INR',
     }
 
@@ -99,7 +98,13 @@ describe('the Company tab, which used to discard everything', () => {
     expect(reread.body.data.city).toBe('Pune')
     expect(reread.body.data.pincode).toBe('411045')
     expect(reread.body.data.website).toBe('https://example.com')
-    expect(reread.body.data.date_format).toBe('DD/MM/YYYY')
+    // No date format: it was stored and never used.
+    expect(reread.body.data).not.toHaveProperty('date_format')
+  })
+
+  it('refuses a date format — there is no such setting any more', async () => {
+    const res = await put('/company', { dateFormat: 'DD/MM/YYYY' })
+    expect(res.status).toBe(422)
   })
 
   it('leaves untouched fields alone rather than nulling them', async () => {

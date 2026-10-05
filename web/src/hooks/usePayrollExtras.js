@@ -10,6 +10,7 @@ function refresh(qc, key) {
   return Promise.all([
     qc.invalidateQueries({ queryKey: key }),
     qc.invalidateQueries({ queryKey: ['payroll'] }),
+    qc.invalidateQueries({ queryKey: ['dashboard', 'payroll'] }),
     qc.invalidateQueries({ queryKey: ['salary'] }),
     qc.invalidateQueries({ queryKey: ['settings', 'pf-components'] }),
   ])

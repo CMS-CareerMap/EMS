@@ -1,3 +1,4 @@
+import { btn, th } from '../../components/ui/styles'
 import { useState } from 'react'
 import { Plus, Trash2, Edit2, X, Check, Archive, Info, SlidersHorizontal } from 'lucide-react'
 import {
@@ -94,7 +95,7 @@ function LeaveYear() {
             {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
           </select>
           <button type="button" onClick={handleSave} disabled={savePayroll.isPending || value === current}
-            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium">
+            className={btn.primary}>
             {savePayroll.isPending ? 'Saving…' : 'Save'}
           </button>
           {saved && value === current && <span className="text-xs text-green-700 flex items-center gap-1"><Check className="w-3.5 h-3.5" /> Saved</span>}
@@ -152,18 +153,18 @@ function LeaveTypes() {
     <Section title="Leave Types" desc="Days granted each leave year, whether they are paid, and what carries into the next year. Each type's rules — notice, monthly accrual, who may use it, half days, encashment — are under its sliders button.">
       <div className="py-3 space-y-3">
         {notice && (
-          <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-800">
+          <div className="flex items-start gap-2 p-3 rounded-lg bg-brand-50 border border-brand-200 text-xs text-brand-800">
             <Info className="w-4 h-4 shrink-0" /><span className="flex-1">{notice}</span>
-            <button type="button" onClick={() => setNotice('')} className="text-blue-500 hover:text-blue-700"><X className="w-3.5 h-3.5" /></button>
+            <button type="button" onClick={() => setNotice('')} className="text-brand-500 hover:text-brand-700"><X className="w-3.5 h-3.5" /></button>
           </div>
         )}
 
         <div className="border border-gray-200 rounded-xl overflow-x-auto">
           <table className="w-full min-w-160">
             <thead>
-              <tr className="bg-gray-50 border-b border-gray-200">
+              <tr>
                 {['Leave Type', 'Code', 'Days / Year', 'Paid', 'Carry Forward', ''].map((h) => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{h}</th>
+                  <th key={h} className={th}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -186,9 +187,9 @@ function LeaveTypes() {
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1">
                       <button type="button" onClick={() => setRuling(t)} title={`Rules of ${t.name}: notice, accrual, encashment`} aria-label={`Rules of ${t.name}`}
-                        className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600"><SlidersHorizontal className="w-3.5 h-3.5" /></button>
+                        className="p-1.5 rounded-lg hover:bg-brand-50 text-gray-400 hover:text-brand-600"><SlidersHorizontal className="w-3.5 h-3.5" /></button>
                       <button type="button" onClick={() => { setEditId(t.id); setAdding(false) }} title={`Change ${t.name}`}
-                        className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600"><Edit2 className="w-3.5 h-3.5" /></button>
+                        className="p-1.5 rounded-lg hover:bg-brand-50 text-gray-400 hover:text-brand-600"><Edit2 className="w-3.5 h-3.5" /></button>
                       <button type="button" onClick={() => setArchiving(t)} disabled={archiveType.isPending} title={`Archive ${t.name}`}
                         className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500"><Archive className="w-3.5 h-3.5" /></button>
                     </div>
@@ -203,7 +204,7 @@ function LeaveTypes() {
 
         {!adding && (
           <button type="button" onClick={() => { setAdding(true); setEditId(null); setNotice('') }}
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-800">
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-600 hover:text-brand-800">
             <Plus className="w-4 h-4" /> Add a leave type
           </button>
         )}
@@ -265,7 +266,7 @@ function LeaveTypeEditor({ type, onAdd, saving, onClose }) {
 
   return (
     <>
-      <tr className="bg-blue-50/40 border-b border-gray-100">
+      <tr className="bg-brand-50/40 border-b border-gray-100">
         <td className="px-4 py-2"><input className={`${inpSm} w-full`} value={t.name} maxLength={60} placeholder="e.g. Casual Leave" onChange={(e) => set('name', e.target.value)} /></td>
         <td className="px-4 py-2"><input className={`${inpSm} w-20 font-mono uppercase`} value={t.code} maxLength={6} placeholder="CL" onChange={(e) => set('code', e.target.value)} /></td>
         <td className="px-4 py-2"><input type="number" min="0" max="365" step="0.5" className={`${inpSm} w-20`} value={t.days} onChange={(e) => set('days', e.target.value)} /></td>
@@ -369,7 +370,7 @@ function Holidays({ canManage }) {
           <div className="flex rounded-lg border border-gray-200 overflow-hidden">
             {years.map((y) => (
               <button key={y} type="button" onClick={() => { setYear(y); setEditId(null) }}
-                className={`px-3.5 py-1.5 text-sm font-medium ${y === year ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                className={`px-3.5 py-1.5 text-sm font-medium ${y === year ? 'bg-brand-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
                 {y}
               </button>
             ))}
@@ -397,7 +398,7 @@ function Holidays({ canManage }) {
               {canManage && (
                 <div className="flex items-center gap-1">
                   <button type="button" onClick={() => setEditId(h.id)} title={`Change ${h.name}`}
-                    className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600"><Edit2 className="w-3.5 h-3.5" /></button>
+                    className="p-1.5 rounded-lg hover:bg-brand-50 text-gray-400 hover:text-brand-600"><Edit2 className="w-3.5 h-3.5" /></button>
                   <button type="button" onClick={() => setRemoving(h)} disabled={deleteHoliday.isPending} title={`Remove ${h.name}`}
                     className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div>
@@ -427,7 +428,7 @@ function Holidays({ canManage }) {
               </select>
             </label>
             <button type="submit" disabled={addHoliday.isPending}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium">
+              className={btn.primary}>
               <Plus className="w-4 h-4" /> {addHoliday.isPending ? 'Adding…' : 'Add holiday'}
             </button>
           </form>
@@ -465,7 +466,7 @@ function HolidayEditor({ holiday, onDone }) {
   }
 
   return (
-    <form onSubmit={handleSave} className="flex items-center gap-2 px-4 py-2 bg-blue-50/40 flex-wrap">
+    <form onSubmit={handleSave} className="flex items-center gap-2 px-4 py-2 bg-brand-50/40 flex-wrap">
       <input type="date" required value={h.date} min="2000-01-01" max="2100-12-31" onChange={(e) => setH({ ...h, date: e.target.value })} className={inpSm} />
       <input required maxLength={80} value={h.name} onChange={(e) => setH({ ...h, name: e.target.value })} className={`${inpSm} flex-1 min-w-40`} />
       <select value={h.type} onChange={(e) => setH({ ...h, type: e.target.value })} className={inpSm}>

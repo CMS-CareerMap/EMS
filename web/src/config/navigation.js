@@ -28,7 +28,7 @@ export const NAV_GROUPS = [
   {
     label: 'Main',
     items: [
-      { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', permission: 'dashboard:read' },
+      { to: '/dashboard', icon: LayoutDashboard, label: 'Home', title: 'Home', permission: 'dashboard:read' },
       { to: '/employees', icon: Users, label: 'Employees', permission: 'employee:read' },
       { to: '/attendance', icon: Clock, label: 'Attendance', permission: 'attendance:read' },
       // Or deciding somebody's leave (Day 22): whoever has people under them
@@ -40,7 +40,8 @@ export const NAV_GROUPS = [
       // Any of these: HR enters Incentive here without seeing anybody's pay,
       // and a role given only bank accounts reaches its Bank accounts tab.
       { to: '/payroll', icon: Wallet, label: 'Payroll', permission: ['payroll:structure:read', 'payroll:entry:manage', 'employee:bank:read'] },
-      { to: '/payslips', icon: Receipt, label: 'My Payslips', permission: 'payslip:read' },
+      // "Payslips" in the narrow sidebar; the page itself is still "My Payslips".
+      { to: '/payslips', icon: Receipt, label: 'Payslips', title: 'My Payslips', permission: 'payslip:read' },
     ],
   },
   {
@@ -86,3 +87,14 @@ export const NAV_GROUPS = [
 export const ROUTE_PERMISSIONS = Object.fromEntries(
   NAV_GROUPS.flatMap((group) => group.items.map((item) => [item.to, item.permission])),
 )
+
+/** Every page's name, for the browser tab — the pages outside the menu too. */
+export const PAGE_TITLES = {
+  ...Object.fromEntries(NAV_GROUPS.flatMap((group) => group.items.map((item) => [item.to, item.title ?? item.label]))),
+  '/profile': 'My Profile',
+}
+
+/** The menu items this login may open, in order — for the sidebar, the phone's tab bar and search. */
+export function visibleNavItems(canAny) {
+  return NAV_GROUPS.flatMap((group) => group.items).filter((item) => canAny(item.permission))
+}

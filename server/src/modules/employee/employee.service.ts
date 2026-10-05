@@ -19,8 +19,8 @@ import { tellNewApprovers } from '../leave/leaveNotices'
 import { settleLeaveAfter } from '../leave/leaveApproval.service'
 import * as lifecycleRepo from '../lifecycle/lifecycle.repository'
 import { lifecycleSettings } from '../lifecycle/lifecycle.repository'
-import { assertMayChangeEmployment, assertMayChangeRecord } from '../organization/workRules.service'
-import { assertOpenFrom } from '../payroll/payrollLock.service'
+import { aboveCaller, assertMayChangeEmployment, assertMayChangeRecord, checkWork, loadWork } from '../organization/workRules.service'
+import { assertOpenFrom, holdPayrollFrom } from '../payroll/payrollLock.service'
 import { companyToday } from '../organization/organization.service'
 import { defaultProbationEnd } from '../../domain/org/lifecycle'
 import { tellJoined } from '../notifications/peopleNotices'
@@ -55,14 +55,17 @@ async function accessFor(ctx: AppContext): Promise<repo.FieldAccess> {
 
 /**
  * Whose unaccepted resignation and exit reason the caller sees in the
- * directory. Whoever runs the lifecycle sees everybody's but their seniors'
- * (whose record is the Super Admin's); the Super Admin, everybody's.
+ * directory. Whoever runs the lifecycle sees those of the people whose
+ * employment record is theirs to run — not a senior's (the Super Admin's),
+ * nor a fellow runner's, whose record goes up the tree; the Super Admin,
+ * everybody's.
  */
 async function lifecycleVisibility(ctx: AppContext): Promise<repo.FieldAccess['lifecycleOf']> {
-  if (ctx.can('role:manage')) return { everybody: true, employeeId: ctx.employeeId, above: [] }
-  if (!ctx.can('employee:lifecycle:manage')) return { everybody: false, employeeId: ctx.employeeId, above: [] }
-  const above = ctx.employeeId ? buildTree(await treePeople(ctx.db)).above(ctx.employeeId) : []
-  return { everybody: true, employeeId: ctx.employeeId, above }
+  if (ctx.can('role:manage')) return { everybody: true, employeeId: ctx.employeeId, notTheirs: [] }
+  if (!ctx.can('employee:lifecycle:manage')) return { everybody: false, employeeId: ctx.employeeId, notTheirs: [] }
+  const loaded = await loadWork(ctx.db, ctx.organizationId, 'lifecycle')
+  const notTheirs = [...loaded.names.keys()].filter((id) => aboveCaller(ctx, loaded, id) || !checkWork(ctx, loaded, id).allowed)
+  return { everybody: true, employeeId: ctx.employeeId, notTheirs }
 }
 
 export interface EmployeeListResult {
@@ -527,14 +530,14 @@ export async function updateEmployee(
   // (client §27, Day 22). Those go up the tree, as a profile change request does.
   await assertMayChangeRecord(ctx, ctx.db, existing.id)
   // Pay is worked out from both dates: a month whose payroll is approved keeps them.
-  if (lastDayChanged) {
-    const earlier = [lastDayBefore, lastDayAfter].filter((d): d is string => Boolean(d)).sort()[0]!
-    await assertOpenFrom(ctx, addCalendarDays(earlier, 1), 'a change to the last working day')
-  }
-  if (joiningChanged) {
-    const earlier = [joinedBefore, input.dateOfJoining].filter((d): d is string => Boolean(d)).sort()[0]
-    if (earlier) await assertOpenFrom(ctx, earlier, 'a change to the joining date')
-  }
+  const lastDayPayFrom = lastDayChanged
+    ? addCalendarDays([lastDayBefore, lastDayAfter].filter((d): d is string => Boolean(d)).sort()[0]!, 1)
+    : null
+  const joiningPayFrom = joiningChanged
+    ? ([joinedBefore, input.dateOfJoining].filter((d): d is string => Boolean(d)).sort()[0] ?? null)
+    : null
+  if (lastDayPayFrom) await assertOpenFrom(ctx, lastDayPayFrom, 'a change to the last working day')
+  if (joiningPayFrom) await assertOpenFrom(ctx, joiningPayFrom, 'a change to the joining date')
 
   await withTransaction(ctx.db, async (tx) => {
     const data: Record<string, unknown> = {}
@@ -552,6 +555,17 @@ export async function updateEmployee(
       if (now?.resignations[0]) {
         throw Conflict(`${existing.fullName}'s last working day comes from their resignation. Change it there: call the resignation off, or complete the exit.`)
       }
+    }
+    // The payroll locks of the months the dates reach — after the person's
+    // leave lock, which settling their leave takes too; at once, earliest
+    // first; and before any row is written — then checked again: a month
+    // approved since the check above is refused rather than missed.
+    const payFrom = [lastDayPayFrom, joiningPayFrom].filter((d): d is string => Boolean(d)).sort()[0]
+    if (payFrom) {
+      if (lastDayChanged) await lockFor(tx, `leave-apply:${id}`)
+      await holdPayrollFrom(ctx, tx, payFrom)
+      if (lastDayPayFrom) await assertOpenFrom(ctx, lastDayPayFrom, 'a change to the last working day', tx)
+      if (joiningPayFrom) await assertOpenFrom(ctx, joiningPayFrom, 'a change to the joining date', tx)
     }
     if (designationChanged || departmentChanged) {
       const today = await companyToday(ctx)

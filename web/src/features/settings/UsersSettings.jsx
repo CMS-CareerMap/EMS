@@ -1,3 +1,4 @@
+import { btn, th } from '../../components/ui/styles'
 import { useState } from 'react'
 import {
   Trash2, Edit2, X, Check, ToggleLeft, ToggleRight, Loader2, KeyRound, UserPlus,
@@ -8,6 +9,7 @@ import {
 } from '../../hooks/useUsers'
 import { InviteUserForm, PasswordLinkPanel } from './UserAccess'
 import { Section, inpSm } from './ui'
+import { Avatar } from '../../components/ui/bits'
 import { roleColor, roleLabel } from '../../lib/roles'
 import { optionsNote } from '../../lib/optionsNote'
 import { useAssignableRoles } from '../../hooks/useRoles'
@@ -36,7 +38,7 @@ import ConfirmDialog from '../../components/ConfirmDialog'
  */
 
 const STATUS_WORDS = { active: 'Can sign in', invited: 'Invited', inactive: 'Turned off' }
-const STATUS_LOOK = { active: 'bg-green-100 text-green-700', invited: 'bg-blue-100 text-blue-700', inactive: 'bg-gray-100 text-gray-500' }
+const STATUS_LOOK = { active: 'bg-green-100 text-green-700', invited: 'bg-brand-100 text-brand-700', inactive: 'bg-gray-100 text-gray-500' }
 
 /** Logins in the list's order, each person's together under their first. */
 function byPerson(rows) {
@@ -132,7 +134,6 @@ export default function UsersSettings() {
     }
   }
 
-  const initials = (name) => (name || '?').split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
 
   // A count only from an answer; a failed load says so below, not "0 users".
   const count = users.isSuccess ? users.data.rows.length : null
@@ -181,7 +182,7 @@ export default function UsersSettings() {
           ) : (
             <button
               onClick={() => setShowInvite(true)}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold"
+              className={btn.primary}
             >
               <UserPlus className="w-4 h-4" /> Invite user
             </button>
@@ -201,9 +202,9 @@ export default function UsersSettings() {
           <div className="border border-gray-200 rounded-xl overflow-x-auto">
             <table className="w-full min-w-160">
               <thead>
-                <tr className="bg-gray-50 border-b border-gray-200">
+                <tr>
                   {['User', 'Role', 'Status', 'Actions'].map((h) => (
-                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{h}</th>
+                    <th key={h} className={th}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -214,9 +215,7 @@ export default function UsersSettings() {
                     <td className="px-4 py-3.5">
                       {index === 0 ? (
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
-                            <span className="text-blue-700 text-xs font-semibold">{initials(user.full_name)}</span>
-                          </div>
+                          <Avatar name={user.full_name || user.email} size="sm" />
                           <div>
                             <p className="text-sm font-medium text-gray-900">
                               {user.full_name || '—'}
@@ -296,7 +295,7 @@ export default function UsersSettings() {
                         {mayAssign && mayActOn(group) && (
                           <button
                             onClick={() => startEdit(user)}
-                            className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors"
+                            className="p-1.5 rounded-lg hover:bg-brand-50 text-gray-400 hover:text-brand-600 transition-colors"
                             title="Edit role"
                             aria-label={`Edit the role of ${user.email}`}
                           >
@@ -307,7 +306,7 @@ export default function UsersSettings() {
                           <button
                             onClick={() => handleIssueLink(user)}
                             disabled={issueLink.isPending}
-                            className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors"
+                            className="p-1.5 rounded-lg hover:bg-brand-50 text-gray-400 hover:text-brand-600 transition-colors"
                             title={user.status === 'invited' ? 'New invitation link' : 'Password reset link'}
                             aria-label={`${user.status === 'invited' ? 'New invitation link' : 'Password reset link'} for ${user.email}`}
                           >

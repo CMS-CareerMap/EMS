@@ -51,7 +51,14 @@ try {
 }
 
 const queryClient = new QueryClient({
-  queryCache: new QueryCache({ onError: reportError }),
+  // A page that shows an error itself — a profile that says "could not be
+  // found" — names its codes in meta.quietCodes, so it is not said twice.
+  queryCache: new QueryCache({
+    onError: (error, query) => {
+      if (error instanceof ApiError && query?.meta?.quietCodes?.includes(error.code)) return
+      reportError(error)
+    },
+  }),
   mutationCache: new MutationCache({
     // A mutation may answer some errors itself — approving a payroll turns the
     // "confirm these days" reply into a dialog — by naming their codes in

@@ -96,6 +96,8 @@ export function usePunchIn() {
       // The client asked for the dashboard to update the moment somebody
       // punches, so the figures it draws are refreshed too.
       queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+      // …and the Attendance page's log and calendar, as checking out does.
+      queryClient.invalidateQueries({ queryKey: ['attendance'] }),
     ]),
   })
 }

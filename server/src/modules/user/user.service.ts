@@ -385,7 +385,11 @@ export async function terminateUser(ctx: AppContext, membershipId: string): Prom
       let payrollClosed = false
       if (lastDay !== before) {
         const earlier = [before, lastDay].filter((d): d is string => Boolean(d)).sort()[0]
-        if (earlier && !(await isOpenFrom(ctx, addCalendarDays(earlier, 1)))) {
+        // Read under those months' payroll locks, after the person's leave
+        // lock (settling their leave takes it too): a month being approved is
+        // waited for, then kept as it was paid.
+        if (earlier) await lockFor(tx, `leave-apply:${current.employeeId}`)
+        if (earlier && !(await isOpenFrom(ctx, addCalendarDays(earlier, 1), tx))) {
           lastDay = before
           payrollClosed = true
         }

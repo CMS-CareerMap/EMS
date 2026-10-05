@@ -1,3 +1,4 @@
+import { btn } from '../../components/ui/styles'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Crown, AlertTriangle, ChevronDown, ChevronRight, Loader2, Search, UserX } from 'lucide-react'
@@ -258,7 +259,7 @@ function MoveControl({ person, people, reports, label, onDone }) {
           </select>
         </label>
         <button type="button" onClick={save} disabled={move.isPending || managerId === (person.manager_id ?? '')}
-          className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium">
+          className={btn.primary}>
           {move.isPending && <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />} Save
         </button>
       </div>

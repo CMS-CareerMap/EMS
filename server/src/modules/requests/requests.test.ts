@@ -368,6 +368,31 @@ describe('reading', () => {
     expect(pending.body.data.every((r: { status: string; type: string }) => r.status === 'pending' && r.type === 'profile_change')).toBe(true)
   })
 
+  it('stops showing a request to whoever decided it once that person’s requests are no longer theirs', async () => {
+    // A working day far enough ahead to clash with nothing above.
+    let day = addCalendarDays(today, 20)
+    while (new Date(`${day}T00:00:00Z`).getUTCDay() === 0) day = addCalendarDays(day, 1)
+    const sent = await ask('emp1', { type: 'on_duty', fromDate: day, toDate: day, reason: 'Client visit in Nashik' })
+    expect(sent.status, JSON.stringify(sent.body)).toBe(201)
+    const id = sent.body.data.id as string
+    expect((await post('mgrM', `/api/requests/${id}/approve`)).status).toBe(200)
+    expect((await get('mgrM', `/api/requests/${id}`)).status).toBe(200)
+
+    // emp1 now reports to somebody else: mgrM decided it once, and decides none of emp1's now.
+    await prisma.employee.update({ where: { id: emp.emp1 }, data: { reportingManagerId: emp.boss } })
+    try {
+      expect((await get('mgrM', `/api/requests/${id}`)).status).toBe(404)
+      expect((await get('mgrM', `/api/requests/${id}/attachment`)).status).toBe(404)
+      // The person themselves, and the one who decides for them now, still see it.
+      expect((await get('emp1', `/api/requests/${id}`)).status).toBe(200)
+      expect((await get('boss', `/api/requests/${id}`)).status).toBe(200)
+    } finally {
+      await prisma.employee.update({ where: { id: emp.emp1 }, data: { reportingManagerId: emp.mgrM } })
+    }
+    // Back under mgrM: theirs to read again.
+    expect((await get('mgrM', `/api/requests/${id}`)).status).toBe(200)
+  })
+
   it('gives the employee their own details to start a profile change from', async () => {
     const res = await get('emp1', '/api/requests/my-details')
     expect(res.body.data).toMatchObject({ phone: '9811111111', address: '12 New Road, Pune', dateOfBirth: '1995-05-20' })

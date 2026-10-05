@@ -1,3 +1,5 @@
+import { btn, card, fieldSm, th } from '../components/ui/styles'
+import PageHeader from '../components/ui/PageHeader'
 import { useMemo, useState } from 'react'
 import {
   BarChart2, Users, Clock, CalendarDays, Wallet, Download, FileText, X, Filter, TrendingUp, Loader2, Info,
@@ -34,14 +36,18 @@ const REPORTS = [
 /** The right each kind of report needs (client §46) — the server checks it too, and shows only the caller's reach. */
 const CATEGORY_PERMISSION = { attendance: 'attendance:read', leave: 'leave:read', payroll: 'payroll:structure:read', employee: 'employee:read' }
 
+/** Each kind of report in one of the logo's colours — its icon, its chart. */
 const CATEGORY_META = {
-  attendance: { label: 'Attendance', color: 'text-blue-600', bar: 'bg-blue-600', tint: 'bg-blue-50 border-blue-200' },
-  leave: { label: 'Leave', color: 'text-purple-600', bar: 'bg-purple-600', tint: 'bg-purple-50 border-purple-200' },
-  payroll: { label: 'Payroll', color: 'text-green-600', bar: 'bg-green-600', tint: 'bg-green-50 border-green-200' },
-  employee: { label: 'Employee', color: 'text-orange-600', bar: 'bg-orange-600', tint: 'bg-orange-50 border-orange-200' },
+  attendance: { label: 'Attendance', hex: '#8B2FE6', icon: Clock },
+  leave: { label: 'Leave', hex: '#F2479A', icon: CalendarDays },
+  payroll: { label: 'Payroll', hex: '#FF8A3D', icon: Wallet },
+  employee: { label: 'Employee', hex: '#3BB8F5', icon: Users },
 }
 
-const PIE_COLORS = ['#2563EB', '#16A34A', '#D97706', '#7C3AED', '#DC2626', '#0891B2', '#DB2777']
+/** A soft square of the category's colour behind its icon. */
+const tint = (hex, strength = '1A') => ({ background: `${hex}${strength}`, color: hex })
+
+const PIE_COLORS = ['#8B2FE6', '#F2479A', '#3BB8F5', '#FF8A3D', '#0E9F6E', '#5B7CF0', '#F59E0B']
 
 /** A cell as its column's type says. Null is "nothing recorded", a dash. */
 function show(value, type) {
@@ -85,54 +91,54 @@ function ReportPanel({ report, onClose }) {
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/40 z-40 no-print" onClick={onClose} />
+      <div className="fixed inset-0 bg-gray-950/45 backdrop-blur-[2px] z-40 no-print" onClick={onClose} />
       <div className="print-area fixed right-0 top-0 h-full w-full max-w-4xl bg-white shadow-2xl z-50 flex flex-col" role="dialog" aria-modal="true" aria-label={report.title}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-gray-100 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <div className={`w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 ${meta.tint}`}>
-              <report.icon className={`w-5 h-5 ${meta.color}`} />
+            <div className="w-10 h-10 rounded-[11px] grid place-items-center shrink-0" style={tint(meta.hex, '14')}>
+              <report.icon className="w-5 h-5" aria-hidden="true" />
             </div>
             <div className="min-w-0">
-              <p className="text-base font-semibold text-gray-900 truncate">{report.title}</p>
+              <p className="text-base font-bold text-gray-900 truncate">{report.title}</p>
               <p className="text-xs text-gray-500">{shown?.period ?? monthLabel(year, month)}</p>
             </div>
           </div>
           <button onClick={onClose} aria-label="Close" className="no-print p-2 rounded-lg hover:bg-gray-100 text-gray-400"><X className="w-4 h-4" /></button>
         </div>
 
-        <div className="no-print flex flex-wrap items-center gap-3 px-6 py-3 border-b border-gray-100 bg-gray-50/60 shrink-0">
+        <div className="no-print flex flex-wrap items-center gap-2.5 px-4 sm:px-6 py-3 border-b border-gray-100 bg-gray-50/60 shrink-0">
           <Filter className="w-3.5 h-3.5 text-gray-400" />
           <select value={monthKey} onChange={(e) => setMonthKey(e.target.value)} aria-label="Month"
-            className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs text-gray-700 bg-white">
+            className={fieldSm}>
             {months.map((m) => <option key={monthValue(m)} value={monthValue(m)}>{monthLabel(m.year, m.month)}</option>)}
           </select>
           {report.filters.includes('department') && (
             <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} aria-label="Department"
-              className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs text-gray-700 bg-white">
+              className={fieldSm}>
               <option value="">{optionsNote(masterQuery, 'All departments')}</option>
               {(masterQuery.data?.departments ?? []).filter((d) => !d.archived).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           )}
           {report.filters.includes('employee') && (
             <select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} aria-label="Employee"
-              className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs text-gray-700 bg-white max-w-48">
+              className={`${fieldSm} max-w-48`}>
               <option value="">{optionsNote(employeesQuery, 'All employees')}</option>
               {(employeesQuery.data ?? []).map((e) => <option key={e.id} value={e.id}>{e.full_name} ({e.employee_id})</option>)}
             </select>
           )}
           <div className="ml-auto flex items-center gap-2">
             <button onClick={() => window.print()} disabled={!shown}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 text-xs font-medium disabled:opacity-50">
+              className={btn.secondarySm}>
               <FileText className="w-3.5 h-3.5" /> Print / PDF
             </button>
             <button onClick={() => start('csv', () => downloadReport(report.id, filters))} disabled={!shown || busy === 'csv'}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium disabled:opacity-50">
+              className={btn.primarySm}>
               {busy === 'csv' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />} Export CSV
             </button>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-4">
           <DataState query={reportQuery}>
             {(data) => (
               <>
@@ -157,12 +163,12 @@ function ReportPanel({ report, onClose }) {
                         </PieChart>
                       ) : (
                         <BarChart data={data.chart.points} barSize={26}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
-                          <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
-                          <YAxis tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} width={72}
+                          <CartesianGrid strokeDasharray="3 3" stroke="#EFEBF5" vertical={false} />
+                          <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#8C82A3' }} axisLine={false} tickLine={false} />
+                          <YAxis tick={{ fontSize: 11, fill: '#8C82A3' }} axisLine={false} tickLine={false} width={72}
                             tickFormatter={(v) => (report.category === 'payroll' ? Number(v).toLocaleString('en-IN') : `${v}%`)} />
                           <Tooltip formatter={(v) => [v === null || v === undefined ? 'None' : report.category === 'payroll' ? money(v) : `${v}%`, data.chart.label]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-                          <Bar dataKey="value" fill="#2563EB" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                          <Bar dataKey="value" fill={meta.hex} radius={[6, 6, 0, 0]} isAnimationActive={false} />
                         </BarChart>
                       )}
                     </ResponsiveContainer>
@@ -175,9 +181,9 @@ function ReportPanel({ report, onClose }) {
                   <div className="overflow-x-auto border border-gray-200 rounded-xl">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="bg-gray-50 border-b border-gray-200">
+                        <tr>
                           {data.columns.map((c) => (
-                            <th key={c.key} className={`px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap ${numeric(c.type) ? 'text-right' : 'text-left'}`}>{c.label}</th>
+                            <th key={c.key} className={`${th} ${numeric(c.type) ? 'text-right' : 'text-left'}`}>{c.label}</th>
                           ))}
                         </tr>
                       </thead>
@@ -221,41 +227,40 @@ export default function Reports() {
 
   return (
     <>
-      <div className="space-y-6">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Reports</h2>
-          <p className="text-sm text-gray-500 mt-0.5">Worked out from the records for any month, and exported exactly as shown</p>
-        </div>
+      <PageHeader title="Reports" subtitle="Worked out from the records for any month, and exported exactly as shown" />
 
+      <div className="space-y-6">
         {categories.map((cat) => {
           const meta = CATEGORY_META[cat]
           return (
-            <div key={cat}>
-              <div className="flex items-center gap-2 mb-3">
-                <div className={`w-1 h-5 rounded-full ${meta.bar}`} />
-                <p className={`text-sm font-semibold uppercase tracking-wider ${meta.color}`}>{meta.label} reports</p>
+            <section key={cat} aria-label={`${meta.label} reports`}>
+              <div className="flex items-center gap-2.5 mb-3">
+                <span className="w-7 h-7 rounded-lg grid place-items-center" style={tint(meta.hex)}>
+                  <meta.icon className="w-4 h-4" aria-hidden="true" />
+                </span>
+                <p className="text-sm font-bold text-gray-900">{meta.label} reports</p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {REPORTS.filter((r) => r.category === cat).map((report) => (
-                  <div key={report.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 hover:border-blue-300 hover:shadow-md transition-all">
-                    <div className="flex items-start gap-4">
-                      <div className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 ${meta.tint}`}>
-                        <report.icon className={`w-5 h-5 ${meta.color}`} />
-                      </div>
+                  <div key={report.id} className={`${card} p-5 flex flex-col gap-4 hover:border-brand-300 hover:shadow-md transition-all`}>
+                    <div className="flex items-start gap-3.5">
+                      <span className="w-10 h-10 rounded-[11px] grid place-items-center shrink-0" style={tint(meta.hex, '14')}>
+                        <report.icon className="w-5 h-5" aria-hidden="true" />
+                      </span>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-gray-900">{report.title}</p>
+                        <p className="text-sm font-bold text-gray-900">{report.title}</p>
                         <p className="text-xs text-gray-500 mt-1 leading-relaxed">{report.desc}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 mt-4 pt-4 border-t border-gray-100">
-                      <button onClick={() => setActive(report)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 text-xs font-medium">
-                        <FileText className="w-3.5 h-3.5" /> Open & export
+                    <div className="mt-auto">
+                      <button onClick={() => setActive(report)} className={btn.softSm}>
+                        <FileText className="w-3.5 h-3.5" aria-hidden="true" /> Open & export
                       </button>
                     </div>
                   </div>
                 ))}
               </div>
-            </div>
+            </section>
           )
         })}
       </div>

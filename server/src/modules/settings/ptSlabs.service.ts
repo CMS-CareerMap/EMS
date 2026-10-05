@@ -48,6 +48,8 @@ export async function setPtTable(ctx: AppContext, input: PtTableInput) {
     // together both saw the table as it stood and each put a new one beside it
     // — two tables in force, and every salary matching two slabs.
     await lockFor(tx, `pt:${ctx.organizationId}:${typed.toLowerCase()}`)
+    // Again under the payroll locks of the months it reaches: approved since the check above, refused rather than missed.
+    await assertOpenFrom(ctx, input.effectiveFrom, 'a PT table starting from that date', tx)
 
     const open = await repo.listOpenPtSlabsForState(tx, typed)
     // Keep the spelling already on record, so "maharashtra" typed in lower case

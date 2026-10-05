@@ -379,6 +379,7 @@ export async function applyForLeave(ctx: AppContext, input: ApplyInput): Promise
     // The owner's leave needs nobody's approval (Devesh, 1 Oct 2026): it is
     // recorded directly, in this transaction, and the log says so.
     if (ownerApplying) {
+      // It checks the months again, under their payroll locks.
       await recordApproval(ctx, tx, { ...request, halfDayDates: input.halfDayDates ?? [] }, { direct: true })
     } else {
       await tellApprovers(ctx, tx, request.id, 'leave.submitted')

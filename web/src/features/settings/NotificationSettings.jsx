@@ -33,9 +33,9 @@ export default function NotificationSettings() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start gap-3 p-4 rounded-xl bg-blue-50 border border-blue-200">
-        <Info className="w-4 h-4 text-blue-600 mt-0.5 shrink-0" />
-        <div className="text-sm text-blue-900 space-y-1">
+      <div className="flex items-start gap-3 p-4 rounded-xl bg-brand-50 border border-brand-200">
+        <Info className="w-4 h-4 text-brand-600 mt-0.5 shrink-0" />
+        <div className="text-sm text-brand-900 space-y-1">
           <p>Notices appear in the bell at the top of every page, for the people listed against each one. Nobody can send one from a browser — the system writes them as things happen.</p>
           {email.isSuccess && (ready ? (
             <p>Each is also emailed, from <span className="font-semibold">{email.data.from}</span>, to the sign-in email of whoever it tells — unless its email switch is off.</p>

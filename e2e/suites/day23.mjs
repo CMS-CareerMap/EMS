@@ -5,6 +5,7 @@
 // Fixture: the Day 20 seed (reset20.sh), fresh.
 import { chromium } from 'playwright-core'
 import { WORK, REPO, STORAGE as STORE, psql } from '../lib/env.mjs'
+import { openMyProfile, openEmployeeProfile, signOutVia, menuLinks, menuLink } from '../lib/ui.mjs'
 import { readFileSync, mkdirSync } from 'node:fs'
 
 const BASE = 'http://localhost:5183'
@@ -79,7 +80,7 @@ async function open(who, viewport = { width: 1366, height: 900 }) {
   page.on('pageerror', (e) => pageErrors.push(`${label}: ${e.message}`))
   page.on('response', (r) => { if (r.status() >= 500 && r.url().includes('/api/')) serverErrors.push(`${label} ${r.request().method()} ${r.url().split('/api')[1]} ${r.status()}`) })
   await page.goto(`${BASE}/signin`)
-  await page.getByPlaceholder('you@careermap.in or EMP001').fill(email)
+  await page.getByLabel('Work Email or Employee ID').fill(email)
   await page.getByPlaceholder('Enter your password').fill(fx.password)
   await page.getByRole('button', { name: 'Sign In' }).click()
   await page.waitForURL((url) => !url.pathname.startsWith('/signin'), { timeout: 20_000 })
@@ -93,12 +94,9 @@ async function settle(page) {
 const toast = (page, text) => page.locator('[data-sonner-toast]', { hasText: text }).first().waitFor({ timeout: 20_000 })
 const sideways = (page) => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
 const topBar = (page) => page.locator('header').innerText()
+/** Somebody's profile page (a drawer before the new look), on its Logins tab. */
 async function openDrawer(page, name) {
-  await page.goto(`${BASE}/employees`)
-  await settle(page)
-  await page.locator('tr', { hasText: name }).first().click()
-  await page.getByText('Employee Profile').waitFor({ timeout: 20_000 })
-  return page.locator('div.fixed.right-0').filter({ hasText: 'Employee Profile' })
+  return openEmployeeProfile(page, BASE, name, /^Logins?$/)
 }
 const loginsList = (drawer) => drawer.getByRole('list', { name: 'Logins' })
 /** True when the page has been sent back to sign in — its session ended. */
@@ -281,7 +279,7 @@ try {
   check('Ravi applies', raviLeave.status === 201, JSON.stringify(raviLeave.body).slice(0, 160))
   await priya.goto(`${BASE}/leave`)
   await settle(priya)
-  check('her employee login has no Team Requests — it is for her own things', !(await priya.getByRole('button', { name: /Team Requests/ }).count()))
+  check('her employee login has no Team Requests — it is for her own things', !(await priya.getByRole('tab', { name: /Team Requests/ }).count()))
   await priyaHr.goto(`${BASE}/leave?tab=decide`)
   await settle(priyaHr)
   const raviRow = priyaHr.locator('tr').filter({ hasText: 'Ravi Patil' }).filter({ hasText: 'Pending' }).first()

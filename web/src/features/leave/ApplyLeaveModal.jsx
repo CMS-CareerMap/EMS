@@ -1,3 +1,4 @@
+import { btn, field } from '../../components/ui/styles'
 import { useState } from 'react'
 import { X, CalendarDays, AlertCircle, Loader2 } from 'lucide-react'
 import { useLeaveBalances, usePreviewLeave } from '../../hooks/useLeave'
@@ -137,16 +138,17 @@ export default function ApplyLeaveModal({ open, onClose, onSave, saving }) {
 
   return (
     // Scrolls when taller than a phone's screen, rather than cutting off its buttons.
-    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-black/50 p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-gray-950/45 backdrop-blur-[2px] p-3 sm:p-4 overflow-y-auto"
+      role="dialog" aria-modal="true" aria-label="Apply for Leave">
       <EscapeCloses onClose={onClose} />
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg my-4">
+      <div className="bg-white rounded-2xl shadow-[0_30px_70px_-20px_rgba(26,16,41,0.5)] w-full max-w-lg my-4">
 
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
           <div>
             <h2 className="text-lg font-semibold text-gray-900">Apply for Leave</h2>
             <p className="text-sm text-gray-400 mt-0.5">Submit a new leave request</p>
           </div>
-          <button onClick={close} className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
+          <button onClick={close} aria-label="Close" className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -166,7 +168,7 @@ export default function ApplyLeaveModal({ open, onClose, onSave, saving }) {
                 </p>
               }>
               <select value={typeId} onChange={(e) => set('leave_type_id', e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white">
+                className={`w-full ${field}`}>
                 {balances.map((b) => (
                   <option key={b.leave_type_id} value={b.leave_type_id}>
                     {b.name} — {b.available} day{b.available !== 1 ? 's' : ''} available
@@ -182,14 +184,14 @@ export default function ApplyLeaveModal({ open, onClose, onSave, saving }) {
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-gray-600">From Date <span className="text-red-400">*</span></label>
               <input type="date" value={current.from_date} onChange={(e) => set('from_date', e.target.value)}
-                className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900
+                className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent text-gray-900
                   ${errors.from_date ? 'border-red-400 bg-red-50' : 'border-gray-300'}`} />
               {errors.from_date && <p className="text-xs text-red-500">{errors.from_date}</p>}
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-gray-600">To Date <span className="text-red-400">*</span></label>
               <input type="date" value={current.to_date} min={current.from_date} onChange={(e) => set('to_date', e.target.value)}
-                className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900
+                className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent text-gray-900
                   ${errors.to_date ? 'border-red-400 bg-red-50' : 'border-gray-300'}`} />
               {errors.to_date && <p className="text-xs text-red-500">{errors.to_date}</p>}
             </div>
@@ -200,7 +202,7 @@ export default function ApplyLeaveModal({ open, onClose, onSave, saving }) {
             current.from_date === current.to_date ? (
               <label className="block space-y-1.5">
                 <span className="text-sm font-medium text-gray-600">Day</span>
-                <select value={current.first_part} onChange={(e) => set('first_part', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white">
+                <select value={current.first_part} onChange={(e) => set('first_part', e.target.value)} className={`w-full ${field}`}>
                   <option value="full">Full day</option>
                   <option value="first_half">First half</option>
                   <option value="second_half">Second half</option>
@@ -210,14 +212,14 @@ export default function ApplyLeaveModal({ open, onClose, onSave, saving }) {
               <div className="grid grid-cols-2 gap-4">
                 <label className="block space-y-1.5">
                   <span className="text-sm font-medium text-gray-600">First day</span>
-                  <select value={current.first_part === 'second_half' ? 'second_half' : 'full'} onChange={(e) => set('first_part', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white">
+                  <select value={current.first_part === 'second_half' ? 'second_half' : 'full'} onChange={(e) => set('first_part', e.target.value)} className={`w-full ${field}`}>
                     <option value="full">Full day</option>
                     <option value="second_half">From the second half</option>
                   </select>
                 </label>
                 <label className="block space-y-1.5">
                   <span className="text-sm font-medium text-gray-600">Last day</span>
-                  <select value={current.last_part} onChange={(e) => set('last_part', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white">
+                  <select value={current.last_part} onChange={(e) => set('last_part', e.target.value)} className={`w-full ${field}`}>
                     <option value="full">Full day</option>
                     <option value="first_half">Until the first half</option>
                   </select>
@@ -232,11 +234,11 @@ export default function ApplyLeaveModal({ open, onClose, onSave, saving }) {
           )}
           {result && !preview.isPending && (
             <div className="space-y-2">
-              <div className="flex items-center gap-2 px-3 py-2.5 bg-blue-50 border border-blue-100 rounded-lg">
-                <CalendarDays className="w-4 h-4 text-blue-500 shrink-0" />
-                <p className="text-sm text-blue-700 font-medium">
+              <div className="flex items-center gap-2 px-3 py-2.5 bg-brand-50 border border-brand-100 rounded-lg">
+                <CalendarDays className="w-4 h-4 text-brand-500 shrink-0" />
+                <p className="text-sm text-brand-700 font-medium">
                   {result.days} day{result.days !== 1 ? 's' : ''} of leave · {selected?.name}
-                  <span className="font-normal text-blue-600"> · {result.balance.available} available</span>
+                  <span className="font-normal text-brand-600"> · {result.balance.available} available</span>
                 </p>
               </div>
               {problem && (
@@ -253,18 +255,18 @@ export default function ApplyLeaveModal({ open, onClose, onSave, saving }) {
             <label className="text-sm font-medium text-gray-600">Reason <span className="text-red-400">*</span></label>
             <textarea rows={3} value={current.reason} onChange={(e) => set('reason', e.target.value)}
               placeholder="Briefly describe the reason for your leave…"
-              className={`w-full border rounded-lg px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+              className={`w-full border rounded-lg px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent
                 placeholder:text-gray-400 text-gray-900 ${errors.reason ? 'border-red-400 bg-red-50' : 'border-gray-300'}`} />
             {errors.reason && <p className="text-xs text-red-500">{errors.reason}</p>}
           </div>
 
-          <div className="flex justify-end gap-3 pt-1">
+          <div className="flex flex-wrap justify-end gap-3 pt-1">
             <button type="button" onClick={close}
-              className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
+              className={btn.secondary}>
               Cancel
             </button>
             <button type="submit" disabled={saving || Boolean(problem) || balances.length === 0}
-              className="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium transition-colors flex items-center gap-2">
+              className={btn.primary}>
               {saving && <Loader2 className="w-4 h-4 animate-spin" />}
               Submit Request
             </button>

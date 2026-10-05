@@ -9,7 +9,7 @@ import { monthName, monthOfDay } from '../../domain/shared/dates'
 import { audit } from '../audit/audit.service'
 import { companyToday } from '../organization/organization.service'
 import { assertWorkGoesUp } from '../organization/workRules.service'
-import { assertMonthsOpen } from './payrollLock.service'
+import { assertMonthsOpen, holdPayrollFrom } from './payrollLock.service'
 import * as repo from './loans.repository'
 
 /**
@@ -73,6 +73,8 @@ export async function recordLoan(ctx: AppContext, input: LoanInput): Promise<Loa
 
   const id = await withTransaction(ctx.db, async (tx) => {
     await lockFor(tx, `loans:${input.employeeId}`)
+    // Again under that month's payroll lock: approved since the check above, refused rather than missed.
+    await assertMonthsOpen(ctx, [{ year: input.startYear, month: input.startMonth }], 'a loan recovered from that month', tx)
     const created = await repo.createLoan(tx, {
       organizationId: ctx.organizationId,
       employeeId: input.employeeId,
@@ -121,6 +123,9 @@ export async function closeLoan(ctx: AppContext, id: string, note: string): Prom
   const left = viewOf(row).left
   await withTransaction(ctx.db, async (tx) => {
     await lockFor(tx, `loans:${row.employeeId}`)
+    // A month being approved this moment keeps the recovery it was calculated
+    // with: the close waits for it, rather than landing between its check and its approval.
+    await holdPayrollFrom(ctx, tx, `${row.startYear}-${String(row.startMonth).padStart(2, '0')}-01`)
     const moved = await repo.closeLoan(tx, id, { closedAt: new Date(), closedNote: note.trim(), closedByUserId: ctx.userId })
     if (moved === 0) throw Conflict('This was closed a moment ago. Reload to see it.')
     await audit(ctx, { action: 'loan.closed', entityType: 'employee_loan', entityId: id, details: { employeeId: row.employeeId, kind: row.kind, left, note: note.trim() } }, tx)

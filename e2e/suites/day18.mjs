@@ -8,6 +8,7 @@
 // their payslip and sees where their salary goes.
 import { chromium } from 'playwright-core'
 import { WORK, REPO, STORAGE as STORE, psql } from '../lib/env.mjs'
+import { openMyProfile, openEmployeeProfile, signOutVia, menuLinks, menuLink } from '../lib/ui.mjs'
 // Today on the company's clock, as the app writes a day: "30 Sep 2026".
 const todayIso = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date())
 const todayLabel = `${Number(todayIso.slice(8, 10))} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][Number(todayIso.slice(5, 7)) - 1]} ${todayIso.slice(0, 4)}`
@@ -45,7 +46,7 @@ async function open(who) {
     if (r.status() >= 400 && r.url().includes('/api/')) failedCalls.push(`${who} ${r.request().method()} ${r.url().split('/api')[1]} ${r.status()}`)
   })
   await page.goto(`${BASE}/signin`)
-  await page.getByPlaceholder('you@careermap.in or EMP001').fill(fx.users[who])
+  await page.getByLabel('Work Email or Employee ID').fill(fx.users[who])
   await page.getByPlaceholder('Enter your password').fill(fx.password)
   await page.getByRole('button', { name: 'Sign In' }).click()
   await page.waitForURL('**/dashboard', { timeout: 20_000 })
@@ -55,7 +56,8 @@ async function open(who) {
 const waitToast = (page, text) => page.locator('[data-sonner-toast]', { hasText: text }).first().waitFor({ timeout: 20_000 })
 const errorToasts = (page) => page.locator('[data-sonner-toast][data-type="error"]').allInnerTexts()
 const shot = (page, name) => page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true })
-const tab = (page, name) => page.getByRole('button', { name, exact: true }).click()
+// Payroll's sections are page tabs (role="tab") since the new look.
+const tab = (page, name) => page.getByRole('tab', { name, exact: true }).click()
 
 async function download(page, trigger, name) {
   const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 60_000 }), trigger()])
@@ -74,13 +76,13 @@ async function noFabrications(page, where) {
 try {
   // ── 1. Accounts ────────────────────────────────────────────────────────────
   const acc = await open('acc')
-  const accNav = await acc.locator('aside').innerText()
-  check('Accounts: the sidebar has Payroll and My Payslips, not Employees', accNav.includes('Payroll') && accNav.includes('My Payslips') && !accNav.includes('Employees'), accNav.replace(/\n/g, ' | '))
+  const accNav = await menuLinks(acc)
+  check('Accounts: the sidebar has Payroll and Payslips, not Employees', accNav.includes('Payroll') && accNav.includes('Payslips') && !accNav.includes('Employees'), accNav.join(' | '))
 
   await acc.goto(`${BASE}/payroll`)
-  await acc.getByRole('button', { name: 'Payroll runs', exact: true }).waitFor({ timeout: 20_000 })
+  await acc.getByRole('tab', { name: 'Payroll runs', exact: true }).waitFor({ timeout: 20_000 })
   for (const t of ['Payroll runs', 'Salary structure', 'Incentives', 'Income tax (TDS)', 'Bank accounts', 'Bank file format']) {
-    check(`Accounts sees the "${t}" tab`, await acc.getByRole('button', { name: t, exact: true }).isVisible())
+    check(`Accounts sees the "${t}" tab`, await acc.getByRole('tab', { name: t, exact: true }).isVisible())
   }
 
   // Readiness: Neha has no salary, so the run cannot start.
@@ -207,13 +209,13 @@ try {
 
   // ── 2. HR enters the incentive ────────────────────────────────────────────
   const hr = await open('hr')
-  const hrNav = await hr.locator('aside').innerText()
-  check('HR: the sidebar has Payroll (for incentives) and My Payslips', hrNav.includes('Payroll') && hrNav.includes('My Payslips'))
+  const hrNav = await menuLinks(hr)
+  check('HR: the sidebar has Payroll (for incentives) and Payslips', hrNav.includes('Payroll') && hrNav.includes('Payslips'), hrNav.join(' | '))
   await hr.goto(`${BASE}/payroll?tab=runs`)
   await hr.getByText('Amounts entered each month').waitFor()
   check('HR sees only Incentives — no runs, salaries or bank details, even asking for ?tab=runs',
-    (await hr.getByRole('button', { name: 'Payroll runs', exact: true }).count()) === 0 &&
-    (await hr.getByRole('button', { name: 'Bank accounts', exact: true }).count()) === 0 &&
+    (await hr.getByRole('tab', { name: 'Payroll runs', exact: true }).count()) === 0 &&
+    (await hr.getByRole('tab', { name: 'Bank accounts', exact: true }).count()) === 0 &&
     (await hr.getByText('no payroll run yet').count()) === 0)
   check('The month starts on September 2026', (await hr.locator('select').first().inputValue()) === '2026-09')
   await hr.getByRole('button', { name: 'Add incentive' }).click()
@@ -241,7 +243,7 @@ try {
   await waitToast(acc, 'calculated as a draft')
   await acc.getByText('September 2026 payroll').waitFor()
   const header = await acc.locator('main').innerText()
-  check('The draft is shown with its figures', header.includes('Draft') && /Employees\s*5/.test(header))
+  check('The draft is shown with its figures', header.includes('Draft') && /\b5 employees\b/.test(header), header.slice(0, 300).replace(/\s+/g, ' '))
   check('Accounts cannot approve their own run', (await acc.getByRole('button', { name: 'Approve', exact: true }).count()) === 0)
 
   await acc.locator('tr', { hasText: 'Priya Deshmukh' }).getByRole('button', { name: 'View' }).click()
@@ -352,18 +354,20 @@ try {
 
   // ── 6. The employee ──────────────────────────────────────────────────────
   const emp = await open('emp')
-  const empNav = await emp.locator('aside').innerText()
-  check('Employee: My Payslips in the sidebar, no Payroll', empNav.includes('My Payslips') && !/\bPayroll\b/.test(empNav.replace('My Payslips', '')), empNav.replace(/\n/g, ' | '))
+  const empNav = await menuLinks(emp)
+  check('Employee: Payslips in the sidebar, no Payroll', empNav.includes('Payslips') && !empNav.includes('Payroll'), empNav.join(' | '))
   await emp.goto(`${BASE}/payslips`)
   await emp.locator('tr', { hasText: 'September 2026' }).waitFor({ timeout: 20_000 })
   const mine = await emp.locator('tr', { hasText: 'September 2026' }).innerText()
   check('My Payslips lists September, paid today, with the net pay', mine.includes(todayLabel) && mine.includes(priyaNet.toLocaleString('en-IN', { minimumFractionDigits: 2 })), mine.replace(/\s+/g, ' '))
-  const own = await download(emp, () => emp.getByRole('button', { name: 'PDF' }).click(), 'my-payslip.pdf')
+  // The month's own button in the table ("Download the PDF" on the latest card is the same file).
+  const own = await download(emp, () => emp.locator('tr', { hasText: 'September 2026' }).getByRole('button', { name: 'PDF' }).click(), 'my-payslip.pdf')
   check('The employee downloads exactly the stored PDF', sha(own.bytes) === sha(stored1.bytes), own.name)
+  const latest = await download(emp, () => emp.getByRole('button', { name: 'Download the PDF' }).click(), 'my-latest-payslip.pdf')
+  check('…and the latest payslip’s card gives the same file', sha(latest.bytes) === sha(stored1.bytes), latest.name)
   await shot(emp, '09-my-payslips')
 
-  await emp.getByRole('button', { name: /Priya Deshmukh/ }).first().click()
-  await emp.getByRole('button', { name: 'My Profile' }).click()
+  await openMyProfile(emp, 'Salary account')
   await emp.getByText('Bank Account for Salary Credit').waitFor()
   await emp.getByText('•••• 5566').waitFor({ timeout: 20_000 })
   const drawer = await emp.locator('div.space-y-3', { has: emp.getByText('Bank Account for Salary Credit', { exact: true }) }).last().innerText()

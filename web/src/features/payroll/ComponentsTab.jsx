@@ -6,6 +6,7 @@ import ConfirmDialog from '../../components/ConfirmDialog'
 import DataState from '../../components/DataState'
 import { useAuthStore } from '../../stores/authStore'
 import { useAllComponents, useAddComponent, useChangeComponent, useArchiveComponent } from '../../hooks/usePayrollExtras'
+import { btn, th } from '../../components/ui/styles'
 
 /**
  * The company's salary components (client §40): Basic, HRA and the rest, and
@@ -27,7 +28,7 @@ export default function ComponentsTab() {
           Earnings and deductions on a salary record, or entered each month (an incentive, a bonus). Payroll writes PF, ESI, professional tax, TDS, overtime, leave encashment and loan recovery itself.
         </p>
         {canManage && (
-          <button onClick={() => setEditing({})} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium">
+          <button onClick={() => setEditing({})} className={btn.primary}>
             <Plus className="w-4 h-4" /> Add a component
           </button>
         )}
@@ -38,9 +39,9 @@ export default function ComponentsTab() {
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto">
             <table className="w-full min-w-180">
               <thead>
-                <tr className="bg-gray-50 border-b border-gray-200">
+                <tr>
                   {['Component', 'Kind', 'Entered', 'PF', 'ESI', 'PT', 'Taxable', ''].map((h) => (
-                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{h}</th>
+                    <th key={h} className={th}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -59,7 +60,7 @@ export default function ComponentsTab() {
                     <td className="px-4 py-3">
                       {canManage && !c.archived && (
                         <div className="flex justify-end gap-1">
-                          <button onClick={() => setEditing(c)} aria-label={`Change ${c.label}`} className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600"><Edit2 className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => setEditing(c)} aria-label={`Change ${c.label}`} className="p-1.5 rounded-lg hover:bg-brand-50 text-gray-400 hover:text-brand-600"><Edit2 className="w-3.5 h-3.5" /></button>
                           <button onClick={() => setArchiving(c)} aria-label={`Archive ${c.label}`} className="p-1.5 rounded-lg hover:bg-amber-50 text-gray-400 hover:text-amber-600"><Archive className="w-3.5 h-3.5" /></button>
                         </div>
                       )}
@@ -152,8 +153,8 @@ function ComponentDialog({ component, onClose }) {
           <Check label="Taxable" hint="For income tax." checked={f.taxable} onChange={(v) => set('taxable', v)} />
         </div>
         <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-2">
-          <button type="button" onClick={onClose} disabled={busy} className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-60">Cancel</button>
-          <button type="submit" disabled={busy} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-60">{busy ? 'Saving…' : component ? 'Save' : 'Add'}</button>
+          <button type="button" onClick={onClose} disabled={busy} className={btn.secondary}>Cancel</button>
+          <button type="submit" disabled={busy} className={btn.primary}>{busy ? 'Saving…' : component ? 'Save' : 'Add'}</button>
         </div>
       </form>
     </Dialog>

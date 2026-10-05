@@ -4,6 +4,7 @@
 // else placed.
 import { chromium } from 'playwright-core'
 import { WORK, REPO, STORAGE as STORE, psql } from '../lib/env.mjs'
+import { openMyProfile, openEmployeeProfile, signOutVia, menuLinks, menuLink } from '../lib/ui.mjs'
 import { readFileSync, mkdirSync } from 'node:fs'
 
 const BASE = 'http://localhost:5183'
@@ -69,7 +70,7 @@ async function open(who, viewport = { width: 1366, height: 900 }) {
   page.on('pageerror', (e) => pageErrors.push(`${who}: ${e.message}`))
   page.on('response', (r) => { if (r.status() >= 500 && r.url().includes('/api/')) serverErrors.push(`${who} ${r.request().method()} ${r.url().split('/api')[1]} ${r.status()}`) })
   await page.goto(`${BASE}/signin`)
-  await page.getByPlaceholder('you@careermap.in or EMP001').fill(fx.users[who])
+  await page.getByLabel('Work Email or Employee ID').fill(fx.users[who])
   await page.getByPlaceholder('Enter your password').fill(fx.password)
   await page.getByRole('button', { name: 'Sign In' }).click()
   await page.waitForURL((url) => !url.pathname.startsWith('/signin'), { timeout: 20_000 })
@@ -91,9 +92,8 @@ async function treeRow(page, name) {
   await page.getByLabel('Find a person').fill(name)
   return page.locator('li').filter({ has: page.getByText(name, { exact: true }) }).first()
 }
-/** The "Nobody above" section, found by its description (the words also name a dropdown choice). */
-const unplacedList = (page) =>
-  page.getByText('People still here with nobody to report to').locator('xpath=ancestor::div[contains(@class,"rounded-xl")][1]')
+/** The "Nobody above" section, by its name (the words also name a dropdown choice, so not by text). */
+const unplacedList = (page) => page.getByRole('region', { name: 'Nobody above' })
 const sideways = (page) => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
 
 try {
@@ -179,11 +179,15 @@ try {
   check('Anil, whose Accounts role has no leave rights, is told he decides leave', anilSession.decidesLeave === true && !anilSession.permissions.includes('leave:read'))
   const anil = await open('acc')
   await settle(anil)
-  check('his dashboard says a request is waiting for him', await anil.getByText('1 leave request waiting for you.').isVisible())
+  // Home's "Waiting for you" card lists Ravi's leave, with Approve and Reject.
+  const anilWaiting = anil.getByRole('region', { name: 'Waiting for you' }).getByRole('listitem').filter({ hasText: 'Ravi Patil' })
+  check('his dashboard says a request is waiting for him', await anilWaiting.first().waitFor({ timeout: 20_000 }).then(() => true, () => false) && await anilWaiting.first().getByRole('button', { name: 'Approve' }).isVisible())
   check('his menu shows Leave', await anil.locator('nav').first().getByText('Leave', { exact: true }).isVisible())
   await anil.goto(`${BASE}/leave`)
   await settle(anil)
-  check('Leave opens on Team Requests, the only tab he has', await anil.getByRole('button', { name: /Team Requests/ }).isVisible() && !(await anil.getByRole('button', { name: /^Leave Requests/ }).count()))
+  // His one section: no tab strip is drawn for a single choice, and no tab of his own leave.
+  check('Leave opens on Team Requests, the only section he has',
+    await anil.getByText('The leave of the people who report to you in the company tree.').isVisible() && !(await anil.getByRole('tab').count()))
   const raviRow = anil.locator('tr').filter({ hasText: 'Ravi Patil' }).first()
   await raviRow.getByRole('button', { name: 'Approve' }).click()
   await settle(anil)
@@ -199,7 +203,7 @@ try {
   await settle(hr)
   const priyaRow = hr.locator('tr').filter({ hasText: 'Priya Deshmukh' }).filter({ hasText: 'Pending' }).first()
   check('HR sees Priya’s request, saying it goes to Manoj, with no Approve', (await priyaRow.innerText()).includes('Goes to Manoj Manager') && !(await priyaRow.getByRole('button', { name: 'Approve' }).count()))
-  check('HR has no Team Requests tab — nobody reports to her', !(await hr.getByRole('button', { name: /Team Requests/ }).count()))
+  check('HR has no Team Requests tab — nobody reports to her', !(await hr.getByRole('tab', { name: /Team Requests/ }).count()))
   const hrTries = await api('hr', 'POST', `/leave-requests/${priyaReq.body.data.id}/approve`, {})
   check('the server refuses HR, naming who decides', hrTries.status === 403 && /decided by Manoj Manager/.test(hrTries.body.error?.message), hrTries.body.error?.message)
   await shot(hr, '05-hr-sees-no-approve')
@@ -208,13 +212,13 @@ try {
   const mgr = await open('mgr')
   await mgr.goto(`${BASE}/leave`)
   await settle(mgr)
-  await mgr.getByRole('button', { name: /Team Requests/ }).click()
+  await mgr.getByRole('tab', { name: /Team Requests/ }).click()
   const mgrRow = mgr.locator('tr').filter({ hasText: 'Priya Deshmukh' }).filter({ hasText: 'Pending' }).first()
   check('Manoj has Priya’s request under Team Requests, to decide', await mgrRow.getByRole('button', { name: 'Approve' }).isVisible())
   const standIn = await applyFor('emp', later[2], 'Wedding')
   await sa.goto(`${BASE}/leave`)
   await settle(sa)
-  await sa.getByRole('button', { name: /Team Requests/ }).click()
+  await sa.getByRole('tab', { name: /Team Requests/ }).click()
   await sa.getByText('Waiting for somebody else — you may stand in').waitFor({ timeout: 20_000 })
   check('the Super Admin sees other managers’ waiting requests apart, to stand in', true)
   const backupRow = sa.locator('tr').filter({ hasText: 'Priya Deshmukh' }).filter({ hasText: 'Wedding' }).first()
@@ -255,7 +259,7 @@ try {
 
   await hr.goto(`${BASE}/leave`)
   await settle(hr)
-  await hr.getByRole('button', { name: /Team Balances/ }).click()
+  await hr.getByRole('tab', { name: /Team Balances/ }).click()
   await settle(hr)
   const hemaBalance = hr.locator('tr').filter({ hasText: 'Hema Hiremath' }).first()
   check('HR’s own balance is corrected by the person above her', (await hemaBalance.innerText()).includes('goes to Sunita Admin'), (await hemaBalance.innerText()).replace(/\n/g, ' | '))
@@ -277,11 +281,10 @@ try {
   const sunitaRecord = await api('hr', 'GET', `/employees/${E.sunita.id}`)
   check('HR sees Priya’s salary', 'ctc' in priyaRecord.body.data && priyaRecord.body.data.ctc === 204000, String(priyaRecord.body.data.ctc))
   check('…and not the owner’s, who is above her', !('ctc' in sunitaRecord.body.data))
-  await hr.goto(`${BASE}/employees`)
-  await settle(hr)
-  await hr.getByText('Priya Deshmukh', { exact: true }).first().click()
-  await hr.getByText('₹2,04,000').first().waitFor({ timeout: 15_000 }).catch(() => undefined)
-  check('the employee page shows HR the salary section', await hr.getByText('₹2,04,000').first().isVisible())
+  // Her profile page, on its Salary tab — offered because the salary was sent.
+  const priyaPage = await openEmployeeProfile(hr, BASE, 'Priya Deshmukh', 'Salary')
+  await priyaPage.getByText('₹2,04,000').first().waitFor({ timeout: 15_000 }).catch(() => undefined)
+  check('the employee page shows HR the salary section', await priyaPage.getByText('₹2,04,000').first().isVisible())
   await shot(hr, '08-hr-salary')
 
   section('The two new scopes on the Roles screen')

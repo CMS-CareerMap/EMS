@@ -1,3 +1,4 @@
+import { btn } from '../../components/ui/styles'
 import { useEffect, useState } from 'react'
 import { Download, Loader2, X, FileWarning } from 'lucide-react'
 import { useEscape } from '../../hooks/useEscape'
@@ -50,7 +51,7 @@ export default function PreviewDialog({ title, subtitle, loadBlob, download, con
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <button onClick={() => start('file', download)} disabled={busy === 'file'}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 text-xs font-semibold hover:bg-gray-50 disabled:opacity-60">
+              className={btn.secondarySm}>
               {busy === 'file' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />} Download
             </button>
             <button onClick={onClose} aria-label="Close" className="p-2 rounded-lg hover:bg-gray-100 text-gray-400"><X className="w-4 h-4" /></button>

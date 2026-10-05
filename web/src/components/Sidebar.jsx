@@ -1,117 +1,53 @@
-import { NavLink, useNavigate } from 'react-router-dom'
-import { LogOut, ChevronRight } from 'lucide-react'
-import { logout } from '../api/auth'
-import { NAV_GROUPS } from '../config/navigation'
+import { NavLink } from 'react-router-dom'
+import { visibleNavItems } from '../config/navigation'
 import { useAuthStore } from '../stores/authStore'
-import { roleLabel } from '../lib/roles'
+import { useNavCounts } from '../hooks/useNavCounts'
 
-
-export default function Sidebar({ mobile = false, onClose }) {
-  const navigate = useNavigate()
-  const { user, profile, role, roleName, clearAuth, canAny } = useAuthStore()
-
-  async function handleLogout() {
-    // Clear locally whichever way the request goes. A network error is not a
-    // reason to leave someone staring at a signed-in screen — and the server
-    // call is what revokes the refresh token, so it is attempted first.
-    try {
-      await logout()
-    } finally {
-      clearAuth()
-      navigate('/signin')
-    }
-  }
-
-  const visibleGroups = NAV_GROUPS.map((group) => ({
-    ...group,
-    items: group.items.filter((item) => canAny(item.permission)),
-  })).filter((group) => group.items.length > 0)
-
-  const displayName = profile?.full_name || user?.email?.split('@')[0] || 'User'
-  const displayRole = roleLabel(role, roleName) || 'User'
-  const avatarText = (displayName || '')
-    .split(' ')
-    .slice(0, 2)
-    .map(w => w[0])
-    .join('')
-    .toUpperCase()
+/**
+ * The menu on a computer: a narrow dark strip, each page an icon with its name
+ * under it, the open page marked in the logo's colours.
+ *
+ * Which pages appear is the permissions' business (config/navigation.js), the
+ * same list the router guards, so a link is never shown that would bounce.
+ * Leave and Requests carry how many wait for this login.
+ */
+export default function Sidebar() {
+  const canAny = useAuthStore((state) => state.canAny)
+  const counts = useNavCounts()
+  const items = visibleNavItems(canAny)
 
   return (
-    <aside className="flex flex-col h-full w-64 select-none" style={{ background: '#0F172A' }}>
-
-      {/* Logo */}
-      <div className="flex items-center justify-center relative px-4 py-2 border-b border-white/10">
-        <img src="/logo.png" alt="CareerMap Solutions" className="w-[85%] max-w-60 object-contain" />
-        {mobile && (
-          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors p-1 absolute right-4">
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        )}
-      </div>
-
-      {/* Nav */}
-      <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-5">
-        {visibleGroups.map((group) => (
-          <div key={group.label}>
-            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.12em] px-3 mb-1.5">
-              {group.label}
-            </p>
-            <ul className="space-y-0.5">
-              {group.items.map((item) => (
-                <li key={item.to}>
-                  <NavLink
-                    to={item.to}
-                    onClick={mobile ? onClose : undefined}
-                    className={({ isActive }) =>
-                      `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150
-                      ${isActive
-                        ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                        : 'text-slate-400 hover:text-slate-100 hover:bg-white/6'
-                      }`
-                    }
-                  >
-                    {({ isActive }) => (
-                      <>
-                        <span className={`flex items-center justify-center w-7 h-7 rounded-lg transition-all
-                          ${isActive ? 'bg-white/20' : 'group-hover:bg-white/5'}`}>
-                          <item.icon className="w-4 h-4 shrink-0" />
-                        </span>
-                        {item.label}
-                      </>
-                    )}
-                  </NavLink>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </nav>
-
-      {/* User info + logout */}
-      <div className="p-3 border-t border-white/8 space-y-1">
-        {/* User card */}
-        <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/5">
-          <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center shrink-0">
-            <span className="text-white text-xs font-bold">{avatarText}</span>
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-white truncate leading-none">{displayName}</p>
-            <p className="text-xs text-slate-400 mt-0.5 truncate">{displayRole}</p>
-          </div>
-        </div>
-
-        {/* Sign out */}
-        <button
-          onClick={handleLogout}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-400
-            hover:text-red-400 hover:bg-red-500/10 transition-all w-full"
-        >
-          <span className="flex items-center justify-center w-7 h-7 rounded-lg">
-            <LogOut className="w-4 h-4 shrink-0" />
-          </span>
-          Sign Out
-        </button>
-      </div>
-    </aside>
+    <nav aria-label="Main" className="w-23 h-full bg-side flex flex-col gap-0.5 px-2 py-2.5 overflow-y-auto select-none">
+      {items.map((item) => {
+        const count = counts[item.to] ?? 0
+        return (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            className={({ isActive }) =>
+              `relative flex flex-col items-center gap-1.5 px-1 pt-2.5 pb-2 rounded-xl text-[11px] font-semibold leading-tight text-center transition-colors
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300
+              ${isActive
+                ? 'text-white bg-[linear-gradient(140deg,rgba(255,138,61,0.24),rgba(242,71,154,0.22)_45%,rgba(139,47,230,0.34))]'
+                : 'text-side-ink hover:text-white hover:bg-white/5'}`
+            }
+          >
+            {({ isActive }) => (
+              <>
+                {isActive && <span aria-hidden="true" className="absolute -left-2 top-3 bottom-3 w-0.75 rounded-r bg-logo" />}
+                <item.icon className="w-5.25 h-5.25" aria-hidden="true" />
+                <span>{item.label}</span>
+                {count > 0 && (
+                  <span className="absolute top-1.5 right-3.5 min-w-4.25 h-4.25 px-1 rounded-full bg-pink-500 text-white text-[10px] font-bold leading-4.25"
+                    aria-label={`${count} waiting`}>
+                    {count > 9 ? '9+' : count}
+                  </span>
+                )}
+              </>
+            )}
+          </NavLink>
+        )
+      })}
+    </nav>
   )
 }

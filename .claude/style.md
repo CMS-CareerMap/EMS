@@ -1,176 +1,74 @@
 # Style Guide — CareerMap Solutions EMS
 
-## Brand Identity
-- **Company**: CareerMap Solutions (CMS)
-- **Product**: HR & Payroll Management System
-- **Tone**: Professional, clean, corporate, trustworthy
+The look approved by the client on 4 Oct 2026: the logo's colours with a Keka-style
+layout. The tokens live in `web/src/index.css` (`@theme`); the everyday pieces in
+`web/src/components/ui/`. A page uses those pieces — it does not copy classes from
+another page. When the look changes, it changes there.
 
----
+## Brand
 
-## Color Palette
+- **Company:** CareerMap Solutions. **Product:** HR & Payroll.
+- **Logo:** `web/public/logo-wide.png` in the white top bar, in full colour.
+- **Font:** Plus Jakarta Sans (Google Fonts, loaded in `index.html`).
+- **Tone:** plain, friendly English. Say what happened and what to do next.
 
-### Primary
-| Name | Hex | Usage |
+## Colours
+
+| Token | Value | Use |
 |---|---|---|
-| Primary Blue | `#2563EB` | Buttons, links, active states, sidebar highlights |
-| Primary Dark | `#1E40AF` | Hover states, headings |
-| Primary Light | `#DBEAFE` | Backgrounds, badges, chips |
+| `brand-600` | `#8B2FE6` (the logo's purple) | Every action: buttons, links, focus rings, the selected tab |
+| `bg-logo` | orange → pink → purple → sky | Only where it should catch the eye: the home banner, the line under the active tab, Check In, a readiness button. Used everywhere, it would mean nothing |
+| `bg-logo-soft` | the same, pale | A highlighted figure (net pay, the latest payslip) |
+| `gray-*` / `slate-*` | tinted towards the logo's plum | Text, borders, page furniture |
+| `canvas` | `#F5F3F9` | The page behind the cards |
+| `side` | `#1A1029` | The sidebar |
 
-### Neutrals
-| Name | Hex | Usage |
-|---|---|---|
-| White | `#FFFFFF` | Card backgrounds, main content area |
-| Gray 50 | `#F8FAFC` | Page background |
-| Gray 100 | `#F1F5F9` | Table row hover, input backgrounds |
-| Gray 200 | `#E2E8F0` | Borders, dividers |
-| Gray 400 | `#94A3B8` | Placeholder text, disabled states |
-| Gray 600 | `#475569` | Secondary text, labels |
-| Gray 900 | `#0F172A` | Primary text, headings |
-
-### Status Colors
-| Name | Hex | Usage |
-|---|---|---|
-| Success Green | `#16A34A` | Active, approved, present |
-| Success Light | `#DCFCE7` | Success badge backgrounds |
-| Warning Amber | `#D97706` | Pending, on-leave |
-| Warning Light | `#FEF3C7` | Warning badge backgrounds |
-| Danger Red | `#DC2626` | Rejected, absent, errors |
-| Danger Light | `#FEE2E2` | Error badge backgrounds |
-
----
-
-## Typography
-
-- **Font Family**: `Inter` (load from Google Fonts)
-- **Base size**: `14px` / `text-sm`
-
-| Style | Class | Usage |
-|---|---|---|
-| Page Title | `text-2xl font-bold text-gray-900` | Page headings |
-| Section Title | `text-lg font-semibold text-gray-900` | Card/section headings |
-| Label | `text-sm font-medium text-gray-600` | Form labels, table headers |
-| Body | `text-sm text-gray-700` | General content |
-| Caption | `text-xs text-gray-400` | Helper text, timestamps |
-
----
+Status tones (`components/ui/tones.js`), the same everywhere — chips, tiles, icons:
+`ok` emerald (present, approved, verified), `warn` amber (pending, late), `bad` red
+(absent, rejected), `info` sky, `leave` pink (on leave), `brand` purple, `gray` (off,
+withdrawn, left).
 
 ## Layout
 
-### Page Structure
-```
-┌─────────────────────────────────────────┐
-│  Sidebar (240px fixed)  │  Main Content  │
-│                         │                │
-│  - Logo                 │  - Top bar     │
-│  - Nav links            │  - Page title  │
-│  - User profile         │  - Content     │
-└─────────────────────────────────────────┘
-```
+- **Top bar** (white): menu button on a phone, logo, company name, search (Ctrl K),
+  bell, the user button ("Signed in as HR" — on a phone, the role alone). The user
+  menu has My Profile and Sign Out; Escape closes it.
+- **Sidebar** (computer): slim, dark plum, icon above label, the waiting count beside
+  a link. **Phone:** a bottom tab bar (`nav` "Pages") with "More", and the Menu drawer.
+- **Page:** `PageHeader` — a white band with the page's `h1`, a line under it, its
+  buttons, and its tabs (`role="tab"`; one tab is no choice, so none is drawn). The
+  open tab is in the address (`?tab=`) so a link or a notice lands on it.
+- **Content:** cards on the canvas, `p-4 sm:p-6`. Nothing may scroll the page
+  sideways on a 390px phone: a wide table scrolls inside its own box.
 
-### Sidebar
-- Width: `240px` fixed
-- Background: `#1E40AF` (dark blue) or `#0F172A` (dark slate)
-- Active link: white text + `#2563EB` left border indicator
-- Logo at top, user info at bottom
+## Pieces (`components/ui`)
 
-### Top Bar
-- Height: `64px`
-- Background: `#FFFFFF`
-- Border bottom: `border-b border-gray-200`
-- Contains: page title (left), notifications + user avatar (right)
-
-### Content Area
-- Background: `#F8FAFC`
-- Padding: `p-6`
-- Max width: full width minus sidebar
-
----
-
-## Components
-
-### Cards
-```
-bg-white rounded-xl shadow-sm border border-gray-200 p-6
-```
-
-### Stat Cards (Dashboard)
-```
-bg-white rounded-xl p-6 flex items-center gap-4
-- Icon container: rounded-lg p-3 (colored background)
-- Value: text-2xl font-bold text-gray-900
-- Label: text-sm text-gray-500
-```
-
-### Buttons
-
-| Variant | Classes |
+| Piece | What it is |
 |---|---|
-| Primary | `bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium` |
-| Secondary | `bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium` |
-| Danger | `bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium` |
-| Ghost | `text-blue-600 hover:bg-blue-50 px-4 py-2 rounded-lg text-sm font-medium` |
+| `styles.js` `btn.*` | `primary`, `secondary`, `soft`, `danger`, `dangerOutline`, `ok`, `gradient`, and the small `…Sm` ones for rows; `icon` for an icon button |
+| `styles.js` `card`, `field`, `fieldSm`, `fileInput`, `th`, `td` | A card, form fields, a file picker, table head and cells |
+| `bits.jsx` `Card` | A white card with a title, a line and a link; a titled card is a region named by its title |
+| `bits.jsx` `StatTile` | A figure with its icon; with `onClick` it is a filter button (`aria-pressed`) |
+| `bits.jsx` `Chip`, `Avatar`, `Ring`, `EmptyState`, `IconBox`, `CardLink` | Status chip, initials, a progress ring, an empty list, a soft icon square, "Open all ›" |
+| `PageHeader`, `Tabs`, `Segmented`, `ProfileCover` | The page band; tabs; a two-or-three-way switch; a profile's cover with avatar, chips and tabs |
 
-### Form Inputs
-```
-w-full border border-gray-300 rounded-lg px-3 py-2 text-sm
-focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
-placeholder:text-gray-400
-```
-
-### Tables
-```
-- Container: bg-white rounded-xl border border-gray-200 overflow-hidden
-- Header: bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wider
-- Row: border-b border-gray-100 hover:bg-gray-50
-- Cell: px-6 py-4 text-sm text-gray-700
-```
-
-### Badges / Status Pills
-```
-- Base: inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-- Active/Present: bg-green-100 text-green-700
-- Pending: bg-amber-100 text-amber-700
-- Rejected/Absent: bg-red-100 text-red-700
-- Info: bg-blue-100 text-blue-700
-```
-
-### Modals
-```
-- Overlay: fixed inset-0 bg-black/50 z-50
-- Container: bg-white rounded-2xl shadow-xl p-6 max-w-lg w-full mx-auto mt-20
-- Header: text-lg font-semibold + close button top-right
-```
-
----
-
-## Spacing System
-Use Tailwind's default spacing. Key values:
-- Card padding: `p-6`
-- Section gap: `gap-6`
-- Form field gap: `gap-4`
-- Inline elements: `gap-2` or `gap-3`
-
----
+Lists and dialogs:
+- A query is drawn through `components/DataState.jsx` — an error is never an empty
+  list or a zero. A list drawn twice (cards on a phone, a table on a computer) shows
+  its error twice; only the visible one counts.
+- Dialogs use `components/Dialog.jsx` or `ConfirmDialog.jsx`: `role="dialog"`,
+  `aria-modal`, a name, a Close button, Escape closes.
+- A column with no heading text gets `aria-label` on its `th` — never an `sr-only`
+  span, which widens the page on a phone.
 
 ## Icons
-Use **Lucide React** (`lucide-react`) for all icons.
-- Size default: `w-5 h-5`
-- Sidebar icons: `w-5 h-5`
-- Stat card icons: `w-6 h-6`
 
----
+Lucide (`lucide-react`). `w-4 h-4` in buttons and rows, `w-5 h-5` in the bars.
+Decorative icons carry `aria-hidden="true"`.
 
-## Responsive Breakpoints
-- Mobile first with Tailwind
-- Sidebar collapses on mobile (`md:block hidden`)
-- Tables scroll horizontally on small screens (`overflow-x-auto`)
-- Cards stack vertically on mobile (`grid-cols-1 md:grid-cols-2 lg:grid-cols-4`)
+## Writing on screen
 
----
-
-## Design Principles
-1. **Whitespace** — generous padding, don't crowd elements
-2. **Hierarchy** — clear visual weight from headings → labels → body
-3. **Consistency** — same border radius, same shadow across all cards
-4. **Feedback** — every button/action has hover + focus states
-5. **Accessibility** — sufficient color contrast, focus rings on inputs
+- Dates through `lib/dates.js`: "4 Oct 2026" everywhere (there is no date format
+  setting). Instants on the company's clock.
+- Money in Indian grouping, `en-IN`: "₹1,23,456"; payslip figures keep their paise.
+- Buttons say what they do ("Approve", "Hand it in"), not "OK".

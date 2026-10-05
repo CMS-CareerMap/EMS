@@ -110,13 +110,14 @@ function base(employee: EmployeeRow) {
 
 /**
  * Where somebody stands in the lifecycle today — worked out, never stored. A
- * resignation not yet accepted is not announced: only those who run the
- * lifecycle, the person and the one they report to see "Resigned" (and an
- * exit reason); anybody else reading the directory sees where they stood.
+ * resignation not yet accepted is not announced: only whoever runs that
+ * person's employment record, the person and the one they report to see
+ * "Resigned" (and an exit reason) — not a fellow HR person, whose own record
+ * goes up the tree; anybody else reading the directory sees where they stood.
  */
 function lifecycle(employee: EmployeeRow, access: FieldAccess) {
-  const { everybody, employeeId, above } = access.lifecycleOf
-  const sees = (everybody && !above.includes(employee.id)) || (employeeId !== null && (employee.id === employeeId || employee.reportingManagerId === employeeId))
+  const { everybody, employeeId, notTheirs } = access.lifecycleOf
+  const sees = (everybody && !notTheirs.includes(employee.id)) || (employeeId !== null && (employee.id === employeeId || employee.reportingManagerId === employeeId))
   const today = access.today
   const open = employee.resignations[0]
   const shown = open && (open.status === 'accepted' || (open.status === 'submitted' && sees)) ? { status: open.status } : null

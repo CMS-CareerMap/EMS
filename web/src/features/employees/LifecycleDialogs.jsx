@@ -1,3 +1,4 @@
+import { btn } from '../../components/ui/styles'
 import { cloneElement, useId, useState } from 'react'
 import { toast } from 'sonner'
 import { AlertTriangle, CheckCircle2, CircleDashed } from 'lucide-react'
@@ -38,11 +39,11 @@ function Buttons({ onClose, busy, label, danger = false, disabled = false }) {
   return (
     <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-2">
       <button type="button" onClick={onClose} disabled={busy}
-        className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-60">
+        className={btn.secondary}>
         Cancel
       </button>
       <button type="submit" disabled={busy || disabled}
-        className={`px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-60 ${danger ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
+        className={`px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-60 ${danger ? 'bg-red-600 hover:bg-red-700' : 'bg-brand-600 hover:bg-brand-700'}`}>
         {busy ? 'Working…' : label}
       </button>
     </div>

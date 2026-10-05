@@ -3,6 +3,7 @@
 // isolated stack only, the "tds" fixture (three directives already recorded).
 import { chromium } from 'playwright-core'
 import { WORK, REPO, STORAGE as STORE, psql } from '../lib/env.mjs'
+import { openMyProfile, openEmployeeProfile, signOutVia, menuLinks, menuLink } from '../lib/ui.mjs'
 import { readFileSync, mkdirSync } from 'node:fs'
 
 const BASE = 'http://localhost:5183'
@@ -33,15 +34,14 @@ try {
   acc.on('response', (r) => { if (r.status() >= 400 && r.url().includes('/api/')) failedCalls.push(`${r.request().method()} ${r.url().split('/api')[1]} ${r.status()}`) })
   acc.on('request', (r) => { if (r.method() === 'PUT' && r.url().includes('/payroll/tds-directives')) tdsWrites.push(r.postData()) })
   await acc.goto(`${BASE}/signin`)
-  await acc.getByPlaceholder('you@careermap.in or EMP001').fill(fx.users.acc)
+  await acc.getByLabel('Work Email or Employee ID').fill(fx.users.acc)
   await acc.getByPlaceholder('Enter your password').fill(fx.password)
   await acc.getByRole('button', { name: 'Sign In' }).click()
   await acc.waitForURL('**/dashboard', { timeout: 20_000 })
   const waitToast = (text) => acc.locator('[data-sonner-toast]', { hasText: text }).first().waitFor({ timeout: 20_000 })
 
   // A person with no account recorded is told so, not shown a pretend one.
-  await acc.getByRole('button', { name: /Anil Accountant/ }).first().click()
-  await acc.getByRole('button', { name: 'My Profile' }).click()
+  await openMyProfile(acc, 'Salary account')
   await acc.getByText('No bank account is recorded for your salary yet.').waitFor({ timeout: 20_000 })
   check('With no bank account on record, the profile says so', true)
   await acc.keyboard.press('Escape')
@@ -53,7 +53,7 @@ try {
     blockers.includes('No TDS directive for Priya Deshmukh') && blockers.includes('No TDS directive for Neha Joshi') && blockers.includes('Payroll → Income tax (TDS)') && !blockers.includes('Anil Accountant'),
     blockers.replace(/\s+/g, ' '))
 
-  await acc.getByRole('button', { name: 'Income tax (TDS)', exact: true }).click()
+  await acc.getByRole('tab', { name: 'Income tax (TDS)', exact: true }).click()
   await acc.getByRole('button', { name: 'Set monthly TDS' }).waitFor()
   check('The TDS tab starts on this financial year, 2026-27', (await acc.locator('select').first().inputValue()) === '2026')
   const table = await acc.locator('table').innerText()
@@ -84,7 +84,7 @@ try {
   check('…with the reason it is recorded', (await acc.locator('tr', { hasText: 'Neha Joshi' }).innerText()).includes('Below the taxable limit'))
   await acc.screenshot({ path: `${SHOTS}/01-tds-tab.png`, fullPage: true })
 
-  await acc.getByRole('button', { name: 'Payroll runs', exact: true }).click()
+  await acc.getByRole('tab', { name: 'Payroll runs', exact: true }).click()
   await acc.getByText('September 2026 — no payroll run yet').waitFor()
   // The month's readiness is fetched again after the change; wait for it.
   const gone = await acc.locator('div.border-red-200', { hasText: 'stop' }).waitFor({ state: 'detached', timeout: 10_000 }).then(() => true, () => false)

@@ -5,6 +5,7 @@ import { useDownload } from '../../hooks/useDownload'
 import { useEscape } from '../../hooks/useEscape'
 import DataState from '../../components/DataState'
 import { money, monthLabel } from './format'
+import { btn, field } from '../../components/ui/styles'
 
 /**
  * The bank transfer file for one approved or paid run.
@@ -35,7 +36,7 @@ export default function BankFilePanel({ run, onClose }) {
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl my-8 overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div className="flex items-center gap-3">
-            <div className="rounded-lg bg-blue-100 p-2"><Landmark className="w-4 h-4 text-blue-700" /></div>
+            <div className="rounded-lg bg-brand-100 p-2"><Landmark className="w-4 h-4 text-brand-700" /></div>
             <div>
               <p className="text-base font-semibold text-gray-900">Bank transfer file — {label}</p>
               <p className="text-xs text-gray-500">A CSV to upload to the bank's bulk payment screen</p>
@@ -47,9 +48,9 @@ export default function BankFilePanel({ run, onClose }) {
         <div className="p-6 space-y-5">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <label className="space-y-1.5">
-              <span className="block text-sm font-medium text-gray-600">Payment date in the file</span>
+              <span className="block text-xs font-semibold text-gray-600">Payment date in the file</span>
               <input type="date" value={date} onChange={(e) => setPayDate(e.target.value)}
-                className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                className={field} />
             </label>
             {preview.isSuccess && (
               <div className="text-right">
@@ -91,7 +92,7 @@ export default function BankFilePanel({ run, onClose }) {
                 <div className="overflow-x-auto max-h-80">
                   <table className="w-full min-w-140 text-sm">
                     <thead>
-                      <tr className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      <tr>
                         <th className="px-4 py-2.5 text-left">Beneficiary</th>
                         <th className="px-4 py-2.5 text-left">Bank</th>
                         <th className="px-4 py-2.5 text-left">Account</th>
@@ -124,7 +125,7 @@ export default function BankFilePanel({ run, onClose }) {
                 <p className="text-xs text-gray-500">The file has the full account numbers. Taking it is recorded.</p>
                 <button onClick={() => start('file', () => downloadBankFile(run.id, payDate || undefined))}
                   disabled={busy === 'file' || data.payments.length === 0}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium">
+                  className={btn.primary}>
                   {busy === 'file' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                   Download CSV
                 </button>

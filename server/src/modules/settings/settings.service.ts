@@ -37,7 +37,6 @@ export interface CompanyIdentityInput {
   email?: string | null | undefined
   website?: string | null | undefined
   timezone?: string | undefined
-  dateFormat?: string | undefined
   country?: string | undefined
   currency?: string | undefined
   maxUploadMb?: number | undefined

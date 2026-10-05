@@ -1,7 +1,9 @@
 import type { AppContext } from '../../platform/context'
 import { BadRequest, Conflict, NotFound } from '../../platform/errors/AppError'
-import { withTransaction } from '../../platform/db/transaction'
+import { withTransaction, type TxDb } from '../../platform/db/transaction'
+import type { ScopedDb } from '../../platform/db/scoped'
 import { lockFor } from '../../platform/db/locks'
+import { runLock } from './payrollRun.service'
 import { logger } from '../../platform/logger'
 import { audit } from '../audit/audit.service'
 import { employmentWindow } from '../../domain/payroll/salary'
@@ -30,13 +32,22 @@ async function refuseIfClosed(
   month: number,
   reaches: (run: { year: number; month: number }) => boolean,
   what: string,
+  db: ScopedDb | TxDb = ctx.db,
 ): Promise<void> {
-  const closed = (await closedRunsFrom(ctx.db, year, month)).find(reaches)
+  const closed = (await closedRunsFrom(db, year, month)).find(reaches)
   if (closed) {
     throw Conflict(
       `Payroll for ${monthName(closed.year, closed.month)} is already ${closed.status}, and ${what} would change it.`,
     )
   }
+}
+
+/** This month and every one after it to the end of its financial year (March), in order. */
+function monthsToYearEnd(year: number, month: number): { year: number; month: number }[] {
+  const endYear = financialYearOf(year, month) + 1
+  const out: { year: number; month: number }[] = []
+  for (let y = year, m = month; y < endYear || (y === endYear && m <= 3); m === 12 ? (y += 1, m = 1) : (m += 1)) out.push({ year: y, month: m })
+  return out
 }
 
 // ── TDS directives ──────────────────────────────────────────────────────────
@@ -103,6 +114,10 @@ export async function setTdsDirective(ctx: AppContext, input: DirectiveInput) {
   const saved = await withTransaction(ctx.db, async (tx) => {
     // One change to a person's tax at a time; the second save reads the first.
     await lockFor(tx, `tds:${input.employeeId}`)
+    // Every month it reaches, in order, as approving one takes it: a month
+    // being approved this moment is waited for, then found closed.
+    for (const m of monthsToYearEnd(input.year, input.month)) await lockFor(tx, runLock(ctx, m.year, m.month))
+    await refuseIfClosed(ctx, input.year, input.month, (run) => financialYearOf(run.year, run.month) === financialYear, `a TDS directive from ${monthName(input.year, input.month)}`, tx)
     const previous = await repo.findDirective(tx, input.employeeId, toDateColumn(effectiveFrom))
 
     const row = await repo.saveDirective(tx, ctx.organizationId, input.employeeId, toDateColumn(effectiveFrom), {
@@ -223,6 +238,10 @@ export async function setMonthlyEntry(ctx: AppContext, input: EntryInput) {
 
   const { saved, previous } = await withTransaction(ctx.db, async (tx) => {
     await lockFor(tx, `monthly-entry:${input.employeeId}`)
+    // The month's payroll lock, which approving it holds: an amount saved while
+    // the month is being approved waits, then finds it closed — not paid nowhere.
+    await lockFor(tx, runLock(ctx, input.year, input.month))
+    await refuseIfClosed(ctx, input.year, input.month, (run) => run.year === input.year && run.month === input.month, `a new ${component.label.toLowerCase()} amount`, tx)
     const result = await repo.saveEntry(
       tx,
       ctx.organizationId,
@@ -275,6 +294,8 @@ export async function deleteMonthlyEntry(ctx: AppContext, id: string): Promise<v
 
   await withTransaction(ctx.db, async (tx) => {
     await lockFor(tx, `monthly-entry:${entry.employeeId}`)
+    await lockFor(tx, runLock(ctx, entry.year, entry.month))
+    await refuseIfClosed(ctx, entry.year, entry.month, (run) => run.year === entry.year && run.month === entry.month, `removing ${entry.employee.fullName}'s ${entry.component.label.toLowerCase()}`, tx)
     await repo.deleteEntry(tx, id)
     await audit(ctx, {
       action: 'payroll.entry_removed',

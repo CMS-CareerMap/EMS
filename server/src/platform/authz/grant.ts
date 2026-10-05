@@ -66,6 +66,19 @@ export function toGrant(row: RoleRowForGrant): RoleGrant {
 }
 
 /**
+ * The employee login of somebody who also has a live role login (Day 23): for
+ * their own things only — every module reaches their own rows, whatever the
+ * Employee role's scopes are set to. The role's work is done from the role
+ * login; widening the Employee role for everybody else must not hand the
+ * same person a second, wider way in.
+ */
+export function ownThingsOnly(grant: RoleGrant): RoleGrant {
+  const scopes = {} as Record<ScopedResource, DataScope>
+  for (const resource of SCOPED_RESOURCES) scopes[resource] = 'SELF'
+  return { ...grant, scopes }
+}
+
+/**
  * What each scope reaches at the least, wherever its holder sits: the scopes
  * it covers. Team and department are different groups, so neither covers the
  * other; a department can hold somebody's seniors, so "the company except

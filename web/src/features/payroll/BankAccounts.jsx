@@ -7,6 +7,9 @@ import PreviewDialog from '../documents/PreviewDialog'
 import { useAuthStore } from '../../stores/authStore'
 import Dialog, { inputCls } from '../../components/Dialog'
 import { DataRows } from '../../components/DataState'
+import { btn, card, field, th } from '../../components/ui/styles'
+import { Avatar } from '../../components/ui/bits'
+import { formatInstant } from '../../lib/dates'
 
 /**
  * Salary bank accounts, kept by Accounts.
@@ -61,11 +64,11 @@ export default function BankAccounts() {
 
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-2">
+      <div className={`${card} p-4 flex flex-wrap items-center justify-between gap-3`}>
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Show">
           {FILTERS.map((f) => (
-            <button key={f.id} onClick={() => setFilter(f.id)}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium border ${filter === f.id ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+            <button key={f.id} onClick={() => setFilter(f.id)} aria-pressed={filter === f.id}
+              className={`h-8 px-3 rounded-full text-[12.5px] font-semibold border transition-colors ${filter === f.id ? 'bg-gray-900 border-gray-900 text-white' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
               {/* No count until the list is in: a failed load is not "0 not checked". */}
               {f.label} {accounts.isSuccess && <span className="opacity-75">{counts[f.id]}</span>}
             </button>
@@ -74,21 +77,21 @@ export default function BankAccounts() {
         <div className="relative">
           <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name or code"
-            className="pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm w-56" />
+            className={`pl-9 w-full sm:w-56 ${field}`} />
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className={`${card} overflow-hidden`}>
         <div className="overflow-x-auto">
           <table className="w-full min-w-200 text-sm">
             <thead>
-              <tr className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                <th className="px-4 py-3 text-left">Employee</th>
-                <th className="px-4 py-3 text-left">Bank</th>
-                <th className="px-4 py-3 text-left">Account</th>
-                <th className="px-4 py-3 text-left">IFSC</th>
-                <th className="px-4 py-3 text-left">Status</th>
-                <th className="px-4 py-3" />
+              <tr>
+                <th className={th}>Employee</th>
+                <th className={th}>Bank</th>
+                <th className={th}>Account</th>
+                <th className={th}>IFSC</th>
+                <th className={th}>Status</th>
+                <th className={th} />
               </tr>
             </thead>
             <tbody>
@@ -100,8 +103,13 @@ export default function BankAccounts() {
                 return (
                   <tr key={row.employee_id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                     <td className="px-4 py-3">
-                      <p className="font-medium text-gray-900">{row.full_name}{own && <span className="ml-1.5 text-xs text-gray-400">(you)</span>}</p>
-                      <p className="text-xs text-gray-400"><span className="font-mono">{row.employee_code}</span>{row.department ? ` · ${row.department}` : ''}</p>
+                      <div className="flex items-center gap-2.5">
+                        <Avatar name={row.full_name} size="sm" />
+                        <div className="min-w-0">
+                          <p className="font-semibold text-gray-900">{row.full_name}{own && <span className="ml-1.5 text-xs font-normal text-gray-400">(you)</span>}</p>
+                          <p className="text-xs text-gray-400"><span className="font-mono">{row.employee_code}</span>{row.department ? ` · ${row.department}` : ''}</p>
+                        </div>
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-gray-700">{a ? <>{a.bank_name}{a.branch && <p className="text-xs text-gray-400">{a.branch}</p>}</> : <span className="text-gray-400">—</span>}</td>
                     <td className="px-4 py-3">
@@ -109,7 +117,7 @@ export default function BankAccounts() {
                         <>
                           <p className="font-mono text-gray-800 flex items-center gap-1">•••• {a.account_number.slice(-4)}{a.proof && <Paperclip className="w-3.5 h-3.5 text-gray-400" aria-label="Proof attached" />}</p>
                           <p className="text-xs text-gray-400">{a.account_holder_name}</p>
-                          {a.submitted_by_employee && <p className="text-[11px] text-blue-600">Sent in by them</p>}
+                          {a.submitted_by_employee && <p className="text-[11px] text-brand-600">Sent in by them</p>}
                         </>
                       ) : <span className="text-gray-400">—</span>}
                     </td>
@@ -134,7 +142,7 @@ export default function BankAccounts() {
                           ) : (
                             <>
                               {a && a.verification_status !== 'verified' && (
-                                <button onClick={() => setReviewing(row)} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold">
+                                <button onClick={() => setReviewing(row)} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-brand-50 hover:bg-brand-100 text-brand-700 text-xs font-semibold">
                                   <ShieldCheck className="w-3.5 h-3.5" /> Check
                                 </button>
                               )}
@@ -275,7 +283,7 @@ function AccountDialog({ row, own, maxUploadMb, onClose }) {
 
         <Field label="Cancelled cheque or passbook page (optional)">
           <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" onChange={(e) => { setProof(e.target.files?.[0] ?? null); setProblem('') }}
-            className="w-full text-sm file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700" />
+            className="w-full text-sm file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-brand-50 file:text-brand-700" />
           <span className="block text-xs text-gray-500">
             {!a?.proof
               ? 'Kept with the account, for whoever checks it.'
@@ -286,10 +294,9 @@ function AccountDialog({ row, own, maxUploadMb, onClose }) {
         </Field>
         {problem && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">{problem}</p>}
 
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700">Cancel</button>
-          <button type="submit" disabled={preparing || save.isPending || mismatch}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-60">
+        <div className="flex flex-wrap justify-end gap-2">
+          <button type="button" onClick={onClose} className={btn.secondary}>Cancel</button>
+          <button type="submit" disabled={preparing || save.isPending || mismatch} className={btn.primary}>
             {(preparing || save.isPending) && <Loader2 className="w-4 h-4 animate-spin" />} {preparing ? 'Making the photo smaller…' : 'Save'}
           </button>
         </div>
@@ -299,6 +306,8 @@ function AccountDialog({ row, own, maxUploadMb, onClose }) {
 }
 
 function ReviewDialog({ row, onClose }) {
+  // When it was last changed, on the company's clock — not the device's.
+  const timezone = useAuthStore((s) => s.organization?.timezone)
   const verify = useVerifyBankAccount()
   const a = row.bank_account
   const [remarks, setRemarks] = useState('')
@@ -332,11 +341,11 @@ function ReviewDialog({ row, onClose }) {
         <dt className="text-gray-400">Account number</dt><dd className="font-mono font-medium text-gray-900">{a.account_number}</dd>
         <dt className="text-gray-400">IFSC</dt><dd className="font-mono font-medium text-gray-900">{a.ifsc}</dd>
         <dt className="text-gray-400">Type</dt><dd className="text-gray-900">{a.account_type ?? '—'}</dd>
-        <dt className="text-gray-400">Last changed</dt><dd className="text-gray-900">{a.updated_at ? new Date(a.updated_at).toLocaleString('en-IN') : '—'}</dd>
+        <dt className="text-gray-400">Last changed</dt><dd className="text-gray-900">{formatInstant(a.updated_at, timezone)}</dd>
         <dt className="text-gray-400">Proof</dt>
         <dd>
           {a.proof ? (
-            <button type="button" onClick={() => setShowProof(true)} className="inline-flex items-center gap-1 text-blue-600 hover:underline">
+            <button type="button" onClick={() => setShowProof(true)} className="inline-flex items-center gap-1 text-brand-600 hover:underline">
               <Eye className="w-3.5 h-3.5" /> View the {a.proof.content_type === 'application/pdf' ? 'PDF' : 'photo'}
             </button>
           ) : (
@@ -347,11 +356,11 @@ function ReviewDialog({ row, onClose }) {
       </dl>
       <p className="text-xs text-gray-500">Verify only after comparing every detail with a cancelled cheque or passbook page.</p>
       <label className="block space-y-1.5">
-        <span className="text-sm font-medium text-gray-600">Remarks <span className="text-gray-400 font-normal">(needed to reject)</span></span>
+        <span className="text-sm font-semibold text-gray-700">Remarks <span className="text-gray-400 font-normal">(needed to reject)</span></span>
         <input className={inputCls} value={remarks} maxLength={300} onChange={(e) => setRemarks(e.target.value)} placeholder="For example: IFSC does not match the cheque" />
         {asked && !remarks.trim() && <span className="text-xs text-red-600">Say why, so it can be put right.</span>}
       </label>
-      <div className="flex justify-end gap-2">
+      <div className="flex flex-wrap justify-end gap-2">
         <button onClick={() => decide('rejected')} disabled={verify.isPending}
           className="px-4 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 text-sm font-medium disabled:opacity-60">Reject</button>
         <button onClick={() => decide('verified')} disabled={verify.isPending}
@@ -371,7 +380,7 @@ function ReviewDialog({ row, onClose }) {
 function Field({ label, error = null, children }) {
   return (
     <label className="block space-y-1.5">
-      <span className="text-sm font-medium text-gray-600">{label}</span>
+      <span className="text-sm font-semibold text-gray-700">{label}</span>
       {children}
       {error && <span className="text-xs text-red-600">{error}</span>}
     </label>

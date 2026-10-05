@@ -29,14 +29,20 @@ function useSetting(key, path) {
   })
 }
 
-/** Invalidates one settings key after a successful write. */
-function useSettingMutation(key, fn) {
+/** Invalidates one settings key after a successful write — and any others that show the same thing. */
+function useSettingMutation(key, fn, also = []) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: fn,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: key }),
+    onSuccess: () => Promise.all([key, ...also].map((queryKey) => queryClient.invalidateQueries({ queryKey }))),
   })
 }
+
+/**
+ * The days off — the working week and the holidays — show on the attendance
+ * calendar, the Timings card and the home page too.
+ */
+const DAYS_OFF_SHOWN = [['attendance', 'calendar'], ['attendance', 'me'], ['dashboard']]
 
 export function useCompanySettings() {
   return useSetting(keys.company, '/settings/company')
@@ -51,7 +57,7 @@ export function usePayrollSettings() {
 }
 
 export function useSavePayroll() {
-  return useSettingMutation(keys.payroll, async (body) => (await api.put('/settings/payroll', body)).data)
+  return useSettingMutation(keys.payroll, async (body) => (await api.put('/settings/payroll', body)).data, DAYS_OFF_SHOWN)
 }
 
 /** The earning components, and which of them count as PF wages. */
@@ -147,7 +153,7 @@ export function useAddHoliday() {
   return useSettingMutation(keys.holidays, async (body) => {
     const payload = await api.post('/holidays', body)
     return { row: payload.data, approvedLeaveAffected: payload.meta?.approved_leave_affected ?? 0 }
-  })
+  }, DAYS_OFF_SHOWN)
 }
 
 /** Moves or renames one — Eid's date is often only certain the evening before. */
@@ -155,12 +161,12 @@ export function useUpdateHoliday() {
   return useSettingMutation(keys.holidays, async ({ id, ...body }) => {
     const payload = await api.patch(`/holidays/${id}`, body)
     return { row: payload.data, approvedLeaveAffected: payload.meta?.approved_leave_affected ?? 0 }
-  })
+  }, DAYS_OFF_SHOWN)
 }
 
 export function useDeleteHoliday() {
   return useSettingMutation(keys.holidays, async ({ id }) => {
     const payload = await api.del(`/holidays/${id}`)
     return { approvedLeaveAffected: payload?.meta?.approved_leave_affected ?? 0 }
-  })
+  }, DAYS_OFF_SHOWN)
 }

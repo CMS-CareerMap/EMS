@@ -2,6 +2,7 @@ import type { RequestHandler } from 'express'
 import type { Prisma } from '@prisma/client'
 import {
   listAttendance,
+  monthCalendar,
   monthlySummary,
   todaySummary,
   markAttendance,
@@ -113,6 +114,29 @@ export const getAttendance: RequestHandler = async (req, res) => {
   res.status(200).json({
     data: rows.map(row),
     meta: { requestId: res.locals.requestId, total: rows.length },
+  })
+}
+
+/**
+ * GET /api/attendance/calendar?year=&month=
+ *
+ * The company's days off in a month — holidays by name, and weekly offs — for
+ * the attendance calendar, which has no rows on those days to draw from.
+ */
+export const getMonthCalendar: RequestHandler = async (req, res) => {
+  const ctx = appContext(res)
+  const { year, month } = parseBody(monthQuerySchema, req.query)
+
+  const calendar = await monthCalendar(ctx, year, month)
+
+  res.status(200).json({
+    data: {
+      year: calendar.year,
+      month: calendar.month,
+      weekly_off_days: calendar.weeklyOffDays,
+      days_off: calendar.daysOff,
+    },
+    meta: { requestId: res.locals.requestId },
   })
 }
 

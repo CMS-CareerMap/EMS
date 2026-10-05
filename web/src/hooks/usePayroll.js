@@ -59,6 +59,7 @@ function useRunMutation(mutationFn, meta) {
       qc.invalidateQueries({ queryKey: ['payroll', 'readiness'] })
       qc.invalidateQueries({ queryKey: ['payroll', 'payslip'] })
       qc.invalidateQueries({ queryKey: ['payroll', 'bank-preview'] })
+      qc.invalidateQueries({ queryKey: ['dashboard', 'payroll'] })
       if (run?.id) qc.setQueryData(keys.run(run.id), run)
     },
   })
@@ -136,6 +137,7 @@ export function useSetMonthlyEntry() {
     onSuccess: (_d, { year, month }) => {
       qc.invalidateQueries({ queryKey: keys.entries(year, month) })
       qc.invalidateQueries({ queryKey: ['payroll', 'readiness'] })
+      qc.invalidateQueries({ queryKey: ['dashboard', 'payroll'] })
     },
   })
 }
@@ -147,6 +149,7 @@ export function useDeleteMonthlyEntry() {
     onSuccess: (_d, { year, month }) => {
       qc.invalidateQueries({ queryKey: keys.entries(year, month) })
       qc.invalidateQueries({ queryKey: ['payroll', 'readiness'] })
+      qc.invalidateQueries({ queryKey: ['dashboard', 'payroll'] })
     },
   })
 }
@@ -211,6 +214,7 @@ export function useSaveBankAccount() {
     onSettled: () => Promise.all([
       qc.invalidateQueries({ queryKey: keys.bankAccounts }),
       qc.invalidateQueries({ queryKey: ['payroll', 'bank-preview'] }),
+      qc.invalidateQueries({ queryKey: ['dashboard', 'payroll'] }),
     ]),
   })
 }
@@ -225,6 +229,7 @@ export function useVerifyBankAccount() {
     onSettled: () => Promise.all([
       qc.invalidateQueries({ queryKey: keys.bankAccounts }),
       qc.invalidateQueries({ queryKey: ['payroll', 'bank-preview'] }),
+      qc.invalidateQueries({ queryKey: ['dashboard', 'payroll'] }),
     ]),
   })
 }
@@ -304,6 +309,6 @@ export function useSubmitMyBankAccount() {
     },
     // The form shows these beside the field they are about.
     meta: { quietCodes: ['BAD_REQUEST', 'PAYLOAD_TOO_LARGE', 'VALIDATION_FAILED'] },
-    onSuccess: () => qc.invalidateQueries({ queryKey: keys.myBank }),
+    onSuccess: () => Promise.all([qc.invalidateQueries({ queryKey: keys.myBank }), qc.invalidateQueries({ queryKey: ['dashboard', 'payroll'] })]),
   })
 }

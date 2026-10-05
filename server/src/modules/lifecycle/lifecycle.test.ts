@@ -568,6 +568,29 @@ describe('a resignation', () => {
   })
 })
 
+describe('a fellow HR person’s resignation', () => {
+  it('is not shown to another HR person before it is accepted — only to whoever runs or accepts it', async () => {
+    const res = await post('hrB', '/api/lifecycle/resignations', { reason: 'Going back to college' })
+    expect(res.status, JSON.stringify(res.body)).toBe(201)
+    const rid = res.body.data.resignation.id as string
+    try {
+      // hrA does the same work: hrB's record goes up the tree, not to hrA.
+      const peer = (await of('hrA', emp.hrB)).body.data
+      expect(peer).toMatchObject({ detailed: false, resignation: null, history: [] })
+      expect(peer.stage).not.toBe('resigned')
+      expect((await get('hrA', `/api/employees/${emp.hrB}`)).body.data.lifecycle_stage).not.toBe('resigned')
+      const summary = (await get('hrA', '/api/lifecycle/summary')).body.data
+      expect(summary.resigned.map((p: { employee_id: string }) => p.employee_id)).not.toContain(emp.hrB)
+
+      // The Super Admin, whom it goes to, sees it.
+      expect((await of('boss', emp.hrB)).body.data).toMatchObject({ detailed: true, stage: 'resigned', resignation: { status: 'submitted' } })
+      expect((await get('boss', `/api/employees/${emp.hrB}`)).body.data.lifecycle_stage).toBe('resigned')
+    } finally {
+      expect((await post('hrB', `/api/lifecycle/resignations/${rid}/withdraw`)).status).toBe(204)
+    }
+  })
+})
+
 describe('the owner', () => {
   it('hands in no resignation: nobody is above them to accept it', async () => {
     await prisma.organization.update({ where: { id: orgId }, data: { ownerEmployeeId: emp.boss } })

@@ -1,3 +1,4 @@
+import { btn } from '../../components/ui/styles'
 import { useState } from 'react'
 import { X, Info } from 'lucide-react'
 import { useEmployees, useMasterData, useCreateEmployee, useUpdateEmployee } from '../../hooks/useEmployees'
@@ -270,16 +271,17 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
   const managers = employees.filter((emp) => emp.id !== initial?.id)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-gray-950/45 backdrop-blur-[2px] p-3 sm:p-4 overflow-y-auto"
+      role="dialog" aria-modal="true" aria-label={isEdit ? 'Edit Employee' : 'Add New Employee'}>
       <EscapeCloses onClose={onClose} />
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl my-8 overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-[0_30px_70px_-20px_rgba(26,16,41,0.5)] w-full max-w-2xl my-6 sm:my-8 overflow-hidden">
 
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 bg-white sticky top-0 z-10">
           <div>
             <h2 className="text-lg font-semibold text-gray-900">{isEdit ? 'Edit Employee' : 'Add New Employee'}</h2>
             <p className="text-sm text-gray-400 mt-0.5">{isEdit ? 'Update the employee record' : 'Create the employee record, and a login if they need one'}</p>
           </div>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
+          <button onClick={onClose} aria-label="Close" className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -292,7 +294,7 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
             <PasswordLinkPanel email={issued.email} invite={issued.invite} onDone={() => { onSave(); onClose() }} />
             <div className="flex justify-end">
               <button onClick={() => { onSave(); onClose() }}
-                className="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium">
+                className={btn.primary}>
                 Done
               </button>
             </div>
@@ -469,7 +471,7 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
                   </Field>
                   <label className="sm:col-span-2 flex items-center gap-2 text-sm text-gray-700">
                     <input type="checkbox" checked={form.pfApplicable} onChange={(e) => set('pfApplicable', e.target.checked)}
-                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                      className="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
                     Provident fund applies to this employee
                   </label>
                 </div>
@@ -481,7 +483,7 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
               <Section title="Login">
                 <label className="flex items-center gap-2 text-sm text-gray-700">
                   <input type="checkbox" checked={form.withLogin} onChange={(e) => set('withLogin', e.target.checked)}
-                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                    className="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
                   Give them a login to the system
                 </label>
                 {form.withLogin && (
@@ -501,7 +503,7 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
                       </select>
                       {loginRoles.query.isError && (
                         <button type="button" onClick={() => loginRoles.query.refetch()}
-                          className="mt-1 text-xs font-medium text-blue-700 hover:underline">
+                          className="mt-1 text-xs font-medium text-brand-700 hover:underline">
                           Try loading the roles again
                         </button>
                       )}
@@ -523,13 +525,13 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
               </p>
             </div>
 
-            <div className="flex justify-end gap-3 pt-1">
+            <div className="flex flex-wrap justify-end gap-3 pt-1">
               <button type="button" onClick={onClose}
-                className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
+                className={btn.secondary}>
                 Cancel
               </button>
               <button type="submit" disabled={saving}
-                className="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm font-medium transition-colors shadow-sm">
+                className={btn.primary}>
                 {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Employee'}
               </button>
             </div>
@@ -544,7 +546,7 @@ function Section({ title, children }) {
   return (
     <div>
       <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-        <span className="w-2 h-2 rounded-full bg-blue-600"></span>
+        <span className="w-2 h-2 rounded-full bg-brand-600"></span>
         {title}
       </h3>
       {children}
@@ -566,6 +568,6 @@ function Field({ label, error, required, hint, children }) {
 
 function inp(error) {
   return `w-full border ${error ? 'border-red-400 bg-red-50' : 'border-gray-300'} rounded-lg px-3 py-2 text-sm
-    focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+    focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent
     placeholder:text-gray-400 text-gray-900 bg-white disabled:bg-gray-50`
 }

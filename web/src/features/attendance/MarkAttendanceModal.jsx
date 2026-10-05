@@ -1,6 +1,8 @@
+import { btn } from '../../components/ui/styles'
 import { useState, useEffect } from 'react'
 import { X, MapPin, Navigation, AlertTriangle, CheckCircle2, LocateFixed, Loader2, ShieldAlert, ShieldCheck } from 'lucide-react'
 import { EscapeCloses } from '../../hooks/useEscape'
+import { Avatar } from '../../components/ui/bits'
 
 /**
  * What HR may record by hand. Late and WFH were here and are not statuses the
@@ -70,26 +72,23 @@ export default function MarkAttendanceModal({ open, onClose, employee, onSave })
     onClose()
   }
 
-  const initials = employee.full_name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
-
   return (
     // Scrolls when taller than a phone's screen, rather than cutting off its buttons.
-    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-black/50 p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-gray-950/45 backdrop-blur-[2px] p-3 sm:p-4 overflow-y-auto"
+      role="dialog" aria-modal="true" aria-label={`Attendance — ${employee.full_name}`}>
       <EscapeCloses onClose={onClose} />
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-slate-100 my-4">
+      <div className="bg-white rounded-2xl shadow-[0_30px_70px_-20px_rgba(26,16,41,0.5)] w-full max-w-md overflow-hidden my-4">
 
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-slate-50">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
-              <span className="text-blue-700 text-sm font-semibold">{initials}</span>
-            </div>
+            <Avatar name={employee.full_name} />
             <div>
-              <p className="text-sm font-semibold text-gray-900">{employee.full_name}</p>
-              <p className="text-xs text-gray-400">{employee.department}</p>
+              <p className="text-sm font-bold text-gray-900">{employee.full_name}</p>
+              <p className="text-xs text-gray-500">{employee.department}</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
+          <button onClick={onClose} aria-label="Close" className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -107,7 +106,7 @@ export default function MarkAttendanceModal({ open, onClose, employee, onSave })
                   onClick={() => setStatus(opt.value)}
                   className={`px-3 py-2.5 rounded-lg border text-sm font-medium transition-all
                     ${status === opt.value
-                      ? 'border-blue-500 bg-blue-50 text-blue-700 ring-1 ring-blue-500'
+                      ? 'border-brand-500 bg-brand-50 text-brand-700 ring-1 ring-brand-500'
                       : 'border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'
                     }`}
                 >
@@ -141,13 +140,13 @@ export default function MarkAttendanceModal({ open, onClose, employee, onSave })
                 <label className="text-sm font-medium text-gray-600">Check-in Time</label>
                 <input type="time" value={checkIn} onChange={(e) => setCheckIn(e.target.value)}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm
-                    focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900" />
+                    focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent text-gray-900" />
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium text-gray-600">Check-out Time</label>
                 <input type="time" value={checkOut} onChange={(e) => setCheckOut(e.target.value)}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm
-                    focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900" />
+                    focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent text-gray-900" />
               </div>
             </div>
           )}
@@ -161,20 +160,20 @@ export default function MarkAttendanceModal({ open, onClose, employee, onSave })
               onChange={(e) => setNote(e.target.value)}
               placeholder="e.g. Doctor appointment, client visit…"
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none
-                focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent
                 placeholder:text-gray-400 text-gray-900"
             />
           </div>
 
           {/* Actions */}
-          <div className="flex justify-end gap-3 pt-1 border-t border-gray-100">
+          <div className="flex flex-wrap justify-end gap-3 pt-1 border-t border-gray-100">
             <button type="button" onClick={onClose}
-              className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
+              className={btn.secondary}>
               Cancel
             </button>
             <button
               type="submit"
-              className="px-5 py-2 rounded-lg text-white text-sm font-semibold transition-all shadow-xs bg-blue-600 hover:bg-blue-700"
+              className={btn.primary}
             >
               Save Attendance
             </button>

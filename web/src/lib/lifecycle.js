@@ -2,7 +2,7 @@ import { formatDay } from './dates'
 
 /**
  * The employee lifecycle (client §43) in the words and colours every screen
- * uses: the employee list, the profile drawer, the dashboards.
+ * uses: the employee list, the profile page, the home page.
  */
 
 export const STAGES = {

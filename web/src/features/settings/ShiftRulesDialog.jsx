@@ -1,3 +1,4 @@
+import { btn } from '../../components/ui/styles'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import Dialog, { inputCls } from '../../components/Dialog'
@@ -68,8 +69,8 @@ export default function ShiftRulesDialog({ shift, onClose }) {
           <input type="number" min="0" max="720" step="1" className={inputCls} value={form.overtimeAfterMinutes} onChange={set('overtimeAfterMinutes')} aria-label="Overtime after minutes" />
         </Row>
         <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-2">
-          <button type="button" onClick={onClose} disabled={edit.isPending} className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-60">Cancel</button>
-          <button type="submit" disabled={edit.isPending} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-60">{edit.isPending ? 'Saving…' : 'Save rules'}</button>
+          <button type="button" onClick={onClose} disabled={edit.isPending} className={btn.secondary}>Cancel</button>
+          <button type="submit" disabled={edit.isPending} className={btn.primary}>{edit.isPending ? 'Saving…' : 'Save rules'}</button>
         </div>
       </form>
     </Dialog>

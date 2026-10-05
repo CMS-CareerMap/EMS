@@ -311,6 +311,33 @@ export interface Proration {
 }
 
 /**
+ * What a salary that changes inside the month leaves unpaid — or overpaid —
+ * for the days from the change, when the month is paid on the earlier salary
+ * (one salary for the whole month: see the payroll service).
+ *
+ * The days from the change to the end of their employment that month, counted
+ * on the company's basis exactly as a joiner's part month is, times the
+ * difference in the month's gross. Before any loss of pay on those days: which
+ * of the month's absences fell after the change the month's figures do not
+ * say. A cut gives a negative figure: overpaid.
+ */
+export function arrearsFor(input: {
+  lopBasis: LopBasis
+  calendar: MonthCalendar
+  window: EmploymentWindow
+  /** The day the new salary starts — inside the month. */
+  changeFrom: CalendarDate
+  /** The new month's gross less the old one's. */
+  monthlyDifference: number
+}): { amount: number; payableDays: number; payBasisDays: number } {
+  const from = input.changeFrom > input.window.from ? input.changeFrom : input.window.from
+  if (from > input.window.to) return { amount: 0, payableDays: 0, payBasisDays: 0 }
+  const share = proration({ lopBasis: input.lopBasis, calendar: input.calendar, window: { from, to: input.window.to }, lopDays: 0 })
+  const amount = share.payBasisDays > 0 ? Math.round((input.monthlyDifference * share.payableDays * 100) / share.payBasisDays) / 100 : 0
+  return { amount, payableDays: share.payableDays, payBasisDays: share.payBasisDays }
+}
+
+/**
  * What fraction of a month's pay is earned: payableDays out of payBasisDays.
  *
  * A WHOLE MONTH IS THE WHOLE SALARY on every basis. On a fixed 30, February

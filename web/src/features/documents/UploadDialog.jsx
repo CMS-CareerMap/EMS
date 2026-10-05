@@ -1,3 +1,4 @@
+import { btn } from '../../components/ui/styles'
 import { useState } from 'react'
 import { Loader2, Upload } from 'lucide-react'
 import { toast } from 'sonner'
@@ -65,7 +66,7 @@ export default function UploadDialog({ types, type, employee, limits, onClose, c
         <label className="block space-y-1.5">
           <span className="text-sm font-medium text-gray-600">File</span>
           <input type="file" required accept={limits.accept} onChange={(e) => { setFile(e.target.files?.[0] ?? null); setProblem('') }}
-            className="w-full text-sm file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+            className="w-full text-sm file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100" />
           <span className="block text-xs text-gray-500">
             {limits.accepted.join(', ')} · up to {limits.maxUploadMb} MB. A larger photo is made smaller automatically.
             {file ? ` Chosen: ${file.name} (${formatSize(file.size)}).` : ''}
@@ -82,10 +83,10 @@ export default function UploadDialog({ types, type, employee, limits, onClose, c
 
         {problem && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">{problem}</p>}
 
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700">Cancel</button>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button type="button" onClick={onClose} className={btn.secondary}>Cancel</button>
           <button type="submit" disabled={busy || !file}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium">
+            className={btn.primary}>
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
             {preparing ? 'Making it smaller…' : 'Upload'}
           </button>

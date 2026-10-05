@@ -2,6 +2,8 @@ import type { AppContext } from '../../platform/context'
 import type { TxDb } from '../../platform/db/transaction'
 import type { Permission } from '../../platform/authz/permissions'
 import { toGrant } from '../../platform/authz/grant'
+import { EMPLOYEE_ROLE } from '../../platform/authz/defaultRoles'
+import { isSelfServiceLogin } from '../../domain/org/logins'
 import { loadWork, mayDoWork, type WorkKind } from '../organization/workRules.service'
 import { isInScope } from '../../platform/authz/scopeWhere'
 import { TREE_SCOPES, type ScopedResource } from '../../platform/authz/scope'
@@ -107,7 +109,8 @@ async function reaching(
   // The scope as it APPLIES (toGrant), not as stored: a role without the
   // permission a scope belongs to reaches only its own rows there.
   const live = (work ? await workers(tx, organizationId, work, employeeId, holders) : holders)
-    .map((m) => ({ ...m, scope: toGrant(m.roleDef).scopes[resource] }))
+    // An employee login beside a live role login reaches only its own rows (Day 23), as it does when it reads them.
+    .map((m) => ({ ...m, scope: m.employee && isSelfServiceLogin(m, m.employee.memberships, EMPLOYEE_ROLE) ? 'SELF' as const : toGrant(m.roleDef).scopes[resource] }))
   // A holder whose scope follows the company tree (Day 22) is decided on their
   // place in it; the tree is read once, and only when somebody needs it.
   const followsTree = live.some((m) => TREE_SCOPES.has(m.scope))

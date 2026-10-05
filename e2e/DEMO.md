@@ -75,10 +75,10 @@ karan, pooja, neha, sunil.
 ## What to try, role by role
 
 ### Employee — `employee@example.com` (Priya)
-1. Dashboard: press **Check In**. (No office location is set, so no GPS is asked for.)
+1. Home: press **Check In**. (No office location is set, so no GPS is asked for.) Her month in figures sits beside it.
 2. Leave: see the balances; apply for a day next week. It goes to Rekha.
 3. Requests: her correction is waiting for Rekha.
-4. My Payslips: the paid month's payslip; download the PDF.
+4. Payslips: the paid month's payslip; download the PDF.
 5. Documents → Company documents: open the Employee Handbook. (My documents is where she
    uploads her own files for HR to check.)
 6. The bell: the notices she has had.
@@ -92,13 +92,13 @@ karan, pooja, neha, sunil.
 4. Sign in as Priya again: she has a notice that it was approved.
 
 ### Manager — `manager@example.com` (Manoj)
-1. Dashboard: Amit's resignation is waiting. **Accept** it and choose the last working day.
+1. Home → Waiting for you: Amit's resignation. **Accept** it and choose the last working day.
 2. Leave → **Team Requests**: Vikram's and Rekha's leave.
 3. Requests → **To decide**: Vikram's on-duty day.
 4. His own leave, waiting for Rahul, is under Leave → Leave Requests.
 
 ### HR — `hr@example.com` (Hema)
-1. Dashboard: who is in today, who is not marked, and who is in onboarding or notice.
+1. Home: the company today (who is in, who is not marked), the leave waiting for others' decisions, and who is joining, in onboarding or serving notice.
 2. Requests → **To decide**: approve Sneha's change of phone and address. Her record changes.
 3. Employees → Neha Gupta → Employment: **Complete onboarding**. Kiran Kumar shows as left.
 4. Attendance: mark a day for somebody; export the month.
@@ -107,7 +107,7 @@ karan, pooja, neha, sunil.
 7. Settings: leave types and their rules, holidays, document types, probation and notice.
 
 ### Accounts — `accounts@example.com` (Anil)
-1. Payroll → Runs: the paid month, and last month waiting for approval.
+1. Payroll → Payroll runs: the paid month, and last month waiting for approval.
 2. Open a run: each payslip, and the warnings it was calculated with.
 3. After Rahul approves last month: **Mark as paid**, then **Bank file**.
 4. Salary structures, components, loans (Ravi's advance), bank accounts.
@@ -120,7 +120,7 @@ karan, pooja, neha, sunil.
 4. Sign in as `arjun@example.com` for his own leave and payslips.
 
 ### Super Admin — `superadmin@example.com` (Rahul)
-1. Payroll → Runs: **approve last month**. Then Accounts marks it paid, and the payslips reach everybody.
+1. Payroll → Payroll runs: **approve last month**. Then Accounts marks it paid, and the payslips reach everybody.
 2. Leave → **Team Requests**: Manoj's leave is waiting for him.
 3. Settings → Company, Users & Roles, Roles & Permissions, Company Tree, Approvals,
    Payroll Config (overtime is off until you turn it on), Notifications, Audit Log.

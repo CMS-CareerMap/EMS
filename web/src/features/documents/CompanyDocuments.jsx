@@ -1,3 +1,4 @@
+import { btn } from '../../components/ui/styles'
 import { useCallback, useState } from 'react'
 import { Shield, BookOpen, File, Megaphone, FileText, Eye, Download, Plus, Trash2, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -35,7 +36,7 @@ export default function CompanyDocuments() {
     <div className="space-y-4">
       {manages && (
         <div className="flex justify-end">
-          <button onClick={() => setPublishing(true)} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium">
+          <button onClick={() => setPublishing(true)} className={btn.primary}>
             <Plus className="w-4 h-4" /> Publish a document
           </button>
         </div>
@@ -54,7 +55,7 @@ export default function CompanyDocuments() {
             return (
               <div key={doc.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4">
                 <div className="flex items-start gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center shrink-0"><Icon className="w-5 h-5 text-blue-600" /></div>
+                  <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center shrink-0"><Icon className="w-5 h-5 text-brand-600" /></div>
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-gray-900">{doc.title}</p>
                     <p className="text-xs text-gray-500">{categoryLabel(doc.category)} · {formatSize(doc.bytes)} · {when(doc.uploaded_at)}{doc.uploaded_by ? ` · ${doc.uploaded_by}` : ''}</p>
@@ -153,16 +154,16 @@ function PublishDialog({ onClose }) {
         <label className="block space-y-1.5">
           <span className="text-sm font-medium text-gray-600">File</span>
           <input type="file" required accept={limits?.accept} onChange={(e) => { setFile(e.target.files?.[0] ?? null); setProblem('') }}
-            className="w-full text-sm file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700" />
+            className="w-full text-sm file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-brand-50 file:text-brand-700" />
           {limits && <span className="block text-xs text-gray-500">{limits.accepted.join(', ')} · up to {maxMb} MB.</span>}
         </label>
         {typesQuery.isError && <QueryError error={typesQuery.error} onRetry={() => typesQuery.refetch()} retrying={typesQuery.isFetching} compact />}
         {problem && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">{problem}</p>}
         <p className="text-xs text-gray-500">Everybody in the company is told it has been published.</p>
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700">Cancel</button>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button type="button" onClick={onClose} className={btn.secondary}>Cancel</button>
           <button type="submit" disabled={preparing || publish.isPending || !file || !limits}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium">
+            className={btn.primary}>
             {(preparing || publish.isPending) && <Loader2 className="w-4 h-4 animate-spin" />} Publish
           </button>
         </div>
@@ -183,8 +184,8 @@ function WithdrawDialog({ doc, onClose }) {
   return (
     <Dialog title={`Withdraw ${doc.title}?`} onClose={onClose}>
       <p className="text-sm text-gray-600">Nobody will see it in Documents any more.</p>
-      <div className="flex justify-end gap-2">
-        <button onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700">Keep it</button>
+      <div className="flex flex-wrap justify-end gap-2">
+        <button onClick={onClose} className={btn.secondary}>Keep it</button>
         <button onClick={handle} disabled={remove.isPending} className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-medium disabled:opacity-60">Withdraw</button>
       </div>
     </Dialog>

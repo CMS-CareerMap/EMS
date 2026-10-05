@@ -40,9 +40,9 @@ export const LOP_BASIS = {
 }
 
 export const RUN_STATUS = {
-  draft: { label: 'Draft', cls: 'bg-gray-100 text-gray-700', dot: 'bg-gray-400' },
-  approved: { label: 'Approved', cls: 'bg-blue-100 text-blue-700', dot: 'bg-blue-500' },
-  paid: { label: 'Paid', cls: 'bg-green-100 text-green-700', dot: 'bg-green-500' },
+  draft: { label: 'Draft', tone: 'gray', cls: 'bg-gray-100 text-gray-700', dot: 'bg-gray-400' },
+  approved: { label: 'Approved', tone: 'brand', cls: 'bg-brand-100 text-brand-700', dot: 'bg-brand-500' },
+  paid: { label: 'Paid', tone: 'ok', cls: 'bg-green-100 text-green-700', dot: 'bg-green-500' },
 }
 
 /** The financial year a month belongs to, by the year it starts in — April to March. */

@@ -60,7 +60,19 @@ export const postPunchOut: RequestHandler = async (_req, res) => {
 /** GET /api/attendance/me/workplace — office, home, on duty or remote today, and whether check-in needs a location. */
 export const getMyWorkplace: RequestHandler = async (_req, res) => {
   const where = await myWorkplace(appContext(res))
-  res.status(200).json({ data: { work_mode: where.workMode, location_needed: where.locationNeeded, overtime_enabled: where.overtimeEnabled }, meta: { requestId: res.locals.requestId } })
+  res.status(200).json({
+    data: {
+      work_mode: where.workMode,
+      location_needed: where.locationNeeded,
+      overtime_enabled: where.overtimeEnabled,
+      shift: where.shift
+        ? { name: where.shift.name, start_time: where.shift.startTime, end_time: where.shift.endTime, break_minutes: where.shift.breakMinutes }
+        : null,
+      weekly_off_days: where.weeklyOffDays,
+      date_of_joining: where.dateOfJoining,
+    },
+    meta: { requestId: res.locals.requestId },
+  })
 }
 
 /** GET /api/attendance/me/today — which button the app should show. */

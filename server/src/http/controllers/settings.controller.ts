@@ -55,7 +55,6 @@ function companyPayload(org: Company) {
     email: org.email,
     website: org.website,
     timezone: org.timezone,
-    date_format: org.dateFormat,
     country: org.country,
     currency: org.currency,
     max_upload_mb: org.maxUploadMb,

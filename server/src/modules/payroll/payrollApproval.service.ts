@@ -1,6 +1,6 @@
 import type { AppContext } from '../../platform/context'
 import { BadRequest, BusinessRule, Conflict, NotFound } from '../../platform/errors/AppError'
-import { withTransaction } from '../../platform/db/transaction'
+import { withTransaction, type TxDb } from '../../platform/db/transaction'
 import { lockFor } from '../../platform/db/locks'
 import { payDecidedSince } from '../requests/requests.repository'
 import { logger } from '../../platform/logger'
@@ -77,7 +77,36 @@ export async function approveRun(ctx: AppContext, id: string, input: ApproveInpu
   if (!run) throw NotFound('Payroll run not found')
   assertCan(run, 'approve')
 
+  // All of it holding the month's lock — the one every pay input for the
+  // month (an incentive, a TDS directive) takes to be saved. An amount saved a
+  // moment before is in the figures compared; one saved a moment after waits
+  // for this, then finds the month approved and is refused. (Before, an amount
+  // saved between the comparison and the approval could miss the month.)
+  const assumedDays = await withTransaction(ctx.db, async (tx) => {
+    await lockFor(tx, runLock(ctx, run.year, run.month))
+    return approveHoldingLock(ctx, tx, run, input)
+  })
+
+  logger.info('Payroll run approved', { by: ctx.userId, runId: id, month: monthKey(run.year, run.month), assumedDays })
+  return getRun(ctx, id)
+}
+
+/** Approving, once the month's lock is held: the checks, then the move. Returns the days accepted as paid. */
+async function approveHoldingLock(ctx: AppContext, tx: TxDb, run: repo.RunRow, input: ApproveInput): Promise<number> {
+  const id = run.id
   const label = monthName(run.year, run.month)
+
+  // Recalculated while this was waiting: the payslips on the page are gone.
+  const current = await repo.findRunForMonth(tx, run.year, run.month)
+  if (!current || current.id !== id) throw NotFound('Payroll run not found')
+  if (current.calculatedAt.getTime() !== run.calculatedAt.getTime()) {
+    throw Conflict('The draft was recalculated a moment ago. Check the new figures, then approve.')
+  }
+  // Overtime or an encashment approved for this month since it was
+  // calculated is not in these payslips: recalculated first, it is paid.
+  if ((await payDecidedSince(tx, run.year, run.month, current.calculatedAt)) > 0) {
+    throw Conflict('Overtime or a leave encashment for this month was approved after it was calculated. Recalculate, check the figures, then approve.')
+  }
 
   // 1. The figures on the page must still be what the records say.
   const plan = await planMonth(ctx, run.year, run.month)
@@ -147,74 +176,57 @@ export async function approveRun(ctx: AppContext, id: string, input: ApproveInpu
     })),
   )
 
-  await withTransaction(ctx.db, async (tx) => {
-    await lockFor(tx, runLock(ctx, run.year, run.month))
+  const moved = await repo.moveRunIf(tx, id, 'draft', {
+    status: 'approved',
+    approvedAt: new Date(),
+    approvedByUserId: ctx.userId,
+    assumedDays,
+    employerName,
+    employerAddress,
+    employeeCount: totals.employeeCount,
+    grossEarnings: totals.grossEarnings,
+    totalDeductions: totals.totalDeductions,
+    netPayable: totals.netPayable,
+    employerPf: totals.employerPf,
+    employerEsi: totals.employerEsi,
+  })
+  if (moved === 0) throw Conflict('Somebody changed this payroll a moment ago. Refresh to see where it stands.')
 
-    // Recalculated while this was checking: the payslips just compared are gone.
-    const current = await repo.findRunForMonth(tx, run.year, run.month)
-    if (!current || current.id !== id) throw NotFound('Payroll run not found')
-    if (current.calculatedAt.getTime() !== run.calculatedAt.getTime()) {
-      throw Conflict('The draft was recalculated a moment ago. Check the new figures, then approve.')
-    }
-    // Overtime or an encashment approved for this month since it was
-    // calculated is not in these payslips: recalculated first, it is paid.
-    if ((await payDecidedSince(tx, run.year, run.month, current.calculatedAt)) > 0) {
-      throw Conflict('Overtime or a leave encashment for this month was approved after it was calculated. Recalculate, check the figures, then approve.')
-    }
+  for (const slip of stored) {
+    const identity = identities.get(slip.employeeId)
+    await repo.updatePayslip(tx, slip.id, {
+      uan: identity?.uan ?? null,
+      pfMemberId: identity?.pfAccountNumber ?? null,
+      esicNumber: identity?.esiNumber ?? null,
+      pan: identity?.pan ?? null,
+    })
+  }
 
-    const moved = await repo.moveRunIf(tx, id, 'draft', {
-      status: 'approved',
-      approvedAt: new Date(),
-      approvedByUserId: ctx.userId,
-      assumedDays,
-      employerName,
-      employerAddress,
-      employeeCount: totals.employeeCount,
-      grossEarnings: totals.grossEarnings,
-      totalDeductions: totals.totalDeductions,
+  await audit(ctx, {
+    action: 'payroll.run_approved',
+    entityType: 'payroll_run',
+    entityId: id,
+    details: {
+      year: run.year,
+      month: run.month,
+      employees: totals.employeeCount,
       netPayable: totals.netPayable,
-      employerPf: totals.employerPf,
-      employerEsi: totals.employerEsi,
-    })
-    if (moved === 0) throw Conflict('Somebody changed this payroll a moment ago. Refresh to see where it stands.')
+      assumedDays,
+      confirmedAssumedDays: assumedDays > 0,
+      createdByUserId: run.createdByUserId,
+    },
+  }, tx)
 
-    for (const slip of stored) {
-      const identity = identities.get(slip.employeeId)
-      await repo.updatePayslip(tx, slip.id, {
-        uan: identity?.uan ?? null,
-        pfMemberId: identity?.pfAccountNumber ?? null,
-        esicNumber: identity?.esiNumber ?? null,
-        pan: identity?.pan ?? null,
-      })
-    }
-
-    await audit(ctx, {
-      action: 'payroll.run_approved',
-      entityType: 'payroll_run',
-      entityId: id,
-      details: {
-        year: run.year,
-        month: run.month,
-        employees: totals.employeeCount,
-        netPayable: totals.netPayable,
-        assumedDays,
-        confirmedAssumedDays: assumedDays > 0,
-        createdByUserId: run.createdByUserId,
-      },
-    }, tx)
-
-    await notify(ctx, tx, {
-      event: 'payroll.approved',
-      to: { holding: 'payroll:run:create' },
-      title: 'Payroll approved',
-      message: `The ${label} payroll is approved. Take the bank file, pay it, then mark it paid.`,
-      link: '/payroll',
-      entity: { type: 'payroll_run', id },
-    })
+  await notify(ctx, tx, {
+    event: 'payroll.approved',
+    to: { holding: 'payroll:run:create' },
+    title: 'Payroll approved',
+    message: `The ${label} payroll is approved. Take the bank file, pay it, then mark it paid.`,
+    link: '/payroll',
+    entity: { type: 'payroll_run', id },
   })
 
-  logger.info('Payroll run approved', { by: ctx.userId, runId: id, month: monthKey(run.year, run.month), assumedDays })
-  return getRun(ctx, id)
+  return assumedDays
 }
 
 /**

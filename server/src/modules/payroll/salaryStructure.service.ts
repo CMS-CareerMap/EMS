@@ -144,6 +144,9 @@ export async function setSalary(ctx: AppContext, employeeId: string, input: Sala
     // two saves together both found "no salary yet" and both opened one — two
     // open records, and payroll reading whichever it met first.
     await lockFor(tx, `salary:${employeeId}`)
+    // Again under the payroll locks of the months it reaches: a month approved
+    // since the check above is refused rather than missed.
+    await assertOpenFrom(ctx, input.effectiveFrom, 'a salary starting from that date', tx)
 
     const open = await repo.findOpen(tx, employeeId)
     const openFrom = open ? fromDateColumn(open.effectiveFrom) : null

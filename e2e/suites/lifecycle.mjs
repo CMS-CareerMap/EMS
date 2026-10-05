@@ -5,6 +5,7 @@
 // (Manager), Ravi to Rekha (RM); Neha joined this month and is not onboarded.
 import { chromium } from 'playwright-core'
 import { WORK, REPO, STORAGE as STORE, psql } from '../lib/env.mjs'
+import { openMyProfile, openEmployeeProfile, signOutVia, menuLinks, menuLink } from '../lib/ui.mjs'
 import { readFileSync, mkdirSync } from 'node:fs'
 
 const BASE = 'http://localhost:5183'
@@ -70,7 +71,7 @@ async function open(who, viewport = { width: 1366, height: 900 }) {
   page.on('pageerror', (e) => pageErrors.push(`${who}: ${e.message}`))
   page.on('response', (r) => { if (r.status() >= 500 && r.url().includes('/api/')) serverErrors.push(`${who} ${r.request().method()} ${r.url().split('/api')[1]} ${r.status()}`) })
   await page.goto(`${BASE}/signin`)
-  await page.getByPlaceholder('you@careermap.in or EMP001').fill(fx.users[who])
+  await page.getByLabel('Work Email or Employee ID').fill(fx.users[who])
   await page.getByPlaceholder('Enter your password').fill(fx.password)
   await page.getByRole('button', { name: 'Sign In' }).click()
   await page.waitForURL((url) => !url.pathname.startsWith('/signin'), { timeout: 20_000 })
@@ -83,19 +84,18 @@ async function settle(page) {
 }
 const toast = (page, text) => page.locator('[data-sonner-toast]', { hasText: text }).first().waitFor({ timeout: 20_000 })
 const sideways = (page) => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+/** Somebody's profile page (a drawer before the new look), on its Employment tab. */
 async function openDrawer(page, name) {
-  await page.goto(`${BASE}/employees`)
-  await settle(page)
-  await page.locator('tr', { hasText: name }).first().click()
-  await page.getByText('Employee Profile').waitFor({ timeout: 20_000 })
+  await openEmployeeProfile(page, BASE, name, 'Employment')
   const employment = page.getByRole('region', { name: 'Employment', exact: true })
   await employment.waitFor({ timeout: 20_000 })
+  // The card is drawn at once; its record arrives after.
+  await employment.getByText('Loading…').waitFor({ state: 'detached', timeout: 20_000 }).catch(() => undefined)
   return employment
 }
 const dialog = (page) => page.getByRole('dialog')
 async function myProfile(page, name) {
-  await page.getByRole('button', { name: /Signed in as/ }).first().click()
-  await page.getByRole('button', { name: 'My Profile' }).click()
+  await openMyProfile(page, 'My employment')
   const mine = page.getByRole('region', { name: 'My employment' })
   await mine.waitFor({ timeout: 20_000 })
   await mine.getByText('Loading…').waitFor({ state: 'detached', timeout: 20_000 }).catch(() => undefined)
@@ -118,16 +118,19 @@ try {
   section('HR’s dashboard shows who needs a step')
   const hr = await open('hr')
   await settle(hr)
-  const card = hr.getByRole('region', { name: 'Employee lifecycle' })
+  // The home page's "Joining to exit" card (it was "Employee lifecycle" before the new look).
+  const card = hr.getByRole('region', { name: 'Joining to exit' })
   await card.getByText('Neha Joshi').waitFor({ timeout: 20_000 })
-  const cardText = await card.innerText()
+  // The words as written: the group names are drawn in capitals, which innerText would return.
+  const cardText = await card.textContent()
   check('the lifecycle card lists Neha under Onboarding', cardText.includes('Onboarding') && cardText.includes('Neha Joshi'), cardText.replace(/\n/g, ' | '))
   check('…and nobody who has left', !cardText.includes('Kiran Kumar'))
   await shot(hr, '01-hr-dashboard')
 
   section('Onboarding')
   await card.getByRole('link', { name: /Neha Joshi/ }).click()
-  await hr.waitForURL(/\/employees\?open=/)
+  // Her profile, on its Employment tab — where the step is taken.
+  await hr.waitForURL(/\/employees\/[0-9a-f-]{36}\?tab=employment$/)
   const neha = hr.getByRole('region', { name: 'Employment', exact: true })
   await neha.getByText('No login yet').waitFor({ timeout: 20_000 })
   check('the card’s link opens her profile, at Onboarding with the checklist', (await neha.innerText()).includes('Onboarding'))
@@ -161,7 +164,8 @@ try {
   check('Neha’s row says Confirmed', (await hr.locator('tr', { hasText: 'Neha Joshi' }).innerText()).includes('Confirmed'))
   check('Kiran’s row says Left', (await hr.locator('tr', { hasText: 'Kiran Kumar' }).innerText()).includes('Left'))
   await hr.getByLabel('Stage').selectOption('onboarding')
-  await hr.getByText('No employees found.').waitFor({ timeout: 10_000 })
+  // Said by the phone list and the table alike; the one on screen counts.
+  await hr.getByText('No employees found.').filter({ visible: true }).waitFor({ timeout: 10_000 })
   check('filtering by Onboarding shows nobody now', true)
   await hr.getByLabel('Stage').selectOption('confirmed')
   check('filtering by Confirmed keeps Neha and Priya', await hr.locator('tr', { hasText: 'Neha Joshi' }).isVisible() && await hr.locator('tr', { hasText: 'Priya Deshmukh' }).isVisible())
@@ -217,21 +221,25 @@ try {
   const priyaForAdmin = await openDrawer(arjun, 'Priya Deshmukh')
   const adminText = await priyaForAdmin.innerText()
   check('the Admin, who reads every record, is not shown her resignation before it is accepted',
-    adminText.includes('Confirmed') && !adminText.includes('Moving to Pune') && adminText.includes('shown to HR, the person they report to'), adminText.replace(/\n/g, ' | '))
+    adminText.includes('Confirmed') && !adminText.includes('Moving to Pune') && adminText.includes('shown to whoever looks after their employment record, the person they report to and the Super Admin'), adminText.replace(/\n/g, ' | '))
 
   section('Manoj accepts it from his dashboard')
   const manoj = await open('mgr')
   await settle(manoj)
-  const waiting = manoj.getByRole('region', { name: 'Resignations waiting for you' })
-  await waiting.getByText('Priya Deshmukh').waitFor({ timeout: 20_000 })
-  check('the card shows her reason', (await waiting.innerText()).includes('Moving to Pune for family'))
+  // The home page's "Waiting for you" card, which holds leave and requests too;
+  // her resignation is the row with the Resignation chip.
+  const waiting = manoj.getByRole('region', { name: 'Waiting for you' })
+  const resignationOf = (card, name) => card.getByRole('listitem').filter({ hasText: name }).filter({ hasText: 'Resignation' })
+  const priyaRow = resignationOf(waiting, 'Priya Deshmukh')
+  await priyaRow.waitFor({ timeout: 20_000 })
+  check('the card shows her reason, and when she handed it in', (await priyaRow.innerText()).includes('Moving to Pune for family') && (await priyaRow.innerText()).includes(`handed in ${label(today)}`), await priyaRow.innerText())
   await shot(manoj, '07-manoj-waiting')
-  await waiting.getByRole('button', { name: 'Accept' }).click()
+  await priyaRow.getByRole('button', { name: 'Accept' }).click()
   await dialog(manoj).getByLabel('Last working day').fill(today)
   await dialog(manoj).getByRole('button', { name: 'Accept' }).click()
   await toast(manoj, `Priya Deshmukh's last working day is ${label(today)}`)
-  await waiting.waitFor({ state: 'detached', timeout: 20_000 })
-  check('the card goes once nothing waits', true)
+  await priyaRow.waitFor({ state: 'detached', timeout: 20_000 })
+  check('her resignation leaves the card once accepted', true)
   await priya.reload()
   mine = await myProfile(priya, 'Priya Deshmukh')
   const accepted = await mine.innerText()
@@ -248,9 +256,9 @@ try {
   check('HR may not accept it — Rekha does', (await ravi2.getByRole('button', { name: 'Accept' }).count()) === 0 && (await ravi2.innerText()).includes('Goes to Rekha Rao to accept'))
   const rekha = await open('rm')
   await settle(rekha)
-  const rekhaWaiting = rekha.getByRole('region', { name: 'Resignations waiting for you' })
-  await rekhaWaiting.getByText('Ravi Patil').waitFor({ timeout: 20_000 })
-  await rekhaWaiting.getByRole('button', { name: 'Call off' }).click()
+  const raviRow = resignationOf(rekha.getByRole('region', { name: 'Waiting for you' }), 'Ravi Patil')
+  await raviRow.waitFor({ timeout: 20_000 })
+  await raviRow.getByRole('button', { name: 'Call off' }).click()
   await dialog(rekha).getByLabel('Why').fill('We talked it over; he is staying')
   await dialog(rekha).getByRole('button', { name: 'Call it off' }).click()
   await toast(rekha, 'Ravi Patil\'s resignation is called off')
@@ -265,8 +273,13 @@ try {
   await shot(hr, '08-exit-dialog')
   await dialog(hr).getByRole('button', { name: 'Complete the exit' }).click()
   await toast(hr, 'Priya Deshmukh has left the company')
-  await hr.getByText('Employee Profile').waitFor({ state: 'detached', timeout: 20_000 })
-  check('her profile closes — she is off the list', (await hr.locator('tr', { hasText: 'Priya Deshmukh' }).count()) === 0)
+  // HR still reads her record — it is kept — and it says she has left.
+  // The profile's own line, in <main> — the toast says the same words.
+  check('her profile says she has left', await hr.locator('main').getByText('Priya Deshmukh has left the company').first().waitFor({ timeout: 20_000 }).then(() => true, () => false))
+  check('…and offers no Edit: the record she left with is kept as it was', !(await hr.getByRole('button', { name: 'Edit', exact: true }).count()))
+  await hr.goto(`${BASE}/employees`)
+  await settle(hr)
+  check('…and she is off the list', (await hr.locator('main').getByRole('link', { name: /^Priya Deshmukh\b/ }).count()) === 0)
   const left = await lifecycleOf(E.priya.id)
   check('her record: left, resigned, last day today', left.stage === 'left' && left.exit_reason === 'resigned' && left.last_working_date === today && left.resignation.status === 'completed')
   check('her session ends', await signedOut(priya))
@@ -322,7 +335,7 @@ try {
   section('On a phone')
   const hrPhone = await open('hr', PHONE)
   await settle(hrPhone)
-  await hrPhone.getByRole('region', { name: 'Employee lifecycle' }).waitFor({ timeout: 20_000 })
+  await hrPhone.getByRole('region', { name: 'Joining to exit' }).waitFor({ timeout: 20_000 })
   check('HR’s dashboard fits the phone', (await sideways(hrPhone)) <= 0, `${await sideways(hrPhone)}px`)
   await shot(hrPhone, '10-phone-dashboard')
   const raviPhone = await openDrawer(hrPhone, 'Ravi Patil')
@@ -336,7 +349,7 @@ try {
   check('Ravi hands in a resignation (API)', (await api('emp2', 'POST', '/lifecycle/resignations', { reason: 'Further studies' })).status === 201)
   const rekhaPhone = await open('rm', PHONE)
   await settle(rekhaPhone)
-  await rekhaPhone.getByRole('region', { name: 'Resignations waiting for you' }).getByText('Ravi Patil').waitFor({ timeout: 20_000 })
+  await resignationOf(rekhaPhone.getByRole('region', { name: 'Waiting for you' }), 'Ravi Patil').waitFor({ timeout: 20_000 })
   check('Rekha’s waiting card fits the phone', (await sideways(rekhaPhone)) <= 0)
   await shot(rekhaPhone, '12-phone-waiting')
 

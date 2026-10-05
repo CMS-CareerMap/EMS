@@ -5,6 +5,7 @@ import { useBankFileTemplate, useSaveBankFileTemplate } from '../../hooks/usePay
 import { useAuthStore } from '../../stores/authStore'
 import { inputCls, fieldCls } from '../../components/Dialog'
 import DataState from '../../components/DataState'
+import { btn } from '../../components/ui/styles'
 
 /**
  * The bank file's layout: which columns, in what order, with what headings.
@@ -123,7 +124,7 @@ function Editor({ template }) {
           ))}
         </div>
         {canEdit && (
-          <button onClick={add} disabled={form.columns.length >= 25} className="flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 disabled:text-gray-400">
+          <button onClick={add} disabled={form.columns.length >= 25} className="flex items-center gap-1.5 text-sm font-medium text-brand-600 hover:text-brand-700 disabled:text-gray-400">
             <Plus className="w-4 h-4" /> Add a column
           </button>
         )}
@@ -134,13 +135,13 @@ function Editor({ template }) {
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
         <label className="block space-y-1.5">
-          <span className="text-sm font-medium text-gray-600">Narration</span>
+          <span className="text-sm font-semibold text-gray-700">Narration</span>
           <input className={inputCls} value={form.narration} disabled={!canEdit} maxLength={60}
             onChange={(e) => setForm((f) => ({ ...f, narration: e.target.value }))} />
           <span className="block text-xs text-gray-400">{'{month}'}, {'{year}'} and {'{code}'} are filled in on each line.</span>
         </label>
         <label className="block space-y-1.5">
-          <span className="text-sm font-medium text-gray-600">Date format</span>
+          <span className="text-sm font-semibold text-gray-700">Date format</span>
           <select className={inputCls} value={form.date_format} disabled={!canEdit}
             onChange={(e) => setForm((f) => ({ ...f, date_format: e.target.value }))}>
             {template.date_formats.map((d) => <option key={d} value={d}>{d}</option>)}
@@ -176,10 +177,9 @@ function Editor({ template }) {
       </div>
 
       {canEdit && (
-        <div className="flex justify-end gap-2">
-          <button onClick={() => setForm(initial)} disabled={!dirty} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 disabled:opacity-50">Discard changes</button>
-          <button onClick={handleSave} disabled={save.isPending || missing.length > 0 || (!dirty && template.saved)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-60">
+        <div className="flex flex-wrap justify-end gap-2">
+          <button onClick={() => setForm(initial)} disabled={!dirty} className={btn.secondary}>Discard changes</button>
+          <button onClick={handleSave} disabled={save.isPending || missing.length > 0 || (!dirty && template.saved)} className={btn.primary}>
             {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} Save format
           </button>
         </div>

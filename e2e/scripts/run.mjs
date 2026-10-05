@@ -35,6 +35,7 @@ const SUITES = {
   v1gaps: { seed: ['day20', null, 'day20-fixture.json'] },
   v1gaps2: { seed: ['day20', null, 'day20-fixture.json'] },
   sweep23: { seed: ['day20', null, 'day20-fixture.json'] },
+  newlook: { seed: ['day20', null, 'day20-fixture.json'] },
 }
 
 const flags = new Set(process.argv.slice(2).filter((a) => a.startsWith('--')))

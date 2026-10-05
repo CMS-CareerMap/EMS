@@ -149,7 +149,7 @@ export async function listRuns(db: ScopedDb) {
  * Runs that are no longer drafts, from a month onwards. A month with one of
  * these is closed: nothing that feeds it may change.
  */
-export async function closedRunsFrom(db: ScopedDb, year: number, month: number) {
+export async function closedRunsFrom(db: ScopedDb | TxDb, year: number, month: number) {
   return db.payrollRun.findMany({
     where: {
       status: { not: 'draft' },
@@ -373,8 +373,13 @@ export async function lockDayOn(db: ScopedDb, on: Date) {
   })
 }
 
+/** Every run's month and status — a small table, read whole; inside a transaction too. */
+export async function runMonths(db: ScopedDb | TxDb) {
+  return db.payrollRun.findMany({ select: { year: true, month: true, status: true } })
+}
+
 /** Runs that are past draft — a small table, read whole. */
-export async function closedRuns(db: ScopedDb) {
+export async function closedRuns(db: ScopedDb | TxDb) {
   return db.payrollRun.findMany({
     where: { status: { not: 'draft' } },
     select: { year: true, month: true, status: true },

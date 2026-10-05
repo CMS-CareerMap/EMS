@@ -64,7 +64,7 @@ The order decides who may hand out or manage which role (§8). It does **not** p
 
 | Module | Super Admin | Admin | HR | Manager / RM | Accounts | Employee |
 |--------|:-----------:|:-----:|:--:|:------------:|:--------:|:--------:|
-| Dashboard | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ own |
+| Home (the dashboard) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ own |
 | Employees (directory) | ✅ | ✅ create, edit | ✅ create, edit | 👁 view | ❌ | ❌ |
 | Employee lifecycle — onboarding, probation, transfer, promotion, recording a resignation, exit | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
 | Resignation — hand in, withdraw before acceptance | ✅ own | ✅ own | ✅ own | ✅ own | ✅ own | ✅ own |
@@ -83,7 +83,7 @@ The order decides who may hand out or manage which role (§8). It does **not** p
 | Payroll — incentives | ✅ | ❌ | ✅ (within salary scope) | ❌ | ✅ | ❌ |
 | Bank accounts — record, check | ✅ | ❌ | ❌ | ❌ | ✅ | send in own |
 | Bank transfer file | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ |
-| My Payslips | ✅ all | own | own | own | ✅ all | own |
+| Payslips | ✅ all | own | own | own | ✅ all | own |
 | Employee documents | ✅ | ✅ upload, check | ✅ upload, check | ❌ | ❌ | 🟡 own |
 | Company documents | ✅ | ✅ publish | ✅ publish | 👁 | 👁 | 👁 |
 | Document checklist | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
@@ -308,11 +308,11 @@ Joining soon → Onboarding → On probation → Confirmed ── transfers, pro
 - **Probation.** HR extends it (a new end date and a reason the employee sees) or confirms them from a day up to today. The dashboard lists probations ending within 30 days, or past.
 - **Transfer.** HR changes the department. Who somebody reports to stays the Super Admin's (§5.1), so only the Super Admin changes it here too; their waiting requests then go to the new person, who is told. Nobody moves somebody into their own department when that would show them more.
 - **Promotion.** HR changes the designation. A pay change that goes with it is entered by Accounts.
-- **Resignation.** Handed in by the person from **My Profile → My Employment**, or recorded by HR for a letter. The last day asked for defaults to the notice period (30 days to start). The person they report to accepts it from the dashboard and sets the **last working day** (Settings → Approvals applies, standing in included). Before acceptance the person can withdraw it; after, the manager or HR can call it off, which takes the last working day off again.
+- **Resignation.** Handed in by the person from **My Profile → My employment**, or recorded by HR for a letter. The last day asked for defaults to the notice period (30 days to start). The person they report to accepts it from **Waiting for you** on their home page and sets the **last working day** (Settings → Approvals applies, standing in included). Before acceptance the person can withdraw it; after, the manager or HR can call it off, which takes the last working day off again.
 - **Exit.** HR completes it, usually on or after the last working day, with the reason; completing it earlier relieves them early, and pay stops on the day entered. Every login of theirs closes, every session ends, the record leaves the employee list, and payroll pays their last month up to that day. The button shows only where HR may close every login of theirs (not a senior's, nor a role not below HR's). Somebody who was to join and is not coming is let go the same way, with no last working day.
 - **Remove** in Settings → Users leaves the same way: inactive, archived, paid up to today (or an earlier last working day), an open resignation closed, and an entry in the history. If this month's payroll is already approved, the last working day stays as it was, and the history says so.
 - **Serving notice** comes only from an accepted resignation. A contract's end date set on the record leaves the person where they are until it passes; then they show as **Exit due**.
-- **Who sees what.** Until a resignation is accepted, it is shown only to the person, whoever decides it, the Super Admin, and HR — but not to HR below that person in the tree. Anybody else reading the directory sees them as before. The history, notes and exit reason are shown to the same people, and the dashboard card and notices follow the same rule.
+- **Who sees what.** Until a resignation is accepted, it is shown only to the person, whoever decides it, the Super Admin, and the HR people who look after that person's employment record — not HR below that person in the tree, nor a fellow HR person (whose record goes to the people above, §6). Anybody else reading the directory sees them as before. The history, notes and exit reason are shown to the same people, and the dashboard card and notices follow the same rule.
 - **Seniors and oneself.** HR takes no step on somebody above them in the company tree; the Super Admin does. One's own lifecycle, and a fellow HR person's, is changed by the people above (§6). Every step is in the person's history and the audit log, and the person is told.
 - **Editing the record** (Employees → Edit) follows the same rules for the designation, the department, the joining date and the last working day, and a new designation or department shows in the history. Moving somebody on the Company Tree tells the new decider about a waiting resignation, as it does about waiting leave. A last working day that comes from a resignation is changed only through the resignation.
 - A changed last working day, or joining date, in a month whose payroll is approved is refused.

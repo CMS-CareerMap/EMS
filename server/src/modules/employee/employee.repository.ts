@@ -41,11 +41,12 @@ export interface FieldAccess {
   today: string
   /**
    * Whose resignation, before it is accepted, shows as "Resigned" — and whose
-   * exit reason shows: everybody's for whoever runs the lifecycle and the Super
-   * Admin — except the caller's seniors' (`above`); otherwise one's own and
-   * one's direct reports' (whom one decides).
+   * exit reason shows: everybody's for the Super Admin and whoever runs the
+   * lifecycle, except records not theirs to run (`notTheirs`: a senior's, or
+   * a fellow runner's); otherwise one's own and one's direct reports' (whom
+   * one decides).
    */
-  lifecycleOf: { everybody: boolean; employeeId: string | null; above: readonly string[] }
+  lifecycleOf: { everybody: boolean; employeeId: string | null; notTheirs: readonly string[] }
 }
 
 export interface EmployeeFilters {
