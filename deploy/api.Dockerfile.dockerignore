@@ -1,0 +1,20 @@
+# What the API image's build may see (deploy/api.Dockerfile). Everything is
+# left out, then only what the image needs is let back in — so a file added to
+# the repository later never slips into the image by default.
+*
+!server/package.json
+!server/package-lock.json
+!server/tsconfig.json
+!server/prisma/
+!server/assets/
+!server/scripts/
+!server/src/
+!deploy/crontab
+
+# And inside those, never: secrets, this machine's installs and builds, or the
+# browser-test seeds (they wipe a database; they belong to the laptop).
+**/.env*
+**/node_modules
+**/dist
+**/uploads
+server/scripts/e2e/

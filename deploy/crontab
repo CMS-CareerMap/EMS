@@ -1,21 +1,18 @@
-# The server's scheduled jobs. Install as the ems user:   crontab deploy/crontab
-# Check:   crontab -l
+# The scheduled jobs. Run by supercronic in the `jobs` container (deploy/compose.yml),
+# from /app, with the same settings as the API. Check this file with:
+#   docker compose run --rm --no-deps jobs supercronic -test /app/crontab
 #
-# The server's clock is UTC (DEPLOY.md, step 1). Times below are UTC, with the
-# India time beside each — Ubuntu's cron has no time-zone setting of its own.
-# Each job writes its outcome to /var/log/ems/, and the backup jobs also to the
-# audit log (Settings → Audit Log → System jobs), where somebody will see a
-# failure.
-
-SHELL=/bin/bash
-PATH=/usr/local/bin:/usr/bin:/bin
+# The container's clock is UTC. Times below are UTC, with the India time beside
+# each. Every job's output goes to `docker compose logs jobs`; the backup jobs
+# also write their outcome to the audit log (Settings → Audit Log → System
+# jobs), where somebody will see a failure.
 
 # 21:00 UTC = 02:30 IST — the nightly database backup to R2, sealed, then old ones pruned
-0 21 * * *  cd /srv/ems/server && npm run --silent backup >> /var/log/ems/backup.log 2>&1
+0 21 * * * npm run --silent backup
 
 # 21:30 UTC = 03:00 IST — orphaned-file sweep and old-notice purge
-30 21 * * * cd /srv/ems/server && npm run --silent maintenance -- --apply >> /var/log/ems/maintenance.log 2>&1
+30 21 * * * npm run --silent maintenance -- --apply
 
 # 22:30 UTC on the 1st = 04:00 IST on the 2nd — the monthly restore drill: the newest
 # backup is restored into a scratch database and every table's rows are checked
-30 22 1 * * cd /srv/ems/server && npm run --silent backup:drill -- --latest >> /var/log/ems/drill.log 2>&1
+30 22 1 * * npm run --silent backup:drill -- --latest

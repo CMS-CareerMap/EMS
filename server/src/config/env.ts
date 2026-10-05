@@ -32,10 +32,21 @@ if (process.env.NODE_ENV === 'test') {
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(4000),
-  /// The address to listen on. Production defaults to 127.0.0.1: Nginx on the
-  /// same machine is the only way in, so a firewall slip cannot expose Node —
-  /// whose trust in X-Forwarded-For would then let anybody choose their own IP.
+  /// The address to listen on. Production defaults to 127.0.0.1, so a Node
+  /// started by hand on a server is reachable only from that machine — its
+  /// trust in X-Forwarded-For would otherwise let anybody choose their own IP.
+  /// The Docker image sets 0.0.0.0: there the API container publishes no port,
+  /// and only the web container, on the stack's own network, can reach it.
   HOST: z.string().min(1).optional(),
+  /// How many proxies stand in front of the API in production, each adding to
+  /// X-Forwarded-For. One behind a single proxy (the E2E stack's web server);
+  /// two on the client's box — their shared Caddy, then EMS's own web
+  /// container (deploy/compose.yml). The visitor's address, which the sign-in
+  /// limits count by and the audit log records, is the one that many hops
+  /// back. Set higher than the real number of proxies, it would let a visitor
+  /// choose their own. Empty means the default — never 0, which a bare number
+  /// coercion would make of it, silently turning the trust off.
+  TRUST_PROXY_HOPS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).max(5).default(1)),
   CORS_ORIGIN: z.url(),
 
   /// Pooled endpoint — what the running app uses.

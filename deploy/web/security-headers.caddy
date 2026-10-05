@@ -1,0 +1,38 @@
+# Security headers for the web app's own files — index.html and its assets.
+# Imported by the static routes of deploy/web/Caddyfile only: the API (/api/)
+# sets these itself through helmet, and two copies of a header on one response
+# can contradict each other.
+#
+# The browser-test web server (e2e/scripts/web.mjs) reads this very file, so
+# what is tested is what is deployed. Keep one header per line, its value in
+# double quotes.
+
+header {
+	# HTTPS only, for a year, once the site has been reached over HTTPS. EMS has
+	# its domain to itself, so every name under it is covered too.
+	Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+	# A downloaded file is never re-interpreted as a script or a page.
+	X-Content-Type-Options "nosniff"
+
+	# No other site may frame this one (clickjacking); frame-ancestors below says the same to newer browsers.
+	X-Frame-Options "DENY"
+
+	# Addresses inside the app (they carry ids) are not sent to other sites.
+	Referrer-Policy "strict-origin-when-cross-origin"
+
+	# Location is for punching in from the office; nothing else is ever asked for.
+	Permissions-Policy "geolocation=(self), camera=(), microphone=(), payment=(), usb=()"
+
+	Cross-Origin-Opener-Policy "same-origin"
+
+	# What the page may load, and from where:
+	#   script-src 'self'          only the app's own built files — no inline script, no eval
+	#   style-src 'unsafe-inline'  the toast library writes its own <style>; styles cannot run code
+	#   fonts.googleapis/gstatic   the Plus Jakarta Sans font (index.html)
+	#   img-src data: blob:        icons, and photos of documents previewed in the page
+	#   frame-src/object-src blob: PDFs previewed inside the page are blob: frames, and
+	#                              the browser's PDF viewer inherits this policy
+	#   connect-src 'self'         the API is on the same address — nowhere else
+	Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-src 'self' blob:; object-src 'self' blob:; worker-src 'self' blob:; manifest-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+}

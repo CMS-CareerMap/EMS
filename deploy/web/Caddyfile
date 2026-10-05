@@ -1,0 +1,81 @@
+# EMS's own web container (deploy/web.Dockerfile): the built React app as
+# files, and /api passed on to the API container. One address for everything,
+# so there is no CORS, and the refresh cookie (SameSite=Lax, Path=/api/auth)
+# works as designed.
+#
+# In front of it sits the box's shared Caddy (the `edge`), which holds the
+# certificate and passes the EMS domain here. So this server speaks plain HTTP,
+# on port 8080, and only inside Docker: it publishes no port.
+{
+	# Nothing is changed while it runs: no admin endpoint, nothing saved.
+	admin off
+	persist_config off
+	# Certificates are the edge's job.
+	auto_https off
+
+	servers {
+		# The edge reaches this container from a private Docker address. Trusting
+		# private addresses lets the visitor's address, which the edge put in
+		# X-Forwarded-For, through to the API — with the edge's own address added
+		# after it. The API counts back two hops (TRUST_PROXY_HOPS=2 in
+		# deploy/compose.yml). Untrusted, Caddy would replace the header with the
+		# edge's address, and the whole company would share one sign-in limit.
+		# Private addresses include the box owner's other containers on `edge`:
+		# they too could name an address. The edge's own address is not fixed,
+		# so it cannot be named alone; the box and its owner are trusted.
+		trusted_proxies static private_ranges
+	}
+}
+
+:8080 {
+	root * /srv
+
+	# The API. helmet sets its security headers; none are added here, and its
+	# answers are not compressed — they carry tokens, and they are small.
+	handle /api/* {
+		# The API refuses anything over its own limit (Settings → Documents, at
+		# most 10 MB); this only has to be larger than that plus the form around it.
+		request_body {
+			max_size 12MB
+		}
+		# EMS's own name for the API (deploy/compose.yml): this container is on
+		# the shared `edge` network too, where `api` could be another project's.
+		reverse_proxy ems-api:4000
+	}
+
+	# Built files carry a hash in their names, so they never change: cached for
+	# a year. A missing one is a real 404, cached by nobody — never index.html,
+	# which a browser would try to run as a script and fail on confusingly.
+	handle /assets/* {
+		import security-headers.caddy
+		@built file
+		@missing not file
+		header @built Cache-Control "public, max-age=31536000, immutable"
+		header @missing Cache-Control "no-store"
+		encode zstd gzip
+		file_server {
+			hide .*
+		}
+	}
+
+	# Dot-files and dot-folders (.env, .git) are a plain 404, whatever lands in
+	# the folder — not the app, which scanners would read as "something is there".
+	@dotfiles path */.*
+	handle @dotfiles {
+		import security-headers.caddy
+		header Cache-Control "no-store"
+		respond 404
+	}
+
+	# Any other address is the app itself (it has its own "no page here").
+	# index.html is never cached, so a new version is picked up on the next load.
+	handle {
+		import security-headers.caddy
+		header Cache-Control "no-cache"
+		encode zstd gzip
+		try_files {path} /index.html
+		file_server {
+			hide .*
+		}
+	}
+}

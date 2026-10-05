@@ -1,0 +1,23 @@
+# The rehearsal's stand-in for the box's edge stack (/srv/edge on the box):
+# https://localhost:8443 on this laptop only (127.0.0.1), passed to EMS's web
+# container over the shared network `edge`. Started by deploy/local/rehearse.sh.
+name: ems-edge-local
+
+services:
+  caddy:
+    image: caddy:2.11-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - edge-data:/data
+    networks:
+      - edge
+
+volumes:
+  edge-data:
+
+networks:
+  edge:
+    external: true

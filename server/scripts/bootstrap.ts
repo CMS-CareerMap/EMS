@@ -124,7 +124,7 @@ async function main(): Promise<void> {
   })
 
   console.log(
-    '\n  Remove BOOTSTRAP_ADMIN_PASSWORD from .env now — it has done its job.\n',
+    '\n  Remove BOOTSTRAP_ADMIN_PASSWORD from wherever it was set (.env, or the shell) now — it has done its job.\n',
   )
 }
 
