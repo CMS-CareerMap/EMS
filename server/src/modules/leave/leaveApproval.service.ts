@@ -11,7 +11,7 @@ import * as attendanceRepo from '../attendance/attendance.repository'
 import { getCurrentPolicy } from '../settings/settings.repository'
 import { listDaysOff } from '../holidays/holidays.repository'
 import { audit } from '../audit/audit.service'
-import { assertMonthsOpen, isOpenFrom, monthsBetween } from '../payroll/payrollLock.service'
+import { assertMonthsOpen, holdPayrollFrom, isOpenFrom, monthsBetween } from '../payroll/payrollLock.service'
 import { tellApplicant } from './leaveNotices'
 import { requestToAct } from './leaveApprover.service'
 import { halfDayNote, type HalfDaySession } from '../../domain/leave/rules'
@@ -80,6 +80,11 @@ export async function recordApproval(
   // too: a correction reading balance and days applied for must not see this
   // request half-way from one to the other.
   await lockFor(tx, `leave-apply:${request.employeeId}`)
+  // Then the payroll lock of every month it touches — before any row is
+  // written, as marking a day takes it before writing that day: a month
+  // approved since the caller looked is refused rather than missed, and the
+  // two never wait on each other's rows and locks at once.
+  await assertMonthsOpen(ctx, monthsBetween(from!, to!), how.direct ? 'recording this leave' : 'approving this leave', tx)
 
   // Leave is for days of employment. A request sent before a resignation was
   // accepted can run past the last working day it set; approving it then would
@@ -188,10 +193,15 @@ export async function recordApproval(
 export async function settleLeaveAfter(ctx: AppContext, tx: TxDb, employeeId: string, lastDay: CalendarDate | null): Promise<number> {
   await lockFor(tx, `leave-apply:${employeeId}`)
   const after = await repo.requestsAfter(tx, employeeId, lastDay)
+  // The payroll locks of every month approved leave here reaches, after the
+  // leave lock and at once, earliest first: a month being approved is waited
+  // for, and its leave then kept as it was paid.
+  const earliest = after.filter((r) => r.status === 'approved').map((r) => fromDateColumn(r.fromDate)!).sort()[0]
+  if (earliest) await holdPayrollFrom(ctx, tx, earliest)
   let settled = 0
   for (const r of after) {
     const wasApproved = r.status === 'approved'
-    if (wasApproved && !(await isOpenFrom(ctx, fromDateColumn(r.fromDate)))) continue
+    if (wasApproved && !(await isOpenFrom(ctx, fromDateColumn(r.fromDate)!, tx))) continue
     const note = lastDay ? `Cancelled: it falls after the last working day, ${dayLabel(lastDay)}.` : 'Cancelled: they never joined.'
     const changed = await repo.changeStatusIf(tx, r.id, r.status, { status: 'cancelled', reviewedByUserId: ctx.userId, reviewedAt: new Date(), reviewNote: note })
     if (!changed) continue
@@ -240,8 +250,10 @@ export async function approveLeave(
 
   // Approving turns absent days into leave, and unpaid leave into loss of pay:
   // either way it changes what a signed-off month should have paid.
-  await assertMonthsOpen(ctx, monthsBetween(fromDateColumn(request.fromDate), fromDateColumn(request.toDate)), 'approving this leave')
+  const months = monthsBetween(fromDateColumn(request.fromDate), fromDateColumn(request.toDate))
+  await assertMonthsOpen(ctx, months, 'approving this leave')
 
+  // recordApproval checks the months again, under their payroll locks.
   await withTransaction(ctx.db, (tx) => recordApproval(ctx, tx, request, { note, asBackup }))
 
   logger.info('Leave approved', {
@@ -316,13 +328,12 @@ export async function reverseLeave(
     throw Conflict(`Only approved leave can be reversed. That request is ${request.status}.`)
   }
 
-  await assertMonthsOpen(
-    ctx,
-    monthsBetween(fromDateColumn(request.fromDate), fromDateColumn(request.toDate)),
-    'reversing this leave',
-  )
+  const months = monthsBetween(fromDateColumn(request.fromDate), fromDateColumn(request.toDate))
+  await assertMonthsOpen(ctx, months, 'reversing this leave')
 
   await withTransaction(ctx.db, async (tx) => {
+    // Under those months' payroll locks: approved since the check above, refused rather than missed.
+    await assertMonthsOpen(ctx, months, 'reversing this leave', tx)
     // Reversed only if still approved — one statement, so two reversals cannot
     // both give the days back.
     const reversed = await repo.changeStatusIf(tx, id, 'approved', {

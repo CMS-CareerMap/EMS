@@ -28,7 +28,7 @@ export async function tellJoined(ctx: NoticeActor, tx: TxDb, employeeId: string,
     to: await around(tx, employeeId, person.reportingManagerId),
     title: 'New employee added',
     message: `${person.fullName} (${person.employeeCode}) has been added${joining ? `, joining on ${dayLabel(joining)}` : ''}.`,
-    link: `/employees?open=${employeeId}`,
+    link: `/employees/${employeeId}`,
     entity: { type: 'employee', id: employeeId },
     notAbout: employeeId,
   })

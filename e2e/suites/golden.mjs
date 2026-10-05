@@ -15,6 +15,7 @@ import { chromium } from 'playwright-core'
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { BASE, API, WORK, psql } from '../lib/env.mjs'
+import { openMyProfile, openEmployeeProfile, signOutVia, menuLinks, menuLink } from '../lib/ui.mjs'
 import { serverScript } from '../lib/stack.mjs'
 
 const SHOTS = join(WORK, 'shots', 'golden')
@@ -63,7 +64,7 @@ async function context(who, options = {}) {
 async function signIn(who, identifier, options = {}) {
   const page = await context(who, options)
   await page.goto(`${BASE}/signin`)
-  await page.getByPlaceholder('you@careermap.in or EMP001').fill(identifier)
+  await page.getByLabel('Work Email or Employee ID').fill(identifier)
   await page.getByPlaceholder('Enter your password').fill(PASSWORD)
   await page.getByRole('button', { name: 'Sign In' }).click()
   await page.waitForURL((url) => !url.pathname.startsWith('/signin'), { timeout: 20_000 })
@@ -217,7 +218,10 @@ try {
   // The owner's Super Admin login, given on his own page.
   await go(op, '/employees')
   await op.locator('tbody tr', { hasText: STAFF.rahul.code }).first().click()
-  const drawer = op.locator('div.fixed.right-0')
+  // His profile page (a drawer before the new look): logins are a tab of it.
+  await op.waitForURL(/\/employees\/[0-9a-f-]{36}/, { timeout: 20_000 })
+  await op.getByRole('tab', { name: /^Logins?$/ }).click()
+  const drawer = op.locator('main')
   await drawer.getByRole('button', { name: /^Add login$/ }).click()
   const addLogin = drawer.getByRole('form', { name: 'Add a login' })
   await addLogin.getByLabel('Email for this login').fill(STAFF.rahul.email)
@@ -267,7 +271,7 @@ try {
     await page.getByPlaceholder('The same password').fill(PASSWORD)
     await page.getByRole('button', { name: 'Save password' }).click()
     await page.waitForURL('**/signin', { timeout: 20_000 })
-    await page.getByPlaceholder('you@careermap.in or EMP001').fill(STAFF[key].email)
+    await page.getByLabel('Work Email or Employee ID').fill(STAFF[key].email)
     await page.getByPlaceholder('Enter your password').fill(PASSWORD)
     await page.getByRole('button', { name: 'Sign In' }).click()
     await page.waitForURL((url) => !url.pathname.startsWith('/signin'), { timeout: 20_000 })
@@ -304,7 +308,7 @@ try {
   section('HR grants the year’s leave')
   const hema = await signIn('hema', STAFF.hema.email)
   await go(hema, '/leave')
-  await hema.getByRole('button', { name: /Team Balances/ }).click()
+  await hema.getByRole('tab', { name: /Team Balances/ }).click()
   await hema.getByRole('button', { name: 'Grant leave' }).click()
   await hema.getByRole('dialog').getByRole('button', { name: 'Grant leave' }).click()
   await toast(hema, 'Leave granted')
@@ -425,7 +429,8 @@ try {
   await until(() => psql(`SELECT count(*) FROM "LeaveRequest" WHERE "employeeId" = '${ids.priya}'`), '1')
   const manoj = await signIn('manoj', STAFF.manoj.email)
   await go(manoj, '/leave?tab=decide')
-  const row = manoj.locator('tr, li, div.rounded-xl', { hasText: STAFF.priya.name }).filter({ has: manoj.getByRole('button', { name: 'Approve' }) }).first()
+  // Her request's own row — the table's on a computer, the card's on a phone — not the card around the list.
+  const row = manoj.locator('main tr, main li', { hasText: STAFF.priya.name }).filter({ visible: true }).filter({ has: manoj.getByRole('button', { name: 'Approve' }) }).first()
   await row.getByRole('button', { name: 'Approve' }).click()
   const confirm = manoj.getByRole('dialog')
   if (await confirm.isVisible().catch(() => false)) await confirm.getByRole('button', { name: /^Approve/ }).click()
@@ -441,7 +446,7 @@ try {
   await toast(anil, 'calculated as a draft')
   await anil.getByText(`${lastLabel} payroll`).waitFor()
   const draft = await anil.locator('main').innerText()
-  check('Accounts runs it: a draft for all seven, with its figures', draft.includes('Draft') && /Employees\s*7/.test(draft), draft.slice(0, 300).replace(/\s+/g, ' '))
+  check('Accounts runs it: a draft for all seven, with its figures', draft.includes('Draft') && /\b7 employees\b/.test(draft), draft.slice(0, 300).replace(/\s+/g, ' '))
 
   const rahul = await signIn('rahul', STAFF.rahul.email)
   await go(rahul, '/payroll?tab=runs')

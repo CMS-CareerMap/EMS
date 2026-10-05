@@ -43,6 +43,7 @@ async function cleanup(): Promise<void> {
   await prisma.leaveRequest.deleteMany({ where: org })
   await prisma.leaveType.deleteMany({ where: org })
   await prisma.esiCoverage.deleteMany({ where: org })
+  await prisma.holiday.deleteMany({ where: org })
   await prisma.employeeSalaryComponent.deleteMany({ where: org })
   await prisma.employeeFinancial.deleteMany({ where: org })
   await prisma.employeeStatutoryIdentity.deleteMany({ where: org })
@@ -828,6 +829,74 @@ describe('the EPF ceiling of ₹25,000, from 17 September 2026', () => {
     const d = await runFor('eps25', { epsWageCeiling: 25_000 })
     // 22,000 × 8.33% = 1,832.60 → 1,833. EPF is the rest of the 2,640.
     expect(d.employer).toEqual({ pf_total: 2_640, eps: 1_833, epf: 807, esi: 0 })
+  })
+})
+
+describe('a pay input saved while the month is being approved', () => {
+  /** Approval as it holds the month: the month's lock taken, the run moved, not yet committed. */
+  async function approvingHolds(org: Org, runId: string, ms: number) {
+    let taken!: () => void
+    const lockTaken = new Promise<void>((resolve) => { taken = resolve })
+    const done = prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`payroll-run:${org.id}:2026-08`}))`
+      await tx.payrollRun.update({ where: { id: runId }, data: { status: 'approved' } })
+      taken()
+      await new Promise((resolve) => setTimeout(resolve, ms))
+    }, { timeout: 20_000 })
+    await lockTaken
+    // Wrapped: an async function returning the promise itself would wait for it to finish.
+    return { done }
+  }
+
+  it('waits for the approval, then is refused — an incentive never lands in an approved month unpaid', async () => {
+    const org = await makeOrg('approve-race')
+    const person = await hire(org, { salary: { BASIC: 20_000 } })
+    await tds(org, person, 0)
+    const created = await api(org).post('/api/payroll-runs', AUGUST)
+    expect(created.status).toBe(201)
+
+    const { done: approving } = await approvingHolds(org, created.body.data.id, 1500)
+    const started = Date.now()
+    const entry = await api(org, 'hr').put('/api/payroll/monthly-entries', { employeeId: person, componentCode: 'INCENTIVE', ...AUGUST, amount: 5_000 })
+    await approving
+    expect(entry.status, JSON.stringify(entry.body)).toBe(409)
+    expect(Date.now() - started, JSON.stringify(entry.body)).toBeGreaterThan(1000)
+    expect(await prisma.employeeMonthlyEntry.count({ where: { organizationId: org.id } })).toBe(0)
+  })
+
+  it('holds a TDS directive the same way, for every month it reaches', async () => {
+    const org = await makeOrg('approve-race-tds')
+    const person = await hire(org, { salary: { BASIC: 20_000 } })
+    await tds(org, person, 0)
+    const created = await api(org).post('/api/payroll-runs', AUGUST)
+    expect(created.status).toBe(201)
+
+    const { done: approving } = await approvingHolds(org, created.body.data.id, 1500)
+    const directive = await api(org).put('/api/payroll/tds-directives', { employeeId: person, year: 2026, month: 6, monthlyAmount: 300 })
+    await approving
+    expect(directive.status, JSON.stringify(directive.body)).toBe(409)
+    expect(await prisma.employeeTdsDirective.count({ where: { organizationId: org.id, monthlyAmount: 300 } })).toBe(0)
+  })
+
+  it('holds the other pay inputs too — a holiday, a salary — rather than letting them miss the month', async () => {
+    const org = await makeOrg('approve-race-more')
+    const person = await hire(org, { salary: { BASIC: 20_000 } })
+    await tds(org, person, 0)
+    const created = await api(org).post('/api/payroll-runs', AUGUST)
+    expect(created.status).toBe(201)
+
+    const { done: approving } = await approvingHolds(org, created.body.data.id, 1500)
+    const started = Date.now()
+    const [holiday, salary] = await Promise.all([
+      api(org, 'hr').post('/api/holidays', { name: 'Race Day', date: '2026-08-20' }),
+      api(org).put(`/api/payroll/employees/${person}/salary`, { effectiveFrom: '2026-08-01', ctc: 300_000, components: [{ code: 'BASIC', amount: 25_000 }] }),
+    ])
+    await approving
+    expect(holiday.status, JSON.stringify(holiday.body)).toBe(409)
+    expect(salary.status, JSON.stringify(salary.body)).toBe(409)
+    expect(Date.now() - started).toBeGreaterThan(1000)
+    expect(await prisma.holiday.count({ where: { organizationId: org.id } })).toBe(0)
+    expect(await prisma.employeeFinancial.count({ where: { organizationId: org.id, employeeId: person } })).toBe(1)
   })
 })
 

@@ -34,6 +34,12 @@ export function serializeSessionUser(identity: AuthIdentity) {
     // Whose employee records the role reaches — the screen offers a roster
     // import, which adds people outside any team, only to a company-wide reach.
     employeeReach: identity.grant.scopes.employee,
+    // Whose attendance it reaches. The home page shows "today at work" only
+    // beyond one's own — a team, or the company.
+    attendanceReach: identity.grant.scopes.attendance,
+    // Whose leave it reaches. Beyond one's own, the home page lists the leave
+    // waiting for somebody else's decision — HR keeps an eye on it.
+    leaveReach: identity.grant.scopes.leave,
     organizationId: identity.organizationId,
     organizationName: identity.organizationName,
     // The company's zone, so the browser can tell which calendar day it is

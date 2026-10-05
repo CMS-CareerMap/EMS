@@ -24,7 +24,7 @@ export const roleLabel = (role, name) => name || ROLE_LABELS[role] || role || ''
 export const ROLE_COLORS = {
   super_admin: 'bg-purple-100 text-purple-700',
   admin: 'bg-indigo-100 text-indigo-700',
-  hr: 'bg-blue-100 text-blue-700',
+  hr: 'bg-brand-100 text-brand-700',
   manager: 'bg-amber-100 text-amber-700',
   rm: 'bg-orange-100 text-orange-700',
   accounts: 'bg-teal-100 text-teal-700',

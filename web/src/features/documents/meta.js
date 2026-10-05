@@ -1,5 +1,6 @@
 import { CheckCircle2, Clock, XCircle, CircleDashed } from 'lucide-react'
 import { formatDayOf } from '../../lib/dates'
+import { useAuthStore } from '../../stores/authStore'
 
 /** How each document status reads on screen. */
 export const STATUS = {
@@ -19,7 +20,7 @@ export const CATEGORIES = [
 
 export const categoryLabel = (value) => CATEGORIES.find((c) => c.value === value)?.label ?? value
 
-/** A moment as the person reading it would say it. */
+/** A moment's day, on the company's clock — as every other screen reads an instant. */
 export function when(iso) {
-  return formatDayOf(iso)
+  return formatDayOf(iso, useAuthStore.getState().organization?.timezone)
 }

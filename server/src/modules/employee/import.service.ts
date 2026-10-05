@@ -95,6 +95,7 @@ const HEADER_ALIASES: Record<string, string[]> = {
   designation: ['designation', 'title', 'job_title'],
   pan: ['pan', 'pan_number'],
   gender: ['gender', 'sex'],
+  dateOfBirth: ['date_of_birth', 'dob', 'birth_date'],
 }
 
 /**
@@ -245,6 +246,23 @@ export async function importEmployees(
     // Add Employee form) — a file is no way round that.
     if (candidate.pan && !ctx.can('employee:identity:read')) {
       issues.push({ field: 'pan', message: 'PAN is entered by somebody who can see it. Leave this column out, or ask HR to import the file.' })
+    }
+
+    // The date of birth — a personal detail, entered by somebody who can see
+    // them, as on the Add Employee form. Payroll needs it to stop the pension
+    // (EPS) at 58, and a roster is how a whole company's arrive at once.
+    const rawBirth = (raw.dateOfBirth ?? '').trim()
+    if (rawBirth) {
+      const iso = parseDate(rawBirth)
+      if (!ctx.can('employee:identity:read')) {
+        issues.push({ field: 'date_of_birth', message: 'A date of birth is entered by somebody who can see personal details. Leave this column out, or ask HR to import the file.' })
+      } else if (!iso) {
+        issues.push({ field: 'date_of_birth', message: `"${rawBirth}" is not a date this can read. Use DD/MM/YYYY or YYYY-MM-DD.` })
+      } else if (iso >= today) {
+        issues.push({ field: 'date_of_birth', message: `The date of birth (${rawBirth}) is not in the past.` })
+      } else {
+        candidate.dateOfBirth = iso
+      }
     }
 
     const rawDate = (raw.dateOfJoining ?? '').trim()
@@ -412,6 +430,7 @@ export async function importEmployees(
         personalEmail: data.personalEmail ?? null,
         phone: data.phone ?? null,
         dateOfJoining: data.dateOfJoining ? toDateColumn(data.dateOfJoining) : null,
+        ...(data.dateOfBirth ? { dateOfBirth: toDateColumn(data.dateOfBirth) } : {}),
         ...(data.employmentType
           ? { employmentType: data.employmentType as 'full_time' }
           : {}),

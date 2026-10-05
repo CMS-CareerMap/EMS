@@ -5,6 +5,7 @@
 // Basic ₹12,000 (70%), so at 80% her PF wages are raised.
 import { chromium } from 'playwright-core'
 import { WORK, REPO, STORAGE as STORE, psql } from '../lib/env.mjs'
+import { openMyProfile, openEmployeeProfile, signOutVia, menuLinks, menuLink } from '../lib/ui.mjs'
 import { readFileSync, mkdirSync } from 'node:fs'
 
 const BASE = 'http://localhost:5183'
@@ -55,7 +56,7 @@ async function open(who, viewport = { width: 1366, height: 900 }) {
   page.on('pageerror', (e) => pageErrors.push(`${who}: ${e.message}`))
   page.on('response', (r) => { if (r.status() >= 500 && r.url().includes('/api/')) serverErrors.push(`${who} ${r.request().method()} ${r.url().split('/api')[1]} ${r.status()}`) })
   await page.goto(`${BASE}/signin`)
-  await page.getByPlaceholder('you@careermap.in or EMP001').fill(fx.users[who])
+  await page.getByLabel('Work Email or Employee ID').fill(fx.users[who])
   await page.getByPlaceholder('Enter your password').fill(fx.password)
   await page.getByRole('button', { name: 'Sign In' }).click()
   await page.waitForURL((url) => !url.pathname.startsWith('/signin'), { timeout: 20_000 })
@@ -138,7 +139,8 @@ try {
   const accPhone = await open('acc', PHONE)
   await accPhone.goto(`${BASE}/payroll?tab=runs`)
   await settle(accPhone)
-  await accPhone.locator('tr', { hasText: 'Priya Deshmukh' }).getByRole('button', { name: 'View' }).click()
+  // On a phone the run's payslips are a list, a card each, not the table.
+  await accPhone.getByRole('list', { name: 'Payslips' }).getByRole('listitem').filter({ hasText: 'Priya Deshmukh' }).getByRole('button', { name: 'View' }).click()
   const phoneModal = accPhone.getByRole('dialog', { name: 'Payslip' })
   await phoneModal.getByText('raised from').waitFor({ timeout: 20_000 })
   check('the payslip with the line fits the phone', (await sideways(accPhone)) <= 0, `${await sideways(accPhone)}px`)
@@ -189,20 +191,17 @@ try {
 
   section('Pension (EPS) membership, recorded on the person')
   const hrPage = await open('hr')
-  await hrPage.goto(`${BASE}/employees`)
-  await settle(hrPage)
-  await hrPage.locator('tr', { hasText: 'Ravi Patil' }).first().click()
-  const drawer = hrPage.locator('div.fixed.right-0').filter({ hasText: 'Employee Profile' })
+  // His profile page (a drawer before the new look), on its Statutory tab.
+  const drawer = await openEmployeeProfile(hrPage, BASE, 'Ravi Patil', 'Statutory')
   await drawer.getByText('Worked out by payroll from the joining salary').waitFor({ timeout: 20_000 })
   check('left blank, payroll works it out', true)
-  await drawer.getByRole('button', { name: 'Edit' }).click()
+  await hrPage.getByRole('button', { name: 'Edit', exact: true }).click()
   await hrPage.getByLabel('Pension (EPS) member').selectOption('yes')
   await hrPage.getByRole('button', { name: 'Save Changes' }).click()
   await hrPage.getByText('Edit Employee').waitFor({ state: 'detached', timeout: 20_000 })
-  await hrPage.locator('tr', { hasText: 'Ravi Patil' }).first().click()
-  await drawer.getByText('Pension (EPS)').waitFor({ timeout: 20_000 })
+  await drawer.getByText('Member', { exact: true }).waitFor({ timeout: 20_000 })
   const ravi = (await api('hr', 'GET', `/employees/${E.ravi.id}`)).body.data
-  check('HR records him as an EPS member, from his PF record', ravi.eps_member === true && (await drawer.innerText()).includes('Member'), String(ravi.eps_member))
+  check('HR records him as an EPS member, from his PF record', ravi.eps_member === true && (await drawer.innerText()).includes('Pension (EPS)'), String(ravi.eps_member))
   await shot(hrPage, '07-eps-recorded')
 
   section('Nothing broke along the way')

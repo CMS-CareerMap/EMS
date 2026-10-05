@@ -3,6 +3,7 @@
 // (Vite :5183 → API :4100 → local ems_e2e). Fixture: day19-seed.ts (fresh).
 import { chromium } from 'playwright-core'
 import { WORK, REPO, STORAGE as STORE, psql } from '../lib/env.mjs'
+import { openMyProfile, openEmployeeProfile, signOutVia, menuLinks, menuLink, notificationPanel } from '../lib/ui.mjs'
 import { readFileSync, writeFileSync, mkdirSync, unlinkSync, existsSync } from 'node:fs'
 
 const BASE = 'http://localhost:5183'
@@ -100,7 +101,7 @@ async function newPage(who, viewport = { width: 1366, height: 900 }) {
 }
 async function signIn(page, who) {
   await page.goto(`${BASE}/signin`)
-  await page.getByPlaceholder('you@careermap.in or EMP001').fill(fx.users[who])
+  await page.getByLabel('Work Email or Employee ID').fill(fx.users[who])
   await page.getByPlaceholder('Enter your password').fill(fx.password)
   await page.getByRole('button', { name: 'Sign In' }).click()
   await page.waitForURL('**/dashboard', { timeout: 20_000 })
@@ -114,7 +115,7 @@ const waitToast = (page, text) => page.locator('[data-sonner-toast]', { hasText:
 const shot = (page, name) => page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true })
 const row = (page, label) => page.locator('div.px-5.py-4').filter({ has: page.getByText(label, { exact: true }) }).first()
 const bell = (page) => page.locator('header button[title="Notifications"]')
-const panelOf = (page) => page.locator('div.shadow-2xl.rounded-2xl.z-50')
+const panelOf = notificationPanel
 
 try {
   for (const who of Object.keys(fx.users)) await login(who)
@@ -161,9 +162,9 @@ try {
   check('HR’s bell has HR’s notices (documents sent in)', /sent in|to check/i.test(hrPanel), hrPanel.replace(/\n/g, ' ').slice(0, 160))
   await shared.goto(`${BASE}/documents?tab=employees`)
   await shared.getByText(/waiting for a check/).first().waitFor()
-  await shared.getByRole('button', { name: 'Sign Out' }).click()
+  await signOutVia(shared)
   await shared.waitForURL('**/signin')
-  await shared.getByPlaceholder('you@careermap.in or EMP001').fill(fx.users.emp)
+  await shared.getByLabel('Work Email or Employee ID').fill(fx.users.emp)
   await shared.getByPlaceholder('Enter your password').fill(fx.password)
   await shared.getByRole('button', { name: 'Sign In' }).click()
   await shared.waitForURL('**/dashboard')
@@ -195,7 +196,7 @@ try {
   await admin.getByText('Required verified', { exact: true }).waitFor()
   const adminTabs = await admin.locator('main button').allInnerTexts()
   check('Admin has Company, My and Employee documents', ['Company documents', 'My documents', 'Employee documents'].every((t) => adminTabs.some((x) => x.includes(t))), adminTabs.slice(0, 4).join(' / '))
-  await admin.getByRole('button', { name: 'Employee documents' }).click()
+  await admin.getByRole('tab', { name: 'Employee documents' }).click()
   await admin.locator('div.max-h-140').getByRole('button', { name: /Ravi Patil/ }).click()
   await admin.getByText('Required verified', { exact: true }).waitFor()
   await row(admin, 'Offer Letter').getByRole('button', { name: 'Verify Offer Letter' }).click()
@@ -203,44 +204,41 @@ try {
   await waitToast(admin, 'Offer Letter verified')
   check('Admin verifies somebody else’s document', (await row(admin, 'Offer Letter').innerText()).includes('Verified'))
   await admin.goto(`${BASE}/settings`)
-  await admin.getByRole('heading', { name: 'Settings', level: 2 }).waitFor()
+  await admin.getByRole('heading', { name: 'Settings', level: 1 }).waitFor()
   const adminSettings = await admin.locator('main aside nav button').allInnerTexts()
   check('Admin’s Settings: Leave Config and Documents only', adminSettings.length === 2 && adminSettings.some((t) => t.includes('Leave')) && adminSettings.some((t) => t.includes('Documents')), adminSettings.join(' / '))
 
   // ═══════════════════════════════════════════════════════════════════════
-  section('The employee drawer: documents for HR, the bank card for the Super Admin')
+  section('The employee profile: documents for HR, the bank account for the Super Admin')
   const hr = await open('hr')
-  await hr.goto(`${BASE}/employees`)
-  await hr.locator('tr', { hasText: 'Priya Deshmukh' }).first().click()
-  await hr.getByText('Employee Profile').waitFor()
-  await hr.getByText(/of 4 required verified/).waitFor({ timeout: 15_000 })
-  const hrDrawer = await hr.locator('div.fixed.right-0.top-0').innerText()
-  check('HR sees where Priya stands: 1 of 4 required verified, with what waits', hrDrawer.includes('1 of 4 required verified') && /waiting for a check/.test(hrDrawer), hrDrawer.match(/\d of 4 required verified[^\n]*\n[^\n]*/)?.[0])
-  check('…and no bank card (HR holds no bank right)', !hrDrawer.includes('Bank Account for Salary Credit'))
-  await shot(hr, '01-hr-drawer-documents')
-  await hr.getByRole('button', { name: /Open their documents/ }).click()
+  const hrProfile = await openEmployeeProfile(hr, BASE, 'Priya Deshmukh', 'Documents')
+  await hr.getByText(/of 4 required verified/).first().waitFor({ timeout: 15_000 })
+  const hrDocs = await hrProfile.innerText()
+  check('HR sees where Priya stands: 1 of 4 required verified, with what waits', hrDocs.includes('1 of 4 required verified') && /waiting for a check/i.test(hrDocs), hrDocs.match(/\d of 4 required verified[^\n]*/)?.[0])
+  check('…and no bank account tab (HR holds no bank right)', (await hr.getByRole('tab', { name: 'Bank account' }).count()) === 0)
+  await shot(hr, '01-hr-profile-documents')
+  await hr.getByRole('link', { name: /Open their documents/ }).first().click()
   await hr.waitForURL(`**/documents?tab=employees&employee=${E.priya.id}`)
   check('“Open their documents” goes to Priya’s documents', true)
 
   const sa = await open('sa')
-  await sa.goto(`${BASE}/employees`)
-  await sa.locator('tr', { hasText: 'Priya Deshmukh' }).first().click()
-  await sa.getByText('Bank Account for Salary Credit').waitFor()
-  const saDrawer = await sa.locator('div.fixed.right-0.top-0').innerText()
-  check('The bank card shows the last four digits only, the app’s own status words, and the proof', saDrawer.includes('•••• 5566') && !saDrawer.includes('112233445566') && saDrawer.includes('Waiting for a check') && saDrawer.includes('Proof on file'), saDrawer.match(/Bank Account[\s\S]{0,220}/)?.[0]?.replace(/\n/g, ' '))
-  check('The Access row names the role — “Employee”, not a code', /Can sign in · Employee/.test(saDrawer))
-  await shot(sa, '02-sa-drawer-bank')
-  await sa.getByRole('button', { name: /under Payroll → Bank accounts/ }).click()
+  const saProfile = await openEmployeeProfile(sa, BASE, 'Priya Deshmukh', 'Bank account')
+  await sa.getByText('•••• 5566').waitFor({ timeout: 15_000 })
+  const saBank = await saProfile.innerText()
+  check('The bank account shows the last four digits only, the app’s own status words, and the proof', saBank.includes('•••• 5566') && !saBank.includes('112233445566') && saBank.includes('Waiting for a check') && saBank.includes('Proof on file'), saBank.match(/Bank account for salary[\s\S]{0,220}/)?.[0]?.replace(/\n/g, ' '))
+  await shot(sa, '02-sa-profile-bank')
+  await sa.getByRole('tab', { name: 'Logins' }).click()
+  check('The Logins tab names the role — “Employee”, not a code', await sa.getByText(/Can sign in · Employee/).first().waitFor({ timeout: 15_000 }).then(() => true, () => false))
+  await sa.getByRole('tab', { name: 'Bank account' }).click()
+  await sa.getByRole('link', { name: /under Payroll → Bank accounts/ }).click()
   await sa.waitForURL('**/payroll?tab=bank')
   check('…and its link opens Payroll → Bank accounts', true)
 
   const mgr = await open('mgr')
-  await mgr.goto(`${BASE}/employees`)
-  await mgr.locator('tr', { hasText: 'Priya Deshmukh' }).first().click()
-  await mgr.getByText('Employee Profile').waitFor()
+  await openEmployeeProfile(mgr, BASE, 'Priya Deshmukh')
   await mgr.waitForTimeout(800)
-  const mgrDrawer = await mgr.locator('div.fixed.right-0.top-0').innerText()
-  check('A manager’s drawer has neither documents nor the bank card', !mgrDrawer.includes('Open their documents') && !mgrDrawer.includes('Bank Account for Salary Credit'))
+  const mgrTabs = await mgr.getByRole('tab').allInnerTexts()
+  check('A manager sees neither her documents nor her bank account', !mgrTabs.includes('Documents') && !mgrTabs.includes('Bank account'), mgrTabs.join(', '))
 
   // ═══════════════════════════════════════════════════════════════════════
   section('Documents: an archived type, the waiting queue, a missing file, a mistaken copy withdrawn')

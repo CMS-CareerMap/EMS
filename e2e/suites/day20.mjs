@@ -7,6 +7,7 @@
 // NODE_ENV=production) on :4100 → local ems_e2e. Fixture: day20-seed.ts.
 import { chromium } from 'playwright-core'
 import { WORK, REPO, STORAGE as STORE, psql } from '../lib/env.mjs'
+import { openMyProfile, openEmployeeProfile, signOutVia, menuLinks, menuLink } from '../lib/ui.mjs'
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 
 const BASE = 'http://localhost:5183'
@@ -111,7 +112,7 @@ async function newPage(who, viewport = { width: 1366, height: 900 }) {
 }
 async function signIn(page, identifier) {
   await page.goto(`${BASE}/signin`)
-  await page.getByPlaceholder('you@careermap.in or EMP001').fill(identifier)
+  await page.getByLabel('Work Email or Employee ID').fill(identifier)
   await page.getByPlaceholder('Enter your password').fill(fx.password)
   await page.getByRole('button', { name: 'Sign In' }).click()
   await page.waitForURL('**/dashboard', { timeout: 20_000 })
@@ -135,29 +136,29 @@ async function download(page, trigger, name) {
 }
 const bodyText = (page) => page.locator('main').innerText()
 const noHorizontalScroll = (page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)
-const sidebarLinks = (page) => page.locator('aside nav a').allInnerTexts().then((t) => t.map((s) => s.trim()).filter(Boolean))
+const sidebarLinks = (page) => menuLinks(page)
 
 // Which pages each role reaches — §9 of the role document, checked against navigation.js.
+// "Home" and "Payslips" in the menu since the new look.
 const PAGES = [
-  ['/dashboard', 'Dashboard'], ['/employees', 'Employees'], ['/attendance', 'Attendance'], ['/leave', 'Leave'],
-  ['/requests', 'Requests'], ['/payroll', 'Payroll'], ['/payslips', 'My Payslips'], ['/documents', 'Documents'], ['/reports', 'Reports'], ['/settings', 'Settings'],
+  ['/dashboard', 'Home'], ['/employees', 'Employees'], ['/attendance', 'Attendance'], ['/leave', 'Leave'],
+  ['/requests', 'Requests'], ['/payroll', 'Payroll'], ['/payslips', 'Payslips'], ['/documents', 'Documents'], ['/reports', 'Reports'], ['/settings', 'Settings'],
 ]
 const SIDEBAR = {
-  sa: ['Dashboard', 'Employees', 'Attendance', 'Leave', 'Requests', 'Payroll', 'My Payslips', 'Documents', 'Reports', 'Settings'],
-  sa2: ['Dashboard', 'Employees', 'Attendance', 'Leave', 'Requests', 'Payroll', 'My Payslips', 'Documents', 'Reports', 'Settings'],
-  admin: ['Dashboard', 'Employees', 'Requests', 'My Payslips', 'Documents', 'Settings'],
-  hr: ['Dashboard', 'Employees', 'Attendance', 'Leave', 'Requests', 'Payroll', 'My Payslips', 'Documents', 'Settings'],
-  mgr: ['Dashboard', 'Employees', 'Attendance', 'Leave', 'Requests', 'My Payslips', 'Documents'],
-  rm: ['Dashboard', 'Employees', 'Attendance', 'Leave', 'Requests', 'My Payslips', 'Documents'],
-  acc: ['Dashboard', 'Payroll', 'My Payslips', 'Documents'],
-  emp: ['Dashboard', 'Attendance', 'Leave', 'Requests', 'My Payslips', 'Documents'],
+  sa: ['Home', 'Employees', 'Attendance', 'Leave', 'Requests', 'Payroll', 'Payslips', 'Documents', 'Reports', 'Settings'],
+  sa2: ['Home', 'Employees', 'Attendance', 'Leave', 'Requests', 'Payroll', 'Payslips', 'Documents', 'Reports', 'Settings'],
+  admin: ['Home', 'Employees', 'Requests', 'Payslips', 'Documents', 'Settings'],
+  hr: ['Home', 'Employees', 'Attendance', 'Leave', 'Requests', 'Payroll', 'Payslips', 'Documents', 'Settings'],
+  mgr: ['Home', 'Employees', 'Attendance', 'Leave', 'Requests', 'Payslips', 'Documents'],
+  rm: ['Home', 'Employees', 'Attendance', 'Leave', 'Requests', 'Payslips', 'Documents'],
+  acc: ['Home', 'Payroll', 'Payslips', 'Documents'],
+  emp: ['Home', 'Attendance', 'Leave', 'Requests', 'Payslips', 'Documents'],
 }
 const SETTINGS_TABS = {
-  // Day 21 added Roles & Permissions, the Super Admin's alone.
-  // Company Tree and Approvals: Day 22. Employee Lifecycle: client §43 (HR reads it).
-  sa: ['Company', 'Users & Roles', 'Roles & Permissions', 'Company Tree', 'Approvals', 'Organisation', 'Leave Config', 'Payroll Config', 'Documents', 'Employee Lifecycle', 'Notifications', 'Audit Log'],
+  // In the menu's groups since the new look: Organisation, People & access, Time & pay, Records.
+  sa: ['Company', 'Organisation', 'Company Tree', 'Users & Roles', 'Roles & Permissions', 'Approvals', 'Employee Lifecycle', 'Leave Config', 'Payroll Config', 'Documents', 'Notifications', 'Audit Log'],
   admin: ['Leave Config', 'Documents'],
-  hr: ['Leave Config', 'Documents', 'Employee Lifecycle'],
+  hr: ['Employee Lifecycle', 'Leave Config', 'Documents'],
 }
 
 let lastDocId = null
@@ -257,7 +258,7 @@ try {
       check('An employee signs in with their Employee ID', page.url().endsWith('/dashboard'))
       await page.goto(`${BASE}/signin`)
       check('Signed in, the sign-in page goes to the dashboard', await page.waitForURL('**/dashboard', { timeout: 10_000 }).then(() => true, () => false))
-      await page.locator('aside').getByRole('button', { name: 'Sign Out' }).first().click()
+      await signOutVia(page)
       await page.waitForURL('**/signin', { timeout: 10_000 })
       await page.goto(`${BASE}/leave`)
       await page.waitForURL('**/signin', { timeout: 10_000 })
@@ -265,7 +266,7 @@ try {
       await page.goBack()
       await page.waitForTimeout(800)
       check('…and Back does not bring the last person’s page back', page.url().endsWith('/signin') || !(await page.locator('main').count()))
-      await page.getByPlaceholder('you@careermap.in or EMP001').fill(fx.users.emp)
+      await page.getByLabel('Work Email or Employee ID').fill(fx.users.emp)
       await page.getByPlaceholder('Enter your password').fill('WrongPassword123')
       await page.getByRole('button', { name: 'Sign In' }).click()
       check('Wrong credentials say so', await page.getByText('Incorrect email or password').waitFor({ timeout: 10_000 }).then(() => true, () => false))
@@ -337,7 +338,9 @@ try {
       body: JSON.stringify({ error: { code: 'INTERNAL', message: 'Something went wrong on our side.', requestId: 'req-e2e-500' } }) }))
     page.__expect500 = true
     await page.goto(`${BASE}/leave`)
-    const err = page.locator('main [role="alert"]', { hasText: 'This could not be loaded' })
+    // The list is drawn twice — a table for a computer, cards for a phone — and
+    // each says the error; the one on screen is the one that counts.
+    const err = page.locator('main [role="alert"]', { hasText: 'This could not be loaded' }).filter({ visible: true })
     await err.waitFor({ timeout: 20_000 })
     const text = await bodyText(page)
     check('The error view says so, with the reference, and a Try again', text.includes('Something went wrong on our side.') && text.includes('Reference: req-e2e-500') && await err.getByRole('button', { name: 'Try again' }).isVisible())
@@ -346,7 +349,7 @@ try {
     await page.unroute('**/api/leave-requests')
     page.__expect500 = false
     await err.getByRole('button', { name: 'Try again' }).click()
-    await page.getByText(E.priya.name).first().waitFor({ timeout: 20_000 })
+    await page.getByText(E.priya.name).filter({ visible: true }).first().waitFor({ timeout: 20_000 })
     check('Try again, once the server answers, shows the list', (await bodyText(page)).includes('Family function'))
 
     await page.route('**/api/leave-requests', (route) => route.abort('internetdisconnected'))
@@ -358,7 +361,7 @@ try {
     await page.route('**/api/holidays**', (route) => route.fulfill({ status: 403, contentType: 'application/json',
       body: JSON.stringify({ error: { code: 'FORBIDDEN', message: 'You do not have permission to do that.', requestId: 'req-e2e-403' } }) }))
     await page.reload()
-    await page.getByRole('button', { name: /Holiday Calendar/ }).click()
+    await page.getByRole('tab', { name: /Holiday Calendar/ }).click()
     const denied = page.locator('main [role="alert"]', { hasText: 'You do not have permission' })
     await denied.waitFor({ timeout: 20_000 })
     check('A refusal says so plainly, and offers no pointless Try again', !(await denied.getByRole('button', { name: 'Try again' }).count()))
@@ -386,13 +389,13 @@ try {
     // A page's code file gone after a deploy.
     const reportsLike = await page.evaluate(() => [...document.querySelectorAll('link[rel=modulepreload]')].map((l) => l.href))
     await page.route('**/assets/Leave-*.js', (route) => route.fulfill({ status: 404, contentType: 'text/html', body: 'gone' }))
-    await page.locator('aside nav a', { hasText: 'Leave' }).click()
+    await menuLink(page, 'Leave').click()
     await page.getByText('A new version of EMS is available').waitFor({ timeout: 20_000 })
     check('A page whose code is gone after a deploy says "a new version", with Reload', await page.getByRole('button', { name: 'Reload' }).isVisible())
-    check('…and the sidebar and top bar still work around it', await page.locator('aside nav a', { hasText: 'Dashboard' }).isVisible())
+    check('…and the sidebar and top bar still work around it', await menuLink(page, 'Home').isVisible())
     await shot(page, 'boundary-new-version')
     await page.unroute('**/assets/Leave-*.js')
-    await page.locator('aside nav a', { hasText: 'Dashboard' }).click()
+    await menuLink(page, 'Home').click()
     await page.waitForURL('**/dashboard')
     check('Choosing another page leaves the broken one behind', !(await page.getByText('A new version of EMS is available').count()))
     await page.getByRole('button', { name: 'Reload' }).count()
@@ -400,10 +403,12 @@ try {
     // A page that throws while drawing: the payslip list answered with nothing usable.
     await page.route('**/api/payslips/me', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: { unexpected: true }, meta: {} }) }))
     const errorsBefore = pageErrors.length
-    await page.locator('aside nav a', { hasText: 'My Payslips' }).click()
+    // Loaded afresh: Home's payslip card already holds the real list, which the
+    // page would show from memory without asking again.
+    await page.goto(`${BASE}/payslips`)
     await page.getByText('This page ran into a problem').waitFor({ timeout: 20_000 })
-    check('A page that throws shows "This page ran into a problem" with Try again and a way to the dashboard',
-      await page.getByRole('button', { name: 'Try again' }).isVisible() && await page.getByRole('link', { name: 'Go to the dashboard' }).isVisible())
+    check('A page that throws shows "This page ran into a problem" with Try again and a way Home',
+      await page.getByRole('button', { name: 'Try again' }).isVisible() && await page.getByRole('link', { name: 'Go to Home' }).isVisible())
     pageErrors.splice(errorsBefore) // the crash was provoked on purpose
     await shot(page, 'boundary-crash')
     await page.unroute('**/api/payslips/me')
@@ -413,7 +418,7 @@ try {
 
     await page.goto(`${BASE}/definitely/not/a/page`)
     await page.getByText('There is no page here').waitFor({ timeout: 20_000 })
-    check('Signed in, an unknown address says there is no page, and names it', (await bodyText(page)).includes('/definitely/not/a/page') && await page.getByRole('link', { name: 'Go to the dashboard' }).isVisible())
+    check('Signed in, an unknown address says there is no page, and names it', (await bodyText(page)).includes('/definitely/not/a/page') && await page.getByRole('link', { name: 'Go to Home' }).isVisible())
     await shot(page, 'not-found')
     await page.goto(`${BASE}/`)
     await page.waitForURL('**/dashboard')
@@ -569,7 +574,7 @@ try {
     section('Leave → Team Balances: granting the year, correcting a balance')
     const hr = await open('hr')
     await hr.goto(`${BASE}/leave`)
-    await hr.getByRole('button', { name: 'Team Balances' }).click()
+    await hr.getByRole('tab', { name: 'Team Balances' }).click()
     const banner = hr.getByText(/have not been given their 2026–27 leave yet|has not been given their 2026–27 leave yet/)
     await banner.waitFor({ timeout: 20_000 })
     const waitingText = await banner.innerText()
@@ -590,7 +595,8 @@ try {
     await hr.getByText('Everybody here has their 2026–27 leave.').waitFor({ timeout: 20_000 })
     check('After the grant, everybody has the year’s leave', true)
     // Columns by code: CL, CO, EL, SL, WFH.
-    const cells = (name) => table.locator('tr', { hasText: name }).locator('td span.font-semibold').allInnerTexts()
+    // Each type's cell: the days left first, then any "applied for" under it.
+    const cells = (name) => table.locator('tr', { hasText: name }).locator('td.tabular-nums > span:first-child').allInnerTexts()
     const [neha, priya, kiran] = [await cells(E.neha.name), await cells(E.priya.name), await cells(E.kiran.name)]
     check('The joiner has the months that are left (7 of 12, 9 of 15); others the full year', JSON.stringify(neha) === '["7","0","9","7","0"]' && priya[0] === '12' && priya[3] === '12', `${neha} | ${priya}`)
     // The seed gave everybody Casual Leave before today; today's grant (Sick and Earned) must give Kiran none.
@@ -629,8 +635,8 @@ try {
     const notice = (await api('emp2', 'GET', '/notifications')).body.data.find((n) => n.title.includes('1.5 days of Casual Leave added'))
     check('Ravi is told of the correction, with the reason', notice && notice.message.includes('Worked on the Diwali weekend') && notice.message.includes('13.5'), JSON.stringify(notice))
     await ravi.goto(`${BASE}/leave`)
-    check('An employee has no Team Balances tab', !(await ravi.getByRole('button', { name: 'Team Balances' }).count()))
-    await ravi.getByRole('button', { name: /Leave Balance/ }).click()
+    check('An employee has no Team Balances tab', !(await ravi.getByRole('tab', { name: 'Team Balances' }).count()))
+    await ravi.getByRole('tab', { name: /Leave Balance/ }).click()
     await ravi.getByText('Casual Leave').first().waitFor({ timeout: 15_000 })
     check('…and sees the corrected balance on their own tab', (await ravi.locator('main').innerText()).includes('13.5'))
     await ravi.context().close()
@@ -638,9 +644,11 @@ try {
     for (const [who, expected] of [['mgr', [E.manoj.name, E.priya.name]], ['rm', [E.rekha.name, E.ravi.name]]]) {
       const page = await open(who)
       await page.goto(`${BASE}/leave`)
-      await page.getByRole('button', { name: 'Team Balances' }).click()
-      await page.locator('main table tbody tr').first().waitFor({ timeout: 15_000 })
-      const names = (await page.locator('main table tbody tr td:first-child p.font-medium').allInnerTexts()).sort()
+      await page.getByRole('tab', { name: 'Team Balances' }).click()
+      // The rows, not the "Loading…" one before them.
+      await page.locator('main table tbody tr', { hasText: expected[0] }).first().waitFor({ timeout: 15_000 })
+      // The name is the first line of the person's cell; their code is under it.
+      const names = (await page.locator('main table tbody tr td:first-child p:first-of-type').allInnerTexts()).sort()
       check(`${who}: Team Balances shows only their own team`, JSON.stringify(names) === JSON.stringify([...expected].sort()), names.join(', '))
       check(`${who}: …and offers no grant and no correction`, !(await page.getByRole('button', { name: 'Grant leave' }).count()) && !(await page.getByRole('button', { name: /^Correct / }).count()))
       await page.context().close()
@@ -648,7 +656,7 @@ try {
 
     const phone = await open('hr', { width: 390, height: 844 })
     await phone.goto(`${BASE}/leave`)
-    await phone.getByRole('button', { name: 'Team Balances' }).click()
+    await phone.getByRole('tab', { name: 'Team Balances' }).click()
     await phone.locator('main ul li').first().waitFor({ timeout: 15_000 })
     check('On a phone, Team Balances is cards and fits the screen', await noHorizontalScroll(phone))
     await shot(phone, 'balances-phone')
@@ -667,20 +675,26 @@ try {
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date())
     let sundays = 0
     for (let d = 1; d <= Number(today.slice(8, 10)); d++) if (new Date(`${today.slice(0, 8)}${String(d).padStart(2, '0')}T00:00:00Z`).getUTCDay() === 0) sundays++
-    const card = emp.locator('div', { has: emp.getByText(/^Weekly Off · /) }).last()
-    check('The employee dashboard counts this month’s weekly offs from the rule, not a made-up 0', (await card.innerText()).includes(String(sundays)), `${sundays} Sundays so far`)
+    // Home's "My month": each figure is its value over its label.
+    const month = emp.getByRole('region', { name: 'My month' })
+    const offLabel = month.getByText('Weekly off', { exact: true })
+    await offLabel.waitFor({ timeout: 20_000 })
+    const offs = await offLabel.locator('xpath=preceding-sibling::p[1]').innerText()
+    check('The employee dashboard counts this month’s weekly offs from the rule, not a made-up 0', Number(offs) === sundays, `${offs} shown, ${sundays} Sundays so far`)
     await emp.context().close()
     await api('emp2', 'POST', '/leave-requests', { leaveTypeId: cl, fromDate: '2026-11-09', toDate: '2026-11-09', reason: 'Dashboard check' })
     const hr = await open('hr')
     await settle(hr)
-    const pending = hr.locator('div', { hasText: 'Dashboard check' }).last()
-    await hr.getByText('Dashboard check').waitFor({ timeout: 15_000 }).catch(() => undefined)
-    const t = await bodyText(hr)
-    check('The HR dashboard’s pending leave names the person and the type', t.includes(E.ravi.name) && t.includes('Casual Leave') && !t.includes('Unknown'))
-    const fills = await hr.locator('.recharts-pie-sector path, .recharts-sector').evaluateAll((els) => els.map((e) => e.getAttribute('fill')))
-    check('Every department slice of the chart has a colour', fills.length > 0 && fills.every((f) => f && f !== 'undefined'), fills.join(','))
+    // HR decides none of it: Home's "Leave waiting" lists it, newest first, with who and what.
+    const raviLeave = hr.getByRole('region', { name: 'Leave waiting' }).getByRole('listitem').filter({ hasText: E.ravi.name }).first()
+    await raviLeave.waitFor({ timeout: 15_000 }).catch(() => undefined)
+    const rowText = await raviLeave.innerText().catch(() => '')
+    check('The HR dashboard’s pending leave names the person and the type', rowText.includes('Casual Leave') && !rowText.includes('Unknown'), rowText.replace(/\s+/g, ' '))
+    // People by department: a bar each, each in a colour.
+    const byDepartment = hr.locator('main div', { has: hr.getByText('By department', { exact: true }) }).last()
+    const bars = await byDepartment.locator('li span[aria-hidden="true"] > span').evaluateAll((els) => els.map((e) => e.style.background))
+    check('Every department’s bar has a colour', bars.length > 0 && bars.every((b) => b && b !== 'undefined'), bars.join(','))
     await shot(hr, 'dashboard-hr')
-    void pending
     await hr.context().close()
   }
 

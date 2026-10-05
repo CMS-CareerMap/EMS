@@ -5,6 +5,7 @@ import { logger } from '../../platform/logger'
 import { NotFound } from '../../platform/errors/AppError'
 import * as repo from './payroll.repository'
 import { isUniqueViolation } from '../../platform/db/errors'
+import { withTransaction } from '../../platform/db/transaction'
 import { assertMonthsOpen, closedMonthKeys, monthsBetween } from './payrollLock.service'
 
 /**
@@ -266,7 +267,12 @@ export async function redecide(
 
   const previous = await repo.findCoverage(ctx.db, employeeId, periodStart)
 
-  await repo.deleteCoverage(ctx.db, employeeId, periodStart)
+  // Forgotten under the period's payroll locks: a month of it being approved
+  // this moment is waited for, then found signed off, and the decision stands.
+  await withTransaction(ctx.db, async (tx) => {
+    await assertMonthsOpen(ctx, monthsBetween(period.start, period.end), 'deciding this ESI period again', tx)
+    await repo.deleteCoverage(tx, employeeId, periodStart)
+  })
 
   const fresh = await coverageFor(ctx, employeeId, year, month)
 

@@ -1,26 +1,31 @@
 import { useMemo, useState } from 'react'
-import { Search, IndianRupee, X, Loader2, AlertCircle, History, Info } from 'lucide-react'
+import { Search, IndianRupee, Loader2, AlertCircle, History, Info } from 'lucide-react'
 import { useSalaryRoster, useSalaryHistory, usePayrollComponents, useSetSalary } from '../../hooks/useSalary'
 import { useAuthStore } from '../../stores/authStore'
-import { calendarDayIn, addDays } from '../../lib/dates'
+import { calendarDayIn, addDays, formatDay } from '../../lib/dates'
 import DataState, { DataRows } from '../../components/DataState'
-import { formatDay } from '../../lib/dates'
+import Dialog, { inputCls } from '../../components/Dialog'
+import { Avatar, Chip } from '../../components/ui/bits'
+import { btn, card, field, th } from '../../components/ui/styles'
+import { monthLabel } from './format'
+
+/** "2026-10-15" → "October 2026". */
+const monthOf = (day) => monthLabel(Number(day.slice(0, 4)), Number(day.slice(5, 7)))
+/** The 1st of the month after the day's. */
+const firstOfMonthAfter = (day) => addDays(`${day.slice(0, 7)}-28`, 7).slice(0, 7) + '-01'
 
 /**
  * The Salary Structure tab: who is paid what, from the server.
  *
- * This replaces a table that showed an ESTIMATE for everybody — CTC divided by
- * twelve and split by fixed percentages — labelled as their salary. Nobody's
- * pay was recorded anywhere; the numbers were invented on every render.
- *
- * Now each row is what is stored, or "No salary recorded", which is the list
- * Accounts works through before the first payroll run can pay anybody.
+ * Each row is what is stored, or "No salary recorded", which is the list
+ * Accounts works through before the first payroll run can pay anybody. (It
+ * replaced a table that showed an ESTIMATE for everybody — CTC divided by
+ * twelve and split by fixed percentages — labelled as their salary.)
  */
 
 function money(value) {
   return value == null ? '—' : '₹' + Number(value).toLocaleString('en-IN')
 }
-
 
 export default function SalaryStructures() {
   const salaries = useSalaryRoster()
@@ -36,11 +41,22 @@ export default function SalaryStructures() {
   }, [roster, search])
 
   const missing = roster.filter((e) => !e.salary).length
+  const action = (emp) => (
+    <>
+      <button onClick={() => setEditing(emp)} className={btn.softSm}>
+        {canManage && emp.may_enter !== false ? (emp.salary ? 'Change' : 'Set salary') : 'History'}
+      </button>
+      {/* Own work goes up the company tree (Day 22): whom it goes to instead. */}
+      {canManage && emp.may_enter === false && (
+        <p className="text-xs text-gray-400 mt-1">Entered by {emp.entry_goes_to}</p>
+      )}
+    </>
+  )
 
   return (
     <div className="space-y-4">
       {missing > 0 && salaries.isSuccess && (
-        <div className="flex items-start gap-2.5 p-3 rounded-lg bg-amber-50 border border-amber-200">
+        <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-50 border border-amber-200">
           <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
           <p className="text-sm text-amber-800">
             {missing} employee{missing !== 1 ? 's have' : ' has'} no salary recorded. A payroll run cannot pay them until one is set.
@@ -48,64 +64,82 @@ export default function SalaryStructures() {
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3 flex items-center gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input type="text" placeholder="Search by name or code…" value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder:text-gray-400" />
+      <div className={`${card} overflow-hidden`}>
+        <div className="px-4 py-3 flex items-center gap-3 border-b border-gray-200">
+          <label className="relative flex-1">
+            <span className="sr-only">Search by name or code</span>
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" aria-hidden="true" />
+            <input type="text" placeholder="Search by name or code…" value={search} onChange={(e) => setSearch(e.target.value)} className={`w-full pl-9 ${field}`} />
+          </label>
+          <span className="text-xs font-medium text-gray-500 shrink-0">{salaries.isSuccess ? `${filtered.length} employees` : '—'}</span>
         </div>
-        <span className="text-sm text-gray-400 shrink-0">{salaries.isSuccess ? `${filtered.length} employees` : '—'}</span>
-      </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-190">
+        {/* A computer: the table. */}
+        <div className="hidden md:block overflow-x-auto">
+          <table className="w-full min-w-190 text-sm">
             <thead>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                {['Employee', 'Department', 'Joined', 'Gross / month', 'Annual CTC', 'Since', ''].map((h) => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{h}</th>
-                ))}
+              <tr>
+                <th className={th}>Employee</th>
+                <th className={th}>Department</th>
+                <th className={th}>Joined</th>
+                <th className={`${th} text-right`}>Gross / month</th>
+                <th className={`${th} text-right`}>Annual CTC</th>
+                <th className={th}>Since</th>
+                <th className={th} aria-label="Salary" />
               </tr>
             </thead>
             <tbody>
               <DataRows query={salaries} colSpan={7} empty="No employees found." isEmpty={() => filtered.length === 0}>
               {() => filtered.map((emp) => (
                 <tr key={emp.employee_id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
-                  <td className="px-4 py-3.5">
-                    <p className="text-sm font-medium text-gray-900">{emp.full_name}</p>
-                    <p className="text-xs text-gray-400 font-mono">{emp.employee_code}</p>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <Avatar name={emp.full_name} size="sm" />
+                      <div className="min-w-0">
+                        <p className="font-semibold text-gray-900">{emp.full_name}</p>
+                        <p className="text-xs text-gray-400 font-mono">{emp.employee_code}</p>
+                      </div>
+                    </div>
                   </td>
-                  <td className="px-4 py-3.5 text-sm text-gray-700">{emp.department || '—'}</td>
-                  <td className="px-4 py-3.5 text-sm text-gray-600">{formatDay(emp.date_of_joining)}</td>
+                  <td className="px-4 py-3 text-gray-700">{emp.department || '—'}</td>
+                  <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{formatDay(emp.date_of_joining)}</td>
                   {emp.salary ? (
                     <>
-                      <td className="px-4 py-3.5 text-sm font-semibold text-gray-900">{money(emp.salary.gross_monthly)}</td>
-                      <td className="px-4 py-3.5 text-sm text-gray-700">{money(emp.salary.ctc)}</td>
-                      <td className="px-4 py-3.5 text-sm text-gray-600">{formatDay(emp.salary.effective_from)}</td>
+                      <td className="px-4 py-3 text-right font-bold text-gray-900 tabular-nums">{money(emp.salary.gross_monthly)}</td>
+                      <td className="px-4 py-3 text-right text-gray-700 tabular-nums">{money(emp.salary.ctc)}</td>
+                      <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{formatDay(emp.salary.effective_from)}</td>
                     </>
                   ) : (
-                    <td colSpan={3} className="px-4 py-3.5">
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
-                        No salary recorded
-                      </span>
-                    </td>
+                    <td colSpan={3} className="px-4 py-3"><Chip tone="warn">No salary recorded</Chip></td>
                   )}
-                  <td className="px-4 py-3.5 text-right">
-                    <button onClick={() => setEditing(emp)}
-                      className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-semibold">
-                      {canManage && emp.may_enter !== false ? (emp.salary ? 'Change' : 'Set salary') : 'History'}
-                    </button>
-                    {/* Own work goes up the company tree (Day 22): whom it goes to instead. */}
-                    {canManage && emp.may_enter === false && (
-                      <p className="text-xs text-gray-400 mt-1">Entered by {emp.entry_goes_to}</p>
-                    )}
-                  </td>
+                  <td className="px-4 py-3 text-right">{action(emp)}</td>
                 </tr>
               ))}
               </DataRows>
             </tbody>
           </table>
+        </div>
+
+        {/* A phone: a line a person, the pay under the name. */}
+        <div className="md:hidden">
+          <DataState query={salaries} empty="No employees found." isEmpty={() => filtered.length === 0}>
+            {() => (
+              <ul className="divide-y divide-gray-100" aria-label="Salaries">
+                {filtered.map((emp) => (
+                  <li key={emp.employee_id} className="px-4 py-3 flex items-center gap-3">
+                    <Avatar name={emp.full_name} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-gray-900 truncate">{emp.full_name}</p>
+                      {emp.salary
+                        ? <p className="text-xs text-gray-500 tabular-nums">{money(emp.salary.gross_monthly)} / month · CTC {money(emp.salary.ctc)}</p>
+                        : <Chip tone="warn" className="mt-1">No salary recorded</Chip>}
+                    </div>
+                    <div className="text-right shrink-0">{action(emp)}</div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </DataState>
         </div>
       </div>
 
@@ -131,7 +165,7 @@ function SalaryModal({ employee, canManage, onClose }) {
 
   const current = employee.salary
   const today = calendarDayIn(timezone)
-  const firstOfNextMonth = addDays(`${today.slice(0, 7)}-28`, 7).slice(0, 7) + '-01'
+  const firstOfNextMonth = firstOfMonthAfter(today)
 
   // Fixed components only. Incentive and its kind are entered month by month
   // at payroll time, and the server refuses them on a salary.
@@ -149,6 +183,8 @@ function SalaryModal({ employee, canManage, onClose }) {
   const byCode = Object.fromEntries(fixed.map((c) => [c.code, c]))
   const value = (code) => Number(amounts[code] || 0)
   const earnings = fixed.filter((c) => c.type === 'earning').reduce((sum, c) => sum + value(c.code), 0)
+  // The gross of the salary in force now — what a month changed inside is still paid on.
+  const currentGross = (current?.components ?? []).filter((c) => byCode[c.code]?.type === 'earning').reduce((sum, c) => sum + Number(c.amount || 0), 0)
   const deductions = fixed.filter((c) => c.type === 'deduction').reduce((sum, c) => sum + value(c.code), 0)
 
   const mode = !current
@@ -177,145 +213,142 @@ function SalaryModal({ employee, canManage, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl my-8 overflow-hidden">
-        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900">Salary — {employee.full_name}</h2>
-            <p className="text-sm text-gray-400 mt-0.5">
-              {employee.employee_code} · joined {formatDay(employee.date_of_joining)}
-            </p>
+    <Dialog title={`Salary — ${employee.full_name}`} onClose={setSalary.isPending ? () => {} : onClose} wide>
+      <p className="text-sm text-gray-500 -mt-1">{employee.employee_code} · joined {formatDay(employee.date_of_joining)}</p>
+
+      {canManage && (
+        <form onSubmit={handleSave} className="space-y-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <label className="space-y-1.5 block">
+              <span className="text-sm font-semibold text-gray-700">Starts from <span className="text-red-400">*</span></span>
+              <input type="date" required value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} className={inputCls} />
+            </label>
+            <label className="space-y-1.5 block">
+              <span className="text-sm font-semibold text-gray-700">Annual CTC (₹) <span className="text-red-400">*</span></span>
+              <input type="number" required min="0" step="1" value={ctc} onChange={(e) => setCtc(e.target.value)} placeholder="e.g. 480000" className={inputCls} />
+            </label>
           </div>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
 
-        <div className="p-6 space-y-6 max-h-[78vh] overflow-y-auto">
-          {canManage && (
-            <form onSubmit={handleSave} className="space-y-5">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <label className="space-y-1.5 block">
-                  <span className="text-sm font-medium text-gray-600">Starts from <span className="text-red-400">*</span></span>
-                  <input type="date" required value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </label>
-                <label className="space-y-1.5 block">
-                  <span className="text-sm font-medium text-gray-600">Annual CTC (₹) <span className="text-red-400">*</span></span>
-                  <input type="number" required min="0" step="1" value={ctc} onChange={(e) => setCtc(e.target.value)}
-                    placeholder="e.g. 480000"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </label>
-              </div>
+          {/* What saving will do, in words, before it is done */}
+          <div className={`text-sm rounded-lg px-3 py-2.5 border ${mode === 'earlier' ? 'bg-red-50 border-red-200 text-red-700' : 'bg-brand-50 border-brand-100 text-brand-800'}`}>
+            {mode === 'first' && <>First salary, from {formatDay(effectiveFrom)}.</>}
+            {mode === 'correction' && <>Correction — replaces the figures of the salary that started {formatDay(current.effective_from)}. Nothing else changes.</>}
+            {mode === 'raise' && <>New salary from {formatDay(effectiveFrom)}. The current one ends {formatDay(addDays(effectiveFrom, -1))} and stays in the history unchanged.</>}
+            {mode === 'earlier' && <>The current salary started {formatDay(current.effective_from)}. A new one cannot start before it — use that date to correct it, or a later date for a new salary.</>}
+          </div>
 
-              {/* What saving will do, in words, before it is done */}
-              <div className={`text-sm rounded-lg px-3 py-2.5 border ${mode === 'earlier' ? 'bg-red-50 border-red-200 text-red-700' : 'bg-blue-50 border-blue-100 text-blue-800'}`}>
-                {mode === 'first' && <>First salary, from {formatDay(effectiveFrom)}.</>}
-                {mode === 'correction' && <>Correction — replaces the figures of the salary that started {formatDay(current.effective_from)}. Nothing else changes.</>}
-                {mode === 'raise' && <>New salary from {formatDay(effectiveFrom)}. The current one ends {formatDay(addDays(effectiveFrom, -1))} and stays in the history unchanged.</>}
-                {mode === 'earlier' && <>The current salary started {formatDay(current.effective_from)}. A new one cannot start before it — use that date to correct it, or a later date for a new salary.</>}
-              </div>
-
-              <div>
-                <p className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
-                  <IndianRupee className="w-4 h-4 text-emerald-600" /> Monthly components
-                </p>
-                {/* The totals too: without the components they would read ₹0 for somebody who is paid. */}
-                <DataState query={catalogue} compact
-                  loading={<span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading components…</span>}>
-                  {() => (
-                  <div className="space-y-5">
-                    <div>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                        {fixed.map((c) => (
-                          <label key={c.code} className="space-y-1 block">
-                            <span className="text-xs font-medium text-gray-600">
-                              {c.label}{c.type === 'deduction' && <span className="text-red-500"> (deduction)</span>}
-                              {c.counts_for_pf && <span className="text-gray-400"> · PF</span>}
-                            </span>
-                            <input type="number" min="0" step="1" value={amounts[c.code] ?? ''}
-                              onChange={(e) => setAmounts((a) => ({ ...a, [c.code]: e.target.value }))}
-                              placeholder="0"
-                              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                          </label>
-                        ))}
-                      </div>
-                      {monthly.length > 0 && (
-                        <p className="text-xs text-gray-500 mt-2 flex items-start gap-1.5">
-                          <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                          {monthly.map((c) => c.label).join(', ')} {monthly.length > 1 ? 'are' : 'is'} entered each month at payroll time, not here.
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-3 text-center">
-                      <Stat label="Gross / month" value={money(earnings)} />
-                      <Stat label="Deductions / month" value={money(deductions)} />
-                      <Stat label="Gross / year" value={money(earnings * 12)} />
-                    </div>
-                  </div>
-                  )}
-                </DataState>
-              </div>
-
-              {ctcBelowGross && (
-                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                  The CTC is less than a year of gross pay ({money(earnings * 12)}). Check for a missing digit.
-                </p>
-              )}
-
-              <div className="flex justify-end gap-3">
-                <button type="button" onClick={onClose}
-                  className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50">
-                  Cancel
-                </button>
-                <button type="submit" disabled={setSalary.isPending || mode === 'earlier' || earnings <= 0}
-                  className="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium flex items-center gap-2">
-                  {setSalary.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {mode === 'correction' ? 'Save correction' : 'Save salary'}
-                </button>
-              </div>
-            </form>
+          {/* A new salary inside a month: that month is paid on the current one,
+              and its payslip gives what the days from then are owed, as arrears. */}
+          {mode === 'raise' && effectiveFrom.slice(8) !== '01' && (
+            <div className="text-sm rounded-lg px-3 py-2.5 border bg-amber-50 border-amber-200 text-amber-900 space-y-1.5" role="note">
+              <p>
+                It starts inside a month: {monthOf(effectiveFrom)} is still paid on the current salary.{' '}
+                {earnings > currentGross
+                  ? <>Its payslip says how much the days from {formatDay(effectiveFrom, { year: false })} are owed — to enter as Arrears for that month.</>
+                  : earnings < currentGross
+                    ? <>Its payslip says how much the days from {formatDay(effectiveFrom, { year: false })} are overpaid — to recover the month after.</>
+                    : <>The gross is the same, so nothing is owed for those days.</>}
+                {' '}Starting on the 1st avoids it.
+              </p>
+              <button type="button" onClick={() => setEffectiveFrom(firstOfMonthAfter(effectiveFrom))} className={btn.secondarySm}>
+                Start on {formatDay(firstOfMonthAfter(effectiveFrom))} instead
+              </button>
+            </div>
           )}
 
           <div>
-            <p className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
-              <History className="w-4 h-4 text-gray-500" /> History
+            <p className="text-sm font-bold text-gray-900 mb-2 flex items-center gap-2">
+              <IndianRupee className="w-4 h-4 text-emerald-600" aria-hidden="true" /> Monthly components
             </p>
-            <DataState query={record} compact empty="No salary has ever been recorded." isEmpty={(r) => r.history.length === 0}>
-              {(r) => (
-              <div className="border border-gray-200 rounded-xl divide-y divide-gray-100">
-                {r.history.map((h) => (
-                  <div key={h.effective_from} className="px-4 py-3 flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">
-                        {formatDay(h.effective_from)} — {h.effective_to ? formatDay(h.effective_to) : 'now'}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {h.components.map((c) => `${c.label} ${money(c.amount)}`).join(' · ')}
-                      </p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-sm font-semibold text-gray-900">{money(h.gross_monthly)}/mo</p>
-                      <p className="text-xs text-gray-400">CTC {money(h.ctc)}</p>
-                    </div>
+            {/* The totals too: without the components they would read ₹0 for somebody who is paid. */}
+            <DataState query={catalogue} compact
+              loading={<span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading components…</span>}>
+              {() => (
+              <div className="space-y-5">
+                <div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {fixed.map((c) => (
+                      <label key={c.code} className="space-y-1 block">
+                        <span className="text-xs font-semibold text-gray-600">
+                          {c.label}{c.type === 'deduction' && <span className="text-red-500"> (deduction)</span>}
+                          {c.counts_for_pf && <span className="text-gray-400"> · PF</span>}
+                        </span>
+                        <input type="number" min="0" step="1" value={amounts[c.code] ?? ''}
+                          onChange={(e) => setAmounts((a) => ({ ...a, [c.code]: e.target.value }))}
+                          placeholder="0" className={inputCls} />
+                      </label>
+                    ))}
                   </div>
-                ))}
+                  {monthly.length > 0 && (
+                    <p className="text-xs text-gray-500 mt-2 flex items-start gap-1.5">
+                      <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden="true" />
+                      {monthly.map((c) => c.label).join(', ')} {monthly.length > 1 ? 'are' : 'is'} entered each month at payroll time, not here.
+                    </p>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 sm:gap-3 text-center">
+                  <Stat label="Gross / month" value={money(earnings)} />
+                  <Stat label="Deductions / month" value={money(deductions)} />
+                  <Stat label="Gross / year" value={money(earnings * 12)} />
+                </div>
               </div>
               )}
             </DataState>
           </div>
-        </div>
+
+          {ctcBelowGross && (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              The CTC is less than a year of gross pay ({money(earnings * 12)}). Check for a missing digit.
+            </p>
+          )}
+
+          <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+            <button type="button" onClick={onClose} disabled={setSalary.isPending} className={btn.secondary}>Cancel</button>
+            <button type="submit" disabled={setSalary.isPending || mode === 'earlier' || earnings <= 0} className={btn.primary}>
+              {setSalary.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+              {mode === 'correction' ? 'Save correction' : 'Save salary'}
+            </button>
+          </div>
+        </form>
+      )}
+
+      <div>
+        <p className="text-sm font-bold text-gray-900 mb-2 flex items-center gap-2">
+          <History className="w-4 h-4 text-gray-500" aria-hidden="true" /> History
+        </p>
+        <DataState query={record} compact empty="No salary has ever been recorded." isEmpty={(r) => r.history.length === 0}>
+          {(r) => (
+          <div className="border border-gray-200 rounded-xl divide-y divide-gray-100">
+            {r.history.map((h) => (
+              <div key={h.effective_from} className="px-4 py-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-900">
+                    {formatDay(h.effective_from)} — {h.effective_to ? formatDay(h.effective_to) : 'now'}
+                  </p>
+                  <p className="text-xs text-gray-500 wrap-break-word">
+                    {h.components.map((c) => `${c.label} ${money(c.amount)}`).join(' · ')}
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-sm font-bold text-gray-900 tabular-nums">{money(h.gross_monthly)}/mo</p>
+                  <p className="text-xs text-gray-400 tabular-nums">CTC {money(h.ctc)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          )}
+        </DataState>
       </div>
-    </div>
+    </Dialog>
   )
 }
 
 function Stat({ label, value }) {
   return (
-    <div className="bg-slate-50 border border-slate-200 rounded-xl py-2.5">
-      <p className="text-[11px] text-slate-500">{label}</p>
-      <p className="text-sm font-bold text-slate-900">{value}</p>
+    <div className="bg-gray-50 border border-gray-200 rounded-xl py-2.5 px-1">
+      <p className="text-[11px] text-gray-500">{label}</p>
+      <p className="text-sm font-bold text-gray-900 tabular-nums">{value}</p>
     </div>
   )
 }

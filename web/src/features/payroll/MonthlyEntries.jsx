@@ -10,6 +10,8 @@ import Dialog, { inputCls } from '../../components/Dialog'
 import { DataRows, QueryError } from '../../components/DataState'
 import { optionsNote } from '../../lib/optionsNote'
 import { money, monthLabel, recentMonths, monthAfter, monthValue, parseMonthValue, RUN_STATUS } from './format'
+import { Avatar } from '../../components/ui/bits'
+import { btn, card, field, th } from '../../components/ui/styles'
 
 /**
  * Amounts entered for one month — the client's Incentive — per employee.
@@ -55,23 +57,22 @@ export default function MonthlyEntries() {
 
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-wrap items-end justify-between gap-4">
-        <label className="space-y-1.5">
-          <span className="block text-sm font-medium text-gray-600">Month</span>
-          <select value={selectedValue} onChange={(e) => setSelectedValue(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+      <div className={`${card} p-4 flex flex-wrap items-end justify-between gap-4`}>
+        <label className="space-y-1.5 w-full sm:w-auto">
+          <span className="block text-xs font-semibold text-gray-600">Month</span>
+          <select value={selectedValue} onChange={(e) => setSelectedValue(e.target.value)} className={`${field} w-full sm:w-auto`}>
             {months.map((m) => <option key={monthValue(m)} value={monthValue(m)}>{monthLabel(m.year, m.month)}</option>)}
           </select>
         </label>
         {monthly.length > 0 && (
-          <button onClick={() => setEditing({})} disabled={locked}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium">
-            <Plus className="w-4 h-4" /> Add {monthly.length === 1 ? monthly[0].label.toLowerCase() : 'an amount'}
+          <button onClick={() => setEditing({})} disabled={locked} className={`${btn.primary} w-full sm:w-auto`}>
+            <Plus className="w-4 h-4" aria-hidden="true" /> Add {monthly.length === 1 ? monthly[0].label.toLowerCase() : 'an amount'}
           </button>
         )}
       </div>
 
       {failed && (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
+        <div className={card}>
           <QueryError error={failed.error} onRetry={() => failures.forEach((q) => q.refetch())} retrying={failures.some((q) => q.isFetching)} compact />
         </div>
       )}
@@ -85,28 +86,33 @@ export default function MonthlyEntries() {
         <Hint>This company has no pay component entered month by month.</Hint>
       )}
 
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className={`${card} overflow-hidden`}>
         <div className="overflow-x-auto">
           <table className="w-full min-w-160 text-sm">
             <thead>
-              <tr className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                <th className="px-4 py-3 text-left">Employee</th>
-                <th className="px-4 py-3 text-left">Component</th>
-                <th className="px-4 py-3 text-right">Amount</th>
-                <th className="px-4 py-3 text-left">Note</th>
-                <th className="px-4 py-3" />
+              <tr>
+                <th className={th}>Employee</th>
+                <th className={th}>Component</th>
+                <th className={`${th} text-right`}>Amount</th>
+                <th className={th}>Note</th>
+                <th className={th} aria-label="Change" />
               </tr>
             </thead>
             <tbody>
               <DataRows query={entries} colSpan={5} empty={`Nothing entered for ${label}.`}>
               {(list) => list.map((entry) => (
-                <tr key={entry.id} className="border-b border-gray-100 last:border-0">
+                <tr key={entry.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                   <td className="px-4 py-3">
-                    <p className="font-medium text-gray-900">{entry.full_name}</p>
-                    <p className="text-xs text-gray-400 font-mono">{entry.employee_code}</p>
+                    <div className="flex items-center gap-2.5">
+                      <Avatar name={entry.full_name} size="sm" />
+                      <div className="min-w-0">
+                        <p className="font-semibold text-gray-900">{entry.full_name}</p>
+                        <p className="text-xs text-gray-400 font-mono">{entry.employee_code}</p>
+                      </div>
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-gray-700">{entry.component_label}</td>
-                  <td className="px-4 py-3 text-right font-medium text-gray-900">{money(entry.amount)}</td>
+                  <td className="px-4 py-3 text-right font-bold text-gray-900 tabular-nums">{money(entry.amount)}</td>
                   <td className="px-4 py-3 text-gray-500">{entry.note || '—'}</td>
                   <td className="px-4 py-3">
                     {!locked && (blocked.has(entry.employee_id) ? (
@@ -207,10 +213,9 @@ function EntryDialog({ entry, entries, blocked, month, components, onClose }) {
           <span className="text-sm font-medium text-gray-600">Note <span className="text-gray-400 font-normal">(optional)</span></span>
           <input className={inputCls} value={note} maxLength={300} onChange={(e) => setNote(e.target.value)} placeholder="For example: Q2 sales target" />
         </label>
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700">Cancel</button>
-          <button type="submit" disabled={save.isPending}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-60">
+        <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+          <button type="button" onClick={onClose} className={btn.secondary}>Cancel</button>
+          <button type="submit" disabled={save.isPending} className={btn.primary}>
             {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} Save
           </button>
         </div>
@@ -232,9 +237,9 @@ function RemoveDialog({ entry, onClose }) {
   return (
     <Dialog title={`Remove ${entry.full_name}'s ${entry.component_label.toLowerCase()}?`} onClose={onClose}>
       <p className="text-sm text-gray-600">{money(entry.amount)} for {label} will no longer be paid.</p>
-      <div className="flex justify-end gap-2">
-        <button onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700">Keep it</button>
-        <button onClick={handle} disabled={remove.isPending} className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-medium disabled:opacity-60">Remove</button>
+      <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+        <button onClick={onClose} className={btn.secondary}>Keep it</button>
+        <button onClick={handle} disabled={remove.isPending} className={btn.danger}>Remove</button>
       </div>
     </Dialog>
   )

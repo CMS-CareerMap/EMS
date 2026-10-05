@@ -1,3 +1,4 @@
+import { btn, fieldSm } from '../../components/ui/styles'
 import { useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Lock, Pencil, Plus, RotateCcw, ShieldCheck, Trash2, Eye } from 'lucide-react'
 import { useCreateRole, useDeleteRole, useResetRole, useRoles, useUpdateRole } from '../../hooks/useRoles'
@@ -125,7 +126,7 @@ export default function RolesSettings() {
                     {data.roles.length} roles. Each comes under another — whoever holds a role can give only the roles below it.
                   </p>
                   <button type="button" onClick={() => setEditing({ mode: 'new' })}
-                    className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold shrink-0">
+                    className={`${btn.primary} shrink-0`}>
                     <Plus className="w-4 h-4" aria-hidden="true" /> New role
                   </button>
                 </div>
@@ -145,7 +146,7 @@ export default function RolesSettings() {
                             )}
                             {role.built_in && !role.locked && <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">Built-in</span>}
                             {role.changed_from_default && <span className="px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-800">Changed</span>}
-                            {role.own && <span className="px-2 py-0.5 rounded-full text-xs bg-blue-100 text-blue-700">Your role</span>}
+                            {role.own && <span className="px-2 py-0.5 rounded-full text-xs bg-brand-100 text-brand-700">Your role</span>}
                           </div>
                           <p className="text-xs text-gray-500 mt-0.5">
                             {parent ? `Comes under ${parent.name}` : 'At the top'} · {people(role.holders)} · {role.locked ? 'everything' : `${role.permissions.length} permissions`}
@@ -370,7 +371,7 @@ function RoleEditor({ data, role, onClose, onSaved, onReload }) {
                         <span>{m.scope_question}:</span>
                         <select value={scopeValue} disabled={readOnly} aria-label={m.scope_question}
                           onChange={(e) => set('scopes', { ...form.scopes, [m.resource]: e.target.value })}
-                          className="border border-gray-300 rounded-lg px-2 py-1 text-xs bg-white disabled:bg-gray-50">
+                          className={fieldSm}>
                           {/* Only the choices this module can honour (payslips: own or company). */}
                           {catalogue.scopes.filter((s) => (m.scopes ?? []).includes(s.key)).map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
                         </select>
@@ -390,7 +391,7 @@ function RoleEditor({ data, role, onClose, onSaved, onReload }) {
                         <div key={p.key} className="flex items-start gap-2 text-sm text-gray-700">
                           <input type="checkbox" id={`perm-${hintId}`} checked={checked} disabled={readOnly} onChange={(e) => toggle(p.key, e.target.checked)}
                             aria-describedby={p.requires?.length > 0 ? hintId : undefined}
-                            className="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                            className="mt-0.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
                           <div>
                             {/* The label is the permission alone, so its name is not
                                 mixed with the names of what it needs. */}
@@ -410,15 +411,15 @@ function RoleEditor({ data, role, onClose, onSaved, onReload }) {
         </>
       )}
 
-      <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 sm:p-4">
-        <p className="text-sm font-semibold text-blue-900 flex items-center gap-2">
+      <div className="rounded-xl border border-brand-200 bg-brand-50 p-3 sm:p-4">
+        <p className="text-sm font-semibold text-brand-900 flex items-center gap-2">
           <ShieldCheck className="w-4 h-4" aria-hidden="true" />
           {role?.locked ? 'This role can do everything in EMS.' : 'What this role will be able to do'}
         </p>
         {!role?.locked && (preview.length === 0
-          ? <p className="text-sm text-blue-800 mt-1">Nothing yet — tick what it may do above.</p>
+          ? <p className="text-sm text-brand-800 mt-1">Nothing yet — tick what it may do above.</p>
           : (
-            <ul className="mt-1.5 space-y-1 text-sm text-blue-900">
+            <ul className="mt-1.5 space-y-1 text-sm text-brand-900">
               {preview.map((line) => (
                 <li key={line.key}>
                   <span className="font-medium">{line.label}{line.reach ? ` (${line.reach.toLowerCase()})` : ''}:</span> {line.ticked.join(', ')}
@@ -438,19 +439,19 @@ function RoleEditor({ data, role, onClose, onSaved, onReload }) {
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
       {stale && (
         <button type="button" onClick={() => onReload(role.key)}
-          className="text-sm font-semibold text-blue-600 hover:text-blue-700">
+          className="text-sm font-semibold text-brand-600 hover:text-brand-700">
           Load the role as it is now, and make your change on it
         </button>
       )}
 
       <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-1">
         <button type="button" onClick={onClose} disabled={saving}
-          className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-60">
+          className={btn.secondary}>
           {readOnly ? 'Close' : 'Cancel'}
         </button>
         {!readOnly && (
           <button type="button" onClick={trySave} disabled={saving || form.name.trim().length < 2}
-            className="px-4 py-2 text-sm font-medium text-white rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-60">
+            className={btn.primary}>
             {saving ? 'Saving…' : isNew ? 'Create role' : 'Save changes'}
           </button>
         )}

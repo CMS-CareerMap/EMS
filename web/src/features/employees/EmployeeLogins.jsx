@@ -5,6 +5,8 @@ import { useAddLogin, useIssuePasswordLink, useToggleUserStatus, useWithdrawInvi
 import { useAssignableRoles } from '../../hooks/useRoles'
 import { PasswordLinkPanel } from '../settings/UserAccess'
 import ConfirmDialog from '../../components/ConfirmDialog'
+import { IconBox } from '../../components/ui/bits'
+import { btn, field } from '../../components/ui/styles'
 import { roleLabel } from '../../lib/roles'
 import { optionsNote } from '../../lib/optionsNote'
 
@@ -24,7 +26,7 @@ import { optionsNote } from '../../lib/optionsNote'
  */
 
 const ACCOUNT = { active: 'Can sign in', invited: 'Invited — has not set a password', inactive: 'Turned off' }
-const inp = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 placeholder:text-gray-400 bg-white'
+const inp = `w-full ${field}`
 
 export default function EmployeeLogins({ employee }) {
   const can = useAuthStore((state) => state.can)
@@ -60,14 +62,12 @@ export default function EmployeeLogins({ employee }) {
       {issued && <PasswordLinkPanel email={issued.email} invite={issued.invite} onDone={() => setIssued(null)} />}
 
       {logins.length === 0 ? (
-        <p className="text-sm text-gray-500 bg-slate-50 border border-slate-200 rounded-xl p-4">No login — they cannot sign in.</p>
+        <p className="text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded-xl p-4">No login — they cannot sign in.</p>
       ) : (
-        <ul className="rounded-xl border border-slate-200 divide-y divide-slate-100" aria-label="Logins">
+        <ul className="rounded-xl border border-gray-200 divide-y divide-gray-100" aria-label="Logins">
           {logins.map((login) => (
-            <li key={login.id} className="flex items-center gap-3 px-3 py-2.5">
-              <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
-                <KeyRound className="w-4 h-4 text-gray-500" />
-              </div>
+            <li key={login.id} className="flex flex-wrap sm:flex-nowrap items-center gap-3 px-3 py-2.5">
+              <IconBox icon={KeyRound} />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-gray-900 truncate" title={login.email}>{login.email}</p>
                 <p className="text-xs text-gray-500">{ACCOUNT[login.status] ?? login.status} · {roleLabel(login.role, login.role_name)}</p>
@@ -76,7 +76,7 @@ export default function EmployeeLogins({ employee }) {
               {mayLink && manageable && login.status === 'invited' && (
                 <button type="button" onClick={() => newLink(login)} disabled={issueLink.isPending}
                   aria-label={`New invitation link for ${login.email}`}
-                  className="shrink-0 px-2.5 py-1 rounded-lg text-xs font-semibold border border-blue-200 text-blue-700 hover:bg-blue-50 disabled:opacity-50">
+                  className={`shrink-0 ${btn.softSm}`}>
                   New link
                 </button>
               )}
@@ -84,7 +84,7 @@ export default function EmployeeLogins({ employee }) {
               {mayLink && manageable && login.status === 'invited' && (
                 <button type="button" onClick={() => setWithdrawing(login)} disabled={withdraw.isPending}
                   aria-label={`Withdraw the invitation for ${login.email}`}
-                  className="shrink-0 px-2.5 py-1 rounded-lg text-xs font-semibold border border-rose-200 text-rose-700 hover:bg-rose-50 disabled:opacity-50">
+                  className={`shrink-0 ${btn.dangerSm}`}>
                   Withdraw
                 </button>
               )}
@@ -94,8 +94,7 @@ export default function EmployeeLogins({ employee }) {
                   onClick={() => (login.status === 'active' ? setTurningOff(login) : toggle.mutate({ user_id: login.id, currentStatus: login.status }))}
                   disabled={toggle.isPending}
                   aria-label={`${login.status === 'active' ? 'Turn off' : 'Turn on'} ${login.email}`}
-                  className={`shrink-0 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-50
-                    ${login.status === 'active' ? 'border-amber-200 text-amber-700 hover:bg-amber-50' : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'}`}
+                  className={`shrink-0 ${login.status === 'active' ? btn.secondarySm : btn.okSm}`}
                 >
                   {login.status === 'active' ? 'Turn off' : 'Turn on'}
                 </button>
@@ -120,9 +119,8 @@ export default function EmployeeLogins({ employee }) {
           onAdded={(result) => { setAdding(false); setIssued({ email: result.user.email, invite: result.invite }) }}
         />
       ) : (
-        <button type="button" onClick={() => setAdding(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 text-sm font-medium">
-          <Plus className="w-3.5 h-3.5" /> {logins.length > 0 ? 'Add another login' : 'Add login'}
+        <button type="button" onClick={() => setAdding(true)} className={btn.soft}>
+          <Plus className="w-4 h-4" aria-hidden="true" /> {logins.length > 0 ? 'Add another login' : 'Add login'}
         </button>
       ))}
 
@@ -165,7 +163,7 @@ function AddLoginForm({ employee, assignable, onCancel, onAdded }) {
   }
 
   return (
-    <form onSubmit={submit} className="border border-gray-200 rounded-xl p-3 space-y-3 bg-gray-50" aria-label="Add a login">
+    <form onSubmit={submit} className="border border-brand-100 rounded-xl p-4 space-y-3 bg-brand-50/40" aria-label="Add a login">
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="text-sm font-semibold text-gray-900">A new login for {employee.full_name}</p>
@@ -195,10 +193,9 @@ function AddLoginForm({ employee, assignable, onCancel, onAdded }) {
           This login will hold the Super Admin panel: everything, including users, roles and approving the payroll.
         </p>
       )}
-      <div className="flex justify-end gap-2">
-        <button type="button" onClick={onCancel} className="px-3 py-1.5 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-white">Cancel</button>
-        <button type="submit" disabled={add.isPending || !chosen}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold disabled:opacity-50">
+      <div className="flex flex-wrap justify-end gap-2">
+        <button type="button" onClick={onCancel} className={btn.secondary}>Cancel</button>
+        <button type="submit" disabled={add.isPending || !chosen} className={btn.primary}>
           {add.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Add login
         </button>
       </div>

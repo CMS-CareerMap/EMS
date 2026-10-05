@@ -88,12 +88,12 @@ export function useLifecycleStep() {
   return useMutation({
     mutationFn: async ({ employeeId, step, body }) => (await api.post(`/lifecycle/employees/${employeeId}/${step}`, body ?? {}))?.data ?? null,
     // The person as they now stand — or nothing, when the step took them out
-    // of the caller's sight (an exit, a transfer away): the drawer closes as
-    // the list comes back without them, instead of showing "not found".
+    // of the caller's sight (an exit, a transfer away): their profile page goes
+    // back to the list, which says so, instead of showing "not found".
     onSuccess: (view, { employeeId }) => {
       const key = [...KEY, 'employee', employeeId]
       if (view) queryClient.setQueryData(key, view)
-      // Out of sight: kept as it is while the drawer closes, but never trusted again.
+      // Out of sight: kept as it is while the page leaves, but never trusted again.
       else queryClient.invalidateQueries({ queryKey: key, exact: true, refetchType: 'none' })
       return invalidateAll(queryClient, key)
     },

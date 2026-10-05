@@ -10,7 +10,11 @@ import { useMyWorkplace } from '../../hooks/usePunch'
 import { useLeaveBalances } from '../../hooks/useLeave'
 import { addDays, calendarDayIn, formatDay } from '../../lib/dates'
 import { prepareUpload } from '../../lib/prepareUpload'
-import { PROFILE_FIELDS, REQUEST_TYPES, minutesLabel } from '../../lib/requests'
+import { PROFILE_FIELDS, REQUEST_TYPES, minutesLabel, typeLabel } from '../../lib/requests'
+import { kindOf } from '../../lib/requestKinds'
+import { IconBox } from '../../components/ui/bits'
+import { btn, fileInput } from '../../components/ui/styles'
+import { ChevronLeft } from 'lucide-react'
 
 /**
  * A new request (client §28–29). One form, its fields following the kind:
@@ -33,11 +37,18 @@ function Field({ label, hint, children }) {
   )
 }
 
-export default function NewRequestDialog({ initialType = 'attendance_correction', initialDate = null, onClose }) {
+/**
+ * `initialType` is a kind to start on, or "choose" — then the dialog opens on
+ * the kinds, each with what it is for, and the form follows the one picked.
+ */
+export default function NewRequestDialog({ initialType = 'choose', initialDate = null, onClose }) {
   const timezone = useAuthStore((state) => state.organization?.timezone)
   const today = calendarDayIn(timezone)
   const submit = useSubmitRequest()
-  const [type, setType] = useState(initialType)
+  const known = REQUEST_TYPES.some(([key]) => key === initialType)
+  // A link with a kind this app does not have opens the choice rather than a form for nothing.
+  const [choosing, setChoosing] = useState(!known)
+  const [type, setType] = useState(known ? initialType : 'attendance_correction')
   const [date, setDate] = useState(initialDate ?? addDays(today, -1))
   const [checkIn, setCheckIn] = useState('')
   const [checkOut, setCheckOut] = useState('')
@@ -102,15 +113,37 @@ export default function NewRequestDialog({ initialType = 'attendance_correction'
     onClose()
   }
 
-  return (
-    <Dialog title="New request" onClose={busy ? () => {} : onClose}>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <Field label="What do you need?">
-          <select className={inputCls} value={type} onChange={(e) => setType(e.target.value)}>
-            {kinds.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-          </select>
-        </Field>
+  if (choosing) {
+    return (
+      <Dialog title="New request" onClose={onClose}>
+        <p className="text-sm text-gray-600">What do you need?</p>
+        <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2.5" aria-label="Kinds of request">
+          {kinds.map(([key, label]) => {
+            const kind = kindOf(key)
+            return (
+              <li key={key}>
+                <button type="button" onClick={() => { setType(key); setChoosing(false) }}
+                  className="w-full h-full text-left flex items-start gap-3 p-3.5 rounded-xl border border-gray-200 hover:border-brand-300 hover:bg-brand-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 transition-colors">
+                  <IconBox icon={kind.icon} tone={kind.tone} />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-bold text-gray-900">{label}</span>
+                    <span className="block text-xs text-gray-500 mt-0.5">{kind.hint}</span>
+                  </span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      </Dialog>
+    )
+  }
 
+  return (
+    <Dialog title={typeLabel(type)} onClose={busy ? () => {} : onClose}>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <button type="button" onClick={() => setChoosing(true)} disabled={busy} className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-800">
+          <ChevronLeft className="w-3.5 h-3.5" aria-hidden="true" />All kinds of request
+        </button>
         {type === 'attendance_correction' && (
           <>
             <p className="text-sm text-gray-600">For a day your check-in or check-out is missing or wrong. Give the time you need corrected; a time left empty stays as recorded.</p>
@@ -229,13 +262,13 @@ export default function NewRequestDialog({ initialType = 'attendance_correction'
           <textarea rows={2} className={inputCls} value={reason} onChange={(e) => setReason(e.target.value)} minLength={3} maxLength={1000} required />
         </Field>
         <Field label="Supporting file (optional)" hint={`A PDF or a photo, up to ${limit.data?.max_upload_mb ?? 2} MB — a bigger photo is made smaller.`}>
-          <input type="file" accept=".pdf,image/jpeg,image/png,image/webp" className="block w-full text-sm" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          <input type="file" accept=".pdf,image/jpeg,image/png,image/webp" className={fileInput} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
         </Field>
         {problem && <p role="alert" className="text-sm text-rose-700">{problem}</p>}
 
         <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-2">
-          <button type="button" onClick={onClose} disabled={busy} className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-60">Cancel</button>
-          <button type="submit" disabled={busy || !ready} className="px-4 py-2 text-sm font-medium text-white rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-60">
+          <button type="button" onClick={onClose} disabled={busy} className={btn.secondary}>Cancel</button>
+          <button type="submit" disabled={busy || !ready} className={btn.primary}>
             {busy ? 'Sending…' : 'Send request'}
           </button>
         </div>

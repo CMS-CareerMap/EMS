@@ -1,178 +1,34 @@
-import { createElement, useState, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  UserCheck, UserX, Clock, CalendarDays, CircleDashed, Search,
-  ChevronLeft, ChevronRight, Download, Edit2, Calendar, Loader2, Upload,
-} from 'lucide-react'
+import { Download, Calendar, CalendarDays, Loader2, Upload } from 'lucide-react'
 import MarkAttendanceModal from '../features/attendance/MarkAttendanceModal'
 import ImportAttendanceModal from '../features/attendance/ImportAttendanceModal'
-import { useDayRoster, useMonthAttendance, useMarkAttendance, useMonthlyHours } from '../hooks/useAttendance'
+import SelfAttendance from '../features/attendance/SelfAttendance'
+import TeamDay from '../features/attendance/TeamDay'
+import MonthNav from '../features/attendance/MonthNav'
+import MonthCalendar from '../features/attendance/MonthCalendar'
+import MonthTotals from '../features/attendance/MonthTotals'
+import { useDayRoster, useMonthAttendance, useMonthCalendar, useMarkAttendance } from '../hooks/useAttendance'
+import { useNow } from '../hooks/useNow'
 import { useAuthStore } from '../stores/authStore'
 import { saveFromApi } from '../api/http'
 import { useDownload } from '../hooks/useDownload'
-import { calendarDayIn, addDays, wallClockIn, formatCalendarDay, formatDay } from '../lib/dates'
+import { calendarDayIn, wallClockIn, formatCalendarDay, isoInstant } from '../lib/dates'
+import { monthLabel, toMinutes } from '../lib/attendance'
 import DataState from '../components/DataState'
-import { WORK_MODES, minutesLabel } from '../lib/requests'
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/**
- * The statuses the server has — no more, no fewer. The old list had `late` and
- * `wfh`, which are not statuses (working from home is an approved request, and
- * shows beside the check-in as the day's work mode), and lacked `on_leave` and
- * `holiday`, which are — so leave days rendered as blank and a Late card
- * counted nothing, for ever.
- */
-const STATUS_META = {
-  present:    { label: 'Present',    cls: 'bg-green-100 text-green-700',    dot: 'bg-green-500' },
-  half_day:   { label: 'Half Day',   cls: 'bg-purple-100 text-purple-700',  dot: 'bg-purple-500' },
-  absent:     { label: 'Absent',     cls: 'bg-red-100 text-red-600',        dot: 'bg-red-500' },
-  on_leave:   { label: 'On Leave',   cls: 'bg-amber-100 text-amber-700',    dot: 'bg-amber-500' },
-  holiday:    { label: 'Holiday',    cls: 'bg-sky-100 text-sky-700',        dot: 'bg-sky-500' },
-  weekly_off: { label: 'Weekly Off', cls: 'bg-indigo-100 text-indigo-700',  dot: 'bg-indigo-500' },
-}
-
-/** `unmarked` is not a status — it is the absence of one, and a tab of its own. */
-const STATUS_TABS = ['all', 'present', 'half_day', 'absent', 'on_leave', 'weekly_off', 'unmarked']
-const TAB_LABELS  = {
-  all: 'All', present: 'Present', half_day: 'Half Day', absent: 'Absent',
-  on_leave: 'On Leave', weekly_off: 'Weekly Off', unmarked: 'Not Marked',
-}
-
-/** The stored figure, from the server — never recomputed here from two clock times. */
-function formatHours(hours) {
-  if (hours == null) return '—'
-  const whole = Math.floor(hours)
-  const minutes = Math.round((hours - whole) * 60)
-  return `${whole}h ${minutes}m`
-}
-
-function initials(name) {
-  return (name || '').split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
-}
-
-// ─── Monthly calendar ─────────────────────────────────────────────────────────
+import PageHeader from '../components/ui/PageHeader'
+import Segmented from '../components/ui/Segmented'
+import { Card } from '../components/ui/bits'
+import { btn, card, field } from '../components/ui/styles'
 
 /**
- * Hours worked in the month, per person — the figure the client asked for
- * ("jitne ghante usne work kiya vo dikhe"), summed by the server from the stored
- * hours (Day 12), so it agrees with every day's row and with the payslip. The
- * people are whoever the caller's attendance reaches: themselves, their team,
- * or the company.
+ * Attendance.
+ *
+ * Somebody who sees only themselves gets their own page: today, the month in
+ * figures, their timings and the month's log. Somebody whose attendance
+ * reaches others — a team, or the company — gets the day's roster, and the
+ * month: their own calendar and everybody's hours.
  */
-function MonthTotals({ year, month }) {
-  const totals = useMonthlyHours(year, month)
-  const label = new Date(Date.UTC(year, month - 1, 1)).toLocaleString('en-IN', { month: 'long', year: 'numeric', timeZone: 'UTC' })
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-      <div className="px-5 py-4 border-b border-gray-100">
-        <p className="text-base font-semibold text-gray-900">Hours worked · {label}</p>
-        <p className="text-xs text-gray-500 mt-0.5">Expected is the shift’s hours for the days worked, half days counted as half.</p>
-      </div>
-      <DataState query={totals} compact isEmpty={(data) => !data.employees?.length}
-        empty={<p className="px-5 py-6 text-sm text-gray-400">No hours recorded this month yet.</p>}>
-        {(data) => (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm" aria-label={`Hours worked in ${label}`}>
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="px-5 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Employee</th>
-                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Hours</th>
-                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Expected</th>
-                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Present</th>
-                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Half</th>
-                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Absent</th>
-                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Leave</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {data.employees.map((e) => (
-                  <tr key={e.employee_uuid}>
-                    <td className="px-5 py-2.5">
-                      <p className="font-medium text-gray-900 whitespace-nowrap">{e.full_name}</p>
-                      <p className="text-xs text-gray-400">{e.employee_id}</p>
-                    </td>
-                    <td className="px-4 py-2.5 text-right font-semibold text-gray-900 whitespace-nowrap">{formatHours(e.total_hours)}</td>
-                    <td className="px-4 py-2.5 text-right text-gray-600 whitespace-nowrap">{formatHours(e.expected_hours)}</td>
-                    <td className="px-4 py-2.5 text-right text-gray-700">{e.days_present}</td>
-                    <td className="px-4 py-2.5 text-right text-gray-700">{e.days_half}</td>
-                    <td className="px-4 py-2.5 text-right text-gray-700">{e.days_absent}</td>
-                    <td className="px-4 py-2.5 text-right text-gray-700">{e.days_on_leave}</td>
-                  </tr>
-                ))}
-              </tbody>
-              {data.employees.length > 1 && (
-                <tfoot className="border-t border-gray-200 bg-gray-50">
-                  <tr>
-                    <td className="px-5 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">Total</td>
-                    <td className="px-4 py-2.5 text-right font-semibold text-gray-900 whitespace-nowrap">{formatHours(data.grand_total_hours)}</td>
-                    <td colSpan={5} />
-                  </tr>
-                </tfoot>
-              )}
-            </table>
-          </div>
-        )}
-      </DataState>
-    </div>
-  )
-}
-
-function MonthlyCalendar({ query, attendanceMap, year, month, today }) {
-  const onStaff = useAuthStore((state) => Boolean(state.profile) && state.can('leave:apply'))
-  const daysInMonth = new Date(year, month, 0).getDate()
-  const firstDay    = new Date(year, month - 1, 1).getDay()
-  const monthLabel  = new Date(year, month - 1, 1).toLocaleString('en-IN', { month: 'long', year: 'numeric' })
-
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-      <div className="flex items-center justify-between mb-4">
-        <p className="text-base font-semibold text-gray-900">{monthLabel} — My Attendance</p>
-        <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
-          {Object.entries(STATUS_META).map(([k, v]) => (
-            <div key={k} className="flex items-center gap-1.5 font-medium">
-              <span className={`w-2.5 h-2.5 rounded-full ${v.dot}`} />
-              {v.label}
-            </div>
-          ))}
-        </div>
-      </div>
-      {/* A month that failed to load is not a month of blank days. */}
-      <DataState query={query} compact>
-        <div className="grid grid-cols-7 mb-1">
-          {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((d) => (
-            <div key={d} className="text-center text-xs font-semibold text-gray-400 py-1">{d}</div>
-          ))}
-        </div>
-        <div className="grid grid-cols-7 gap-1.5">
-          {Array.from({ length: firstDay }).map((_, i) => <div key={`e-${i}`} />)}
-          {Array.from({ length: daysInMonth }, (_, i) => {
-            const day = i + 1
-            const key = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-            const status = attendanceMap[key]
-            const meta = STATUS_META[status]
-            const isToday = key === today
-            return (
-              <div key={key}
-                className={`aspect-square flex items-center justify-center rounded-lg text-xs font-semibold transition-all duration-100
-                  ${isToday ? 'ring-2 ring-blue-500 font-bold' : ''}
-                  ${meta ? meta.cls : 'text-gray-400 bg-gray-50'}`}>
-                {day}
-              </div>
-            )
-          })}
-        </div>
-      </DataState>
-      {/* A missed or wrong punch is put right by whoever decides corrections (client §28). */}
-      {onStaff && <p className="mt-4 text-xs text-gray-500">
-        A day looks wrong? <Link to="/requests?new=attendance_correction" className="font-medium text-blue-600 hover:text-blue-700">Request a correction</Link>
-      </p>}
-    </div>
-  )
-}
-
-// ─── Main component ───────────────────────────────────────────────────────────
-
 export default function Attendance() {
   const timezone = useAuthStore((state) => state.organization?.timezone)
   // The caller's EMPLOYEE id — attendance rows belong to employees. The old
@@ -182,12 +38,14 @@ export default function Attendance() {
   // Who may mark or correct a day is a permission. The role list this replaced
   // decided it by name.
   const canMark = useAuthStore((state) => state.can('attendance:mark'))
+  const now = useNow()
 
   // The company's today. From UTC it was yesterday until 05:30 in India.
   const today = calendarDayIn(timezone)
 
   const [viewChoice, setViewChoice] = useState(null)
   const [date, setDate]             = useState(today)
+  const [monthKey, setMonthKey]     = useState(today.slice(0, 7))
   const [tab, setTab]               = useState('all')
   const [deptFilter, setDeptFilter] = useState('All')
   const [search, setSearch]         = useState('')
@@ -198,11 +56,6 @@ export default function Attendance() {
   const roster         = useDayRoster(date)
   const rosterData     = roster.data
   const markAttendance = useMarkAttendance()
-
-  // For the personal monthly calendar
-  const [calYear, calMonth] = date.split('-').map(Number)
-  const monthAttendance = useMonthAttendance(calYear, calMonth)
-  const monthRecords    = monthAttendance.data
 
   const records = useMemo(() => (rosterData?.employees ?? []).map((emp) => ({
     id: emp.employee_id,
@@ -227,12 +80,15 @@ export default function Attendance() {
     mark_goes_to: emp.mark_goes_to ?? null,
   })), [rosterData, timezone])
 
-  // Whether this person sees anybody but themselves decides the default view:
-  // somebody with a team starts on the roster, somebody without starts on their
-  // own calendar. Decided by what the server returned — the scope it applied —
-  // rather than by guessing from a role name.
-  const seesOthers = records.some((r) => r.id !== myEmployeeId)
-  const view = viewChoice ?? (seesOthers ? 'daily' : 'monthly')
+  // Whether this person sees anybody but themselves decides the page: the
+  // roster for somebody with a team, their own page for somebody without.
+  // Decided by the attendance reach the server put in the session — and by
+  // the roster it returned — never by a role name. Not by the roster alone:
+  // on a day before everybody joined it can hold nobody else, and the page
+  // turned into the personal one, its date picker gone with no way back.
+  const attendanceReach = useAuthStore((state) => state.attendanceReach)
+  const seesOthers = (Boolean(attendanceReach) && attendanceReach !== 'SELF') || records.some((r) => r.id !== myEmployeeId)
+  const view = viewChoice ?? 'daily'
 
   const departments = useMemo(
     () => ['All', ...[...new Set(records.map((r) => r.department).filter(Boolean))].sort()],
@@ -288,310 +144,69 @@ export default function Attendance() {
     startExport('csv', () => saveFromApi(`/attendance/export?${params}`))
   }
 
-  const marked = records.length - stats.unmarked
-  const attPct = records.length ? Math.round((stats.present + stats.half_day) / records.length * 100) : 0
-
-  // Build a date→status map for the signed-in employee's own days
-  const attendanceMap = useMemo(() => {
-    const map = {}
-    for (const a of monthRecords ?? []) {
-      if (a.employee_id === myEmployeeId) {
-        map[a.date] = a.status
-      }
-    }
-    return map
-  }, [monthRecords, myEmployeeId])
+  const ready = roster.isSuccess || roster.isPlaceholderData
+  const self = ready && !seesOthers
+  const [year, month] = monthKey.split('-').map(Number)
+  const subtitle = self ? formatCalendarDay(today) : view === 'monthly' ? monthLabel(year, month) : formatCalendarDay(date)
 
   return (
     <>
-      <div className="space-y-5">
-
-        {/* Header */}
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900">Attendance</h2>
-            <p className="text-sm text-gray-500 mt-0.5">{formatCalendarDay(date)}</p>
-          </div>
-          {/* Wraps on a phone: the view switch, Import and Export do not fit one 390px row. */}
-          <div className="flex flex-wrap items-center gap-2">
-            {seesOthers && (
-              <div className="flex items-center bg-gray-100 rounded-lg p-1">
-                <button onClick={() => setViewChoice('daily')}
-                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors
-                    ${view === 'daily' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
-                  Daily
-                </button>
-                <button onClick={() => setViewChoice('monthly')}
-                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5
-                    ${view === 'monthly' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
-                  <Calendar className="w-3.5 h-3.5" /> Monthly
-                </button>
-              </div>
-            )}
-            {/* The biometric machine's file (Day 12): whoever may mark other people's days. */}
-            {canMark && (
-              <button onClick={() => setImporting(true)}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors">
-                <Upload className="w-4 h-4" /> Import
-              </button>
-            )}
-            <button onClick={handleExportCSV} disabled={exporting === 'csv'}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-60">
-              {exporting === 'csv' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} Export
+      <PageHeader
+        title="Attendance"
+        subtitle={ready ? subtitle : ' '}
+        actions={<>
+          {seesOthers && (
+            <Segmented label="View" value={view} onChange={setViewChoice}
+              items={[{ key: 'daily', label: 'Daily', icon: CalendarDays }, { key: 'monthly', label: 'Monthly', icon: Calendar }]} />
+          )}
+          {/* The biometric machine's file (Day 12): whoever may mark other people's days. */}
+          {canMark && (
+            <button onClick={() => setImporting(true)} className={btn.secondary}>
+              <Upload className="w-4 h-4" aria-hidden="true" /> Import
             </button>
-          </div>
-        </div>
+          )}
+          <button onClick={handleExportCSV} disabled={exporting === 'csv'} className={btn.secondary}>
+            {exporting === 'csv' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" aria-hidden="true" />} Export
+          </button>
+        </>}
+      />
 
-        {/* A day that could not be loaded still leaves a way to another day:
-            the date controls below live inside the roster's view. */}
-        {roster.isError && (
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3 flex flex-wrap items-center gap-3">
-            <label htmlFor="attendance-other-day" className="text-sm text-gray-600">Choose another day</label>
-            <input id="attendance-other-day" type="date" value={date} max={today} onChange={(e) => e.target.value && setDate(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            {date !== today && (
-              <button type="button" onClick={() => setDate(today)} className="px-3 py-2 text-sm font-medium text-blue-700 hover:underline">Today</button>
-            )}
+      {/* A day that could not be loaded still leaves a way to another day:
+          the date controls below live inside the roster's view. */}
+      {roster.isError && (
+        <div className={`${card} mb-4 px-4 py-3 flex flex-wrap items-center gap-3`}>
+          <label htmlFor="attendance-other-day" className="text-sm text-gray-600">Choose another day</label>
+          <input id="attendance-other-day" type="date" value={date} max={today} onChange={(e) => e.target.value && setDate(e.target.value)} className={field} />
+          {date !== today && (
+            <button type="button" onClick={() => setDate(today)} className={btn.softSm}>Today</button>
+          )}
+        </div>
+      )}
+
+      {/* Everything below is drawn from the roster — even which page is right,
+          so guessing before it arrives would flash the wrong one at HR. A
+          roster that failed shows the error, never an empty team. */}
+      <DataState query={roster} loading="Loading attendance…">
+        {() => !seesOthers ? (
+          <SelfAttendance monthKey={monthKey} onMonth={setMonthKey} today={today} />
+        ) : view === 'monthly' ? (
+          <TeamMonth monthKey={monthKey} onMonth={setMonthKey} today={today} myEmployeeId={myEmployeeId} />
+        ) : (
+          // inert while the next day loads: the rows on screen are the last day's, and
+          // editing one would save the old day's entry onto the new date.
+          <div className={`transition-opacity ${roster.isPlaceholderData ? 'opacity-60' : ''}`} aria-busy={roster.isPlaceholderData} inert={roster.isPlaceholderData}>
+            <TeamDay
+              records={records} filtered={filtered} stats={stats}
+              date={date} onDate={setDate} today={today}
+              tab={tab} onTab={setTab}
+              departments={departments} deptFilter={deptFilter} onDept={setDeptFilter}
+              search={search} onSearch={setSearch}
+              canMark={canMark} onMark={setModalEmp}
+              nowMinutes={toMinutes(wallClockIn(timezone, isoInstant(now)))}
+            />
           </div>
         )}
-
-        {/* Everything below is drawn from the roster — even which view is right,
-            so guessing before it arrives would flash the wrong one at HR. A
-            roster that failed shows the error, never an empty team. */}
-        <DataState query={roster} loading="Loading attendance…">
-          {() => (
-            // inert while the next day loads: the rows on screen are the last day's, and
-            // editing one would save the old day's entry onto the new date.
-            <div className={`space-y-5 transition-opacity ${roster.isPlaceholderData ? 'opacity-60' : ''}`} aria-busy={roster.isPlaceholderData} inert={roster.isPlaceholderData}>
-              {/* Month navigation in the monthly view — for one's own days, and for
-                  HR and managers, whose month's hours per person are below it. */}
-              {view === 'monthly' && (
-                <div className="flex items-center gap-2 border border-gray-200 rounded-lg overflow-hidden shrink-0 w-fit bg-white">
-                  <button onClick={() => setDate((d) => addDays(`${d.slice(0, 7)}-01`, -1).slice(0, 7) + '-01')} aria-label="Previous month"
-                    className="px-2.5 py-2 hover:bg-gray-50 text-slate-500 hover:text-slate-700 transition-colors border-r border-gray-200">
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <input
-                    type="month"
-                    aria-label="Month"
-                    value={date.slice(0, 7)}
-                    onChange={(e) => e.target.value && setDate(e.target.value + '-01')}
-                    className="px-3 py-2 text-sm text-slate-700 focus:outline-none bg-transparent"
-                  />
-                  <button onClick={() => setDate((d) => addDays(`${d.slice(0, 7)}-28`, 7).slice(0, 7) + '-01')} aria-label="Next month"
-                    className="px-2.5 py-2 hover:bg-gray-50 text-slate-500 hover:text-slate-700 transition-colors border-l border-gray-200">
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
-
-              {/* Stat cards for anybody looking at a team */}
-              {seesOthers && (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-                  {[
-                    { key: 'present',  icon: UserCheck,    label: 'Present',    iconBg: 'bg-green-100',  iconColor: 'text-green-600' },
-                    { key: 'half_day', icon: Clock,        label: 'Half Day',   iconBg: 'bg-purple-100', iconColor: 'text-purple-600' },
-                    { key: 'absent',   icon: UserX,        label: 'Absent',     iconBg: 'bg-red-100',    iconColor: 'text-red-600' },
-                    { key: 'on_leave', icon: CalendarDays, label: 'On Leave',   iconBg: 'bg-amber-100',  iconColor: 'text-amber-600' },
-                    { key: 'unmarked', icon: CircleDashed, label: 'Not Marked', iconBg: 'bg-gray-100',   iconColor: 'text-gray-500' },
-                  ].map(({ key, icon, label, iconBg, iconColor }) => (
-                    <button key={key} onClick={() => setTab(tab === key ? 'all' : key)}
-                      className={`bg-white rounded-xl border shadow-sm p-4 flex items-center gap-3 text-left transition-all
-                        ${tab === key ? 'border-blue-400 ring-1 ring-blue-400' : 'border-gray-200 hover:border-gray-300'}`}>
-                      <div className={`${iconBg} rounded-lg p-2 shrink-0`}>
-                        {createElement(icon, { className: `w-5 h-5 ${iconColor}` })}
-                      </div>
-                      <div>
-                        <p className="text-xl font-bold text-gray-900">{stats[key]}</p>
-                        <p className="text-xs text-gray-500">{label}</p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {view === 'monthly' && (
-                <>
-                  <MonthlyCalendar
-                    query={monthAttendance}
-                    attendanceMap={attendanceMap}
-                    year={calYear}
-                    month={calMonth}
-                    today={today}
-                  />
-                  <MonthTotals year={calYear} month={calMonth} />
-                </>
-              )}
-
-              {view === 'daily' && seesOthers && (
-                <>
-                  {/* Date nav + filters */}
-                  <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3 flex flex-wrap gap-3 items-center">
-                    <div className="flex items-center gap-1 border border-gray-200 rounded-lg overflow-hidden shrink-0">
-                      <button onClick={() => setDate((d) => addDays(d, -1))}
-                        className="px-2.5 py-2 hover:bg-gray-50 text-gray-500 hover:text-gray-700 transition-colors border-r border-gray-200">
-                        <ChevronLeft className="w-4 h-4" />
-                      </button>
-                      <input type="date" value={date} max={today} onChange={(e) => e.target.value && setDate(e.target.value)}
-                        className="px-3 py-2 text-sm text-gray-700 focus:outline-none bg-transparent" />
-                      <button onClick={() => setDate((d) => (d < today ? addDays(d, 1) : d))}
-                        disabled={date >= today}
-                        className="px-2.5 py-2 hover:bg-gray-50 text-gray-500 hover:text-gray-700 disabled:text-gray-300 disabled:hover:bg-transparent transition-colors border-l border-gray-200">
-                        <ChevronRight className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    <div className="relative flex-1 min-w-40">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                      <input type="text" placeholder="Search employee…"
-                        value={search} onChange={(e) => setSearch(e.target.value)}
-                        className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm
-                          focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder:text-gray-400" />
-                    </div>
-
-                    {/* The company's own departments, from the people on the roster —
-                        not a list typed into this file that named departments the
-                        company does not have. */}
-                    <select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)}
-                      className="border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-700
-                        focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-                      {departments.map((d) => <option key={d}>{d}</option>)}
-                    </select>
-
-                    <div className="ml-auto flex items-center gap-2 shrink-0">
-                      <span className="text-xs text-gray-400">{marked}/{records.length} marked</span>
-                      <div className="w-32 h-2 bg-gray-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${attPct}%` }} />
-                      </div>
-                      <span className="text-sm font-semibold text-gray-700">{attPct}%</span>
-                    </div>
-                  </div>
-
-                  {/* Status tabs */}
-                  <div className="flex items-center gap-1 flex-wrap">
-                    {STATUS_TABS.map((t) => (
-                      <button key={t} onClick={() => setTab(t)}
-                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
-                          ${tab === t ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
-                        {TAB_LABELS[t]}
-                        {t !== 'all' && (
-                          <span className={`ml-1.5 text-xs ${tab === t ? 'text-blue-200' : 'text-gray-400'}`}>
-                            {stats[t]}
-                          </span>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Table */}
-                  <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                    <div className="overflow-x-auto">
-                      <table className="w-full min-w-175">
-                        <thead>
-                          <tr className="bg-gray-50 border-b border-gray-200">
-                            <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Employee</th>
-                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Department</th>
-                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Check-in</th>
-                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Check-out</th>
-                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Hours</th>
-                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-                            {canMark && <th className="px-5 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Action</th>}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {/* The roster has answered by now (the DataState above), so
-                              nothing here is the empty of a failed request — only of
-                              the filters. */}
-                          {filtered.length === 0 ? (
-                            <tr><td colSpan={canMark ? 7 : 6} className="text-center py-16 text-sm text-gray-400">No records found.</td></tr>
-                          ) : filtered.map((rec) => {
-                            const meta = rec.status ? STATUS_META[rec.status] : null
-                            return (
-                              <tr key={rec.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                                <td className="px-5 py-3.5">
-                                  <div className="flex items-center gap-3">
-                                    <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
-                                      <span className="text-blue-700 text-xs font-semibold">{initials(rec.full_name)}</span>
-                                    </div>
-                                    <div>
-                                      <p className="text-sm font-medium text-gray-900">{rec.full_name}</p>
-                                      <p className="text-xs text-gray-400 font-mono">{rec.employee_code}</p>
-                                    </div>
-                                  </div>
-                                </td>
-                                <td className="px-4 py-3.5">
-                                  <p className="text-sm text-gray-700">{rec.department || '—'}</p>
-                                  <p className="text-xs text-gray-400">{rec.designation || '—'}</p>
-                                </td>
-                                <td className="px-4 py-3.5">
-                                  <span className={`text-sm font-medium ${rec.check_in ? 'text-gray-900' : 'text-gray-300'}`} title={rec.check_in_device ?? undefined}>
-                                    {rec.check_in || '—'}
-                                  </span>
-                                  {rec.late_minutes > 0 && (
-                                    <span className="block mt-0.5 w-fit px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 text-[11px] font-medium">Late {minutesLabel(rec.late_minutes)}</span>
-                                  )}
-                                  {rec.work_mode && rec.work_mode !== 'office' && (
-                                    <span className="block mt-0.5 w-fit px-1.5 py-0.5 rounded bg-teal-50 text-teal-700 text-[11px] font-medium">{WORK_MODES[rec.work_mode]}</span>
-                                  )}
-                                </td>
-                                <td className="px-4 py-3.5">
-                                  <span className={`text-sm ${rec.check_out ? 'text-gray-900' : 'text-gray-300'}`}>
-                                    {rec.check_out || '—'}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-3.5">
-                                  <span className="text-sm text-gray-700">{formatHours(rec.hours_worked)}</span>
-                                  {rec.overtime_minutes > 0 && (
-                                    <span className="block mt-0.5 w-fit px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[11px] font-medium">+{minutesLabel(rec.overtime_minutes)} overtime</span>
-                                  )}
-                                  {rec.early_leaving_minutes > 0 && (
-                                    <span className="block mt-0.5 w-fit px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 text-[11px] font-medium">Left {minutesLabel(rec.early_leaving_minutes)} early</span>
-                                  )}
-                                </td>
-                                <td className="px-4 py-3.5">
-                                  {meta ? (
-                                    <div className="flex items-center gap-2">
-                                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${meta.cls}`}>
-                                        <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${meta.dot}`} />
-                                        {meta.label}
-                                      </span>
-                                      {rec.note && <span className="text-xs text-gray-400 truncate max-w-24" title={rec.note}>{rec.note}</span>}
-                                    </div>
-                                  ) : (
-                                    <span className="text-xs text-gray-300 italic">Not marked</span>
-                                  )}
-                                </td>
-                                {canMark && (
-                                  <td className="px-5 py-3.5 text-right">
-                                    {rec.mark_goes_to ? (
-                                      <span className="text-xs text-gray-400 italic">Goes to {rec.mark_goes_to}</span>
-                                    ) : (
-                                      <button onClick={() => setModalEmp(rec)}
-                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100
-                                          text-xs font-semibold transition-colors ml-auto shadow-2xs">
-                                        <Edit2 className="w-3.5 h-3.5" />
-                                        {rec.status ? 'Edit' : 'Mark'}
-                                      </button>
-                                    )}
-                                  </td>
-                                )}
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                    <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between">
-                      <p className="text-xs text-gray-400">Showing {filtered.length} of {records.length} employees</p>
-                      <p className="text-xs text-gray-400">{formatDay(date)}</p>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-        </DataState>
-      </div>
+      </DataState>
 
       <MarkAttendanceModal
         open={!!modalEmp}
@@ -601,5 +216,35 @@ export default function Attendance() {
       />
       {importing && <ImportAttendanceModal onClose={() => setImporting(false)} />}
     </>
+  )
+}
+
+/**
+ * The month, for somebody with a team: their own calendar — when they have an
+ * employee record — and everybody's hours.
+ */
+function TeamMonth({ monthKey, onMonth, today, myEmployeeId }) {
+  const onStaff = useAuthStore((state) => Boolean(state.profile) && state.can('leave:apply'))
+  const [year, month] = monthKey.split('-').map(Number)
+  const records = useMonthAttendance(year, month, { enabled: Boolean(myEmployeeId), employeeId: myEmployeeId })
+  const calendar = useMonthCalendar(year, month, { enabled: Boolean(myEmployeeId) })
+  const mine = (records.data ?? []).filter((a) => a.employee_id === myEmployeeId)
+
+  return (
+    <div className="space-y-4 sm:space-y-5">
+      <MonthNav value={monthKey} onChange={onMonth} />
+      {myEmployeeId && (
+        <Card title={`${monthLabel(year, month)} — My attendance`} subtitle="Your own days, holidays and weekly offs">
+          <MonthCalendar year={year} month={month} today={today} rows={mine} rowsQuery={records} calendarQuery={calendar} />
+          {/* A missed or wrong punch is put right by whoever decides corrections (client §28). */}
+          {onStaff && (
+            <p className="mt-3 text-xs text-gray-500">
+              A day looks wrong? <Link to="/requests?new=attendance_correction" className="font-semibold text-brand-600 hover:text-brand-800">Request a correction</Link>
+            </p>
+          )}
+        </Card>
+      )}
+      <MonthTotals year={year} month={month} />
+    </div>
   )
 }

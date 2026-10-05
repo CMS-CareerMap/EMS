@@ -1,3 +1,4 @@
+import { btn } from '../../components/ui/styles'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import Dialog, { inputCls } from '../../components/Dialog'
@@ -82,8 +83,8 @@ export default function LeaveTypeRulesDialog({ type, onClose }) {
           </Row>
         )}
         <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-2">
-          <button type="button" onClick={onClose} disabled={update.isPending} className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-60">Cancel</button>
-          <button type="submit" disabled={update.isPending} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-60">{update.isPending ? 'Saving…' : 'Save rules'}</button>
+          <button type="button" onClick={onClose} disabled={update.isPending} className={btn.secondary}>Cancel</button>
+          <button type="submit" disabled={update.isPending} className={btn.primary}>{update.isPending ? 'Saving…' : 'Save rules'}</button>
         </div>
       </form>
     </Dialog>

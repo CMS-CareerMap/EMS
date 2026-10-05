@@ -1,3 +1,5 @@
+import { useId } from 'react'
+import { btn } from '../../components/ui/styles'
 import { Check, Save, Loader2 } from 'lucide-react'
 
 /**
@@ -7,29 +9,33 @@ import { Check, Save, Loader2 } from 'lucide-react'
  * tab can be read — and fixed — on its own.
  */
 
-export const inp = 'w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 placeholder:text-gray-400 bg-white'
-export const inpSm = 'border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white'
+// The shared field look (components/ui/styles `field`), written out: a file of
+// components may export plain strings, not values worked out from others.
+export const inp = 'w-full border border-gray-200 bg-white rounded-lg px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 disabled:bg-gray-50 disabled:text-gray-500'
+export const inpSm = 'border border-gray-200 bg-white rounded-lg px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 disabled:bg-gray-50 disabled:text-gray-500'
 
+/** A titled card of settings — named by its title, so it is a region a screen reader can jump to. */
 export function Section({ title, desc, children }) {
+  const titleId = useId()
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-100">
-        <p className="text-base font-semibold text-gray-900">{title}</p>
-        {desc && <p className="text-sm text-gray-400 mt-0.5">{desc}</p>}
+    <section aria-labelledby={titleId} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="px-4 sm:px-6 py-4 border-b border-gray-100">
+        <h3 id={titleId} className="text-sm font-bold text-gray-900">{title}</h3>
+        {desc && <p className="text-xs text-gray-500 mt-0.5">{desc}</p>}
       </div>
-      <div className="px-6 py-2">{children}</div>
-    </div>
+      <div className="px-4 sm:px-6 py-2">{children}</div>
+    </section>
   )
 }
 
 export function Field({ label, hint, children }) {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 py-4 border-b border-gray-100 last:border-0">
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 py-4 border-b border-gray-100 last:border-0">
       <div>
-        <p className="text-sm font-medium text-gray-700">{label}</p>
-        {hint && <p className="text-xs text-gray-400 mt-0.5">{hint}</p>}
+        <p className="text-sm font-semibold text-gray-800">{label}</p>
+        {hint && <p className="text-xs text-gray-500 mt-0.5">{hint}</p>}
       </div>
-      <div className="sm:col-span-2">{children}</div>
+      <div className="sm:col-span-2 min-w-0">{children}</div>
     </div>
   )
 }
@@ -44,8 +50,7 @@ export function Field({ label, hint, children }) {
 export function SaveBar({ onSave, saving, saved, disabled }) {
   return (
     <div className="flex justify-end pt-4">
-      <button type="button" onClick={onSave} disabled={saving || disabled}
-        className="flex items-center gap-2 px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium transition-colors">
+      <button type="button" onClick={onSave} disabled={saving || disabled} className={`${btn.primary} w-full sm:w-auto`}>
         {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : saved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
         {saving ? 'Saving…' : saved ? 'Saved' : 'Save Changes'}
       </button>
@@ -58,8 +63,8 @@ export function Toggle({ checked, onChange, disabled, label }) {
   return (
     <button type="button" role="switch" aria-checked={checked} aria-label={label} disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 disabled:opacity-50
-        ${checked ? 'bg-blue-600' : 'bg-gray-200'}`}>
+      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1
+        ${checked ? 'bg-brand-600' : 'bg-gray-200'}`}>
       <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform
         ${checked ? 'translate-x-6' : 'translate-x-1'}`} />
     </button>

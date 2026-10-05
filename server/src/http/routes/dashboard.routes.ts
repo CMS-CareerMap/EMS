@@ -1,27 +1,26 @@
 import { Router } from 'express'
-import { getCompanySummary, getMySummary } from '../controllers/dashboard.controller'
+import { getMySummary, getPayroll, getPeople, getToday } from '../controllers/dashboard.controller'
 import { authenticate } from '../middleware/authenticate'
 import { authorize } from '../middleware/authorize'
 
 /**
- * Mounted at /api/dashboard.
+ * Mounted at /api/dashboard — the home page's sections, each behind the
+ * permission that opens it:
  *
- * The company view is gated on `employee:read` — "may you see other people at
- * all". `attendance:read` would NOT work here: an employee holds it for their
- * own rows, so they would be handed a company dashboard containing only
- * themselves. Not a leak, but a page that makes no sense for them, and a
- * permission chosen for the wrong reason tends to be copied.
- *
- * The data scope then narrows what they see: a manager's figures cover their
- * team, HR's cover the company. One endpoint, two different truths, decided by
- * who is asking rather than by which page called it.
- *
- * `/me` needs only `dashboard:read`, which everybody holds. It is about the
- * caller and takes no id, so there is nothing to point at anybody else.
+ *   - `/today`   attendance:read, and a reach beyond oneself (the service
+ *                refuses a reach of one's own: a "company" of one is not a
+ *                view of anybody's day). A manager's figures cover their team,
+ *                HR's the company — decided by who asks, not by the page.
+ *   - `/people`  employee:read — the staff the caller's directory shows.
+ *   - `/payroll` payroll:structure:read — the company's payroll.
+ *   - `/me`      dashboard:read, which everybody holds. It is about the caller
+ *                and takes no id, so there is nothing to point at anybody else.
  */
 export const dashboardRouter = Router()
 
 dashboardRouter.use(authenticate)
 
-dashboardRouter.get('/summary', authorize('employee:read'), getCompanySummary)
+dashboardRouter.get('/today', authorize('attendance:read'), getToday)
+dashboardRouter.get('/people', authorize('employee:read'), getPeople)
+dashboardRouter.get('/payroll', authorize('payroll:structure:read'), getPayroll)
 dashboardRouter.get('/me', authorize('dashboard:read'), getMySummary)

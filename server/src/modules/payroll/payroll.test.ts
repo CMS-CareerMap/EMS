@@ -165,6 +165,8 @@ beforeAll(async () => {
     { code: 'SPECIAL', label: 'Special Allowance', countsForPf: false, displayOrder: 5 },
     // Entered per month, as the client specified — never on a salary record.
     { code: 'INCENTIVE', label: 'Incentive', countsForPf: false, displayOrder: 6, entry: 'monthly' as const },
+    // The difference a salary starting inside a month leaves (referenceData's default).
+    { code: 'ARREARS', label: 'Arrears', countsForPf: false, displayOrder: 9, entry: 'monthly' as const },
   ]) {
     const row = await prisma.salaryComponent.create({ data: { organizationId: orgId, ...c } })
     componentIds[c.code] = row.id
@@ -221,6 +223,7 @@ describe('who may see payroll', () => {
       'HRA',
       'SPECIAL',
       'INCENTIVE',
+      'ARREARS',
     ])
     // Says how each one gets its amount, so a screen knows where to ask for it.
     expect(ok.body.data.find((c: { code: string }) => c.code === 'INCENTIVE').entry).toBe('monthly')
@@ -506,17 +509,67 @@ describe('ESI, locked for the contribution period', () => {
     expect(await esiRows(id)).toBe(1)
   })
 
-  it('says so when a new salary starts inside the month — its days are not on this payslip', async () => {
+  it('says so when a new salary starts inside the month — with the arrears its days are owed', async () => {
     const id = await hire({ salary: { BASIC: 30_000 }, dateOfJoining: '2020-01-01' })
     await setSalary(id, '2026-10-15', { BASIC: 36_000 })
 
     const october = (await calculate({ employeeId: id, year: 2026, month: 10 })).body.data
     expect(october.gross_earnings).toBe(30_000)
-    expect(october.warnings.join(' ')).toMatch(/A new salary starts on 15 Oct 2026/)
+    // ₹6,000 more a month, for 17 of October's 31 days (this company counts calendar days).
+    expect(october.warnings.join(' ')).toMatch(/A new salary starts on 15 Oct 2026\. .*short by ₹3,290\.32 \(₹6,000\.00 a month × 17 of 31 days/)
     // November is simply the new salary, with nothing to say.
     const november = (await calculate({ employeeId: id, year: 2026, month: 11 })).body.data
     expect(november.gross_earnings).toBe(36_000)
     expect(november.warnings.join(' ')).not.toMatch(/A new salary starts/)
+  })
+
+  it('works out each of two new salaries in one month for its own days', async () => {
+    const id = await hire({ salary: { BASIC: 30_000 }, dateOfJoining: '2020-01-01' })
+    await setSalary(id, '2026-10-10', { BASIC: 40_000 })
+    await setSalary(id, '2026-10-20', { BASIC: 50_000 })
+    const october = (await calculate({ employeeId: id, year: 2026, month: 10 })).body.data
+    expect(october.gross_earnings).toBe(30_000)
+    // ₹10,000 more for the 10th–19th (10 days), ₹20,000 more for the 20th–31st (12): 340,000 / 31.
+    expect(october.warnings.join(' ')).toMatch(/New salaries start on 10 Oct 2026 and 20 Oct 2026\. .*short by ₹10,967\.74 \(each for its own days/)
+  })
+
+  it('says nothing of a new salary that starts after their last day — none of their days are at it', async () => {
+    const id = await hire({ salary: { BASIC: 30_000 }, dateOfJoining: '2020-01-01', lastWorkingDate: '2026-10-10' })
+    await setSalary(id, '2026-10-20', { BASIC: 36_000 })
+    const october = (await calculate({ employeeId: id, year: 2026, month: 10 })).body.data
+    expect(october.warnings.join(' ')).not.toMatch(/new salar/i)
+  })
+
+  it('says the arrears already entered for the month, so they are not entered twice', async () => {
+    const id = await hire({ salary: { BASIC: 30_000 }, dateOfJoining: '2020-01-01' })
+    await setSalary(id, '2026-10-15', { BASIC: 36_000 })
+    const october = (await calculate({ employeeId: id, year: 2026, month: 10, monthlyAmounts: { ARREARS: 3_290.32 } })).body.data
+    expect(october.gross_earnings).toBe(33_290.32)
+    const said = october.warnings.join(' ')
+    expect(said).toMatch(/short by ₹3,290\.32 .*₹3,290\.32 is entered as Arrears this month\./)
+    expect(said).not.toMatch(/Enter it as Arrears/)
+  })
+
+  it('says a lower salary from inside the month overpays its days', async () => {
+    const id = await hire({ salary: { BASIC: 36_000 }, dateOfJoining: '2020-01-01' })
+    await setSalary(id, '2026-10-15', { BASIC: 30_000 })
+    const october = (await calculate({ employeeId: id, year: 2026, month: 10 })).body.data
+    expect(october.gross_earnings).toBe(36_000)
+    expect(october.warnings.join(' ')).toMatch(/A new, lower salary starts on 15 Oct 2026\. .*overpaid by ₹3,290\.32 \(₹6,000\.00 a month × 17 of 31 days\)/)
+  })
+
+  it('says when a PF member has no date of birth — the pension could not be stopped at 58', async () => {
+    const id = await hire({ salary: { BASIC: 20_000 } })
+    const missing = (await calculate({ employeeId: id, year: 2026, month: 9 })).body.data
+    expect(missing.warnings.join(' ')).toMatch(/No date of birth is recorded, so the pension \(EPS\) cannot be stopped at 58/)
+
+    await prisma.employee.update({ where: { id }, data: { dateOfBirth: new Date('1990-05-01T00:00:00Z') } })
+    const recorded = (await calculate({ employeeId: id, year: 2026, month: 9 })).body.data
+    expect(recorded.warnings.join(' ')).not.toMatch(/No date of birth/)
+
+    // Nobody outside PF has a pension to stop.
+    const noPf = await hire({ salary: { BASIC: 20_000 }, pfApplicable: false })
+    expect((await calculate({ employeeId: noPf, year: 2026, month: 9 })).body.data.warnings.join(' ')).not.toMatch(/No date of birth/)
   })
 
   it('decides on the wage at the period start, even when July is looked at first', async () => {

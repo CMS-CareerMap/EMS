@@ -1,3 +1,4 @@
+import { btn } from '../../components/ui/styles'
 import { useCallback, useState } from 'react'
 import { Eye, Download, Upload, Trash2, Check, X, ChevronDown, ChevronRight, FileText, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -8,6 +9,7 @@ import { formatSize } from '../../lib/prepareUpload'
 import PreviewDialog from './PreviewDialog'
 import UploadDialog from './UploadDialog'
 import { STATUS, when } from './meta'
+import { Avatar, Ring } from '../../components/ui/bits'
 
 /**
  * One person's documents against the company's checklist.
@@ -39,18 +41,26 @@ export default function Checklist({ data, types, limits, reviewer, canUpload }) 
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-gray-100 bg-slate-50">
-        <div>
-          <p className="text-sm font-bold text-gray-900">{employee.full_name}</p>
-          <p className="text-xs text-gray-500">
-            <span className="font-mono">{employee.employee_code}</span>
-            {employee.department ? ` · ${employee.department}` : ''}
-            {employee.designation ? ` · ${employee.designation}` : ''}
-          </p>
+      <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
+        <div className="flex items-center gap-3 min-w-0">
+          <Avatar name={employee.full_name} />
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-gray-900">{employee.full_name}</p>
+            <p className="text-xs text-gray-500">
+              <span className="font-mono">{employee.employee_code}</span>
+              {employee.department ? ` · ${employee.department}` : ''}
+              {employee.designation ? ` · ${employee.designation}` : ''}
+            </p>
+          </div>
         </div>
-        <div className="text-right">
-          <p className="text-sm font-bold text-gray-900">{verified} / {required.length}</p>
-          <p className="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Required verified</p>
+        <div className="flex items-center gap-3">
+          <Ring value={verified} total={required.length} size={50} stroke={6} label={`${verified} of ${required.length} required verified`}>
+            <span className="text-xs font-extrabold text-gray-900 tabular-nums">{verified}/{required.length}</span>
+          </Ring>
+          <div>
+            <p className="text-sm font-bold text-gray-900">Required verified</p>
+            <p className="text-xs text-gray-500">{verified} of {required.length}</p>
+          </div>
         </div>
       </div>
 
@@ -120,7 +130,7 @@ export default function Checklist({ data, types, limits, reviewer, canUpload }) 
                   )}
                   {canUpload && (
                     <button onClick={() => setUploading(item.type)}
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-dashed border-gray-300 hover:border-blue-400 hover:bg-blue-50 text-gray-600 hover:text-blue-700 text-xs font-semibold">
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-dashed border-gray-300 hover:border-brand-400 hover:bg-brand-50 text-gray-600 hover:text-brand-700 text-xs font-semibold">
                       <Upload className="w-3.5 h-3.5" /> {doc ? 'Replace' : 'Upload'}
                     </button>
                   )}
@@ -139,7 +149,7 @@ export default function Checklist({ data, types, limits, reviewer, canUpload }) 
                         <li key={old.id} className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
                           <span className="truncate max-w-56">{old.file_name}</span>
                           <span>· {STATUS[old.status].label.toLowerCase()} · replaced {when(old.replaced_at)}</span>
-                          <button onClick={() => setViewing(old)} className="text-blue-600 hover:underline">View</button>
+                          <button onClick={() => setViewing(old)} className="text-brand-600 hover:underline">View</button>
                         </li>
                       ))}
                     </ul>
@@ -156,7 +166,7 @@ export default function Checklist({ data, types, limits, reviewer, canUpload }) 
               {data.other.map((doc) => (
                 <li key={doc.id} className="flex items-center gap-2 text-sm text-gray-700">
                   <span>{doc.type.label}: {doc.file_name}</span>
-                  <button onClick={() => setViewing(doc)} className="text-xs text-blue-600 hover:underline">View</button>
+                  <button onClick={() => setViewing(doc)} className="text-xs text-brand-600 hover:underline">View</button>
                 </li>
               ))}
             </ul>
@@ -242,8 +252,8 @@ function DecisionDialog({ doc, decision, employee, onClose }) {
             placeholder={verifying ? 'For example: matches the original' : 'For example: the photo is blurred — the number cannot be read'} />
           {asked && !remarks.trim() && <span className="text-xs text-red-600">Say why, so it can be put right.</span>}
         </label>
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700">Cancel</button>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button type="button" onClick={onClose} className={btn.secondary}>Cancel</button>
           <button type="submit" disabled={decide.isPending}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-60 ${verifying ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}`}>
             {decide.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {verifying ? 'Verify' : 'Reject'}
@@ -268,8 +278,8 @@ function RemoveDialog({ doc, onClose }) {
       <p className="text-sm text-gray-600">
         It comes off the list. If it replaced an earlier upload, that one is current again. The file itself is kept, so the record of what was filed is never lost.
       </p>
-      <div className="flex justify-end gap-2">
-        <button onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700">Keep it</button>
+      <div className="flex flex-wrap justify-end gap-2">
+        <button onClick={onClose} className={btn.secondary}>Keep it</button>
         <button onClick={handle} disabled={remove.isPending} className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-medium disabled:opacity-60">Remove</button>
       </div>
     </Dialog>

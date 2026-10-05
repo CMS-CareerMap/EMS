@@ -2,7 +2,7 @@
 
 How each section of the client's requirements document ("CMS HRMS Functional Requirements",
 69 sections) maps to the code and to the tests that prove it, for the single-company build
-for CareerMap Solutions. Checked on 4 Oct 2026, branch `chore/final-audit`.
+for CareerMap Solutions. Checked on 5 Oct 2026, branch `feat/new-look`.
 
 Status:
 - **Built**: in the code, with a test.
@@ -41,8 +41,8 @@ Paths: `S` = `server/src`, `W` = `web/src`, `E2E` = `e2e/suites`.
 |---|---|---|---|---|
 | 8 | Company profile | Partly: no logo, registration number, industry or company type | `W/features/settings/CompanySettings.jsx` | `settings.test.ts`; E2E `golden` |
 | 48 | Departments, designations, shifts, GPS radius, leave, payroll and statutory rules, permissions, notification switches | Built (payroll is monthly only) | `W/pages/Settings.jsx` tabs | `masterData.test.ts`, `settings.test.ts`, `v1Extras.test.ts` |
-| 60 | Company time zone, UTC storage, holidays, weekly offs | Built | `Organization.timezone`, `W/lib/dates.js` | `attendance.test.ts`, `holidays.test.ts` |
-| 60 | Date format | Partly: saved, not yet applied to the screens (all show "4 Oct 2026") | `Organization.dateFormat` | — |
+| 60 | Company time zone, UTC storage, holidays, weekly offs | Built (holidays and weekly offs also show on each person's attendance calendar) | `Organization.timezone`, `W/lib/dates.js`, `GET /attendance/calendar` | `attendance.test.ts`, `holidays.test.ts`, `attendanceCalendar.test.ts`; E2E `newlook` |
+| 60 | Date format | Built, differs: one format everywhere, "4 Oct 2026"; there is no date format setting (client decision) | `W/lib/dates.js` | `settings.test.ts` |
 
 ## Employees and lifecycle
 
@@ -97,7 +97,7 @@ Paths: `S` = `server/src`, `W` = `web/src`, `E2E` = `e2e/suites`.
 | 45 | In-app and email notices | Built (email sends once SMTP is set) | `S/domain/notifications/events.ts`, `S/platform/email` | `notifications.test.ts`, `outbox.test.ts` |
 | 46 | Reports, limited by scope; CSV and print | Built (no designation or expense report) | `S/modules/reports`, `W/pages/Reports.jsx` | `reports.test.ts`; E2E `day19`, `golden` |
 | 47 | Audit log with old and new values | Built | `S/domain/audit/catalogue.ts`, Settings → Audit Log | `audit.test.ts`; E2E `day20`, `golden` |
-| 57 | A dashboard per role | Partly: HR-style and personal dashboards; Accounts and team leads get the personal one | `W/pages/Dashboard.jsx` | E2E `day20`, `demo-tour` |
+| 57 | A dashboard per role | Built, differs: one home page made of sections, each shown by the login's permissions, so a new role gets the right ones too. Accounts gets payroll (the month's run, bank accounts, next month, incentives, loans); HR the company today, people, joining to exit and documents; managers their team today; everyone with a record their own day, leave and requests; anything waiting for the login's decision on top | `W/pages/Dashboard.jsx`, `W/features/home` | E2E `day20`, `lifecycle`, `v1gaps`, `newlook`, `demo-tour` |
 
 ## Open
 
@@ -106,28 +106,23 @@ Decisions for the client, or small items left:
 1. Expense and reimbursement (§29, §46, §57): marked "Phase 8 — Future" by the client.
 2. Account statuses Suspended / Expired (§4): today an account is active, invited or switched off.
 3. Company logo, registration number, industry, company type (§8).
-4. The date format setting is saved but every screen shows "4 Oct 2026" (§60).
-5. A separate Finance dashboard (§57); Accounts uses the personal one.
-6. Document visibility per document or type (§44), and a retention rule (§64).
-7. A payslip "view" page beside the PDF (§41).
-8. A designation report (§46).
-9. Leave that runs across a resignation's last working day stays with its approver to reject.
-10. The pension (EPS) split in the month somebody turns 58 is flagged on the payslip for Accounts to check, not split by days.
-11. A salary that starts mid-month is paid from the next month, with a payslip warning to pay the difference as arrears.
-12. Payroll: the alternate-Saturday weekly-off pattern is not built.
-13. The accountant has not yet signed off the golden payroll sheet (`golden.test.ts`).
-14. Deploy (Docker, CI/CD, domain, R2, SMTP, backup passphrase) is still to do.
+4. Document visibility per document or type (§44), and a retention rule (§64).
+5. A payslip "view" page beside the PDF (§41).
+6. A designation report (§46).
+7. Leave that runs across a resignation's last working day stays with its approver to reject.
+8. The pension (EPS) split in the month somebody turns 58 is flagged on the payslip for Accounts to check, not split by days (to build with the PF return file, once the accountant confirms the formula). A PF member with no date of birth is warned about on every payslip, since EPS could not stop at 58; the roster import takes `date_of_birth`.
+9. A salary that starts mid-month is paid from the next month. The payslip warning gives the arrears for the days from the change — each new salary for its own days when there are two — on the company's pay-day basis, to enter under the Arrears component (whether Arrears counts for PF is the accountant's call), and says so once it is entered; a lower salary is told as an overpayment to recover. The salary form says the same before saving and offers the 1st of the next month instead.
+10. Payroll: the alternate-Saturday weekly-off pattern is not built.
+11. The accountant has not yet signed off the golden payroll sheet (`golden.test.ts`).
+12. Deploy (Docker, CI/CD, domain, R2, SMTP, backup passphrase) is still to do.
+12a. The statutory upload files — the EPFO ECR file and the ESIC monthly contribution file — are not built (in scope since 27 Sep 2026). Today Reports → PF and ESI contributions gives every figure they need, per person, as a CSV. To be built from a sample of the company's own last ECR and ESIC upload, with the accountant's rule for whole NCP days and the 58th-birthday EPS split (item 8).
 
 Small items the reviews found and that are left as they are, each low risk:
 
-15. Password links are handed over by whoever issues them; self-service "forgot password" by email can now be built, since email exists.
-16. Sign-in is limited per address and per account from one address, not per account across many addresses.
-17. An access token stays valid for up to 15 minutes after signing out.
-18. Somebody who decided a request can still read it after their role changes.
-19. One HR person can read a fellow HR person's resignation before it is accepted (they cannot act on it).
-20. An employee login is not narrowed to its own records if the Super Admin widens the Employee role's scopes.
-21. A pay input saved in the same second as the payroll is approved can miss that month.
-22. On a fixed 30-day basis, the payslip PDF shows calendar paid days, and a part month counts calendar days.
-23. A negative payslip is left out of the bank file but counted in the run's total.
-24. A loan closed while a draft is open, then the draft discarded, recovers one instalment less.
-25. Approved leave that runs across the last working day stays charged in full; leave cancelled by an accepted resignation is not restored if the resignation is later called off.
+13. Password links are handed over by whoever issues them; self-service "forgot password" by email can now be built, since email exists.
+14. Sign-in is limited per address and per account from one address, not per account across many addresses.
+15. An access token stays valid for up to 15 minutes after signing out.
+16. On a fixed 30-day basis, the payslip PDF shows calendar paid days, and a part month counts calendar days.
+17. A negative payslip is left out of the bank file but counted in the run's total.
+18. A loan closed while a draft is open, then the draft discarded, recovers one instalment less.
+19. Approved leave that runs across the last working day stays charged in full; leave cancelled by an accepted resignation is not restored if the resignation is later called off.

@@ -8,7 +8,7 @@ import { hoursBetweenWallClock } from '../../domain/attendance/hours'
 import { forWorkedHalf, gradedBy, halfDayReason, marksOf, measureDay, withHalfDayLeave, type DayMeasure } from '../../domain/attendance/shiftRules'
 import * as repo from './attendance.repository'
 import { companyTimezone } from '../organization/organization.service'
-import { closedMonthKeys } from '../payroll/payrollLock.service'
+import { assertDaysOpen, closedMonthKeys } from '../payroll/payrollLock.service'
 import { audit } from '../audit/audit.service'
 import { checkWork, loadWork } from '../organization/workRules.service'
 
@@ -356,6 +356,8 @@ export async function importAttendance(
   }
 
   await withTransaction(ctx.db, async (tx) => {
+    // Under the payroll lock of every month in the file: one approved since the preview is refused, not missed.
+    await assertDaysOpen(ctx, prepared.map((row) => row.date), 'importing attendance for those days', tx)
     for (const row of prepared) {
       const data = {
         checkIn: row.start !== null ? instantFor(row.date, row.start, zone) : null,

@@ -1,5 +1,6 @@
 import { AlertTriangle, RotateCw } from 'lucide-react'
 import { ApiError } from '../api/http'
+import { btn } from './ui/styles'
 
 /**
  * What a list or a card shows before, instead of, or around its data.
@@ -63,7 +64,7 @@ export function QueryError({ error, onRetry, retrying = false, compact = false }
           type="button"
           onClick={onRetry}
           disabled={retrying}
-          className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-50 disabled:opacity-60"
+          className={`mt-1 ${btn.soft}`}
         >
           <RotateCw className={`w-3.5 h-3.5 ${retrying ? 'animate-spin' : ''}`} aria-hidden="true" />
           {retrying ? 'Trying again…' : 'Try again'}

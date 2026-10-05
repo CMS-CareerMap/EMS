@@ -1,3 +1,4 @@
+import { btn } from '../../components/ui/styles'
 import { X, Download, Loader2, AlertTriangle } from 'lucide-react'
 import { usePayslipDetail, downloadRunPayslip } from '../../hooks/usePayroll'
 import { money, days, formatDay, monthLabel, LOP_BASIS } from './format'
@@ -38,7 +39,7 @@ export default function PayslipModal({ runId, payslipId, runStatus, onClose }) {
           </div>
           <div className="flex items-center gap-2">
             <button onClick={handleDownload} disabled={!slip || downloading}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm font-medium text-gray-700 disabled:opacity-50">
+              className={btn.secondary}>
               {downloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
               PDF
             </button>

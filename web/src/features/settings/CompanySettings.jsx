@@ -37,7 +37,7 @@ const CURRENCIES = [['INR', '₹ Indian Rupee'], ['GBP', '£ Pound Sterling'], [
 const EMPTY_COMPANY = {
   name: '', legal_name: '', gstin: '', pan: '', address: '',
   city: '', state: '', pincode: '', phone: '', email: '', website: '',
-  timezone: 'Asia/Kolkata', date_format: 'DD/MM/YYYY', country: 'IN', currency: 'INR',
+  timezone: 'Asia/Kolkata', country: 'IN', currency: 'INR',
 }
 
 /** The client's fence is 15–30 m; 25 m is a starting point inside it. */
@@ -146,7 +146,6 @@ function CompanyForm({ company, geofences }) {
         email: blank(form.email),
         website: blank(form.website),
         timezone: form.timezone,
-        dateFormat: form.date_format,
         country: form.country,
         currency: form.currency,
       })
@@ -228,7 +227,7 @@ function CompanyForm({ company, geofences }) {
             </div>
             <button type="button" onClick={captureLocation} disabled={locating}
               className="px-3.5 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold flex items-center gap-1.5">
-              {locating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LocateFixed className="w-3.5 h-3.5 text-blue-400" />}
+              {locating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LocateFixed className="w-3.5 h-3.5 text-brand-400" />}
               {locating ? 'Reading location…' : 'Use my current location'}
             </button>
             {geoMsg && <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5">{geoMsg}</p>}
@@ -265,7 +264,7 @@ function CompanyForm({ company, geofences }) {
                   <MapPin className="w-4 h-4 text-red-400" />
                   <span className="font-semibold text-sm">{geo.name || 'Office'}</span>
                 </div>
-                <span className="text-xs font-mono text-blue-300">{lat.toFixed(6)}, {lng.toFixed(6)}</span>
+                <span className="text-xs font-mono text-brand-300">{lat.toFixed(6)}, {lng.toFixed(6)}</span>
               </div>
               <p className="text-xs text-slate-300 mt-2">
                 App punch-ins are accepted within <strong className="text-white">{radius} m</strong> of this point, from a reading accurate to{' '}
@@ -276,18 +275,12 @@ function CompanyForm({ company, geofences }) {
         )}
       </Section>
 
-      <Section title="Regional Settings" desc="Time zone, date format, and the country and currency payslips are shown in.">
+      {/* No date format: it was saved and never used. Every screen shows dates one way, as "5 Oct 2026". */}
+      <Section title="Regional Settings" desc="Time zone, and the country and currency payslips are shown in.">
         <Field label="Time Zone" hint="Decides which day 'today' is for attendance and leave">
           <select className={inp} value={form.timezone} onChange={(e) => set('timezone', e.target.value)}>
             {!TIME_ZONES.some(([value]) => value === form.timezone) && <option value={form.timezone}>{form.timezone}</option>}
             {TIME_ZONES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-          </select>
-        </Field>
-        <Field label="Date Format">
-          <select className={inp} value={form.date_format} onChange={(e) => set('date_format', e.target.value)}>
-            <option value="DD/MM/YYYY">DD/MM/YYYY</option>
-            <option value="MM/DD/YYYY">MM/DD/YYYY</option>
-            <option value="YYYY-MM-DD">YYYY-MM-DD</option>
           </select>
         </Field>
         <Field label="Country" hint="Which payslip format is used">

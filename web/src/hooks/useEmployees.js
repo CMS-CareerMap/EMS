@@ -54,6 +54,21 @@ export function useEmployees({ enabled = true, includeArchived = false } = {}) {
 }
 
 /**
+ * One person, for their profile page — those who have left too, so a link to
+ * somebody who left last week still opens. Under the list's key, so every save
+ * that redraws the list redraws the profile.
+ */
+export function useEmployee(id) {
+  return useQuery({
+    queryKey: [...KEY, 'one', id],
+    queryFn: async () => (await api.get(`/employees/${id}`)).data,
+    enabled: Boolean(id),
+    // The page says "could not be found" itself.
+    meta: { quietCodes: ['NOT_FOUND', 'VALIDATION_FAILED', 'BAD_REQUEST'] },
+  })
+}
+
+/**
  * The company's departments, designations and shifts — the choices an employee
  * form offers, as ids. They change rarely, so they are kept for a while.
  */

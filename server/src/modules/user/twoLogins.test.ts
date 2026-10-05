@@ -219,6 +219,32 @@ describe('one person, two logins', () => {
     expect((company.body.data as unknown[]).length).toBeGreaterThan(1)
   })
 
+  it('keeps the employee login to her own rows even when the Employee role is widened for everybody', async () => {
+    const where = { organizationId_key: { organizationId: orgId, key: 'employee' } }
+    const before = await prisma.role.findUniqueOrThrow({ where, select: { permissions: true, scopes: true } })
+    const scopes = { ...(before.scopes as Record<string, string>), employee: 'ORGANIZATION', attendance: 'ORGANIZATION' }
+    await prisma.role.update({ where, data: { permissions: { push: ['employee:read', 'attendance:read'] }, scopes } })
+    try {
+      // Somebody who is only an employee gets what the role now gives.
+      const plain = await get(tokens.temp, '/api/employees')
+      expect(plain.status).toBe(200)
+      expect((plain.body.data as unknown[]).length).toBeGreaterThan(1)
+      expect((await get(tokens.temp, '/api/auth/session')).body.data.user.employeeReach).toBe('ORGANIZATION')
+
+      // Priya's employee login is for her own things: her HR work is done from her HR login.
+      const own = await get(tokens.priya, '/api/employees')
+      expect(own.status).toBe(200)
+      expect((own.body.data as { id: string }[]).map((e) => e.id)).toEqual([emp.priya])
+      const session = (await get(tokens.priya, '/api/auth/session')).body.data.user
+      expect(session.employeeReach).toBe('SELF')
+      expect(session.attendanceReach).toBe('SELF')
+      expect(session.leaveReach).toBe('SELF')
+      expect((await get(tokens.priya, `/api/employees/${emp.temp}`)).status).toBe(404)
+    } finally {
+      await prisma.role.update({ where, data: { permissions: before.permissions, scopes: before.scopes ?? {} } })
+    }
+  })
+
   it('refuses her own work from both logins — and now from a fellow HR person too', async () => {
     // From the HR login: her own balance goes up the tree.
     const fromHr = await correctBalance(priyaHrToken, emp.priya)

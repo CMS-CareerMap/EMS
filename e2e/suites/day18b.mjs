@@ -4,6 +4,7 @@
 // Anil not checked), and a paid run from June 2025.
 import { chromium } from 'playwright-core'
 import { WORK, REPO, STORAGE as STORE, psql } from '../lib/env.mjs'
+import { openMyProfile, openEmployeeProfile, signOutVia, menuLinks, menuLink } from '../lib/ui.mjs'
 import { readFileSync, mkdirSync } from 'node:fs'
 
 const BASE = 'http://localhost:5183'
@@ -36,7 +37,7 @@ async function open(who, viewport = { width: 1366, height: 900 }) {
     if (r.status() >= 400 && r.url().includes('/api/')) failedCalls.push(`${who} ${r.request().method()} ${r.url().split('/api')[1]} ${r.status()}`)
   })
   await page.goto(`${BASE}/signin`)
-  await page.getByPlaceholder('you@careermap.in or EMP001').fill(fx.users[who])
+  await page.getByLabel('Work Email or Employee ID').fill(fx.users[who])
   await page.getByPlaceholder('Enter your password').fill(fx.password)
   await page.getByRole('button', { name: 'Sign In' }).click()
   await page.waitForURL('**/dashboard', { timeout: 20_000 })
@@ -45,7 +46,8 @@ async function open(who, viewport = { width: 1366, height: 900 }) {
 
 const waitToast = (page, text) => page.locator('[data-sonner-toast]', { hasText: text }).first().waitFor({ timeout: 20_000 })
 const shot = (page, name) => page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true })
-const tab = (page, name) => page.getByRole('button', { name, exact: true }).click()
+// Payroll's sections are page tabs (role="tab") since the new look.
+const tab = (page, name) => page.getByRole('tab', { name, exact: true }).click()
 async function download(page, trigger, name) {
   const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 60_000 }), trigger()])
   const path = `${DL}/${name}`
@@ -207,8 +209,7 @@ try {
   await hr.goto(`${BASE}/payslips`)
   await hr.locator('tr', { hasText: 'September 2026' }).waitFor({ timeout: 20_000 })
   check('HR sees their own September payslip', (await hr.locator('tr', { hasText: 'September 2026' }).innerText()).includes('₹27,400.00'))
-  await hr.getByRole('button', { name: /Hema Hiremath/ }).first().click()
-  await hr.getByRole('button', { name: 'My Profile' }).click()
+  await openMyProfile(hr, 'Salary account')
   await hr.getByText('Why it was rejected').waitFor({ timeout: 20_000 })
   const hemaCard = await hr.locator('div.space-y-3', { has: hr.getByText('Bank Account for Salary Credit', { exact: true }) }).last().innerText()
   check('…and in her profile, that her account was rejected and why', hemaCard.includes('Rejected') && hemaCard.includes('Name does not match the cheque') && hemaCard.includes('•••• 5544'))
@@ -223,7 +224,8 @@ try {
   const netVisible = await phone.locator('li', { hasText: 'September 2026' }).getByText('₹32,560.00').isVisible()
   check('…with the net pay and the PDF button on screen, not off to the side', netVisible && pdfBox && pdfBox.x + pdfBox.width <= 390, JSON.stringify(pdfBox))
   await shot(phone, '02-my-payslips-phone')
-  const own = await download(phone, () => phone.getByRole('button', { name: 'PDF' }).click(), 'phone-payslip.pdf')
+  // The month's own button in the list ("Download the PDF" on the latest card above is the same file).
+  const own = await download(phone, () => phone.locator('li', { hasText: 'September 2026' }).getByRole('button', { name: 'PDF' }).click(), 'phone-payslip.pdf')
   check('…and the PDF downloads there too', own.bytes.subarray(0, 4).toString() === '%PDF')
 
   const asked = failedCalls.filter((c) => /POST \/payroll-runs\/[^/]+\/approve 422$/.test(c))

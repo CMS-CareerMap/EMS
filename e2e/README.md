@@ -49,6 +49,7 @@ server reads files from `web/dist` on every request.
 | `wages-share` | day20 | The 50% wages rule |
 | `v1gaps`, `v1gaps2` | day20 | Requests, shifts, overtime, leave rules, encashment, components, loans, email |
 | `sweep23` | day20 | Every page × every role × phone: no crash, no sideways scroll |
+| `newlook` | day20 | The app's frame as every role: menus, page titles, the user menu, search, the phone tab bar and Menu drawer, dialogs opened from links, the employee profile page, the attendance calendar's days off, tabs from the keyboard, the mid-month salary hint |
 | `demo-tour` | the demo | Read-only tour of the demo as all seven roles (run with the demo up) |
 
 `golden` needs a database with no company in it, so it runs only after `--reset`

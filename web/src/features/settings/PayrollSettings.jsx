@@ -1,3 +1,4 @@
+import { btn } from '../../components/ui/styles'
 import { useMemo, useState } from 'react'
 import { Plus, Trash2, Edit2, X, History, Info } from 'lucide-react'
 import {
@@ -147,7 +148,7 @@ function PolicyForm({ policy, history, canEdit }) {
             Saving on a later day starts a new period from that day; the rates before it stay as they were for payslips already issued.
           </p>
           {(history.isError || earlier > 0) && (
-            <button type="button" onClick={() => setShowHistory((v) => !v)} className="inline-flex items-center gap-1 font-semibold text-blue-600 hover:text-blue-800">
+            <button type="button" onClick={() => setShowHistory((v) => !v)} className="inline-flex items-center gap-1 font-semibold text-brand-600 hover:text-brand-800">
               <History className="w-3.5 h-3.5" /> {showHistory ? 'Hide' : 'Show'} earlier rates{earlier > 0 ? ` (${earlier})` : ''}
             </button>
           )}
@@ -382,7 +383,7 @@ function PtTables({ canEdit }) {
         {/* Only once the tables are known, so a state that already has one is seen before another is started for it. */}
         {canEdit && !adding && ptSlabs.isSuccess && (
           <button type="button" onClick={() => setAdding(true)}
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-800">
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-600 hover:text-brand-800">
             <Plus className="w-4 h-4" /> Add a state
           </button>
         )}
@@ -408,7 +409,7 @@ function PtState({ state, rows, canEdit, startEditing = false, onDone }) {
               <p className="text-xs text-gray-500">In force since {formatDay(rows[0]?.effective_from)}</p>
             </div>
             {canEdit && (
-              <button type="button" onClick={() => setEditing(true)} className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800">
+              <button type="button" onClick={() => setEditing(true)} className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-800">
                 <Edit2 className="w-3.5 h-3.5" /> Change
               </button>
             )}
@@ -482,7 +483,7 @@ function PtEditor({ state, rows, isNew, onClose }) {
   }
 
   return (
-    <div className="p-4 space-y-3 bg-blue-50/30">
+    <div className="p-4 space-y-3 bg-brand-50/30">
       <div className="flex items-center justify-between gap-3">
         {isNew ? (
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="State, e.g. Karnataka" className={`${inpSm} w-64`} maxLength={50} />
@@ -527,7 +528,7 @@ function PtEditor({ state, rows, isNew, onClose }) {
       </table>
 
       <button type="button" onClick={() => setDraft([...draft, { gender: draft[draft.length - 1]?.gender ?? 'any', from: '', amount: '', februaryAmount: '' }])}
-        className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800">
+        className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-800">
         <Plus className="w-3.5 h-3.5" /> Add a slab
       </button>
 
@@ -550,10 +551,10 @@ function PtEditor({ state, rows, isNew, onClose }) {
 
       {error && <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
 
-      <div className="flex justify-end gap-2">
-        <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+      <div className="flex flex-wrap justify-end gap-2">
+        <button type="button" onClick={onClose} className={btn.secondary}>Cancel</button>
         <button type="button" onClick={handleSave} disabled={setTable.isPending || mode === 'earlier' || (isNew && name.trim().length < 2)}
-          className="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium">
+          className={btn.primary}>
           {setTable.isPending ? 'Saving…' : 'Save table'}
         </button>
       </div>

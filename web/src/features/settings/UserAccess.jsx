@@ -1,3 +1,4 @@
+import { btn } from '../../components/ui/styles'
 import { useRef, useState } from 'react'
 import { Copy, Check, KeyRound, Loader2, UserPlus, X } from 'lucide-react'
 import { useInviteUser } from '../../hooks/useUsers'
@@ -16,7 +17,7 @@ import { optionsNote } from '../../lib/optionsNote'
  * went out: the administrator copies the link and sends it themselves.
  */
 
-const inp = 'w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 placeholder:text-gray-400'
+const inp = 'w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent text-gray-900 placeholder:text-gray-400'
 
 
 /**
@@ -55,22 +56,22 @@ export function PasswordLinkPanel({ email, invite, onDone }) {
   }
 
   return (
-    <div className="border border-blue-200 bg-blue-50 rounded-xl p-4 space-y-3">
+    <div className="border border-brand-200 bg-brand-50 rounded-xl p-4 space-y-3">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-2">
-          <KeyRound className="w-4 h-4 text-blue-600 mt-0.5 shrink-0" />
+          <KeyRound className="w-4 h-4 text-brand-600 mt-0.5 shrink-0" />
           <div>
-            <p className="text-sm font-semibold text-blue-900">
+            <p className="text-sm font-semibold text-brand-900">
               {isReset ? 'Password reset link' : 'Invitation link'} for {email}
             </p>
-            <p className="text-xs text-blue-700 mt-0.5">
+            <p className="text-xs text-brand-700 mt-0.5">
               No email is sent. Share this link with them yourself. It works once, expires{' '}
               {formatExpiry(invite.expires_at)}, and will not be shown again.
               {isReset && ' When they use it, they are signed out everywhere else.'}
             </p>
           </div>
         </div>
-        <button onClick={onDone} className="p-1 rounded text-blue-400 hover:text-blue-700" title="Close" aria-label="Close the link">
+        <button onClick={onDone} className="p-1 rounded text-brand-400 hover:text-brand-700" title="Close" aria-label="Close the link">
           <X className="w-4 h-4" />
         </button>
       </div>
@@ -82,17 +83,17 @@ export function PasswordLinkPanel({ email, invite, onDone }) {
           readOnly
           value={url}
           onFocus={(e) => e.target.select()}
-          className="flex-1 min-w-0 font-mono text-xs bg-white border border-blue-200 rounded-lg px-3 py-2 text-gray-700"
+          className="flex-1 min-w-0 font-mono text-xs bg-white border border-brand-200 rounded-lg px-3 py-2 text-gray-700"
         />
         <button
           onClick={copy}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shrink-0"
+          className={`${btn.primarySm} shrink-0`}
         >
           {copied ? <><Check className="w-3.5 h-3.5" /> Copied</> : <><Copy className="w-3.5 h-3.5" /> Copy</>}
         </button>
       </div>
       {copyFailed && (
-        <p className="text-xs text-blue-700">Copying was blocked by the browser — the link is selected, press Ctrl+C.</p>
+        <p className="text-xs text-brand-700">Copying was blocked by the browser — the link is selected, press Ctrl+C.</p>
       )}
     </div>
   )
@@ -124,7 +125,7 @@ export function InviteUserForm({ onInvited, onCancel }) {
   return (
     <form onSubmit={handleSubmit} className="border border-gray-200 rounded-xl p-4 space-y-4 bg-gray-50">
       <div className="flex items-center gap-2">
-        <UserPlus className="w-4 h-4 text-blue-600" />
+        <UserPlus className="w-4 h-4 text-brand-600" />
         <p className="text-sm font-semibold text-gray-900">Invite a user</p>
       </div>
 
@@ -169,7 +170,7 @@ export function InviteUserForm({ onInvited, onCancel }) {
           Cancel
         </button>
         <button type="submit" disabled={invite.isPending || !role}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm font-semibold">
+          className={btn.primary}>
           {invite.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
           Create invitation
         </button>

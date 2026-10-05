@@ -1,5 +1,7 @@
 import { useSearchParams } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
+import PageHeader from '../components/ui/PageHeader'
+import { TabPanel } from '../components/ui/Tabs'
 import RunsTab from '../features/payroll/RunsTab'
 import SalaryStructures from '../features/payroll/SalaryStructures'
 import MonthlyEntries from '../features/payroll/MonthlyEntries'
@@ -12,12 +14,10 @@ import LoansTab from '../features/payroll/LoansTab'
 /**
  * Payroll.
  *
- * The page this replaces worked every figure out in the browser — salaries
- * estimated from CTC by fixed percentages, payslips "Generated" that nobody had
- * generated, a GSTIN and PF account number made up from the PAN — and wrote
- * the result to the old hosted database as if it were a payroll. Every figure here is now the
- * server's, and a tab is drawn only for somebody allowed to use it: HR sees
- * the Incentive screen and nothing of anybody's pay.
+ * Every figure here is the server's — the page this replaced worked salaries
+ * out in the browser and wrote them back as if they were a payroll. A tab is
+ * drawn only for somebody allowed to use it: HR sees the Incentive screen and
+ * nothing of anybody's pay.
  */
 
 const TABS = [
@@ -40,29 +40,20 @@ export default function Payroll() {
   if (!current) return null
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">Payroll</h2>
-        <p className="text-sm text-gray-500 mt-0.5">
-          {tabs.length === 1 && current.id === 'incentives'
-            ? 'Amounts entered each month, paid with that month’s salary'
-            : 'Salaries, monthly runs, payslips and the bank transfer file'}
-        </p>
-      </div>
-
-      {tabs.length > 1 && (
-        <div className="flex items-center gap-1 border-b border-gray-200 overflow-x-auto">
-          {tabs.map((t) => (
-            <button key={t.id} onClick={() => setParams({ tab: t.id }, { replace: true })}
-              className={`shrink-0 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px
-                ${current.id === t.id ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      <current.Component />
-    </div>
+    <>
+      <PageHeader
+        title="Payroll"
+        subtitle={tabs.length === 1 && current.id === 'incentives'
+          ? 'Amounts entered each month, paid with that month’s salary'
+          : 'Salaries, monthly runs, payslips and the bank transfer file'}
+        tabs={tabs.map((t) => ({ key: t.id, label: t.label }))}
+        tab={current.id}
+        onTab={(id) => setParams({ tab: id }, { replace: true })}
+        panelId="payroll-panel"
+      />
+      <TabPanel id="payroll-panel" tab={tabs.length > 1 ? current.id : null}>
+        <current.Component />
+      </TabPanel>
+    </>
   )
 }

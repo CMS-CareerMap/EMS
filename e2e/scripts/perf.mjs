@@ -56,7 +56,10 @@ try {
   }
   await time('Attendance: month hours per person', 'GET', `/attendance/monthly-summary?year=${month.year}&month=${month.month}`)
   await time('Attendance: one day, everybody', 'GET', `/attendance/day?date=${last.toISOString().slice(0, 10)}`)
-  await time('Dashboard summary', 'GET', '/dashboard/summary')
+  // The home page's company sections (the one /dashboard/summary was split into them).
+  await time('Home: today at work, everybody', 'GET', '/dashboard/today')
+  await time('Home: people', 'GET', '/dashboard/people')
+  await time('Home: payroll', 'GET', '/dashboard/payroll')
   await time('Employees list', 'GET', '/employees')
   await time('Leave balances, everybody', 'GET', '/leave-balances')
 } finally {

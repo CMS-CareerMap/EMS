@@ -68,11 +68,12 @@ export function useDayRoster(date) {
   })
 }
 
-export function useMonthAttendance(year, month) {
+/** `employeeId` asks for one person's days only — one's own calendar, not the whole company's month. */
+export function useMonthAttendance(year, month, { enabled = true, employeeId = null } = {}) {
   return useQuery({
-    queryKey: keys.month(year, month),
-    queryFn: async () => (await api.get(`/attendance?year=${year}&month=${month}`)).data,
-    enabled: Boolean(year && month),
+    queryKey: [...keys.month(year, month), employeeId ?? 'all'],
+    queryFn: async () => (await api.get(`/attendance?year=${year}&month=${month}${employeeId ? `&employeeId=${employeeId}` : ''}`)).data,
+    enabled: enabled && Boolean(year && month),
     placeholderData: keepPrevious,
   })
 }
@@ -84,6 +85,19 @@ export function useMonthAttendance(year, month) {
  * give a smaller number as soon as the list is paginated, and it would be
  * wrong in a way nobody would notice.
  */
+/**
+ * The company's days off in a month — holidays by name, and weekly offs — for
+ * the calendar, which has no attendance rows on those days to draw from.
+ */
+export function useMonthCalendar(year, month, { enabled = true } = {}) {
+  return useQuery({
+    queryKey: ['attendance', 'calendar', year, month],
+    queryFn: async () => (await api.get(`/attendance/calendar?year=${year}&month=${month}`)).data,
+    enabled: enabled && Boolean(year && month),
+    staleTime: 5 * 60_000,
+  })
+}
+
 export function useMonthlyHours(year, month, employeeId) {
   const query = employeeId ? `&employeeId=${employeeId}` : ''
   return useQuery({

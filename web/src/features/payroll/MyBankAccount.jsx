@@ -6,6 +6,7 @@ import Dialog, { inputCls } from '../../components/Dialog'
 import DataState from '../../components/DataState'
 import { useMyBankAccount, useSubmitMyBankAccount } from '../../hooks/usePayroll'
 import { prepareUpload } from '../../lib/prepareUpload'
+import { btn } from '../../components/ui/styles'
 
 /**
  * Where the signed-in person's salary is paid — and how to send in a new
@@ -34,11 +35,11 @@ export default function MyBankAccount() {
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Landmark className="w-4 h-4 text-blue-600" />
+          <Landmark className="w-4 h-4 text-brand-600" />
           <h4 className="text-sm font-bold text-gray-900">Bank Account for Salary Credit</h4>
         </div>
         {bank.isSuccess && (
-          <button onClick={() => setEditing(true)} className="flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700">
+          <button onClick={() => setEditing(true)} className="flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700">
             {account ? <Pencil className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />} {account ? 'Change' : 'Add account'}
           </button>
         )}
@@ -162,17 +163,17 @@ function SubmitDialog({ account, maxMb, onClose }) {
         <Field label="Cancelled cheque or passbook page">
           <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" required={!account?.has_proof}
             onChange={(e) => { setProof(e.target.files?.[0] ?? null); setProblem('') }}
-            className="w-full text-sm file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700" />
+            className="w-full text-sm file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-brand-50 file:text-brand-700" />
           <span className="block text-xs text-gray-500">
             A clear photo or a PDF showing your name, the account number and the IFSC, up to {maxMb} MB.
             {account?.has_proof ? ' Needed again if the number or IFSC changes; otherwise the one on file is kept.' : ''}
           </span>
         </Field>
         {problem && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">{problem}</p>}
-        <div className="flex justify-end gap-2 pt-1">
-          <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700">Cancel</button>
+        <div className="flex flex-wrap justify-end gap-2 pt-1">
+          <button type="button" onClick={onClose} className={btn.secondary}>Cancel</button>
           <button type="submit" disabled={preparing || submit.isPending || mismatch}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium">
+            className={btn.primary}>
             {(preparing || submit.isPending) && <Loader2 className="w-4 h-4 animate-spin" />} Send to Accounts
           </button>
         </div>
@@ -184,7 +185,7 @@ function SubmitDialog({ account, maxMb, onClose }) {
 function Field({ label, error = null, children }) {
   return (
     <label className="block space-y-1.5">
-      <span className="text-sm font-medium text-gray-600">{label}</span>
+      <span className="text-sm font-semibold text-gray-700">{label}</span>
       {children}
       {error && <span className="text-xs text-red-600">{error}</span>}
     </label>

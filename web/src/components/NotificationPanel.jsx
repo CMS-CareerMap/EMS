@@ -55,7 +55,7 @@ function getNotificationIcon(type) {
     case 'announcement':
       return { icon: Megaphone, bg: 'bg-amber-100 text-amber-600' }
     case 'task':
-      return { icon: CheckSquare, bg: 'bg-blue-100 text-blue-600' }
+      return { icon: CheckSquare, bg: 'bg-brand-100 text-brand-600' }
     case 'auth':
       return { icon: ShieldCheck, bg: 'bg-indigo-100 text-indigo-600' }
     case 'profile':
@@ -65,7 +65,7 @@ function getNotificationIcon(type) {
     case 'payroll':
       return { icon: DollarSign, bg: 'bg-teal-100 text-teal-600' }
     case 'document':
-      return { icon: FileText, bg: 'bg-blue-100 text-blue-600' }
+      return { icon: FileText, bg: 'bg-brand-100 text-brand-600' }
     case 'bank':
       return { icon: Landmark, bg: 'bg-teal-100 text-teal-700' }
     case 'account':
@@ -157,24 +157,29 @@ export default function NotificationPanel({ isOpen, onClose }) {
   return (
     <div
       ref={panelRef}
+      // Named, so a screen reader says what opened — and tests find it by name, not by its look.
+      role="dialog"
+      aria-label="Notifications"
       // A phone gets the screen's width under the header; from sm up it hangs from the bell.
-      className="fixed left-2 right-2 top-16 sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-96 bg-white rounded-2xl border border-gray-200 shadow-2xl z-50 overflow-hidden transition-all duration-200 ease-out transform scale-100 opacity-100"
+      className="fixed left-2 right-2 top-15 sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-96 bg-white rounded-2xl border border-gray-200 shadow-[0_24px_60px_-20px_rgba(26,16,41,0.45)] z-50 overflow-hidden transition-all duration-200 ease-out transform scale-100 opacity-100"
     >
       {/* Panel Header */}
-      <div className="p-4 border-b border-gray-100 bg-slate-50/70 flex items-center justify-between">
+      <div className="p-4 border-b border-gray-100 bg-white flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Bell className="w-5 h-5 text-gray-700" />
-          <h2 className="font-semibold text-gray-900 text-base">Notifications</h2>
+          <h2 className="font-bold text-gray-900 text-[15px]">Notifications</h2>
           {!isError && unreadCount > 0 && (
-            <span className="px-2 py-0.5 text-xs font-bold text-white bg-red-500 rounded-full animate-pulse">
+            <span className="px-2 py-0.5 text-xs font-bold text-white bg-pink-500 rounded-full">
               {unreadCount}
             </span>
           )}
         </div>
         <button
+          type="button"
           onClick={onClose}
           className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-200/50 transition-colors"
           title="Close panel"
+          aria-label="Close notifications"
         >
           <X className="w-4 h-4" />
         </button>
@@ -195,7 +200,7 @@ export default function NotificationPanel({ isOpen, onClose }) {
           <button
             onClick={() => setActiveTab('unread')}
             className={`px-3 py-1 rounded-md font-medium transition-colors ${activeTab === 'unread'
-                ? 'bg-white text-blue-600 shadow-sm'
+                ? 'bg-white text-brand-600 shadow-sm'
                 : 'text-gray-500 hover:text-gray-800'
               }`}
           >
@@ -207,7 +212,7 @@ export default function NotificationPanel({ isOpen, onClose }) {
           {!isError && unreadCount > 0 && (
             <button
               onClick={handleMarkAllRead}
-              className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium transition-colors"
+              className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium transition-colors"
               title="Mark all as read"
             >
               <CheckCheck className="w-3.5 h-3.5" />
@@ -254,7 +259,7 @@ export default function NotificationPanel({ isOpen, onClose }) {
                     handleNotificationClick(item)
                   }
                 }}
-                className={`p-3.5 flex items-start gap-3 hover:bg-gray-50 transition-colors cursor-pointer relative group ${!item.read ? 'bg-blue-50/40 font-normal' : 'bg-white'
+                className={`p-3.5 flex items-start gap-3 hover:bg-gray-50 transition-colors cursor-pointer relative group ${!item.read ? 'bg-brand-50/40 font-normal' : 'bg-white'
                   }`}
               >
                 {/* Type Icon */}
@@ -280,7 +285,7 @@ export default function NotificationPanel({ isOpen, onClose }) {
                 {/* Unread Indicator & Arrow */}
                 <div className="flex items-center gap-1.5 self-center shrink-0">
                   {!item.read && (
-                    <span className="w-2 h-2 rounded-full bg-blue-600" title="Unread" />
+                    <span className="w-2 h-2 rounded-full bg-brand-600" title="Unread" />
                   )}
                   <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition-colors" />
                 </div>
@@ -296,7 +301,7 @@ export default function NotificationPanel({ isOpen, onClose }) {
           <button
             onClick={showOlder}
             disabled={loadingOlder}
-            className="text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors py-1 disabled:opacity-60"
+            className="text-xs font-medium text-brand-600 hover:text-brand-700 transition-colors py-1 disabled:opacity-60"
           >
             {loadingOlder ? 'Loading…' : 'Load older notifications'}
           </button>

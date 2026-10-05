@@ -18,6 +18,7 @@ import SetPassword from './pages/SetPassword'
  */
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Employees = lazy(() => import('./pages/Employees'))
+const EmployeeProfile = lazy(() => import('./pages/EmployeeProfile'))
 const Attendance = lazy(() => import('./pages/Attendance'))
 const Leave = lazy(() => import('./pages/Leave'))
 const Requests = lazy(() => import('./pages/Requests'))
@@ -26,6 +27,7 @@ const MyPayslips = lazy(() => import('./pages/MyPayslips'))
 const Reports = lazy(() => import('./pages/Reports'))
 const Documents = lazy(() => import('./pages/Documents'))
 const Settings = lazy(() => import('./pages/Settings'))
+const MyProfile = lazy(() => import('./pages/MyProfile'))
 const NotFound = lazy(() => import('./pages/NotFound'))
 
 export default function App() {
@@ -79,12 +81,13 @@ export default function App() {
 
   if (unreachable) {
     return (
-      <div role="alert" className="min-h-screen flex items-center justify-center bg-[#F8FAFC] px-4">
+      <div role="alert" className="min-h-screen flex items-center justify-center bg-canvas px-4">
         <div className="max-w-md w-full bg-white border border-gray-200 rounded-2xl shadow-sm p-6 text-center space-y-3">
+          <img src="/logo-wide.png" alt="CareerMap Solutions" className="h-10 w-auto mx-auto" />
           <h1 className="text-base font-semibold text-gray-900">EMS cannot be reached right now</h1>
           <p className="text-sm text-gray-600">{unreachable.message || 'The server did not answer.'} Nothing has been lost, and you are still signed in.</p>
           <button type="button" onClick={() => window.location.reload()}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">
+            className="px-4 py-2 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700">
             Try again
           </button>
         </div>
@@ -102,6 +105,8 @@ export default function App() {
         {/* Everyone who is signed in. */}
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<Dashboard />} />
+        {/* One's own profile, password and salary account: every login has one. */}
+        <Route path="/profile" element={<MyProfile />} />
 
         {/*
           Routes are gated on PERMISSIONS, not role names, and the permission
@@ -115,6 +120,7 @@ export default function App() {
         */}
         <Route element={<ProtectedRoute permission={ROUTE_PERMISSIONS['/employees']} />}>
           <Route path="/employees" element={<Employees />} />
+          <Route path="/employees/:id" element={<EmployeeProfile />} />
         </Route>
 
         <Route element={<ProtectedRoute permission={ROUTE_PERMISSIONS['/attendance']} />}>

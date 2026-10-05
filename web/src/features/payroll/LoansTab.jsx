@@ -10,9 +10,10 @@ import { optionsNote } from '../../lib/optionsNote'
 import { useLoans, useRecordLoan, useCloseLoan, useDeleteLoan } from '../../hooks/usePayrollExtras'
 import { usePayrollPeople } from './people'
 import { money, monthLabel, parseMonthValue } from './format'
+import { btn } from '../../components/ui/styles'
 
 const STATUS = {
-  active: { label: 'Being recovered', cls: 'bg-blue-100 text-blue-700' },
+  active: { label: 'Being recovered', cls: 'bg-brand-100 text-brand-700' },
   repaid: { label: 'Repaid', cls: 'bg-emerald-100 text-emerald-700' },
   closed: { label: 'Closed', cls: 'bg-gray-100 text-gray-600' },
 }
@@ -40,7 +41,7 @@ export default function LoansTab() {
           Each month’s installment is deducted on the payslip — never more than the month pays. Close one repaid in cash or written off; nothing more is recovered.
         </p>
         {canManage && (
-          <button onClick={() => setAdding(true)} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium">
+          <button onClick={() => setAdding(true)} className={btn.primary}>
             <Plus className="w-4 h-4" /> Record a loan or advance
           </button>
         )}
@@ -69,7 +70,7 @@ export default function LoansTab() {
                   </div>
                   {canManage && l.status === 'active' && (
                     <div className="flex gap-2 shrink-0">
-                      <button onClick={() => { setClosing(l); setNote('') }} className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-gray-300 text-xs font-medium text-gray-700 hover:bg-gray-50"><Ban className="w-3.5 h-3.5" /> Close</button>
+                      <button onClick={() => { setClosing(l); setNote('') }} className={btn.secondarySm}><Ban className="w-3.5 h-3.5" /> Close</button>
                       {l.recovered === 0 && l.in_draft === 0 && (
                         <button onClick={() => setRemoving(l)} aria-label={`Remove ${l.full_name}'s ${l.kind}`} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                       )}
@@ -164,8 +165,8 @@ function LoanDialog({ onClose }) {
           <input className={inputCls} value={f.note} onChange={(e) => set('note', e.target.value)} maxLength={500} />
         </label>
         <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-2">
-          <button type="button" onClick={onClose} disabled={record.isPending} className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-60">Cancel</button>
-          <button type="submit" disabled={record.isPending} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-60">{record.isPending ? 'Saving…' : 'Record'}</button>
+          <button type="button" onClick={onClose} disabled={record.isPending} className={btn.secondary}>Cancel</button>
+          <button type="submit" disabled={record.isPending} className={btn.primary}>{record.isPending ? 'Saving…' : 'Record'}</button>
         </div>
       </form>
     </Dialog>

@@ -1,3 +1,4 @@
+import { btn, th } from '../../components/ui/styles'
 import { useState } from 'react'
 import { Plus, Check, X, Edit2, Archive, Loader2, SlidersHorizontal } from 'lucide-react'
 import { useMasterData } from '../../hooks/useEmployees'
@@ -21,7 +22,7 @@ import { rulesSummary } from '../../lib/rules'
  * Every change saves as it is made; there is no Save button to forget.
  */
 
-const inp = 'border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900'
+const inp = 'border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent text-gray-900'
 
 export default function OrganisationSettings() {
   const masterData = useMasterData()
@@ -100,7 +101,7 @@ function NamedList({ kind, title, noun, rows }) {
                 <span className="text-sm text-gray-800">{row.name}</span>
                 <div className="flex items-center gap-1">
                   <button onClick={() => { setEditId(row.id); setEditName(row.name) }}
-                    className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600" title="Rename">
+                    className="p-1.5 rounded-lg hover:bg-brand-50 text-gray-400 hover:text-brand-600" title="Rename">
                     <Edit2 className="w-3.5 h-3.5" />
                   </button>
                   <button onClick={() => setArchiving(row)} disabled={archive.isPending}
@@ -118,7 +119,7 @@ function NamedList({ kind, title, noun, rows }) {
         <input value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={60}
           placeholder={`New ${noun}`} className={`${inp} flex-1`} />
         <button type="submit" disabled={add.isPending || !newName.trim()}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium">
+          className={btn.primary}>
           {add.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Add
         </button>
       </form>
@@ -196,9 +197,9 @@ function Shifts({ rows }) {
       <div className="border border-gray-200 rounded-xl overflow-x-auto">
         <table className="w-full min-w-160">
           <thead>
-            <tr className="bg-gray-50 border-b border-gray-200">
+            <tr>
               {['Name', 'Start', 'End', 'Break (min)', 'Full day (h)', ''].map((h) => (
-                <th key={h} className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{h}</th>
+                <th key={h} className={th}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -224,8 +225,8 @@ function Shifts({ rows }) {
                     <td className="px-3 py-2.5 text-sm text-gray-700">{row.break_minutes}</td>
                     <td className="px-3 py-2.5 text-sm text-gray-700">{row.expected_hours}</td>
                     <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                      <button onClick={() => setRuling(row)} className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600" title="Rules: grace, late, overtime" aria-label={`Rules of ${row.name}`}><SlidersHorizontal className="w-3.5 h-3.5" /></button>
-                      <button onClick={() => startEdit(row)} className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600" title="Edit"><Edit2 className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => setRuling(row)} className="p-1.5 rounded-lg hover:bg-brand-50 text-gray-400 hover:text-brand-600" title="Rules: grace, late, overtime" aria-label={`Rules of ${row.name}`}><SlidersHorizontal className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => startEdit(row)} className="p-1.5 rounded-lg hover:bg-brand-50 text-gray-400 hover:text-brand-600" title="Edit"><Edit2 className="w-3.5 h-3.5" /></button>
                       <button onClick={() => setArchiving(row)} disabled={archive.isPending} className="p-1.5 rounded-lg hover:bg-amber-50 text-gray-400 hover:text-amber-600" title="Archive"><Archive className="w-3.5 h-3.5" /></button>
                     </td>
                   </>
@@ -237,7 +238,7 @@ function Shifts({ rows }) {
               {cells(form, setForm)}
               <td className="px-3 py-2 text-right">
                 <button onClick={handleAdd} disabled={add.isPending || !form.name.trim()}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-xs font-semibold ml-auto">
+                  className={`${btn.primarySm} ml-auto`}>
                   <Plus className="w-3.5 h-3.5" /> Add
                 </button>
               </td>

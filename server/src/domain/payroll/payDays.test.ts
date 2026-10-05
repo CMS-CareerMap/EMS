@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  arrearsFor,
   monthCalendar,
   lossOfPay,
   leaveDaysIn,
@@ -203,6 +204,37 @@ describe('the employment window', () => {
     })
     expect(result.days).toHaveLength(15)
     expect(result.lopDays).toBe(0)
+  })
+})
+
+describe('a salary that changes inside the month — the arrears', () => {
+  // October 2026: 31 days, Sundays the 4th, 11th, 18th and 25th, Gandhi
+  // Jayanti on the 2nd. A new salary from Thursday the 15th: 17 calendar days,
+  // 15 of them working days.
+  const october = monthCalendar({ year: 2026, month: 10, weeklyOffDays: SUNDAY_OFF, holidays: ['2026-10-02'] })
+  const WHOLE_OCTOBER = { from: '2026-10-01', to: '2026-10-31' }
+  const from15 = (lopBasis: 'calendar_days' | 'fixed_30' | 'working_days', monthlyDifference: number, window = WHOLE_OCTOBER) =>
+    arrearsFor({ lopBasis, calendar: october, window, changeFrom: '2026-10-15', monthlyDifference })
+
+  it('counts the days from the change on the company’s basis, as a joiner’s part month is', () => {
+    expect(from15('calendar_days', 6_200)).toEqual({ amount: 3_400, payableDays: 17, payBasisDays: 31 })
+    expect(from15('fixed_30', 6_000)).toEqual({ amount: 3_400, payableDays: 17, payBasisDays: 30 })
+    expect(from15('working_days', 2_600)).toEqual({ amount: 1_500, payableDays: 15, payBasisDays: 26 })
+  })
+
+  it('gives a cut as an overpayment, a negative figure', () => {
+    expect(from15('calendar_days', -3_100).amount).toBe(-1_700)
+  })
+
+  it('rounds to the paisa', () => {
+    // 1,000 × 17 / 31 = 548.387…
+    expect(from15('calendar_days', 1_000).amount).toBe(548.39)
+  })
+
+  it('counts only days they were employed: nothing for somebody who left before the change', () => {
+    expect(from15('calendar_days', 6_200, { from: '2026-10-01', to: '2026-10-10' })).toEqual({ amount: 0, payableDays: 0, payBasisDays: 0 })
+    // Left on the 20th: the 15th to the 20th, six days.
+    expect(from15('calendar_days', 3_100, { from: '2026-10-01', to: '2026-10-20' }).amount).toBe(600)
   })
 })
 

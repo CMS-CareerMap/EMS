@@ -48,8 +48,9 @@ describe('reference data', () => {
       designations: 6,
       shifts: 3,
       leaveTypes: 5,
-      // The client's six, and Bonus and Commission (client §40).
-      components: 8,
+      // The client's six, Bonus and Commission (client §40), and Arrears for a
+      // salary that starts inside a month.
+      components: 9,
       openPt: 5,
       // Three fixed national holidays, for this year AND next — January must
       // not arrive with an empty calendar.

@@ -1,3 +1,4 @@
+import { btn } from '../../components/ui/styles'
 import { useRef, useState } from 'react'
 import { X, Upload, Loader2, CheckCircle2, AlertCircle, AlertTriangle } from 'lucide-react'
 import { useImportAttendance } from '../../hooks/useAttendance'
@@ -77,7 +78,7 @@ export default function ImportAttendanceModal({ onClose }) {
                 </p>
               </div>
               <div className="flex justify-end">
-                <button onClick={onClose} className="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium">Done</button>
+                <button onClick={onClose} className={btn.primary}>Done</button>
               </div>
             </div>
           ) : (
@@ -100,7 +101,7 @@ export default function ImportAttendanceModal({ onClose }) {
 
               <input ref={fileInput} type="file" accept=".csv,text/csv" onChange={handleFile} className="hidden" aria-label="Attendance CSV file" />
               <button onClick={() => fileInput.current?.click()} disabled={importer.isPending}
-                className="w-full border-2 border-dashed border-gray-300 hover:border-blue-400 rounded-xl py-8 flex flex-col items-center gap-2 text-gray-500 hover:text-blue-600 transition-colors">
+                className="w-full border-2 border-dashed border-gray-300 hover:border-brand-400 rounded-xl py-8 flex flex-col items-center gap-2 text-gray-500 hover:text-brand-600 transition-colors">
                 {importer.isPending ? <Loader2 className="w-6 h-6 animate-spin" /> : <Upload className="w-6 h-6" />}
                 <span className="text-sm font-medium">{fileName || 'Choose a CSV file'}</span>
                 {fileName && <span className="text-xs text-gray-400">Choose again to replace it</span>}
@@ -164,13 +165,13 @@ export default function ImportAttendanceModal({ onClose }) {
                 </div>
               )}
 
-              <div className="flex justify-end gap-3">
-                <button onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50">
+              <div className="flex flex-wrap justify-end gap-3">
+                <button onClick={onClose} className={btn.secondary}>
                   Cancel
                 </button>
                 <button onClick={handleImport}
                   disabled={!preview || problems.length > 0 || preview.summary.valid === 0 || importer.isPending}
-                  className="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium flex items-center gap-2">
+                  className={btn.primary}>
                   {importer.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
                   Import {preview?.summary.valid ? `${preview.summary.valid} day${preview.summary.valid === 1 ? '' : 's'}` : ''}
                 </button>

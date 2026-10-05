@@ -1,3 +1,4 @@
+import { btn } from '../../components/ui/styles'
 import { useState } from 'react'
 import { ArrowUp, ArrowDown, Archive, RotateCcw, Plus, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -107,7 +108,7 @@ export default function DocumentSettings() {
                 <label className="flex items-center gap-2 text-xs text-gray-600">
                   <Toggle checked={required} onChange={setRequired} label="New document required" /> Required
                 </label>
-                <button type="submit" disabled={saveType.isPending} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-60">
+                <button type="submit" disabled={saveType.isPending} className={btn.primary}>
                   {saveType.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Add
                 </button>
               </form>
@@ -121,7 +122,7 @@ export default function DocumentSettings() {
                     <li key={type.id} className="flex items-center gap-2 text-sm text-gray-500">
                       {type.label}
                       {canEditTypes && (
-                        <button onClick={() => change(type, { archived: false }, `${type.label} restored`)} className="flex items-center gap-1 text-xs text-blue-600 hover:underline">
+                        <button onClick={() => change(type, { archived: false }, `${type.label} restored`)} className="flex items-center gap-1 text-xs text-brand-600 hover:underline">
                           <RotateCcw className="w-3 h-3" /> Restore
                         </button>
                       )}

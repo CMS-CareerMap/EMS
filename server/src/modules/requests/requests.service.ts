@@ -27,7 +27,6 @@ import { companyTimezone, companyToday } from '../organization/organization.serv
 import { checkWork, loadWork, mayDoWork, type LoadedWork, type WorkKind } from '../organization/workRules.service'
 import { approvalWorld, approverName, approverUsers, assertSomebodyDecides, deciderOf, type ApprovalWorld } from '../leave/leaveApprover.service'
 import { assertDaysOpen, closedMonthKeys } from '../payroll/payrollLock.service'
-import { runLock } from '../payroll/payrollRun.service'
 import { leaveYearOf, unearnedDays } from '../leave/leave.service'
 import * as leaveRepo from '../leave/leave.repository'
 import { writeCorrectedDay } from '../attendance/attendanceAdmin.service'
@@ -243,7 +242,7 @@ async function prepare(ctx: AppContext, tx: TxDb, person: repo.PersonRow, input:
       if (start === null && end === null) throw BadRequest('Give the check-in time, the check-out time, or both.')
       // Out at or before in is the next morning — a night shift — as a day typed by HR reads.
       if (start !== null && end !== null && end === start) throw BadRequest('The check-in and the check-out cannot be the same time.')
-      await assertDaysOpen(ctx, [input.date], 'a correction to that day')
+      await assertDaysOpen(ctx, [input.date], 'a correction to that day', tx)
       const day = await repo.attendanceOn(tx, person.id, toDateColumn(input.date))
       if (day?.status === 'on_leave') {
         throw BadRequest(`${dayLabel(input.date)} is a day of approved leave. Withdraw or cancel the leave first if you worked that day.`)
@@ -389,7 +388,8 @@ async function takeEffect(ctx: AppContext, tx: TxDb, r: repo.RequestRow): Promis
   const details = r.details as Record<string, unknown>
   if (r.type === 'attendance_correction') {
     const date = fromDateColumn(r.fromDate)!
-    await assertDaysOpen(ctx, [date], 'a correction to that day')
+    // Under the month's payroll lock: approved since it was asked, it is refused rather than missed.
+    await assertDaysOpen(ctx, [date], 'a correction to that day', tx)
     await writeCorrectedDay(tx, ctx, {
       employeeId: r.employeeId,
       date,
@@ -469,13 +469,12 @@ const order = (m: Month) => m.year * 12 + m.month
 async function payMonthFor(ctx: AppContext, tx: TxDb, from: Month, lastDay: CalendarDate | null, what: string): Promise<Month> {
   const last = lastDay ? monthOfDay(lastDay) : null
   let pay = last && order(last) < order(from) ? last : from
-  const closed = await closedMonthKeys(ctx)
+  const closed = await closedMonthKeys(ctx, tx)
   while (closed.has(monthKey(pay.year, pay.month))) pay = nextMonth(pay)
   if (last && order(pay) > order(last)) {
     throw Conflict(`Their last payroll, ${monthName(last.year, last.month)}, is already approved, so ${what} cannot be paid through payroll. Pay it with their final settlement and reject this request.`)
   }
-  await lockFor(tx, runLock(ctx, pay.year, pay.month))
-  if ((await closedMonthKeys(ctx)).has(monthKey(pay.year, pay.month))) {
+  if ((await closedMonthKeys(ctx, tx, [pay])).has(monthKey(pay.year, pay.month))) {
     throw Conflict(`The ${monthName(pay.year, pay.month)} payroll was approved a moment ago. Try again.`)
   }
   return pay
@@ -690,9 +689,14 @@ export async function view(ctx: AppContext, id: string): Promise<RequestView> {
   return result!
 }
 
+/**
+ * The person's own; HR's, within its reach; and whoever decides that person's
+ * requests of this kind now — whether it waits or was decided. Not whoever
+ * decided it once: a manager whose report moved, or whose role changed, no
+ * longer reads what they decided then.
+ */
 async function canSee(ctx: AppContext, c: Context, r: repo.RequestRow): Promise<boolean> {
   if (r.employeeId === ctx.employeeId || hrSees(ctx, r)) return true
-  if (r.decidedByUserId === ctx.userId) return true
   return (await decides(ctx, c, r)).allowed
 }
 

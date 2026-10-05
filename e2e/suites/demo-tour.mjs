@@ -9,6 +9,7 @@ import { chromium } from 'playwright-core'
 import { readFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { BASE, WORK } from '../lib/env.mjs'
+import { openMyProfile, openEmployeeProfile, signOutVia, menuLinks, menuLink } from '../lib/ui.mjs'
 
 const fx = JSON.parse(readFileSync(join(WORK, 'demo-fixture.json'), 'utf8'))
 const SHOTS = join(WORK, 'shots', 'demo-tour')
@@ -36,7 +37,7 @@ async function open(login, viewport = { width: 1366, height: 900 }) {
   page.on('pageerror', (e) => problems.push(`${login}: ${e.message}`))
   page.on('response', (r) => { if (r.status() >= 500 && r.url().includes('/api/')) problems.push(`${login}: ${r.request().method()} ${r.url().split('/api')[1]} ${r.status()}`) })
   await page.goto(`${BASE}/signin`)
-  await page.getByPlaceholder('you@careermap.in or EMP001').fill(login)
+  await page.getByLabel('Work Email or Employee ID').fill(login)
   await page.getByPlaceholder('Enter your password').fill(fx.password)
   await page.getByRole('button', { name: 'Sign In' }).click()
   await page.waitForURL((url) => !url.pathname.startsWith('/signin'), { timeout: 20_000 })
@@ -53,20 +54,20 @@ async function go(page, path) {
 const main = (page) => page.locator('main').innerText()
 // Visible only: a page may hold a phone layout and a desktop one, one of them hidden.
 const sees = (page, text) => page.locator('main').getByText(text).filter({ visible: true }).first().waitFor({ timeout: 15_000 }).then(() => true, () => false)
-const sidebar = (page) => page.locator('aside nav a').allInnerTexts().then((t) => t.map((s) => s.trim()).filter(Boolean))
+const sidebar = (page) => menuLinks(page)
 const fits = (page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)
 
-const PAGES = { Dashboard: '/dashboard', Employees: '/employees', Attendance: '/attendance', Leave: '/leave', Requests: '/requests', Payroll: '/payroll', 'My Payslips': '/payslips', Documents: '/documents', Reports: '/reports', Settings: '/settings' }
+const PAGES = { Home: '/dashboard', Employees: '/employees', Attendance: '/attendance', Leave: '/leave', Requests: '/requests', Payroll: '/payroll', 'Payslips': '/payslips', Documents: '/documents', Reports: '/reports', Settings: '/settings' }
 
 const ROLES = [
-  { who: 'Super Admin', login: 'superadmin@example.com', menu: ['Dashboard', 'Employees', 'Attendance', 'Leave', 'Requests', 'Payroll', 'My Payslips', 'Documents', 'Reports', 'Settings'] },
+  { who: 'Super Admin', login: 'superadmin@example.com', menu: ['Home', 'Employees', 'Attendance', 'Leave', 'Requests', 'Payroll', 'Payslips', 'Documents', 'Reports', 'Settings'] },
   // Sunil reports to Arjun, so Leave and Requests come with deciding them.
-  { who: 'Admin', login: 'admin@example.com', menu: ['Dashboard', 'Employees', 'Leave', 'Requests', 'My Payslips', 'Documents', 'Settings'] },
-  { who: 'HR', login: 'hr@example.com', menu: ['Dashboard', 'Employees', 'Attendance', 'Leave', 'Requests', 'Payroll', 'My Payslips', 'Documents', 'Settings'] },
-  { who: 'Accounts', login: 'accounts@example.com', menu: ['Dashboard', 'Payroll', 'My Payslips', 'Documents'] },
-  { who: 'Manager', login: 'manager@example.com', menu: ['Dashboard', 'Employees', 'Attendance', 'Leave', 'Requests', 'My Payslips', 'Documents'] },
-  { who: 'Reporting Manager', login: 'rm@example.com', menu: ['Dashboard', 'Employees', 'Attendance', 'Leave', 'Requests', 'My Payslips', 'Documents'] },
-  { who: 'Employee', login: 'employee@example.com', menu: ['Dashboard', 'Attendance', 'Leave', 'Requests', 'My Payslips', 'Documents'] },
+  { who: 'Admin', login: 'admin@example.com', menu: ['Home', 'Employees', 'Leave', 'Requests', 'Payslips', 'Documents', 'Settings'] },
+  { who: 'HR', login: 'hr@example.com', menu: ['Home', 'Employees', 'Attendance', 'Leave', 'Requests', 'Payroll', 'Payslips', 'Documents', 'Settings'] },
+  { who: 'Accounts', login: 'accounts@example.com', menu: ['Home', 'Payroll', 'Payslips', 'Documents'] },
+  { who: 'Manager', login: 'manager@example.com', menu: ['Home', 'Employees', 'Attendance', 'Leave', 'Requests', 'Payslips', 'Documents'] },
+  { who: 'Reporting Manager', login: 'rm@example.com', menu: ['Home', 'Employees', 'Attendance', 'Leave', 'Requests', 'Payslips', 'Documents'] },
+  { who: 'Employee', login: 'employee@example.com', menu: ['Home', 'Attendance', 'Leave', 'Requests', 'Payslips', 'Documents'] },
 ]
 
 try {
@@ -129,8 +130,10 @@ try {
 
   const manoj = await open('manager@example.com')
   await go(manoj, '/dashboard')
-  check('Manoj’s dashboard shows Amit’s resignation waiting', await sees(manoj, /resignation.* waiting for you/))
-  check('…by name', await sees(manoj, 'Amit Verma'))
+  // Home's "Waiting for you" card: Amit's row, marked Resignation, with Accept.
+  const amit = manoj.getByRole('region', { name: 'Waiting for you' }).getByRole('listitem').filter({ hasText: 'Amit Verma' }).filter({ hasText: 'Resignation' }).first()
+  check('Manoj’s dashboard shows Amit’s resignation waiting', await amit.waitFor({ timeout: 15_000 }).then(() => true, () => false))
+  check('…by name, with Accept', await amit.getByRole('button', { name: 'Accept' }).isVisible())
   await go(manoj, '/leave?tab=decide')
   check('Manoj decides Vikram’s leave', await sees(manoj, 'Vikram Singh'))
   check('…and Rekha’s', await sees(manoj, 'Rekha Rao'))

@@ -543,3 +543,33 @@ describe('what else a closed month refuses', () => {
     expect((await api(org, 'hr').post('/api/holidays', { name: 'Later Day', date: '2026-09-21' })).status).toBe(201)
   })
 })
+
+describe('approving holds the month before it compares the figures', () => {
+  it('a change saved while the approval waits for the month is in the comparison, and the approval is refused', async () => {
+    const org = await makeOrg('approve-holds')
+    const id = await hire(org, { name: 'Meera Joshi', salary: { BASIC: 20_000 } })
+    await presentAllAugust(org, id)
+    const run = await api(org).post('/api/payroll-runs', AUGUST)
+    expect(run.status).toBe(201)
+
+    // Somebody saving a pay input for August holds the month's lock, and before
+    // letting go marks a day absent the draft was worked out without.
+    let taken!: () => void
+    const lockTaken = new Promise<void>((resolve) => { taken = resolve })
+    const writer = prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`payroll-run:${org.id}:2026-08`}))`
+      taken()
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+      await tx.attendance.updateMany({ where: { employeeId: id, date: day('2026-08-10') }, data: { status: 'absent' } })
+    }, { timeout: 20_000 })
+    await lockTaken
+
+    // Sent now (then() sends it): it waits for the month, then compares — and sees the absence.
+    const approving = api(org, 'super_admin').post(`/api/payroll-runs/${run.body.data.id}/approve`, { confirmAssumedDays: true }).then((res) => res)
+    await writer
+    const res = await approving
+    expect(res.status, JSON.stringify(res.body)).toBe(422)
+    expect(res.body.error.message).toMatch(/have changed since it was calculated/)
+    expect((await prisma.payrollRun.findUniqueOrThrow({ where: { id: run.body.data.id } })).status).toBe('draft')
+  })
+})

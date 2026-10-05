@@ -3,6 +3,7 @@ import { getAttendanceExport } from '../controllers/exports.controller'
 import { postPunchIn, postPunchOut, getMyToday, getMyWorkplace } from '../controllers/attendance.controller'
 import {
   getAttendance,
+  getMonthCalendar,
   getMonthlySummary,
   getDaySummary,
   getDayRoster,
@@ -36,6 +37,8 @@ attendanceRouter.get('/me/workplace', authorize('attendance:punch'), getMyWorkpl
 // the repository, not here.
 attendanceRouter.get('/', authorize('attendance:read'), getAttendance)
 attendanceRouter.get('/monthly-summary', authorize('attendance:read'), getMonthlySummary)
+// The company's days off in a month: the same for everybody who reads attendance.
+attendanceRouter.get('/calendar', authorize('attendance:read'), getMonthCalendar)
 attendanceRouter.get('/summary', authorize('attendance:read'), getDaySummary)
 attendanceRouter.get('/day', authorize('attendance:read'), getDayRoster)
 attendanceRouter.get('/export', authorize('attendance:read'), getAttendanceExport)

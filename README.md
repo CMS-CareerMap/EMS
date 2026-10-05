@@ -24,7 +24,7 @@ cd web    && npm install && npm run dev        # the app on :5173; /api is proxi
 ## Checks
 
 ```bash
-cd server && npm run typecheck && npm run lint && npm test   # types, the architecture rules (§A5), ~1,460 tests
+cd server && npm run typecheck && npm run lint && npm test   # types, the architecture rules (§A5), ~1,490 tests
 cd web    && npm run lint && npm run build
 cd server && npm run field-contract                          # rewrites docs/field-contract.json
 cd e2e    && npm install && npm run e2e:all                  # browser tests on the built app (e2e/README.md)

@@ -37,7 +37,7 @@ async function cleanup(): Promise<void> {
   await prisma.organization.deleteMany({ where: { name: { startsWith: PREFIX } } })
 }
 
-async function makeUser(key: string, role: 'super_admin' | 'hr' | 'manager') {
+async function makeUser(key: string, role: 'super_admin' | 'hr' | 'manager' | 'admin') {
   const email = `${PREFIX}-${key}@example.com`
   const user = await prisma.user.create({
     data: { email, passwordHash: await hashPassword(PASSWORD) },
@@ -68,6 +68,8 @@ beforeAll(async () => {
 
   await makeUser('hr', 'hr')
   await makeUser('mgr', 'manager')
+  // Adds people, but does not see personal details (Role_Permission_Documentation §3.2).
+  await makeUser('admin', 'admin')
 })
 
 beforeEach(async () => {
@@ -460,6 +462,36 @@ describe('limits', () => {
   it('refuses a file with only a header', async () => {
     const res = await upload(HEADER, true)
     expect(res.status).toBe(400)
+  })
+})
+
+describe('the date of birth — payroll stops the pension (EPS) at 58 from it', () => {
+  const header = 'employee_code,full_name,date_of_birth'
+
+  it('is read day-first, as Excel in India writes it, and kept', async () => {
+    const res = await upload([header, `${PREFIX}-E1,Asha Menon,14/03/1968`, `${PREFIX}-E2,Rahul Nair,1990-11-22`].join('\n'), false)
+    expect(res.status, JSON.stringify(res.body)).toBe(201)
+    const [asha, rahul] = await Promise.all([
+      prisma.employee.findFirst({ where: { employeeCode: `${PREFIX}-E1` } }),
+      prisma.employee.findFirst({ where: { employeeCode: `${PREFIX}-E2` } }),
+    ])
+    expect(fromDateColumn(asha?.dateOfBirth ?? null)).toBe('1968-03-14')
+    expect(fromDateColumn(rahul?.dateOfBirth ?? null)).toBe('1990-11-22')
+  })
+
+  it('refuses one it cannot read, and one not in the past', async () => {
+    const res = await upload([header, `${PREFIX}-E1,Asha Menon,31/02/1990`, `${PREFIX}-E2,Rahul Nair,01/01/2099`].join('\n'))
+    expect(JSON.stringify(res.body.data.rows[0].issues)).toMatch(/date_of_birth.*DD\/MM\/YYYY/)
+    expect(JSON.stringify(res.body.data.rows[1].issues)).toMatch(/not in the past/)
+  })
+
+  it('is refused to somebody who adds people but cannot see personal details — as on the form', async () => {
+    const res = await upload([header, `${PREFIX}-E1,Asha Menon,14/03/1968`].join('\n'), true, 'admin')
+    expect(res.status, JSON.stringify(res.body)).toBe(200)
+    expect(JSON.stringify(res.body.data.rows[0].issues)).toMatch(/somebody who can see personal details/)
+    // Without the column the same file goes in.
+    const plain = await upload(['employee_code,full_name', `${PREFIX}-E1,Asha Menon`].join('\n'), true, 'admin')
+    expect(plain.body.data.summary.valid).toBe(1)
   })
 })
 

@@ -63,3 +63,12 @@ export async function listDaysOff(db: ScopedDb, from: Date, to: Date) {
     select: { date: true },
   })
 }
+
+/** The same days, with their names and kinds — for a calendar that shows them. */
+export async function listDaysOffNamed(db: ScopedDb, from: Date, to: Date) {
+  return db.holiday.findMany({
+    where: { date: { gte: from, lte: to }, type: { in: ['public', 'weekly_off'] } },
+    select: { date: true, name: true, type: true },
+    orderBy: [{ date: 'asc' }, { name: 'asc' }],
+  })
+}

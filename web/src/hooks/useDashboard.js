@@ -1,10 +1,10 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/http'
 
-const DEPARTMENT_COLOURS = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EF4444', '#14B8A6', '#EC4899', '#6366F1', '#84CC16', '#F97316']
-
 /**
- * The dashboards.
+ * The home page, one section at a time — each its own request, so one that
+ * fails leaves the others standing, and each asked only by a login whose
+ * permissions open it.
  *
  * THE FABRICATION THIS REPLACES. The old employee dashboard read leave balances
  * like this:
@@ -12,105 +12,35 @@ const DEPARTMENT_COLOURS = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EF4444
  *     remaining_days: rawBalances.casual ?? 12
  *
  * An employee whose balance row did not exist — which is every employee
- * imported from a CSV — saw twelve days of casual leave, eighteen earned,
- * twenty-four work-from-home. They applied for them, and were refused by the
- * same system that had just offered them.
- *
- * Nothing here has a fallback. A figure that is not known comes back as zero,
+ * imported from a CSV — saw twelve days of casual leave. They applied for
+ * them, and were refused by the same system that had just offered them.
+ * Nothing here has a fallback: a figure that is not known comes back as zero,
  * because zero is what they have.
  */
 
 const keys = {
-  company: ['dashboard', 'summary'],
+  today: ['dashboard', 'today'],
+  people: ['dashboard', 'people'],
+  payroll: ['dashboard', 'payroll'],
   me: ['dashboard', 'me'],
 }
 
-/**
- * The company view — for HR, admins and managers.
- *
- * Scoped by the server: a manager's figures cover their team, HR's cover the
- * company. The page does not ask for one or the other; it asks for "the
- * dashboard", and gets the one that belongs to whoever is signed in.
- */
-export function useDashboardStats() {
-  return useQuery({
-    queryKey: keys.company,
-    queryFn: async () => {
-      const { data } = await api.get('/dashboard/summary')
-
-      return {
-        date: data.date,
-        totalEmployees: data.total_employees,
-        presentToday: data.present_today,
-        onLeaveToday: data.on_leave_today,
-        absentToday: data.absent_today,
-        // Kept apart from absent, and the UI should keep them apart too. The
-        // old dashboard added them and reported the whole company absent every
-        // morning until somebody started marking.
-        notMarkedToday: data.not_marked_today,
-
-        // Derived from the weekly-off policy, not counted — the system does
-        // not create attendance rows for days nobody works. Reporting zero
-        // would say everybody was absent on a Sunday.
-        isWeeklyOffToday: data.is_weekly_off_today,
-        weeklyOffToday: data.weekly_off_today,
-
-        pendingLeaveCount: data.pending_leave_count,
-        // Of those, the ones the caller decides in the company tree (Day 22).
-        pendingForMe: data.pending_for_me ?? 0,
-        pendingLeaves: data.pending_leaves,
-
-        // Each department its own colour, for the chart and its legend. The
-        // chart drew colourless, invisible slices without one.
-        deptData: data.by_department.map((d, i) => ({
-          name: d.department,
-          value: d.headcount,
-          present: d.present_today,
-          color: DEPARTMENT_COLOURS[i % DEPARTMENT_COLOURS.length],
-        })),
-
-        // Same derivation, per department: on a weekly off the whole department
-        // is off, and on any other day none of it is.
-        deptWeeklyOff: data.is_weekly_off_today
-          ? data.by_department.map((d) => ({ name: d.department, value: d.headcount }))
-          : [],
-
-        weekData: data.this_week.map((d) => ({
-          date: d.date,
-          day: new Date(`${d.date}T00:00:00Z`).toLocaleDateString('en-IN', {
-            weekday: 'short',
-            timeZone: 'UTC',
-          }),
-          present: d.present,
-          absent: d.absent,
-          onLeave: d.on_leave,
-        })),
-
-        recentJoiners: data.recent_joiners,
-      }
-    },
-  })
+/** Today at work within the caller's attendance reach — a team, or the company. */
+export function useTodayAtWork({ enabled = true } = {}) {
+  return useQuery({ queryKey: keys.today, queryFn: async () => (await api.get('/dashboard/today')).data, enabled })
 }
 
-/** Approving straight from the dashboard's pending list. */
-export function useApproveLeaveDashboard() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: async ({ id, status, note }) => {
-      const action = status === 'approved' ? 'approve' : 'reject'
-      return (await api.post(`/leave-requests/${id}/${action}`, note ? { note } : {})).data
-    },
-    // Returned: the buttons stay held until the list no longer shows the request.
-    onSuccess: () => Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
-      queryClient.invalidateQueries({ queryKey: ['leave'] }),
-      queryClient.invalidateQueries({ queryKey: ['attendance'] }),
-    ]),
-  })
+/** The staff within the caller's employee reach: headcount, departments, joiners, leavers. */
+export function usePeopleSummary({ enabled = true } = {}) {
+  return useQuery({ queryKey: keys.people, queryFn: async () => (await api.get('/dashboard/people')).data, enabled })
 }
 
-/** The employee's own view. `enabled` lets the profile drawer ask only when it is open. */
+/** The newest payroll runs, salary accounts, amounts entered and loans. */
+export function usePayrollSummary({ enabled = true } = {}) {
+  return useQuery({ queryKey: keys.payroll, queryFn: async () => (await api.get('/dashboard/payroll')).data, enabled })
+}
+
+/** The signed-in person's own day, month, week and leave. `enabled` lets My Profile ask only when it needs to. */
 export function useMyDashboardStats({ enabled = true } = {}) {
   return useQuery({
     enabled,
@@ -135,6 +65,8 @@ export function useMyDashboardStats({ enabled = true } = {}) {
 
         todayStatus: data.today.status,
         today: data.today,
+        // The last seven days, today last, the company's days off named.
+        recentDays: data.recent_days ?? [],
 
         recentLeaves: data.recent_leaves,
         // Leave waiting for them to decide (Day 22: people report to them).

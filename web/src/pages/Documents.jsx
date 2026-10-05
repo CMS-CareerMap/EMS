@@ -6,6 +6,8 @@ import CompanyDocuments from '../features/documents/CompanyDocuments'
 import EmployeeDocuments from '../features/documents/EmployeeDocuments'
 import Checklist from '../features/documents/Checklist'
 import DataState from '../components/DataState'
+import PageHeader from '../components/ui/PageHeader'
+import { TabPanel } from '../components/ui/Tabs'
 
 /**
  * Documents.
@@ -40,25 +42,19 @@ export default function Documents() {
   if (!current) return null
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">Documents</h2>
-        <p className="text-sm text-gray-500 mt-0.5">
-          {reviews ? 'Company policies, and everybody’s documents to check' : 'Company policies, and the documents HR needs from you'}
-        </p>
-      </div>
+    <>
+      <PageHeader
+        title="Documents"
+        subtitle={reviews
+          ? 'Company policies, and everybody’s documents to check'
+          : tabs.some((t) => t.id === 'mine') ? 'Company policies, and the documents HR needs from you' : 'Company policies and handbook'}
+        tabs={tabs.map((t) => ({ key: t.id, label: t.label, icon: t.icon }))}
+        tab={current.id}
+        onTab={(id) => go(id)}
+        panelId="documents-panel"
+      />
 
-      {tabs.length > 1 && (
-        <div className="flex items-center gap-1 border-b border-gray-200 overflow-x-auto">
-          {tabs.map((t) => (
-            <button key={t.id} onClick={() => go(t.id)}
-              className={`shrink-0 flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${current.id === t.id ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-              <t.icon className="w-4 h-4" /> {t.label}
-            </button>
-          ))}
-        </div>
-      )}
-
+      <TabPanel id="documents-panel" tab={tabs.length > 1 ? current.id : null}>
       {current.id === 'company' && <CompanyDocuments />}
       {/* The checklist and the upload limit come first: a file is checked against them before it is sent. */}
       {current.id !== 'company' && (
@@ -70,7 +66,8 @@ export default function Documents() {
           )}
         </DataState>
       )}
-    </div>
+      </TabPanel>
+    </>
   )
 }
 
@@ -79,10 +76,11 @@ function MyDocuments({ types, limits, canUpload }) {
   return (
     <DataState query={checklist}>
       {(data) => (
-        <div className="space-y-3">
-          <p className="text-sm text-gray-600">
-            Upload a clear photo or PDF of each document. HR checks it against the original; you are told when it is verified, or why it was not.
-          </p>
+        <div className="space-y-4">
+          <div className="rounded-xl bg-logo-soft p-4">
+            <p className="text-sm font-bold text-gray-900">Upload a clear photo or PDF of each document.</p>
+            <p className="text-xs text-gray-600 mt-0.5">HR checks it against the original; you are told when it is verified, or why it was not.</p>
+          </div>
           <Checklist data={data} types={types} limits={limits} reviewer={false} canUpload={canUpload} />
         </div>
       )}

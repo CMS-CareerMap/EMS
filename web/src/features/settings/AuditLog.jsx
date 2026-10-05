@@ -97,7 +97,7 @@ export default function AuditLog() {
             <RotateCw className={`w-3.5 h-3.5 ${log.isFetching && !log.isFetchingNextPage ? 'animate-spin' : ''}`} aria-hidden="true" /> Refresh
           </button>
           <button type="button" onClick={() => start('export', () => downloadAuditLog(filters))} disabled={busy === 'export' || !ready}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-60 sm:ml-auto">
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700 disabled:opacity-60 sm:ml-auto">
             {busy === 'export' ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" /> : <Download className="w-3.5 h-3.5" aria-hidden="true" />}
             Export CSV
           </button>
@@ -127,7 +127,7 @@ export default function AuditLog() {
                     </p>
                     {log.hasNextPage && (
                       <button type="button" onClick={() => log.fetchNextPage()} disabled={log.isFetchingNextPage}
-                        className="px-3 py-1.5 text-sm font-medium text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-50 disabled:opacity-60">
+                        className="px-3 py-1.5 text-sm font-medium text-brand-700 border border-brand-200 rounded-lg hover:bg-brand-50 disabled:opacity-60">
                         {log.isFetchingNextPage ? 'Loading…' : olderFailed ? 'Try loading older entries again' : 'Load older entries'}
                       </button>
                     )}

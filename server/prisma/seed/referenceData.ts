@@ -86,6 +86,11 @@ const SALARY_COMPONENTS = [
   // Client §40, entered monthly like an incentive. A bonus is outside ESI wages.
   { code: 'BONUS', label: 'Bonus', type: 'earning', countsForPf: false, countsForEsi: false, taxable: true, displayOrder: 7, entry: 'monthly' },
   { code: 'COMMISSION', label: 'Commission', type: 'earning', countsForPf: false, taxable: true, displayOrder: 8, entry: 'monthly' },
+  // The difference a salary that starts inside a month leaves unpaid for its
+  // days — the payslip's warning gives the figure. Arrears of Basic are PF
+  // wages; whether this line counts is the accountant's call, switched in
+  // Settings → Payroll Config like any earning.
+  { code: 'ARREARS', label: 'Arrears', type: 'earning', countsForPf: false, taxable: true, displayOrder: 9, entry: 'monthly' },
 ] as const
 
 /**

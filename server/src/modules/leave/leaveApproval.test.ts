@@ -652,8 +652,31 @@ describe('the company tree decides (Day 22)', () => {
   })
 })
 
-describe('the dashboard, and the numbers it used to invent', () => {
-  it('gives the profile drawer the employee’s own HR record — their manager included', async () => {
+describe('the home page, section by section, and the numbers it used to invent', () => {
+  /** A login with the Admin role and no employee record — whose attendance reach is their own. */
+  async function adminToken(): Promise<string> {
+    const email = `${PREFIX}-admin@example.com`
+    const existing = await prisma.user.findUnique({ where: { email } })
+    if (!existing) {
+      const user = await prisma.user.create({ data: { email, passwordHash: await hashPassword(PASSWORD) } })
+      await prisma.membership.create({ data: { userId: user.id, organizationId: orgId, role: 'admin', status: 'active' } })
+    }
+    const login = await request(app).post('/api/auth/login').send({ identifier: email, password: PASSWORD })
+    return `Bearer ${login.body.data.accessToken}`
+  }
+
+  /** The API at a fixed instant — the company is in India, so 05:00 UTC is 10:30 there. */
+  async function at<T>(iso: string, call: () => Promise<T>): Promise<T> {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(iso))
+    try {
+      return await call()
+    } finally {
+      vi.useRealTimers()
+    }
+  }
+
+  it('gives My Profile the employee’s own HR record — their manager included', async () => {
     await prisma.employee.update({ where: { id: aliceId }, data: { phone: '9876543210' } })
     const res = await request(app).get('/api/dashboard/me').set('Authorization', as('alice'))
     expect(res.status).toBe(200)
@@ -668,14 +691,9 @@ describe('the dashboard, and the numbers it used to invent', () => {
   it('reports a real zero balance rather than a comfortable twelve', async () => {
     // Alice has NO ledger entries at all — exactly the state every employee
     // imported from the CSV starts in.
-    const res = await request(app)
-      .get('/api/dashboard/me')
-      .set('Authorization', as('alice'))
-
+    const res = await request(app).get('/api/dashboard/me').set('Authorization', as('alice'))
     expect(res.status).toBe(200)
-
     const cl = res.body.data.leave_balances.find((b: { code: string }) => b.code === 'CL')
-
     // The old dashboard fell back to `?? 12` here. Somebody with no
     // entitlement saw twelve days, applied for them, and was refused by the
     // same system that had just offered them.
@@ -685,75 +703,77 @@ describe('the dashboard, and the numbers it used to invent', () => {
 
   it('reports the balance once it exists', async () => {
     await grant(aliceId, 12)
-
-    const res = await request(app)
-      .get('/api/dashboard/me')
-      .set('Authorization', as('alice'))
-
+    const res = await request(app).get('/api/dashboard/me').set('Authorization', as('alice'))
     const cl = res.body.data.leave_balances.find((b: { code: string }) => b.code === 'CL')
     expect(cl.remaining_days).toBe(12)
   })
 
-  it('gives an employee their own month, with hours', async () => {
-    // The COMPANY'S today, not UTC's. The organization is Asia/Kolkata, so
-    // between midnight and 05:30 IST the UTC date is still yesterday — a test
-    // that writes attendance for the UTC day passes all afternoon and fails
-    // overnight. This is the exact mistake `zonedToday` exists to stop, and
-    // the test had made it.
+  it('gives an employee their own month and last seven days, with hours and how late', async () => {
+    // The COMPANY'S today, not UTC's: between midnight and 05:30 IST the UTC
+    // date is still yesterday, and a test written for the UTC day fails overnight.
     const today = zonedToday(new Date(), 'Asia/Kolkata')
     await prisma.attendance.create({
-      data: {
-        organizationId: orgId,
-        employeeId: aliceId,
-        date: new Date(`${today}T00:00:00Z`),
-        status: 'present',
-        source: 'punch',
-        hoursWorked: 8.5,
-      },
+      data: { organizationId: orgId, employeeId: aliceId, date: new Date(`${today}T00:00:00Z`), status: 'present', source: 'punch', hoursWorked: 8.5, lateMinutes: 12 },
     })
 
-    const res = await request(app)
-      .get('/api/dashboard/me')
-      .set('Authorization', as('alice'))
+    const res = await request(app).get('/api/dashboard/me').set('Authorization', as('alice'))
 
     expect(res.body.data.this_month.present_days).toBe(1)
     expect(res.body.data.this_month.total_hours).toBe(8.5)
-    expect(res.body.data.today.status).toBe('present')
+    expect(res.body.data.today).toMatchObject({ status: 'present', late_minutes: 12 })
+    const days = res.body.data.recent_days
+    expect(days).toHaveLength(7)
+    expect(days[6]).toMatchObject({ date: today, status: 'present', hours_worked: 8.5, late_minutes: 12 })
   })
 
-  it('keeps not-marked separate from absent on the company view', async () => {
-    // A fixed working day. On a Sunday — this company's weekly off — nobody is
-    // expected in, so "not marked" is rightly zero, and this test used to fail
-    // every Sunday for that reason alone.
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(new Date('2026-09-23T05:00:00Z')) // Wednesday, 10:30 in India
-    let res
+  it('names the company’s days off in somebody’s last seven days, which have no rows', async () => {
+    await prisma.holiday.create({ data: { organizationId: orgId, name: 'Test Holiday', date: new Date(Date.UTC(2026, 8, 22)), type: 'public' } })
     try {
-      res = await request(app).get('/api/dashboard/summary').set('Authorization', as('hr'))
+      const res = await at('2026-09-23T05:00:00Z', () => request(app).get('/api/dashboard/me').set('Authorization', as('alice')))
+      const byDate = Object.fromEntries(res.body.data.recent_days.map((d: { date: string }) => [d.date, d]))
+      expect(Object.keys(byDate)).toEqual(['2026-09-17', '2026-09-18', '2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23'])
+      expect(byDate['2026-09-20']).toMatchObject({ day_off: 'weekly_off', status: null })
+      expect(byDate['2026-09-22']).toMatchObject({ day_off: 'holiday', holiday: 'Test Holiday' })
+      expect(byDate['2026-09-23']).toMatchObject({ day_off: null })
     } finally {
-      vi.useRealTimers()
+      await prisma.holiday.deleteMany({ where: { organizationId: orgId } })
     }
+  })
+
+  it('keeps not-marked separate from absent on today at work', async () => {
+    // A fixed working day. On a Sunday — this company's weekly off — nobody is
+    // expected in, so "not marked" is rightly zero.
+    const res = await at('2026-09-23T05:00:00Z', () => request(app).get('/api/dashboard/today').set('Authorization', as('hr')))
 
     expect(res.status).toBe(200)
-    expect(res.body.data.absent_today).toBe(0)
+    expect(res.body.data.reach).toBe('company')
+    expect(res.body.data.counts.absent).toBe(0)
     // Seven employees, nobody marked. The old dashboard called that seven
     // absences every morning.
-    expect(res.body.data.not_marked_today).toBe(7)
+    expect(res.body.data.counts.not_marked).toBe(7)
+    expect(res.body.data.headcount).toBe(7)
   })
 
   it('expects nobody on the weekly off', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(new Date('2026-09-27T05:00:00Z')) // Sunday
-    let res
-    try {
-      res = await request(app).get('/api/dashboard/summary').set('Authorization', as('hr'))
-    } finally {
-      vi.useRealTimers()
-    }
+    const res = await at('2026-09-27T05:00:00Z', () => request(app).get('/api/dashboard/today').set('Authorization', as('hr')))
+    expect(res.body.data.day_off).toBe('weekly_off')
+    expect(res.body.data.counts.not_marked).toBe(0)
+    expect(res.body.data.counts.absent).toBe(0)
+  })
 
-    expect(res.body.data.is_weekly_off_today).toBe(true)
-    expect(res.body.data.not_marked_today).toBe(0)
-    expect(res.body.data.absent_today).toBe(0)
+  it('counts late arrivals and work away from the office today', async () => {
+    const day = new Date(Date.UTC(2026, 8, 23))
+    await prisma.attendance.createMany({
+      data: [
+        { organizationId: orgId, employeeId: aliceId, date: day, status: 'present', source: 'punch', lateMinutes: 17 },
+        { organizationId: orgId, employeeId: managerEmpId, date: day, status: 'present', source: 'punch', lateMinutes: 0, workMode: 'wfh' },
+      ],
+    })
+    const res = await at('2026-09-23T05:00:00Z', () => request(app).get('/api/dashboard/today').set('Authorization', as('mgr')))
+    expect(res.body.data.counts).toMatchObject({ present: 2, late: 1, away: 1, not_marked: 0 })
+    const alice = res.body.data.people.find((p: { id: string }) => p.id === aliceId)
+    expect(alice).toMatchObject({ status: 'present', late_minutes: 17, is_self: false })
+    expect(res.body.data.people.find((p: { id: string }) => p.id === managerEmpId).is_self).toBe(true)
   })
 
   it("counts a manager's week for the team only", async () => {
@@ -765,80 +785,112 @@ describe('the dashboard, and the numbers it used to invent', () => {
         { organizationId: orgId, employeeId: strangerId, date: monday, status: 'present', source: 'manual' },
       ],
     })
-
-    const summaryAs = async (key: string) => {
-      vi.useFakeTimers({ toFake: ['Date'] })
-      vi.setSystemTime(new Date('2026-09-23T05:00:00Z')) // the Wednesday of that week
-      try {
-        return (await request(app).get('/api/dashboard/summary').set('Authorization', as(key))).body.data
-      } finally {
-        vi.useRealTimers()
-      }
+    const presentOnMonday = async (key: string) => {
+      const res = await at('2026-09-23T05:00:00Z', () => request(app).get('/api/dashboard/today').set('Authorization', as(key)))
+      return res.body.data.week.find((d: { date: string }) => d.date === '2026-09-21')?.present
     }
-    const presentOnMonday = (data: { this_week: { date: string; present: number }[] }) =>
-      data.this_week.find((d) => d.date === '2026-09-21')?.present
-
     // The stranger is not in the manager's team. The week used to count them anyway.
-    expect(presentOnMonday(await summaryAs('mgr'))).toBe(1)
-    expect(presentOnMonday(await summaryAs('hr'))).toBe(2)
+    expect(await presentOnMonday('mgr')).toBe(1)
+    expect(await presentOnMonday('hr')).toBe(2)
   })
 
-  it('shows Admin none of the company attendance', async () => {
-    // The matrix keeps Admin out of attendance: their scope is their own, and
-    // this Admin has no employee record at all. They used to see the company's.
-    const email = `${PREFIX}-admin@example.com`
-    const user = await prisma.user.create({ data: { email, passwordHash: await hashPassword(PASSWORD) } })
-    await prisma.membership.create({ data: { userId: user.id, organizationId: orgId, role: 'admin', status: 'active' } })
-    const login = await request(app).post('/api/auth/login').send({ identifier: email, password: PASSWORD })
-
-    const today = toDateColumn(zonedToday(new Date(), 'Asia/Kolkata'))
-    await prisma.attendance.create({
-      data: { organizationId: orgId, employeeId: aliceId, date: today, status: 'present', source: 'manual' },
-    })
-
-    const res = await request(app)
-      .get('/api/dashboard/summary')
-      .set('Authorization', `Bearer ${login.body.data.accessToken}`)
-
-    expect(res.status).toBe(200)
-    expect(res.body.data.total_employees).toBe(0)
-    expect(res.body.data.present_today).toBe(0)
-    expect(res.body.data.this_week.every((d: { present: number }) => d.present === 0)).toBe(true)
-  })
-
-  it('narrows the company view to a manager team', async () => {
-    const res = await request(app)
-      .get('/api/dashboard/summary')
-      .set('Authorization', as('mgr'))
-
+  it('narrows today to a manager team, and calls it a team', async () => {
+    const res = await request(app).get('/api/dashboard/today').set('Authorization', as('mgr'))
+    expect(res.body.data.reach).toBe('team')
     // The manager and one direct report — not the whole company.
-    expect(res.body.data.total_employees).toBe(2)
+    expect(res.body.data.headcount).toBe(2)
+    expect(res.body.data.people.map((p: { full_name: string }) => p.full_name).sort()).toEqual(['alice person', 'mgr person'])
   })
 
-  it('shows pending approvals to whoever can act on them', async () => {
+  it('refuses today at work to a login that sees only its own attendance', async () => {
+    // Admin's attendance reach is their own: the old dashboard drew them a
+    // company of one — "1 employee, 0 present". An employee likewise.
+    expect((await request(app).get('/api/dashboard/today').set('Authorization', await adminToken())).status).toBe(403)
+    expect((await request(app).get('/api/dashboard/today').set('Authorization', as('alice'))).status).toBe(403)
+  })
+
+  it('lists who is away in the next seven days, within the reach only', async () => {
+    const today = zonedToday(new Date(), 'Asia/Kolkata')
+    const tomorrow = fromDateColumn(new Date(new Date(`${today}T00:00:00Z`).getTime() + 86_400_000))
+    await grant(aliceId, 12)
+    await grant(strangerId, 12)
+    await applyAs('alice', tomorrow, tomorrow)
+    await applyAs('stranger', tomorrow, tomorrow)
+
+    const names = async (key: string) => {
+      const res = await request(app).get('/api/dashboard/today').set('Authorization', as(key))
+      return res.body.data.away.map((a: { full_name: string; kind: string; status: string }) => `${a.full_name}:${a.kind}:${a.status}`).sort()
+    }
+    expect(await names('mgr')).toEqual(['alice person:leave:pending'])
+    expect(await names('hr')).toEqual(['alice person:leave:pending', 'stranger person:leave:pending'])
+
+    // A role that reads attendance but not leave sees who came in, not who is off on what leave.
+    const where = { organizationId_key: { organizationId: orgId, key: 'hr' } }
+    const before = await prisma.role.findUniqueOrThrow({ where })
+    await prisma.role.update({ where, data: { permissions: before.permissions.filter((p) => p !== 'leave:read') } })
+    try {
+      const res = await request(app).get('/api/dashboard/today').set('Authorization', as('hr'))
+      expect(res.status).toBe(200)
+      expect(res.body.data.headcount).toBe(7)
+      expect(res.body.data.away).toEqual([])
+    } finally {
+      await prisma.role.update({ where, data: { permissions: before.permissions } })
+    }
+  })
+
+  it('counts the staff on the employee reach: Admin sees the company, not a company of one', async () => {
+    const res = await request(app).get('/api/dashboard/people').set('Authorization', await adminToken())
+    expect(res.status).toBe(200)
+    expect(res.body.data).toMatchObject({ total: 7, active: 7, inactive: 0 })
+    expect(res.body.data.by_department).toEqual([{ department: 'Unassigned', headcount: 7 }])
+  })
+
+  it('lists as new joiners only the people who joined in the last 60 days, newest first', async () => {
+    const today = zonedToday(new Date(), 'Asia/Kolkata')
+    const daysAgo = (n: number) => new Date(new Date(`${today}T00:00:00Z`).getTime() - n * 86_400_000)
+    await prisma.employee.update({ where: { id: aliceId }, data: { dateOfJoining: daysAgo(10) } })
+    await prisma.employee.update({ where: { id: strangerId }, data: { dateOfJoining: daysAgo(100) } })
+    await prisma.employee.update({ where: { id: accountantId }, data: { dateOfJoining: daysAgo(59) } })
+    try {
+      const res = await request(app).get('/api/dashboard/people').set('Authorization', as('hr'))
+      // The old list was the first five people whatever their joining date —
+      // somebody who joined in 2022 was a "recent joiner".
+      expect(res.body.data.joiners.map((j: { full_name: string }) => j.full_name)).toEqual(['alice person', 'accountant person'])
+    } finally {
+      await prisma.employee.updateMany({ where: { id: { in: [aliceId, strangerId, accountantId] } }, data: { dateOfJoining: null } })
+    }
+  })
+
+  it('refuses the people section to a login without the directory', async () => {
+    expect((await request(app).get('/api/dashboard/people').set('Authorization', as('alice'))).status).toBe(403)
+  })
+
+  it('gives the payroll section to whoever reads payroll, and to nobody else', async () => {
+    const res = await request(app).get('/api/dashboard/payroll').set('Authorization', as('achead'))
+    expect(res.status).toBe(200)
+    const today = zonedToday(new Date(), 'Asia/Kolkata')
+    // No run yet: the next one is this month's.
+    expect(res.body.data.latest).toBeNull()
+    expect(res.body.data.next).toEqual({ year: Number(today.slice(0, 4)), month: Number(today.slice(5, 7)) })
+    // Nobody here has a salary account yet.
+    expect(res.body.data.bank).toMatchObject({ verified: 0, waiting: 0, none: 7 })
+    expect(res.body.data.loans).toEqual({ active: 0, left: 0 })
+
+    // HR enters incentives but does not read payroll.
+    expect((await request(app).get('/api/dashboard/payroll').set('Authorization', as('hr'))).status).toBe(403)
+    expect((await request(app).get('/api/dashboard/payroll').set('Authorization', as('mgr'))).status).toBe(403)
+  })
+
+  it('shows waiting leave only to whoever decides it', async () => {
     await grant(aliceId, 12)
     await applyAs('alice')
-
-    const forManager = await request(app)
-      .get('/api/dashboard/summary')
-      .set('Authorization', as('mgr'))
-    expect(forManager.body.data.pending_leave_count).toBe(1)
+    const pendingFor = async (key: string) =>
+      (await request(app).get('/api/leave-requests/team').set('Authorization', as(key))).body.data.requests.filter((r: { status: string }) => r.status === 'pending').length
+    expect(await pendingFor('mgr')).toBe(1)
 
     await grant(strangerId, 12)
     await applyAs('stranger')
-
-    const stillOne = await request(app)
-      .get('/api/dashboard/summary')
-      .set('Authorization', as('mgr'))
-    // The stranger's request is not theirs to see or decide.
-    expect(stillOne.body.data.pending_leave_count).toBe(1)
-  })
-
-  it('refuses an ordinary employee the company view', async () => {
-    const res = await request(app)
-      .get('/api/dashboard/summary')
-      .set('Authorization', as('alice'))
-
-    expect(res.status).toBe(403)
+    // The stranger's request is not the manager's to see or decide.
+    expect(await pendingFor('mgr')).toBe(1)
   })
 })

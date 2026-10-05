@@ -1,5 +1,6 @@
 import { Component } from 'react'
 import { AlertTriangle, RotateCw, LayoutDashboard } from 'lucide-react'
+import { btn } from './ui/styles'
 
 /**
  * What the screen shows when a page throws while drawing — instead of the
@@ -63,7 +64,7 @@ export default class ErrorBoundary extends Component {
     const whole = this.props.whole ?? false
 
     return (
-      <div role="alert" className={`flex items-center justify-center px-4 ${whole ? 'min-h-screen bg-[#F8FAFC]' : 'py-16'}`}>
+      <div role="alert" className={`flex items-center justify-center px-4 ${whole ? 'min-h-screen bg-canvas' : 'py-16'}`}>
         <div className="max-w-md w-full bg-white border border-gray-200 rounded-2xl shadow-sm p-6 text-center space-y-3">
           <AlertTriangle className="w-8 h-8 text-amber-500 mx-auto" aria-hidden="true" />
           <h2 className="text-base font-semibold text-gray-900">
@@ -72,24 +73,24 @@ export default class ErrorBoundary extends Component {
           <p className="text-sm text-gray-600">
             {stale
               ? 'The app was updated while this tab was open. Reload to get the new version — nothing you saved is lost.'
-              : 'Something on this page failed to show. Nothing was saved or changed by it. Try again, or go back to the dashboard.'}
+              : 'Something on this page failed to show. Nothing was saved or changed by it. Try again, or go back to Home.'}
           </p>
           <div className="flex flex-wrap justify-center gap-2 pt-1">
             {stale ? (
               <button type="button" onClick={() => window.location.reload()}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">
+                className={btn.primary}>
                 <RotateCw className="w-4 h-4" aria-hidden="true" /> Reload
               </button>
             ) : (
               <button type="button" onClick={() => { this.props.onReset?.(); this.setState({ error: null }) }}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">
+                className={btn.primary}>
                 <RotateCw className="w-4 h-4" aria-hidden="true" /> Try again
               </button>
             )}
             {/* A plain link, not the router: if the app itself is what broke, a full load is the way out. */}
             <a href="/dashboard"
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50">
-              <LayoutDashboard className="w-4 h-4" aria-hidden="true" /> Go to the dashboard
+              className={btn.secondary}>
+              <LayoutDashboard className="w-4 h-4" aria-hidden="true" /> Go to Home
             </a>
           </div>
         </div>

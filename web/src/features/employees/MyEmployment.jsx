@@ -1,3 +1,4 @@
+import { btn } from '../../components/ui/styles'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { BriefcaseBusiness } from 'lucide-react'
@@ -17,7 +18,7 @@ export default function MyEmployment() {
   return (
     <section aria-label="My employment" className="space-y-3">
       <div className="flex items-center gap-2">
-        <BriefcaseBusiness className="w-4 h-4 text-blue-600" />
+        <BriefcaseBusiness className="w-4 h-4 text-brand-600" />
         <h4 className="text-sm font-bold text-gray-900">My Employment</h4>
       </div>
       <DataState query={query} compact>
@@ -65,12 +66,12 @@ function Mine({ view }) {
       {(view.may.resign || view.may.withdraw) && (
         <div className="flex flex-wrap gap-2 border-t border-gray-200 pt-3">
           {view.may.resign && (
-            <button onClick={() => setDialog('resign')} className="px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-100 text-xs font-medium text-gray-700">
+            <button onClick={() => setDialog('resign')} className={btn.secondarySm}>
               Hand in resignation
             </button>
           )}
           {view.may.withdraw && (
-            <button onClick={() => setDialog('withdraw')} className="px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-100 text-xs font-medium text-gray-700">
+            <button onClick={() => setDialog('withdraw')} className={btn.secondarySm}>
               Withdraw resignation
             </button>
           )}

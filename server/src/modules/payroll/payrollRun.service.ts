@@ -11,6 +11,7 @@ import { listDaysOff } from '../holidays/holidays.repository'
 import { calculate, type Calculation } from './payroll.service'
 import { directivesFor, entriesForMonth, type DirectiveRow, type EntryRow } from './payrollInputs.repository'
 import * as repo from './payrollRun.repository'
+import { runLock } from './payrollLock.service'
 import { daysInMonth, employmentWindow, type EmploymentWindow } from '../../domain/payroll/salary'
 import { leaveDaysIn, lossOfPay, monthCalendar, type LossOfPay } from '../../domain/payroll/payDays'
 import { directiveFor, financialYearLabel, financialYearOf } from '../../domain/payroll/tds'
@@ -114,8 +115,8 @@ export const who = (employee: repo.MonthEmployee) => ({
   fullName: employee.fullName,
 })
 
-export const runLock = (ctx: AppContext, year: number, month: number) =>
-  `payroll-run:${ctx.organizationId}:${monthKey(year, month)}`
+// The month's payroll lock: defined with the checks every pay input makes under it.
+export { runLock }
 
 // ── 1. Plan ─────────────────────────────────────────────────────────────────
 

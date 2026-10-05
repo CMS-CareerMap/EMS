@@ -51,7 +51,11 @@ export async function add(ctx: AppContext, input: HolidayInput) {
 
   const holiday = await withAudit(
     ctx,
-    (tx) => repo.create(tx, ctx.organizationId, { date, name, type: input.type as HolidayType }),
+    async (tx) => {
+      // Again under that month's payroll lock: approved since the check above, refused rather than missed.
+      await assertDaysOpen(ctx, [input.date], 'a holiday on that day', tx)
+      return repo.create(tx, ctx.organizationId, { date, name, type: input.type as HolidayType })
+    },
     (row) => ({ action: 'holiday.added', entityType: 'holiday', entityId: row.id, details: { date: input.date, name, type: input.type } }),
   )
   logger.info('Holiday added', { by: ctx.userId, date: input.date, type: input.type })
@@ -74,12 +78,15 @@ export async function edit(ctx: AppContext, id: string, input: Partial<HolidayIn
 
   const holiday = await withAudit(
     ctx,
-    (tx) =>
-      repo.update(tx, id, {
+    async (tx) => {
+      // Again under both months' payroll locks: approved since the check above, refused rather than missed.
+      await assertDaysOpen(ctx, [fromDateColumn(existing.date), fromDateColumn(date)], 'moving this holiday', tx)
+      return repo.update(tx, id, {
         ...(input.date ? { date } : {}),
         ...(input.name !== undefined ? { name } : {}),
         ...(input.type ? { type: input.type as HolidayType } : {}),
-      }),
+      })
+    },
     (row) => ({
       action: 'holiday.changed',
       entityType: 'holiday',
@@ -108,7 +115,11 @@ export async function remove(ctx: AppContext, id: string) {
 
   await withAudit(
     ctx,
-    (tx) => repo.remove(tx, id),
+    async (tx) => {
+      // Again under that month's payroll lock: approved since the check above, refused rather than missed.
+      await assertDaysOpen(ctx, [fromDateColumn(existing.date)], 'removing this holiday', tx)
+      return repo.remove(tx, id)
+    },
     () => ({ action: 'holiday.removed', entityType: 'holiday', entityId: id, details: { date: fromDateColumn(existing.date), name: existing.name, type: existing.type } }),
   )
   logger.info('Holiday removed', { by: ctx.userId, id })

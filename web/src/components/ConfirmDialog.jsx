@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import Dialog from './Dialog'
+import { btn } from './ui/styles'
 
 /**
  * "Are you sure?" in the app's own dialog — replacing window.confirm.
@@ -41,12 +42,10 @@ export default function ConfirmDialog({ title, children, confirmLabel = 'Confirm
     <Dialog title={title} onClose={close}>
       <div className="text-sm text-gray-600 space-y-2">{children}</div>
       <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-2">
-        <button type="button" onClick={close} disabled={busy} autoFocus={danger}
-          className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-60">
+        <button type="button" onClick={close} disabled={busy} autoFocus={danger} className={btn.secondary}>
           Cancel
         </button>
-        <button type="button" onClick={confirm} disabled={busy || disabled} autoFocus={!danger}
-          className={`px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-60 ${danger ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
+        <button type="button" onClick={confirm} disabled={busy || disabled} autoFocus={!danger} className={danger ? btn.danger : btn.primary}>
           {busy ? 'Working…' : confirmLabel}
         </button>
       </div>

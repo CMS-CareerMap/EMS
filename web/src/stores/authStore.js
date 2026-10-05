@@ -3,24 +3,18 @@ import { create } from 'zustand'
 /**
  * Who is signed in, and what they are allowed to do.
  *
- * The shape is deliberately backwards-compatible. Fourteen components read
- * `user`, `profile` and `role` from this store; changing those names would mean
- * editing all fourteen in the same commit that replaces the authentication
- * system, and then not knowing which half broke. So the new session response is
- * mapped INTO the old shape here, in one place, and the pages are left alone
- * until their own module day.
- *
- * What is new is `can()`. Nothing should ever compare a role again.
+ * The server's session is mapped into the shape the pages read — `user`,
+ * `profile`, `role` — in one place. Nothing should ever compare a role: ask
+ * `can()`.
  */
 
 /**
- * Maps the server's session payload onto the shape the pages already read.
+ * Maps the server's session payload onto the shape the pages read.
  *
- * `profile` is PARTIAL until Day 7. The session endpoint returns identity, not
- * the HR record, so department, designation and joining date are genuinely not
- * known here — and are therefore absent rather than invented. A page reading
- * `profile.department` gets undefined, which is the truth. Filling it with a
- * placeholder would be the exact habit the audit found everywhere.
+ * `profile` is identity only: the session carries who somebody is, not their
+ * HR record, so department, designation and joining date are absent rather
+ * than invented. Pages that show them ask for the person's own summary (My
+ * Profile, the home page).
  */
 function toProfile(session) {
   if (!session?.employee) return null
@@ -53,10 +47,13 @@ export const useAuthStore = create((set, get) => ({
    * company-wide reach — the server refuses anybody else.
    */
   employeeReach: null,
+  /** Whose attendance the role reaches. The home page shows "today at work" only beyond one's own. */
+  attendanceReach: null,
+  /** Whose leave the role reaches. Beyond one's own, the home page lists leave waiting for others' decisions. */
+  leaveReach: null,
   organization: null,
   /** True until the session is either confirmed or ruled out. */
   loading: true,
-  profileDrawerOpen: false,
 
   /** The one way in. Called after login, refresh, or a session read. */
   setSession: (session) =>
@@ -68,6 +65,8 @@ export const useAuthStore = create((set, get) => ({
       permissions: session?.permissions ?? [],
       decidesLeave: session?.decidesLeave ?? false,
       employeeReach: session?.employeeReach ?? null,
+      attendanceReach: session?.attendanceReach ?? null,
+      leaveReach: session?.leaveReach ?? null,
       organization: session
         ? { id: session.organizationId, name: session.organizationName, timezone: session.organizationTimezone }
         : null,
@@ -83,13 +82,13 @@ export const useAuthStore = create((set, get) => ({
       permissions: [],
       decidesLeave: false,
       employeeReach: null,
+      attendanceReach: null,
+      leaveReach: null,
       organization: null,
       loading: false,
-      profileDrawerOpen: false,
     }),
 
   setLoading: (loading) => set({ loading }),
-  setProfileDrawerOpen: (profileDrawerOpen) => set({ profileDrawerOpen }),
 
   /**
    * Ask this, never `role === 'hr'`.

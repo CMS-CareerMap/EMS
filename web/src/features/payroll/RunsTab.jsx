@@ -1,8 +1,10 @@
 import { createElement, useMemo, useState } from 'react'
 import {
   Play, RefreshCw, Trash2, CheckCircle2, Undo2, BadgeIndianRupee, Loader2,
-  AlertTriangle, XCircle, Eye, Download, Landmark,
+  AlertTriangle, XCircle, Eye, Download, Landmark, Check,
 } from 'lucide-react'
+import { Avatar, Chip } from '../../components/ui/bits'
+import { btn, card, field, th } from '../../components/ui/styles'
 import { toast } from 'sonner'
 import {
   usePayrollRuns, usePayrollRun, useRunReadiness, useCreateRun, useRecalculateRun,
@@ -10,7 +12,7 @@ import {
 } from '../../hooks/usePayroll'
 import { usePayrollComponents } from '../../hooks/useSalary'
 import { useAuthStore } from '../../stores/authStore'
-import { calendarDayIn } from '../../lib/dates'
+import { calendarDayIn, formatInstant } from '../../lib/dates'
 import { ApiError } from '../../api/http'
 import PayslipModal from './PayslipModal'
 import Dialog from '../../components/Dialog'
@@ -57,17 +59,20 @@ export default function RunsTab() {
     <DataState query={runs}>
       {() => (
       <div className="space-y-5">
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Month</p>
-          <div className="flex gap-2 overflow-x-auto pb-1">
+        <div className={`${card} p-4`}>
+          <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-2">Month</p>
+          <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin]" role="group" aria-label="Month">
             {months.map((m) => {
               const r = runFor(m)
               const active = m.year === selected.year && m.month === selected.month
               return (
-                <button key={`${m.year}-${m.month}`} onClick={() => setPicked(m)}
-                  className={`shrink-0 rounded-lg border px-3 py-2 text-left transition-colors ${active ? 'border-blue-600 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'}`}>
-                  <p className={`text-sm font-semibold ${active ? 'text-blue-700' : 'text-gray-800'}`}>{monthLabel(m.year, m.month)}</p>
-                  <p className="text-[11px] text-gray-500">{r ? RUN_STATUS[r.status]?.label : 'No run'}</p>
+                <button key={`${m.year}-${m.month}`} onClick={() => setPicked(m)} aria-pressed={active}
+                  className={`shrink-0 rounded-xl border px-3 py-2 text-left transition-colors ${active ? 'border-brand-500 bg-brand-50 ring-2 ring-brand-100' : 'border-gray-200 hover:bg-gray-50'}`}>
+                  <p className={`text-sm font-bold ${active ? 'text-brand-700' : 'text-gray-800'}`}>{monthLabel(m.year, m.month)}</p>
+                  <p className="text-[11px] font-medium text-gray-500 flex items-center gap-1">
+                    {r && <span aria-hidden="true" className={`w-1.5 h-1.5 rounded-full ${RUN_STATUS[r.status]?.dot}`} />}
+                    {r ? RUN_STATUS[r.status]?.label : 'No run'}
+                  </p>
                 </button>
               )
             })}
@@ -98,21 +103,20 @@ function Readiness({ year, month }) {
     <DataState query={readiness} loading={`Checking ${monthLabel(year, month)}…`}>
     {(data) => (
     <div className="space-y-4">
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex flex-wrap items-center justify-between gap-4">
+      <div className={`${card} p-5 flex flex-wrap items-center justify-between gap-4`}>
         <div>
-          <p className="text-base font-semibold text-gray-900">
+          <p className="text-base font-bold text-gray-900">
             {monthLabel(year, month)} — no payroll run yet
             {isFetching && <span className="ml-2 text-xs font-normal text-gray-400">Checking again…</span>}
           </p>
-          <p className="text-sm text-gray-500 mt-0.5">
+          <p className="text-sm text-gray-500 mt-1">
             {data.employees.length} {data.employees.length === 1 ? 'person' : 'people'} in this month
             {data.tds_enabled === false ? ' · income tax (TDS) is not deducted' : ''}
           </p>
         </div>
         {can('payroll:run:create') && (
-          <button onClick={handleCreate} disabled={data.blocked || createRun.isPending || isFetching}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium">
-            {createRun.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+          <button onClick={handleCreate} disabled={data.blocked || createRun.isPending || isFetching} className={`${btn.gradient} w-full sm:w-auto`}>
+            {createRun.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" aria-hidden="true" />}
             Run payroll
           </button>
         )}
@@ -120,17 +124,17 @@ function Readiness({ year, month }) {
 
       <Notices blockers={data.blockers} warnings={data.warnings} />
 
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className={`${card} overflow-hidden`}>
         <div className="overflow-x-auto">
           <table className="w-full min-w-180 text-sm">
             <thead>
-              <tr className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                <th className="px-4 py-3 text-left">Employee</th>
-                <th className="px-4 py-3 text-left">Employed</th>
-                <th className="px-4 py-3 text-right">Loss of pay</th>
-                <th className="px-4 py-3 text-right">No attendance</th>
-                {data.tds_enabled && <th className="px-4 py-3 text-right">TDS</th>}
-                <th className="px-4 py-3 text-left">Monthly entries</th>
+              <tr>
+                <th className={th}>Employee</th>
+                <th className={th}>Employed</th>
+                <th className={`${th} text-right`}>Loss of pay</th>
+                <th className={`${th} text-right`}>No attendance</th>
+                {data.tds_enabled && <th className={`${th} text-right`}>TDS</th>}
+                <th className={th}>Monthly entries</th>
               </tr>
             </thead>
             <tbody>
@@ -138,10 +142,9 @@ function Readiness({ year, month }) {
                 <tr><td colSpan={6} className="px-4 py-10 text-center text-gray-400">Nobody was employed in this month.</td></tr>
               )}
               {data.employees.map((e) => (
-                <tr key={e.employee_id} className="border-b border-gray-100 last:border-0">
+                <tr key={e.employee_id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                   <td className="px-4 py-3">
-                    <p className="font-medium text-gray-900">{e.full_name}</p>
-                    <p className="text-xs text-gray-400 font-mono">{e.employee_code}</p>
+                    <Person name={e.full_name} code={e.employee_code} />
                   </td>
                   <td className="px-4 py-3 text-gray-600">{formatDay(e.employment_from)} – {formatDay(e.employment_to)}</td>
                   <td className="px-4 py-3 text-right text-gray-700">{e.lop_days === null ? '—' : days(e.lop_days)}</td>
@@ -202,6 +205,8 @@ function RunDetail({ runId }) {
 
 function RunView({ run }) {
   const can = useAuthStore((s) => s.can)
+  // When it was calculated and approved, on the company's clock — not the device's.
+  const timezone = useAuthStore((s) => s.organization?.timezone)
   const recalculate = useRecalculateRun()
   const [dialog, setDialog] = useState(null)
   const [viewing, setViewing] = useState(null)
@@ -224,29 +229,27 @@ function RunView({ run }) {
 
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 space-y-4">
+      <div className={`${card} p-5 space-y-4`}>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <div className="flex items-center gap-3">
-              <p className="text-base font-semibold text-gray-900">{label} payroll</p>
-              <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${status.cls}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />{status.label}
-              </span>
+            <div className="flex items-center gap-2.5">
+              <p className="text-base font-bold text-gray-900">{label} payroll</p>
+              <Chip tone={status.tone}>{status.label}</Chip>
             </div>
-            <div className="flex items-center gap-2 mt-3">
+            <ol className="flex items-center gap-2 mt-3" aria-label="Steps">
               {STEPS.map((s, i) => (
-                <div key={s} className="flex items-center gap-2">
-                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${i <= step ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-400'}`}>
-                    {i < step ? '✓' : i + 1}
-                  </div>
-                  <span className={`text-xs ${i <= step ? 'text-gray-700 font-medium' : 'text-gray-400'}`}>{RUN_STATUS[s].label}</span>
-                  {i < STEPS.length - 1 && <div className={`w-8 h-0.5 ${i < step ? 'bg-blue-600' : 'bg-gray-200'}`} />}
-                </div>
+                <li key={s} className="flex items-center gap-2" aria-current={i === step ? 'step' : undefined}>
+                  <span className={`w-6 h-6 rounded-full grid place-items-center text-[11px] font-bold ${i <= step ? 'bg-logo text-white' : 'bg-gray-100 text-gray-400 border border-gray-200'}`}>
+                    {i < step ? <Check className="w-3.5 h-3.5" aria-hidden="true" /> : i + 1}
+                  </span>
+                  <span className={`text-xs ${i <= step ? 'text-gray-800 font-semibold' : 'text-gray-400'}`}>{RUN_STATUS[s].label}</span>
+                  {i < STEPS.length - 1 && <span aria-hidden="true" className={`w-6 sm:w-10 h-0.5 rounded ${i < step ? 'bg-brand-500' : 'bg-gray-200'}`} />}
+                </li>
               ))}
-            </div>
+            </ol>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto *:flex-1 sm:*:flex-none">
             {run.status === 'draft' && canCreate && (
               <>
                 <ActionButton onClick={handleRecalculate} busy={recalculate.isPending} icon={RefreshCw} label="Recalculate" />
@@ -268,19 +271,25 @@ function RunView({ run }) {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 pt-4 border-t border-gray-100">
-          <Figure label="Employees" value={run.employee_count} />
+        {/* Net pay first, in the logo's soft colours — the figure the month comes down to. */}
+        <div className="rounded-xl bg-logo-soft p-4 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold text-gray-600">Net pay</p>
+            <p className="text-2xl sm:text-[28px] font-extrabold tracking-tight text-gray-900 tabular-nums">{money(run.net_payable)}</p>
+          </div>
+          <p className="text-xs text-gray-600">{run.employee_count} {run.employee_count === 1 ? 'employee' : 'employees'}</p>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <Figure label="Gross" value={money(run.gross_earnings)} />
           <Figure label="Deductions" value={money(run.total_deductions)} />
-          <Figure label="Net pay" value={money(run.net_payable)} strong />
           <Figure label="Employer PF" value={money(run.employer_pf)} />
           <Figure label="Employer ESI" value={money(run.employer_esi)} />
         </div>
 
-        <div className="text-xs text-gray-500 space-y-0.5">
-          <p>Calculated {new Date(run.calculated_at).toLocaleString('en-IN')} · a day's pay on {LOP_BASIS[run.lop_basis] ?? run.lop_basis}{run.sandwich_rule ? ' · sandwich rule on' : ''}</p>
+        <div className="text-xs text-gray-500 space-y-0.5 pt-3 border-t border-gray-100">
+          <p>Calculated {formatInstant(run.calculated_at, timezone)} · a day's pay on {LOP_BASIS[run.lop_basis] ?? run.lop_basis}{run.sandwich_rule ? ' · sandwich rule on' : ''}</p>
           {run.approved_at && (
-            <p>Approved {new Date(run.approved_at).toLocaleString('en-IN')}{run.assumed_days ? ` · ${run.assumed_days} day${run.assumed_days === 1 ? '' : 's'} with no attendance accepted as paid` : ''}</p>
+            <p>Approved {formatInstant(run.approved_at, timezone)}{run.assumed_days ? ` · ${run.assumed_days} day${run.assumed_days === 1 ? '' : 's'} with no attendance accepted as paid` : ''}</p>
           )}
           {run.paid_on && <p>Paid on {formatDay(run.paid_on)}</p>}
         </div>
@@ -288,18 +297,19 @@ function RunView({ run }) {
 
       <Notices warnings={run.warnings} />
 
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+      <div className={`${card} overflow-hidden`}>
+        {/* A computer: the payslips as a table. */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full min-w-190 text-sm">
             <thead>
-              <tr className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                <th className="px-4 py-3 text-left">Employee</th>
-                <th className="px-4 py-3 text-right">Paid days</th>
-                <th className="px-4 py-3 text-right">Loss of pay</th>
-                <th className="px-4 py-3 text-right">Gross</th>
-                <th className="px-4 py-3 text-right">Deductions</th>
-                <th className="px-4 py-3 text-right">Net pay</th>
-                <th className="px-4 py-3" />
+              <tr>
+                <th className={th}>Employee</th>
+                <th className={`${th} text-right`}>Paid days</th>
+                <th className={`${th} text-right`}>Loss of pay</th>
+                <th className={`${th} text-right`}>Gross</th>
+                <th className={`${th} text-right`}>Deductions</th>
+                <th className={`${th} text-right`}>Net pay</th>
+                <th className={th} aria-label="Payslip" />
               </tr>
             </thead>
             <tbody>
@@ -309,33 +319,38 @@ function RunView({ run }) {
               {run.payslips.map((slip) => (
                 <tr key={slip.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                   <td className="px-4 py-3">
-                    <p className="font-medium text-gray-900 flex items-center gap-1.5">
-                      {slip.full_name}
-                      {slip.warnings.length > 0 && <AlertTriangle className="w-3.5 h-3.5 text-amber-500" aria-label={`${slip.warnings.length} warnings`} />}
-                    </p>
-                    <p className="text-xs text-gray-400 font-mono">{slip.employee_code}</p>
+                    <Person name={slip.full_name} code={slip.employee_code} warnings={slip.warnings.length} />
                   </td>
-                  <td className="px-4 py-3 text-right">{days(slip.paid_days)} / {slip.employment_days}</td>
-                  <td className="px-4 py-3 text-right">{days(slip.lop_days)}</td>
-                  <td className="px-4 py-3 text-right">{money(slip.gross_earnings)}</td>
-                  <td className="px-4 py-3 text-right text-red-600">{money(slip.total_deductions)}</td>
-                  <td className={`px-4 py-3 text-right font-semibold ${slip.net_payable < 0 ? 'text-red-600' : 'text-gray-900'}`}>{money(slip.net_payable)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{days(slip.paid_days)} / {slip.employment_days}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{days(slip.lop_days)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{money(slip.gross_earnings)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-red-600">{money(slip.total_deductions)}</td>
+                  <td className={`px-4 py-3 text-right tabular-nums font-bold ${slip.net_payable < 0 ? 'text-red-600' : 'text-gray-900'}`}>{money(slip.net_payable)}</td>
                   <td className="px-4 py-3">
-                    <div className="flex justify-end gap-1.5">
-                      <button onClick={() => setViewing(slip.id)} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-medium">
-                        <Eye className="w-3.5 h-3.5" /> View
-                      </button>
-                      <button onClick={() => handlePdf(slip)} disabled={downloading === slip.id} aria-label={`PDF for ${slip.full_name}`}
-                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-700 text-xs font-medium disabled:opacity-50">
-                        {downloading === slip.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />} PDF
-                      </button>
-                    </div>
+                    <SlipButtons slip={slip} onView={() => setViewing(slip.id)} onPdf={() => handlePdf(slip)} downloading={downloading === slip.id} />
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+
+        {/* A phone: a card a payslip — the net pay and the two buttons. */}
+        <ul className="md:hidden divide-y divide-gray-100" aria-label="Payslips">
+          {run.payslips.length === 0 && <li className="px-4 py-10 text-center text-sm text-gray-400">This run has no payslips.</li>}
+          {run.payslips.map((slip) => (
+            <li key={slip.id} className="px-4 py-3.5 space-y-2.5">
+              <div className="flex items-start justify-between gap-3">
+                <Person name={slip.full_name} code={slip.employee_code} warnings={slip.warnings.length} />
+                <p className={`text-sm font-bold tabular-nums ${slip.net_payable < 0 ? 'text-red-600' : 'text-gray-900'}`}>{money(slip.net_payable)}</p>
+              </div>
+              <p className="text-xs text-gray-500 tabular-nums">
+                {days(slip.paid_days)} / {slip.employment_days} days paid · gross {money(slip.gross_earnings)} · deductions {money(slip.total_deductions)}
+              </p>
+              <SlipButtons slip={slip} onView={() => setViewing(slip.id)} onPdf={() => handlePdf(slip)} downloading={downloading === slip.id} wide />
+            </li>
+          ))}
+        </ul>
       </div>
 
       {viewing && <PayslipModal runId={run.id} payslipId={viewing} runStatus={run.status} onClose={() => setViewing(null)} />}
@@ -349,23 +364,48 @@ function RunView({ run }) {
 }
 
 function ActionButton({ onClick, icon, label, tone = 'plain', busy = false }) {
-  const tones = {
-    plain: 'border border-gray-300 bg-white hover:bg-gray-50 text-gray-700',
-    primary: 'bg-blue-600 hover:bg-blue-700 text-white',
-    danger: 'border border-red-200 bg-white hover:bg-red-50 text-red-600',
-  }
+  const tones = { plain: btn.secondary, primary: btn.primary, danger: btn.dangerOutline }
   return (
-    <button onClick={onClick} disabled={busy} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-60 ${tones[tone]}`}>
-      {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : createElement(icon, { className: 'w-4 h-4' })} {label}
+    <button onClick={onClick} disabled={busy} className={tones[tone]}>
+      {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : createElement(icon, { className: 'w-4 h-4', 'aria-hidden': true })} {label}
     </button>
   )
 }
 
-function Figure({ label, value, strong = false }) {
+function Figure({ label, value }) {
   return (
-    <div>
+    <div className="min-w-0">
       <p className="text-xs text-gray-500">{label}</p>
-      <p className={`mt-0.5 ${strong ? 'text-lg font-bold text-gray-900' : 'text-base font-semibold text-gray-800'}`}>{value}</p>
+      <p className="mt-0.5 text-base font-bold text-gray-900 tabular-nums">{value}</p>
+    </div>
+  )
+}
+
+/** Somebody on a run: their avatar, name and code — and a sign when their payslip has warnings. */
+function Person({ name, code, warnings = 0 }) {
+  return (
+    <div className="flex items-center gap-2.5 min-w-0">
+      <Avatar name={name} size="sm" />
+      <div className="min-w-0">
+        <p className="font-semibold text-gray-900 flex items-center gap-1.5">
+          <span className="truncate">{name}</span>
+          {warnings > 0 && <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" aria-label={`${warnings} warnings`} />}
+        </p>
+        <p className="text-xs text-gray-400 font-mono">{code}</p>
+      </div>
+    </div>
+  )
+}
+
+function SlipButtons({ slip, onView, onPdf, downloading, wide = false }) {
+  return (
+    <div className={`flex gap-1.5 ${wide ? '*:flex-1' : 'justify-end'}`}>
+      <button onClick={onView} className={btn.softSm} aria-label={`View ${slip.full_name}’s payslip`}>
+        <Eye className="w-3.5 h-3.5" aria-hidden="true" /> View
+      </button>
+      <button onClick={onPdf} disabled={downloading} aria-label={`PDF for ${slip.full_name}`} className={btn.secondarySm}>
+        {downloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" aria-hidden="true" />} PDF
+      </button>
     </div>
   )
 }
@@ -448,10 +488,9 @@ function ApproveDialog({ run, onClose }) {
             Approving signs these figures off: {run.employee_count} payslips, net pay {money(run.net_payable)}.
             The month is then closed to changes in attendance, leave, salaries and the rest until it is reopened.
           </p>
-          <div className="flex justify-end gap-2">
-            <button onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700">Cancel</button>
-            <button onClick={() => send(false)} disabled={approve.isPending}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-60">
+          <div className="flex flex-wrap justify-end gap-2">
+            <button onClick={onClose} className={btn.secondary}>Cancel</button>
+            <button onClick={() => send(false)} disabled={approve.isPending} className={btn.primary}>
               {approve.isPending && <Loader2 className="w-4 h-4 animate-spin" />} Approve
             </button>
           </div>
@@ -471,10 +510,9 @@ function ApproveDialog({ run, onClose }) {
               </div>
             ))}
           </div>
-          <div className="flex justify-end gap-2">
-            <button onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700">Check them first</button>
-            <button onClick={() => send(true)} disabled={approve.isPending}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-60">
+          <div className="flex flex-wrap justify-end gap-2">
+            <button onClick={onClose} className={btn.secondary}>Check them first</button>
+            <button onClick={() => send(true)} disabled={approve.isPending} className={btn.primary}>
               {approve.isPending && <Loader2 className="w-4 h-4 animate-spin" />} Approve, accepting {reply.details.assumed_days} {reply.details.assumed_days === 1 ? 'day' : 'days'}
             </button>
           </div>
@@ -497,8 +535,7 @@ function ApproveDialog({ run, onClose }) {
             )}
           </DataState>
           <div className="flex justify-end">
-            <button onClick={handleRecalculate} disabled={recalculate.isPending}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-60">
+            <button onClick={handleRecalculate} disabled={recalculate.isPending} className={btn.primary}>
               {recalculate.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Recalculate now
             </button>
           </div>
@@ -525,9 +562,9 @@ function DiscardDialog({ run, onClose }) {
   return (
     <Dialog title={`Discard the ${label} draft?`} onClose={onClose}>
       <p className="text-sm text-gray-600">Its payslips are deleted. Nothing else changes, and the month can be run again.</p>
-      <div className="flex justify-end gap-2">
-        <button onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700">Keep it</button>
-        <button onClick={handle} disabled={discard.isPending} className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-medium disabled:opacity-60">Discard</button>
+      <div className="flex flex-wrap justify-end gap-2">
+        <button onClick={onClose} className={btn.secondary}>Keep it</button>
+        <button onClick={handle} disabled={discard.isPending} className={btn.danger}>Discard</button>
       </div>
     </Dialog>
   )
@@ -548,9 +585,9 @@ function ReopenDialog({ run, onClose }) {
       <p className="text-sm text-gray-600">
         The approval is withdrawn and the month opens for changes again. It has to be approved again before it can be paid.
       </p>
-      <div className="flex justify-end gap-2">
-        <button onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700">Cancel</button>
-        <button onClick={handle} disabled={reopen.isPending} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-60">Reopen</button>
+      <div className="flex flex-wrap justify-end gap-2">
+        <button onClick={onClose} className={btn.secondary}>Cancel</button>
+        <button onClick={handle} disabled={reopen.isPending} className={btn.primary}>Reopen</button>
       </div>
     </Dialog>
   )
@@ -582,13 +619,11 @@ function MarkPaidDialog({ run, onClose }) {
         </p>
         <label className="block space-y-1.5">
           <span className="text-sm font-medium text-gray-600">Credited on</span>
-          <input type="date" value={paidOn} min={monthStart} max={today} onChange={(e) => setPaidOn(e.target.value)} required
-            className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+          <input type="date" value={paidOn} min={monthStart} max={today} onChange={(e) => setPaidOn(e.target.value)} required className={field} />
         </label>
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700">Cancel</button>
-          <button type="submit" disabled={markPaid.isPending}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-medium disabled:opacity-60">
+        <div className="flex flex-wrap justify-end gap-2">
+          <button type="button" onClick={onClose} className={btn.secondary}>Cancel</button>
+          <button type="submit" disabled={markPaid.isPending} className={btn.primary}>
             {markPaid.isPending && <Loader2 className="w-4 h-4 animate-spin" />} Mark as paid
           </button>
         </div>

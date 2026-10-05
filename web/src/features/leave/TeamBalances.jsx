@@ -7,6 +7,9 @@ import Dialog, { inputCls } from '../../components/Dialog'
 import { useTeamBalances, useGrantPreview, useGrantLeave, useAdjustBalance } from '../../hooks/useLeave'
 import { useAuthStore } from '../../stores/authStore'
 import { formatDay } from '../../lib/dates'
+import Segmented from '../../components/ui/Segmented'
+import { Avatar } from '../../components/ui/bits'
+import { btn, card, field, th } from '../../components/ui/styles'
 
 /**
  * Leave → Team Balances.
@@ -51,24 +54,6 @@ export default function TeamBalances() {
 
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3 flex flex-wrap gap-3 items-center">
-        <div className="relative flex-1 min-w-48">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" aria-hidden="true" />
-          <input type="text" placeholder="Search employee…" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search employee"
-            className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-gray-400" />
-        </div>
-        {years.length > 0 && (
-          <div className="flex rounded-lg border border-gray-200 overflow-hidden" role="group" aria-label="Leave year">
-            {years.map((y) => (
-              <button key={y.leave_year} type="button" onClick={() => setLeaveYear(y.leave_year)}
-                className={`px-3 py-1.5 text-sm font-medium ${y.leave_year === shownYear ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
-                {y.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
       {canManage && data?.waiting && !switching && (
         data.waiting.people > 0 ? (
           <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200">
@@ -77,23 +62,36 @@ export default function TeamBalances() {
               <strong>{data.waiting.people} {data.waiting.people === 1 ? 'person has' : 'people have'} not been given their {data.label} leave yet.</strong>{' '}
               Until then their balance is zero and they cannot apply. New joiners get the months that are left; nobody is given it twice.
             </p>
-            <button type="button" onClick={() => setGranting(true)}
-              className="shrink-0 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium">
-              Grant leave
+            <button type="button" onClick={() => setGranting(true)} className={`shrink-0 ${btn.primary}`}>
+              <Gift className="w-4 h-4" aria-hidden="true" />Grant leave
             </button>
           </div>
         ) : (
-          <p className="flex items-center gap-2 p-3 rounded-xl bg-green-50 border border-green-200 text-sm text-green-800">
-            <CheckCircle className="w-4 h-4 shrink-0" aria-hidden="true" /> Everybody here has their {data.label} leave.
-          </p>
+          <div className="flex items-center gap-3 p-4 rounded-xl bg-logo-soft border border-brand-100">
+            <CheckCircle className="w-5 h-5 shrink-0 text-emerald-600" aria-hidden="true" />
+            <p className="text-sm font-semibold text-gray-900">Everybody here has their {data.label} leave.</p>
+          </div>
         )
       )}
 
       {/* inert while another year loads: the rows are still the last year's. */}
-      <div className={`bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden transition-opacity ${switching ? 'opacity-60' : ''}`} inert={switching}>
-        <div className="px-5 py-4 border-b border-gray-100">
-          <p className="text-base font-semibold text-gray-900">Leave balances{data ? ` — ${data.label}` : ''}</p>
-          <p className="text-xs text-gray-400 mt-0.5">Days each person can still apply for. Days already applied for and not yet decided are shown beneath.</p>
+      <div className={`${card} overflow-hidden transition-opacity ${switching ? 'opacity-60' : ''}`} inert={switching}>
+        <div className="px-4 pt-4 pb-3 border-b border-gray-200 space-y-3">
+          <div>
+            <p className="text-sm font-bold text-gray-900">Leave balances{data ? ` — ${data.label}` : ''}</p>
+            <p className="text-xs text-gray-500 mt-0.5">Days each person can still apply for. Days already applied for and not yet decided are shown beneath.</p>
+          </div>
+          <div className="flex flex-wrap gap-2.5 items-center">
+            <label className="relative flex-1 min-w-48">
+              <span className="sr-only">Search employee</span>
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" aria-hidden="true" />
+              <input type="text" placeholder="Search employee…" value={search} onChange={(e) => setSearch(e.target.value)} className={`w-full pl-9 ${field}`} />
+            </label>
+            {years.length > 0 && (
+              <Segmented label="Leave year" value={shownYear} onChange={setLeaveYear}
+                items={years.map((y) => ({ key: y.leave_year, label: y.label }))} />
+            )}
+          </div>
         </div>
 
         {/* On a phone, one card a person. */}
@@ -104,9 +102,12 @@ export default function TeamBalances() {
                 {shown.map((p) => (
                   <li key={p.employee_id} className="p-4 space-y-2">
                     <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-gray-900">{p.full_name}</p>
-                        <p className="text-xs text-gray-400">{[p.employee_code, p.department].filter(Boolean).join(' · ')}</p>
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <Avatar name={p.full_name} size="sm" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-gray-900">{p.full_name}</p>
+                          <p className="text-xs text-gray-400">{[p.employee_code, p.department].filter(Boolean).join(' · ')}</p>
+                        </div>
                       </div>
                       <CorrectButton person={p} canManage={canManage} onClick={() => setCorrecting(p)} />
                     </div>
@@ -132,25 +133,30 @@ export default function TeamBalances() {
         <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                <th className="px-5 py-3 text-left">Employee</th>
-                {(data?.types ?? []).map((t) => <th key={t.id} className="px-4 py-3 text-right whitespace-nowrap">{t.name}</th>)}
-                <th className="px-5 py-3 text-right">{canManage ? 'Correct' : ''}</th>
+              <tr>
+                <th className={`${th} pl-5`}>Employee</th>
+                {(data?.types ?? []).map((t) => <th key={t.id} className={`${th} text-right`}>{t.name}</th>)}
+                <th className={`${th} text-right pr-5`}>{canManage ? 'Correct' : null}</th>
               </tr>
             </thead>
             <tbody>
               <DataRows query={balances} colSpan={(data?.types.length ?? 0) + 2} isEmpty={() => shown.length === 0} empty={q ? 'Nobody matches that search.' : 'Nobody here yet.'}>
                 {() => shown.map((p) => (
-                  <tr key={p.employee_id} className="border-b border-gray-100 last:border-0">
+                  <tr key={p.employee_id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                     <td className="px-5 py-3">
-                      <p className="font-medium text-gray-900">{p.full_name}</p>
-                      <p className="text-xs text-gray-400">{[p.employee_code, p.department].filter(Boolean).join(' · ')}</p>
+                      <div className="flex items-center gap-2.5">
+                        <Avatar name={p.full_name} size="sm" />
+                        <div className="min-w-0">
+                          <p className="font-semibold text-gray-900">{p.full_name}</p>
+                          <p className="text-xs text-gray-400">{[p.employee_code, p.department].filter(Boolean).join(' · ')}</p>
+                        </div>
+                      </div>
                     </td>
                     {data.types.map((t) => {
                       const b = p.balances.find((x) => x.leave_type_id === t.id)
                       return (
-                        <td key={t.id} className="px-4 py-3 text-right">
-                          <span className="font-semibold text-gray-900">{b.available}</span>
+                        <td key={t.id} className="px-4 py-3 text-right tabular-nums">
+                          <span className="font-bold text-gray-900">{b.available}</span>
                           {b.pending > 0 && <span className="block text-[11px] text-amber-700">{days(b.pending)} applied for</span>}
                         </td>
                       )
@@ -184,8 +190,7 @@ function CorrectButton({ person, canManage, onClick }) {
     )
   }
   return (
-    <button type="button" onClick={onClick} aria-label={`Correct ${person.full_name}’s balance`}
-      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium">
+    <button type="button" onClick={onClick} aria-label={`Correct ${person.full_name}’s balance`} className={`shrink-0 ${btn.secondarySm}`}>
       <SlidersHorizontal className="w-3.5 h-3.5" aria-hidden="true" /> Correct
     </button>
   )
@@ -317,10 +322,8 @@ function CorrectDialog({ person, types, leaveYear, label, onClose }) {
         </label>
         {person.date_of_joining && <p className="text-xs text-gray-400">Joined {formatDay(person.date_of_joining)}.</p>}
         <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
-          <button type="button" onClick={onClose} disabled={adjust.isPending}
-            className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-60">Cancel</button>
-          <button type="submit" disabled={!valid || adjust.isPending}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-60">
+          <button type="button" onClick={onClose} disabled={adjust.isPending} className={btn.secondary}>Cancel</button>
+          <button type="submit" disabled={!valid || adjust.isPending} className={btn.primary}>
             {adjust.isPending ? 'Saving…' : 'Save correction'}
           </button>
         </div>

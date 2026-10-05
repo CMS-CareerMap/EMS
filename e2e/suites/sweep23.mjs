@@ -11,6 +11,7 @@
 // dashboard. A screenshot of every page and tab goes to shots/sweep/.
 import { chromium } from 'playwright-core'
 import { WORK, REPO, STORAGE as STORE, psql } from '../lib/env.mjs'
+import { openMyProfile, openEmployeeProfile, signOutVia, menuLinks, menuLink } from '../lib/ui.mjs'
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs'
 
 const BASE = 'http://localhost:5183'
@@ -22,10 +23,11 @@ mkdirSync(SHOTS, { recursive: true })
 const E = fx.employees
 const HEMA_SELF = `d20-${fx.stamp}-hema.self@example.com`
 
-const PAGES = ['/dashboard', '/employees', '/attendance', '/leave', '/payroll', '/payslips', '/documents', '/reports', '/settings']
+const PAGES = ['/dashboard', '/employees', '/attendance', '/leave', '/requests', '/payroll', '/payslips', '/documents', '/reports', '/settings']
 const TABS = {
+  '/requests': [/^My requests/, /^To decide/, /^All requests/],
   '/settings': ['Company', 'Users & Roles', 'Roles & Permissions', 'Company Tree', 'Approvals', 'Organisation', 'Leave Config', 'Payroll Config', 'Documents', 'Employee Lifecycle', 'Notifications', 'Audit Log'],
-  '/payroll': ['Payroll runs', 'Salary structure', 'Incentives', 'Income tax (TDS)', 'Bank accounts', 'Bank file format'],
+  '/payroll': ['Payroll runs', 'Salary structure', 'Incentives', 'Income tax (TDS)', 'Loans & advances', 'Components', 'Bank accounts', 'Bank file format'],
   '/leave': [/^Leave Requests/, /^Team Requests/, /^Team Balances/, /^Leave Balance/, /^Holiday Calendar/],
   '/documents': ['Company documents', 'My documents', 'Employee documents'],
 }
@@ -89,8 +91,10 @@ const overflowing = (page) => page.evaluate(() => {
   }
   return [...new Set(out)].slice(0, 6)
 })
+/** A visible tab of the page — a tab since the new look; the Settings menu on a computer is buttons. */
 async function visibleButton(page, name) {
-  const all = page.locator('main').getByRole('button', { name, exact: typeof name === 'string' })
+  const exact = typeof name === 'string'
+  const all = page.locator('main').getByRole('tab', { name, exact }).or(page.locator('main').getByRole('button', { name, exact }))
   for (let i = 0; i < (await all.count()); i++) if (await all.nth(i).isVisible()) return all.nth(i)
   return null
 }
@@ -108,7 +112,7 @@ async function sweep(who, email, viewportName, viewport) {
     if (r.status() === 403) note(label, where, `403 ${r.request().method()} ${path}`)
   })
   await page.goto(`${BASE}/signin`)
-  await page.getByPlaceholder('you@careermap.in or EMP001').fill(email)
+  await page.getByLabel('Work Email or Employee ID').fill(email)
   await page.getByPlaceholder('Enter your password').fill(fx.password)
   await page.getByRole('button', { name: 'Sign In' }).click()
   await page.waitForURL((url) => !url.pathname.startsWith('/signin'), { timeout: 20_000 })
