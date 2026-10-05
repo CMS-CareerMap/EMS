@@ -1,0 +1,11 @@
+# What the web image's build may see (deploy/web.Dockerfile). Everything is
+# left out, then only what the image needs is let back in.
+*
+!web/
+!deploy/web/
+
+# And inside those, never: secrets (web/.env would end up in the bundle), or
+# this machine's installs and builds.
+**/.env*
+**/node_modules
+**/dist

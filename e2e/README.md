@@ -51,6 +51,7 @@ server reads files from `web/dist` on every request.
 | `sweep23` | day20 | Every page × every role × phone: no crash, no sideways scroll |
 | `newlook` | day20 | The app's frame as every role: menus, page titles, the user menu, search, the phone tab bar and Menu drawer, dialogs opened from links, the employee profile page, the attendance calendar's days off, tabs from the keyboard, the mid-month salary hint |
 | `demo-tour` | the demo | Read-only tour of the demo as all seven roles (run with the demo up) |
+| `rehearsal` | the laptop rehearsal | The Docker images behind a stand-in edge, over HTTPS (`deploy/local/rehearse.sh`, `deploy/DEPLOY.md`): headers, caching, 404s, the refresh cookie, every Super Admin page, a phone, a file up and back, the upload limits. Run by hand: `REHEARSAL_SA_PASSWORD='…' node suites/rehearsal.mjs` |
 
 `golden` needs a database with no company in it, so it runs only after `--reset`
 (`npm run e2e:all`). Emptying `ems_e2e` uses `prisma migrate reset`; when Claude runs it, Prisma

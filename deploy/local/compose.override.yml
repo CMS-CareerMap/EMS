@@ -1,0 +1,19 @@
+# Rehearsal only — never on the box. deploy/local/rehearse.sh copies this beside
+# compose.yml, where `docker compose` reads it on top: a laptop has no R2
+# bucket, so files (and the backups) are kept on a volume instead.
+services:
+  api:
+    environment:
+      STORAGE_DRIVER: local
+      STORAGE_PATH: /app/uploads
+    volumes:
+      - uploads:/app/uploads
+  jobs:
+    environment:
+      STORAGE_DRIVER: local
+      STORAGE_PATH: /app/uploads
+    volumes:
+      - uploads:/app/uploads
+
+volumes:
+  uploads:

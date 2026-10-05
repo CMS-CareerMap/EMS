@@ -1,0 +1,19 @@
+# A stand-in for the box's shared Caddy, for the rehearsal on a laptop
+# (deploy/local/rehearse.sh): HTTPS with Caddy's own local certificate, and
+# the EMS site passed to the web container over the `edge` network — the same
+# hop, and the same name, as on the box.
+#
+# Its two blocks have the shape of the block the box owner adds for the real
+# domain (DEPLOY.md, "The Caddy block"): the site itself, and www sent to it.
+{
+	# This stand-in answers on the laptop only; it never asks Let's Encrypt.
+	local_certs
+}
+
+localhost {
+	reverse_proxy ems-web:8080
+}
+
+www.localhost {
+	redir https://localhost:8443{uri} permanent
+}

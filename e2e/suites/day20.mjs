@@ -32,6 +32,8 @@ const section = (name) => console.log(`\n── ${name} ──`)
 
 // ── The API, for setup and for what a browser cannot show ─────────────────
 const tokens = {}
+const signedInAt = {}
+const signedInAs = {}
 async function login(who, identifier = fx.users[who]) {
   const res = await fetch(`${API}/auth/login`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -40,12 +42,21 @@ async function login(who, identifier = fx.users[who]) {
   const body = await res.json()
   if (res.status !== 200) throw new Error(`login ${who}: ${res.status} ${JSON.stringify(body)}`)
   tokens[who] = body.data.accessToken
+  signedInAt[who] = Date.now()
+  signedInAs[who] = identifier
   return res
+}
+// An access token lasts 15 minutes, and the whole suite can take longer on a
+// busy machine. By age, never on a 401: a refusal the suite checks for must
+// still show.
+async function freshToken(who) {
+  if (Date.now() - signedInAt[who] > 12 * 60_000) await login(who, signedInAs[who])
+  return tokens[who]
 }
 async function api(who, method, path, body) {
   const res = await fetch(`${API}${path}`, {
     method,
-    headers: { ...(who ? { Authorization: `Bearer ${tokens[who]}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    headers: { ...(who ? { Authorization: `Bearer ${await freshToken(who)}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   })
   const text = await res.text()
@@ -57,7 +68,7 @@ async function upload(who, path, fields, file) {
   const form = new FormData()
   for (const [k, v] of Object.entries(fields)) form.append(k, v)
   form.append(file.field ?? 'file', new Blob([readFileSync(file.path)], { type: file.type }), file.name)
-  const res = await fetch(`${API}${path}`, { method: 'POST', headers: { Authorization: `Bearer ${tokens[who]}` }, body: form })
+  const res = await fetch(`${API}${path}`, { method: 'POST', headers: { Authorization: `Bearer ${await freshToken(who)}` }, body: form })
   return { status: res.status, body: await res.json() }
 }
 
@@ -645,10 +656,12 @@ try {
       const page = await open(who)
       await page.goto(`${BASE}/leave`)
       await page.getByRole('tab', { name: 'Team Balances' }).click()
-      // The rows, not the "Loading…" one before them.
-      await page.locator('main table tbody tr', { hasText: expected[0] }).first().waitFor({ timeout: 15_000 })
+      // The tab's own panel (the tab switches in a transition, so the last tab
+      // stays on screen meanwhile), and its rows, not the "Loading…" one before them.
+      const panel = page.getByRole('tabpanel', { name: 'Team Balances' })
+      await panel.locator('tbody tr', { hasText: expected[0] }).first().waitFor({ timeout: 15_000 })
       // The name is the first line of the person's cell; their code is under it.
-      const names = (await page.locator('main table tbody tr td:first-child p:first-of-type').allInnerTexts()).sort()
+      const names = (await panel.locator('tbody tr td:first-child p:first-of-type').allInnerTexts()).sort()
       check(`${who}: Team Balances shows only their own team`, JSON.stringify(names) === JSON.stringify([...expected].sort()), names.join(', '))
       check(`${who}: …and offers no grant and no correction`, !(await page.getByRole('button', { name: 'Grant leave' }).count()) && !(await page.getByRole('button', { name: /^Correct / }).count()))
       await page.context().close()
@@ -703,7 +716,7 @@ try {
     section('The audit log (Settings → Audit Log)')
     // Things worth finding: a download, an export, a refused request.
     await api('hr', 'GET', `/employee-documents/${lastDocId}/file`)
-    await fetch(`${API}/employees/export`, { headers: { Authorization: `Bearer ${tokens.hr}` } })
+    await fetch(`${API}/employees/export`, { headers: { Authorization: `Bearer ${await freshToken('hr')}` } })
     await api('emp', 'GET', '/payroll-runs')
     const sa = await open('sa')
     await sa.goto(`${BASE}/settings?tab=audit`)

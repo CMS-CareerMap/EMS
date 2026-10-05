@@ -109,6 +109,8 @@ export async function startApi({ db = DB, fakeNow = null, log = join(LOGS, 'api.
     // Email stays off: set and empty means off (server/src/config/env.ts), and
     // .env cannot fill it back in — no mail account is ever reached from here.
     SMTP_HOST: '',
+    // One proxy in front: scripts/web.mjs. Whatever server/.env says.
+    TRUST_PROXY_HOPS: '1',
   })
   if (fakeNow) {
     env.FAKE_NOW = fakeNow

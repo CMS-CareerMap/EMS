@@ -1,324 +1,241 @@
-# Deploying EMS to the Hostinger VPS
+# Deploying EMS
 
-> ⚠️ **Do not follow this runbook as it stands — the target changed on 30 Sep 2026.**
-> EMS goes onto the client's existing Hostinger box (`187.77.96.52`, Ubuntu 26.04), which already runs another project. That box uses **Docker**, and one shared **Caddy** container owns ports 80/443 and the certificates. There is no Nginx, no PM2 and no Postgres installed on the host. Instead:
-> - EMS lives in `/srv/ems` as its own containers: API, web and PostgreSQL. It publishes no ports and joins the shared `edge` network.
-> - The box owner adds one site block to the shared Caddyfile, pointing the EMS domain at our web container.
-> - The box is already hardened (the `deploy` user, keys-only SSH, ufw, updates), so steps 1–2 below are done.
->
-> This file will be rewritten for that setup together with the Dockerfile and compose files. What still applies unchanged: the backup, restore and drill scripts, the R2 notes, and the security headers (they move into our web container).
+EMS runs on the client's Hostinger box (`187.77.96.52`, Ubuntu 26.04, 8 GB). The box already runs another project and is already hardened: user `deploy`, keys-only SSH, ufw (22, 80, 443), unattended upgrades, and Docker. One shared **Caddy** container in `/srv/edge` (the *edge*) owns ports 80/443 and every certificate. Apps live in `/srv/<name>`, join the shared Docker network `edge`, and publish no ports, because Docker would open them past ufw.
+
+EMS is four containers in `/srv/ems`:
+
+```
+browser ──https──► edge Caddy (/srv/edge — the box owner's; 80/443, certificates)
+                     │ network `edge` — shared with the box's other project
+                     ▼
+                   ems-web  :8080   the built app, its security headers, /api passed on
+                     │ network `ems_default` — EMS's own; the edge cannot reach past ems-web
+                     ├── /api ──► api (ems-api) :4000 ──► db  PostgreSQL 17, volume `db-data`
+                     │                            └───► Cloudflare R2 (files and backups)
+                   jobs  the same image as api, on a schedule (deploy/crontab):
+                         02:30 IST backup · 03:00 IST maintenance · 04:00 IST on the 2nd, restore drill
+```
+
+On `edge`, EMS answers only to the name `ems-web` (and its container's own name), and finds its API by the name `ems-api`, so nothing of EMS's can be mistaken for a `web` or an `api` of the other project.
+
+Everything below was run end to end on a laptop rehearsal of the box (`deploy/local/`) on 5 Oct 2026, **except** what is marked *not yet run*: Cloudflare R2 (the rehearsal keeps files on a volume), the real box, its edge, its domain, and a reboot of the box. Those are run in step 4.
 
 ## Still to build, in this order
 
-> **Days 21–23 come first** (the Super Admin's Roles & Permissions screen; the company tree with approvals that follow it; two logins per person; see `.claude/CLAUDE.md`). They change the database schema, so they are done before the first deploy. That way the production database starts with the final shape.
-
-| # | What | Needs |
+| # | What | State |
 |---|---|---|
-| 1 | **Docker packaging:** an API image (Node 22, Prisma, `pg_dump` for backups), a web container (serves the built app with the security headers, passes `/api` on), and `/srv/ems/compose.yml` (api + web + postgres, `name: ems`, no `ports:`, memory limits, networks `default` + `edge`). Inside the API container, `HOST=0.0.0.0`, and `trust proxy` set for two hops. | Docker Desktop on the laptop, to test it before the server |
-| 2 | **CI** (GitHub Actions) on every push and pull request: server typecheck, §A5 lint and the full test suite against a Postgres service; web lint and build; the field-contract check. A red check blocks the merge. | Admin access to the GitHub repo |
-| 3 | **The Caddy site block** for the EMS domain (root + `www` redirect), handed to the box owner to add and `caddy reload` | The domain name |
-| 4 | **First deploy, by hand:** images streamed over SSH (`docker save \| ssh \| docker load`), `.env`, migrations, the first Super Admin, cron jobs, then the first backup and restore drill, a reboot test, and the §10 smoke test. Then tag `v1.0`. | SSH access as `deploy`, R2 keys, the backup passphrase kept by the client |
-| 5 | **CD** (GitHub Actions), triggered by a version tag (`v*`), never by an ordinary push, optionally behind a GitHub "production" approval. Steps: build the images and push them to GHCR (private); SSH to the box; **back up first**; pull; run the migrations; switch the containers; health check. Rollback means pointing `.env.tag` back at the previous tag. | Repo secrets `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY` (a separate deploy key, held only by GitHub), and a `read:packages` token on the box for GHCR |
-| 6 | **Rewrite this file** for the Docker + Caddy setup, including updates, rollback and restores | — |
-
-This runbook covers putting EMS on the client's server, updating it, backing it up and restoring it. The commands are for **Ubuntu 24.04** on a **VPS with root access**. Shared hosting cannot run this app: it needs Node, PostgreSQL and scheduled jobs.
-
-The target, as the build guide sets it (§A7), is **one address**. Nginx serves the React build and passes `/api` to Node on the same machine. Because everything is on one origin, there is no CORS, and the refresh cookie works as designed.
-
-```
-browser ──https──► Nginx :443 ──┬── /            web/dist (static files)
-                                └── /api/  ──►  Node (PM2) 127.0.0.1:4000 ──► PostgreSQL (localhost)
-                                                                          └──► Cloudflare R2 (files + backups)
-```
-
-Replace `hr.example.com` below with the real domain. Every block says who runs it: **root**, or the **ems** user.
+| 1 | **Packaging**: the two images, `compose.yml`, `deploy.sh`, the jobs, the laptop rehearsal | ✅ Built and rehearsed, 5 Oct 2026 |
+| 2 | **CI** (GitHub Actions) on pull requests and `main`: server typecheck, lint and tests against a Postgres service; web lint and build; the field contract; both images build | Next. Needs the repository in the CMS-CareerMap organization |
+| 3 | **The Caddy block** for the EMS domain (the site, and `www` sent to it), handed to the box owner | Needs the domain |
+| 4 | **First deploy, by hand**: images over SSH, `.env`, the first Super Admin, the Caddy block, R2, the first backup and drill, a reboot, the smoke test, tag `v1.0` | Needs SSH as `deploy`, the domain, R2 keys, the Super Admin's email, who keeps the backup passphrase |
+| 5 | **CD**: on a version tag, build, ship over SSH, `deploy.sh` | After 4 |
+| 6 | **The client's go-live guide** (settings to fill in, first employees, first payroll) | After 4 |
 
 ---
 
-## 0. Before you start
+## What is in `deploy/`
 
-Have all of these in hand:
-
-| What | Where it comes from |
+| File | What it is |
 |---|---|
-| The VPS IP and root login | Hostinger panel |
-| A **subdomain** such as `hr.company.com`, with an **A record** to the VPS IP | The client's DNS. If that DNS is on Cloudflare, set the record to **DNS only (grey cloud)**. Proxied, every visitor would arrive from a Cloudflare address, and the sign-in limits would count the whole company as one person. |
-| The R2 bucket and an API token for it: Account ID, Access Key ID, Secret Access Key, bucket name | The company's Cloudflare account (see [R2 notes](#r2-notes)) |
-| A **backup passphrase**, at least 16 characters (`openssl rand -base64 24`) | Generate it once. It goes into the server's `.env`, and a **copy goes into the company's password manager, off the server**. If the server is lost, that copy is the only way to open the backups. |
-| A database password (`openssl rand -hex 24`: hex, so it is safe inside a URL) | Generate it here |
-| The first Super Admin's email and a strong password | The client |
+| `api.Dockerfile` | The API image: Node 22 (Debian 13), Prisma, `pg_dump`/`psql`/`pg_restore` 17, supercronic. Runs the API, the jobs, and one-off commands |
+| `web.Dockerfile` | The web image: the app built by Vite, served by Caddy 2.11 on port 8080 |
+| `*.Dockerfile.dockerignore` | What each build may see: an allow-list, so no `.env`, `node_modules` or `dist` from a laptop ever gets in |
+| `web/Caddyfile` | The web container's server: static files, caching, real 404s, `/api` → `ems-api:4000` |
+| `web/security-headers.caddy` | The page's security headers (CSP, HSTS …). `e2e/scripts/web.mjs` reads the same file, so the browser tests see what production sends |
+| `compose.yml` | The stack: `db`, `api`, `jobs`, `ems-web`. Copied to `/srv/ems/compose.yml` |
+| `env.example` | Every setting, explained. Becomes `/srv/ems/.env` |
+| `postgres/10-ems-role.sh` | Runs once when the database is first created: the app's own login `ems` (owner of database `ems`, may create databases, not a superuser) |
+| `crontab` | The jobs' schedule, in UTC |
+| `deploy.sh` | On the box: back up, migrate, switch; `--rollback`; `--status` |
+| `build.sh` | On a laptop or in CI: builds `ems-api:<version>` and `ems-web:<version>` |
+| `local/` | The laptop rehearsal: a stand-in for the box's edge Caddy, and `rehearse.sh` |
 
----
+The three scripts are committed as executable. A copy that lost the bit (from a Windows folder, say) runs with `bash deploy.sh …`, or after `chmod +x deploy.sh`.
 
-## 1. The server itself (root)
+## Settings
 
-```bash
-apt update && apt -y upgrade
-timedatectl set-timezone UTC            # the cron times in deploy/crontab assume UTC
-apt -y install unattended-upgrades && dpkg-reconfigure -plow unattended-upgrades
+All settings live in `/srv/ems/.env`, made from `env.example` on the box itself (`chmod 600`). `docker compose` stops and names any required setting that is missing; the API checks the rest when it starts.
 
-# A user to own and run the app — never root
-adduser --disabled-password --gecos "" ems
-mkdir -p /home/ems/.ssh && cp ~/.ssh/authorized_keys /home/ems/.ssh/ && chown -R ems:ems /home/ems/.ssh
+- **An optional setting you do not use: delete its line, or keep it commented out.** Never `NAME=` with nothing after it: the API refuses an empty value.
+- **Secrets: generated, never typed** (the commands are in `env.example`). Compose reads `$` in a value as the start of another setting's name, and the database password goes inside an address, where `@ : / ? # %` break it. Generated hex and base64 contain none of these.
+- Rehearsed: an optional setting in `.env` reaches the API as written (`SMTP_FROM="CareerMap HR <hr@example.com>"` arrived whole), and one left out is not set at all.
+- `POSTGRES_PASSWORD` and `EMS_DB_PASSWORD` are read **once**, when the database volume is first created. To change the app's password later, set it in the database first, typed at a prompt so it is never on a command line: `docker compose exec db psql -U ems -d ems`, then `\password ems`. Then put the same password in `.env`, and `docker compose up -d` (the API and the jobs restart with it).
+- The **backup passphrase** has a copy outside the box, kept by the company. Without it, no backup can be opened, by anybody.
 
-# Firewall: SSH and web only. PostgreSQL and Node are never reachable from outside.
-ufw allow OpenSSH
-ufw allow 80,443/tcp
-ufw enable
-```
+## Building the images
 
-**SSH: keys only.** On Ubuntu 24.04, settings in `/etc/ssh/sshd_config.d/` take precedence over `sshd_config` itself. Cloud images ship a file there that turns passwords back on, so put yours first:
-
-```bash
-cat > /etc/ssh/sshd_config.d/00-ems.conf <<'EOF'
-PasswordAuthentication no
-PermitRootLogin prohibit-password
-EOF
-sshd -T | grep -iE 'passwordauthentication|permitrootlogin'   # both must show the values above
-systemctl reload ssh
-```
-
-Before you close this terminal, **open a second one and log in with a key**.
-
-## 2. Software (root)
+From the repository root, with Docker running:
 
 ```bash
-# Node 22 LTS (Node 20 stopped receiving security fixes in April 2026)
-curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt -y install nodejs
-# PostgreSQL: the server, plus the client tools (pg_dump, pg_restore, psql) that backups use
-apt -y install postgresql postgresql-client
-# Nginx and Certbot
-apt -y install nginx certbot
-# PM2, which keeps the API running
-npm install -g pm2
-node -v && psql --version && nginx -v
+deploy/build.sh v1.2          # a release: only from a clean checkout, so v1.2 names one commit
+deploy/build.sh v1.2-rc1      # a trial build: uncommitted changes allowed
 ```
 
-## 3. The database (root)
+Both images are `linux/amd64`, and carry their version and commit as labels. `deploy.sh --status` shows the version.
+
+## Rehearsing on a laptop
+
+The same `compose.yml`, the same `deploy.sh`, the same images, behind a stand-in for the box's edge: `https://localhost:8443`. It touches nothing else (not the development database, not Neon, not ports 4000/5173). It needs Docker Desktop and Git Bash.
 
 ```bash
-sudo -u postgres psql <<'SQL'
-CREATE ROLE ems LOGIN PASSWORD 'THE-HEX-PASSWORD' CREATEDB;
-CREATE DATABASE ems_prod OWNER ems;
-SQL
+deploy/build.sh v1.2-rc1
+deploy/local/rehearse.sh v1.2-rc1          # → https://localhost:8443
 ```
 
-- `CREATEDB` is there for two things: the monthly restore drill, which restores into a scratch database of its own, and restores in general (`createdb` as ems).
-- PostgreSQL listens on localhost only by default, and it accepts a password there. **Keep both as they are.**
+The first run makes `deploy/local/.box/` (never committed) with an `.env` of fresh random secrets. Files and backups go to a volume instead of R2 (`local/compose.override.yml`). The browser warns once about the certificate (it is Caddy's own); continue to localhost.
 
-## 4. The code
-
-As **root**:
+The first Super Admin — the password is typed at a prompt, never on the command line:
 
 ```bash
-mkdir -p /srv/ems /var/log/ems && chown ems:ems /srv/ems /var/log/ems
+cd deploy/local/.box
+export BOOTSTRAP_ADMIN_EMAIL=superadmin@example.com
+read -rs BOOTSTRAP_ADMIN_PASSWORD && export BOOTSTRAP_ADMIN_PASSWORD
+docker compose run --rm -e BOOTSTRAP_ADMIN_EMAIL -e BOOTSTRAP_ADMIN_PASSWORD api npm run bootstrap
 ```
 
-As **ems** (`su - ems`):
+Then the browser checks, from the same shell. They also need Node 20+, Microsoft Edge, and `npm install` run once in `e2e/`. There are 38: headers, caching, 404s, sign-in and the refresh cookie, every page of the Super Admin's menu, a phone, a file up and back, the upload limits, the visitor's own address in the audit log whatever `X-Forwarded-For` says, no CSP violation. Each run signs in four times; a third run within 15 minutes needs `docker compose restart api` first (the sign-in limit).
 
 ```bash
-git clone https://github.com/priyanshu3372/EMS.git /srv/ems
-cd /srv/ems && git checkout v1.0
+cd ../../../e2e
+REHEARSAL_SA_PASSWORD="$BOOTSTRAP_ADMIN_PASSWORD" node suites/rehearsal.mjs
+unset BOOTSTRAP_ADMIN_PASSWORD
 ```
 
-## 5. The server's settings (ems)
+Stop it with `deploy/local/rehearse.sh --down` (the data stays), or remove it all, data included, with `--wipe`.
 
-Create `/srv/ems/server/.env`, then `chmod 600 .env` so only ems can read it. The API checks every key when it starts. If one is missing or malformed, it stops and says which.
+> **Git Bash** turns arguments that look like Linux paths (`/app/crontab`) into Windows paths. Prefix such commands with `MSYS_NO_PATHCONV=1`.
+
+## On the box — the first deploy
+
+> *Not yet run.* Written in full, and run, in step 4. The outline:
+
+1. **Before anything:** the domain's DNS record points at the box and is **DNS only** — never proxied through Cloudflare (orange cloud). Proxied, every visitor would arrive from a Cloudflare address, and the whole company would share one sign-in limit. An **A record only**: no AAAA (IPv6) record unless the box owner confirms the edge sees IPv6 visitors' own addresses — otherwise every phone on IPv6 (most of Jio) would share one. Check that the shared network is called `edge`: `docker network inspect edge`.
+2. As `deploy`: `sudo install -d -o deploy -g deploy /srv/ems`, then copy into it `compose.yml`, `deploy.sh`, `env.example` and `postgres/10-ems-role.sh` from `deploy/`. `chmod 755 deploy.sh postgres/10-ems-role.sh` — the database container must be able to read and run the second one.
+3. `cp env.example .env && chmod 600 .env`, and fill it in on the box (the secrets are generated there).
+4. The images arrive from the laptop: `docker save ems-api:v1.0 ems-web:v1.0 | gzip | ssh deploy@187.77.96.52 'gunzip | docker load'`.
+5. `./deploy.sh v1.0`: starts the database, creates the tables, starts everything. If it stops saying it could not ask the database, the database's first start went wrong (`docker compose logs db`; most often `postgres/10-ems-role.sh` was unreadable) and the app's login was never made. On this **first** deploy only, with nothing in it yet, start the database afresh: `docker compose down --volumes`, fix the cause, run `./deploy.sh v1.0` again. Never `--volumes` once there is data.
+6. The first Super Admin, as in the rehearsal above.
+7. The box owner adds the Caddy block for the domain (`reverse_proxy ems-web:8080`) and runs `caddy reload` (never `restart`).
+8. `npm run storage:check` against R2; the first backup and a drill by hand; a reboot of the box; a failed sign-in from a phone on mobile data, whose own address must show in the audit log; the smoke test (`Role_Permission_Documentation.md` §12, the testing checklist); then tag `v1.0`.
+
+## Updating to a new version
+
+Load the new images onto the box, then from `/srv/ems`:
 
 ```bash
-NODE_ENV=production
-PORT=4000
-CORS_ORIGIN=https://hr.example.com
-
-DATABASE_URL="postgresql://ems:THE-HEX-PASSWORD@localhost:5432/ems_prod"
-DIRECT_URL="postgresql://ems:THE-HEX-PASSWORD@localhost:5432/ems_prod"
-
-# Two different values: openssl rand -hex 48 (run it twice)
-JWT_ACCESS_SECRET=...
-JWT_REFRESH_SECRET=...
-
-STORAGE_DRIVER=r2
-R2_ACCOUNT_ID=...
-R2_ACCESS_KEY_ID=...
-R2_SECRET_ACCESS_KEY=...
-R2_BUCKET=...
-
-BACKUP_PASSPHRASE=...          # the same one as in the company's password manager
-
-# Only for step 6's bootstrap. Delete these two lines afterwards.
-BOOTSTRAP_ADMIN_EMAIL=...
-BOOTSTRAP_ADMIN_PASSWORD=...
+./deploy.sh v1.3
 ```
 
-In production the API listens on `127.0.0.1` only (set `HOST` to change that). Nginx is the only way in.
+In order, it:
 
-## 6. Build, migrate, first admin (ems)
+1. checks that both images are on the box and that `compose.yml` and `.env` are valid, and that no other deploy is running;
+2. starts the database if it is not running, and asks it whether it holds data. If it cannot answer, everything stops here, with the site still running;
+3. stops `api` and `jobs`, so nothing writes between the backup and the switch, nor while the database changes. The site still opens, but its data does not load until step 7 — under a minute in the rehearsal;
+4. **backs up**, with the version running now, unless the database is still empty. If the backup fails, the running version is started again and nothing has changed;
+5. points `previous` at the last version that came up healthy, and `current` at the new one;
+6. runs the migrations;
+7. starts everything and waits until each container is healthy (`jobs`, which has no health check, until it is running). The API is healthy only when it can reach the database (`/health`);
+8. remembers the new version as the last healthy one, and keeps the images of the three highest versions (a release counts above its `-rc` builds) and of the versions still in use.
+
+Deploying the version that already runs again is harmless: it backs up, finds no migration, and restarts. One stopped half-way (a dropped SSH session) is finished by running the same command again. A deploy that was killed can leave `.deploy.lock` behind; if no deploy is running, remove it.
+
+All of this was rehearsed, each with the outcome above: a first deploy, a new version, the same version again, a deploy while another held the lock, a failing migration, a version that never came up healthy followed by a fix, a failing backup, a database that refused to answer.
+
+## Rolling back
 
 ```bash
-cd /srv/ems/server
-npm ci                           # all dependencies — the build and the jobs need the dev ones too; never --omit=dev
-npx prisma migrate deploy        # creates every table
-npm run build                    # TypeScript → dist/
-npm run storage:check            # proves the R2 keys: write, read, list, delete
-npm run bootstrap                # the company, its reference data, and the first Super Admin
-
-cd /srv/ems/web
-npm ci
-npm run build                    # → web/dist, which Nginx serves
+./deploy.sh --rollback        # back to the version that ran before the last switch
+./deploy.sh --rollback        # a second time returns to where the first started
+./deploy.sh --status
 ```
 
-Then delete the two `BOOTSTRAP_*` lines from `.env`.
+`previous` is always a version that came up healthy: after a version that failed and a fix for it, `--rollback` goes back past both, to the version before them.
 
-## 7. Keep the API running (ems)
+A rollback puts the **code** back, never the database. If the version being left had run a migration, the old code may not understand the database. Then restore the backup that `deploy.sh` took just before the switch (see *Restoring*).
+
+## A migration failed
+
+`deploy.sh` stops, puts the previous version back on (and `previous` as it was), and says so. PostgreSQL runs a migration file as one transaction, so a file that fails is undone whole: the rehearsal's broken migration (a good statement, then a bad one) left nothing behind but its record. The exception is a migration that manages its own transactions or uses a statement that cannot run inside one (such as `CREATE INDEX CONCURRENTLY`); none of EMS's do.
+
+That record blocks every later deploy (Prisma error **P3009**) until it is resolved. Once the cause is understood:
+
+```bash
+docker compose run --rm --no-deps api npx --no-install prisma migrate resolve --rolled-back <migration_name>
+./deploy.sh v1.3              # or the fixed version
+```
+
+## Backups
+
+The `jobs` container backs up every night at 02:30 IST: one `pg_dump`, sealed with the passphrase (AES-256-GCM) and stored under `backups/db/` (in R2 on the box — *not yet run*; on a volume in the rehearsal). Then old ones are pruned. Pruning counts **backups, not days**: it keeps the newest 30 backups, whenever they were taken, and the first backup of each of the last 12 months. A deploy and a hand backup each add one, so 30 backups can cover a little less than 30 days.
+
+The restore drill runs at 04:00 IST on the 2nd of each month: the newest backup is restored into a scratch database, every table's rows are counted against the backup, and the scratch database is dropped. Both jobs report to **Settings → Audit Log → System jobs**, where somebody sees a failure.
+
+A job that never runs writes nothing there: the `jobs` container stopped (a deploy cut off half-way leaves it so until the deploy is run again), or a backup killed for want of memory. So **look for last night's backup**, not only for a failure: in System jobs, or `docker compose run --rm --no-deps api npm run backup -- --list`. A backup's dump is held in a 256 MB in-memory folder while it is sealed; one larger than that fails, and says so, rather than being killed silently. EMS's dump is about 160 KB today.
+
+By hand, from `/srv/ems`:
+
+```bash
+docker compose run --rm --no-deps api npm run backup
+docker compose run --rm --no-deps api npm run backup -- --list
+docker compose run --rm --no-deps api npm run backup:drill -- --latest
+docker compose logs jobs                          # what the scheduled runs said
+```
+
+## Restoring
+
+Every restore goes into a **new, empty** database. The script refuses the database the app runs on, and any database that already has tables.
+
+**Some data went wrong** (a bad import, a mistaken change), and you want the database as it was at a backup:
 
 ```bash
 cd /srv/ems
-pm2 start deploy/ecosystem.config.cjs
-pm2 save
-pm2 startup          # prints one command — run THAT as root, so the API starts on boot
-pm2 install pm2-logrotate
-curl -s localhost:4000/health        # {"data":{"status":"ok","env":"production"},...}
-```
-
-## 8. Nginx and the certificate (root)
-
-nginx refuses to load an HTTPS server that has no certificate yet. So the certificate comes first, served by a small file that only answers Let's Encrypt:
-
-```bash
-DOMAIN=hr.example.com                          # the real one
-mkdir -p /var/www/certbot
-cp /srv/ems/deploy/nginx/ems-security-headers.conf /etc/nginx/snippets/
-sed "s/hr.example.com/$DOMAIN/g" /srv/ems/deploy/nginx/ems-acme.conf > /etc/nginx/sites-available/ems-acme
-sed "s/hr.example.com/$DOMAIN/g" /srv/ems/deploy/nginx/ems.conf > /etc/nginx/sites-available/ems
-rm -f /etc/nginx/sites-enabled/default
-ln -sf /etc/nginx/sites-available/ems-acme /etc/nginx/sites-enabled/ems-acme
-nginx -t && systemctl reload nginx
-
-# The certificate. Renewals reuse the same folder, which ems.conf keeps serving on port 80.
-certbot certonly --webroot -w /var/www/certbot -d "$DOMAIN" --deploy-hook "systemctl reload nginx"
-
-# Now the real site
-rm /etc/nginx/sites-enabled/ems-acme
-ln -sf /etc/nginx/sites-available/ems /etc/nginx/sites-enabled/ems
-nginx -t && systemctl reload nginx
-certbot renew --dry-run                        # renewal works
-```
-
-Check the site and its headers:
-
-```bash
-curl -sI https://$DOMAIN/ | grep -iE 'strict-transport|content-security|x-frame|x-content-type|referrer|permissions'
-curl -sI https://$DOMAIN/assets/nothing.js | head -1     # a real 404, not the app
-curl -s  https://$DOMAIN/api/auth/session | head -c 200  # 401 in the API's own JSON
-```
-
-About HSTS: the site tells browsers to use HTTPS for a year, **including subdomains**. On a subdomain like `hr.company.com` that covers only `*.hr.company.com`. Don't serve EMS from the company's bare domain unless every other site under it is on HTTPS as well.
-
-## 9. Scheduled jobs (ems)
-
-```bash
-crontab /srv/ems/deploy/crontab && crontab -l
-```
-
-As **root**, rotate the jobs' logs:
-
-```bash
-cat > /etc/logrotate.d/ems <<'EOF'
-/var/log/ems/*.log {
-  weekly
-  rotate 12
-  compress
-  missingok
-  notifempty
-}
-EOF
-```
-
-## 10. The first backup, and a real restore — before anybody uses it (ems)
-
-Don't wait for the cron. Run both by hand now:
-
-```bash
-cd /srv/ems/server
-npm run backup                       # "Backup stored … sealed: true"
-npm run backup -- --list
-npm run backup:drill -- --latest     # "Restore drill passed: the backup came back whole"
-```
-
-Then sign in as Super Admin and open **Settings → Audit Log**, area **System jobs**. Both jobs should be listed there. From now on, a failed backup or a failed drill also shows up there.
-
-## 11. Smoke test
-
-In a browser, work through `Role_Permission_Documentation.md §10`, signed in as one person of each role.
-
----
-
-## Updating to a new version (ems)
-
-Pick a quiet moment: the API is stopped for a minute or two. `npm ci` replaces the files the running API reads, and migrations change the database under it, so the old version must not keep serving while that happens.
-
-```bash
-cd /srv/ems/server && npm run backup            # the way back, if a migration goes wrong
-pm2 stop ems-api
-cd /srv/ems && git fetch --tags && git checkout vX.Y
-cd server && npm ci && npx prisma migrate deploy && npm run build
-pm2 start ems-api
-# The web build goes to a new folder and is swapped in whole, so nobody is
-# served half an old version and half a new one:
-cd ../web && npm ci && npx vite build --outDir dist-next && rm -rf dist-prev && mv dist dist-prev && mv dist-next dist
-```
-
-Then, as **root**, pick up any change to the web's security headers:
-
-```bash
-cp /srv/ems/deploy/nginx/ems-security-headers.conf /etc/nginx/snippets/ && nginx -t && systemctl reload nginx
-```
-
-Anyone who had a tab open, and then opens a page they had not visited yet, sees *"A new version of EMS is available — Reload"*. That is expected.
-
-## Restoring (ems)
-
-Every restore goes into an **empty** database. The script refuses to restore over the database the app is running on, or over one that already has tables. That rule keeps a recovery from becoming a second disaster. The ems user creates the empty database itself (it has `CREATEDB`); `createdb` asks for the database password.
-
-**Some data went wrong** (a bad import, a mistaken change), and you want the database as it was last night:
-
-```bash
-cd /srv/ems/server
-npm run backup -- --list                               # pick the moment
-createdb -h localhost -U ems ems_restored
-npm run restore -- --from 2026-10-14T21-00-00Z --target-db ems_restored
+docker compose run --rm --no-deps api npm run backup -- --list           # pick the moment
+docker compose exec db createdb -U ems ems_restored
+docker compose run --rm --no-deps api npm run restore -- --from 2026-10-14T21-00-00Z --target-db ems_restored
 #   → "Restore checked: every table matches the backup"
-# Point the app at it: in .env, change ems_prod to ems_restored in both URLs, then
-pm2 restart ems-api
-# Keep ems_prod until you are sure, then drop it.
+docker compose stop api jobs
+docker compose exec db psql -U ems -d postgres \
+  -c 'ALTER DATABASE ems RENAME TO ems_before_restore' \
+  -c 'ALTER DATABASE ems_restored RENAME TO ems'
+docker compose up -d --wait
+# Keep ems_before_restore until you are sure, then:
+docker compose exec db dropdb -U ems ems_before_restore
 ```
 
-**The server is lost:** build a new VPS with steps 1–5, using the same R2 keys and the same backup passphrase (the copy from the password manager). Then:
+Rehearsed: a company's name changed by mistake came back from the backup, and its Super Admin signed in afterwards. The app needs no change of settings: it always uses the database named `ems`.
+
+**The box is lost:** on a new box, set up `/srv/ems` as for the first deploy, with the **same** R2 keys and the **same** backup passphrase (the company's copy), and `./deploy.sh` the same version. That creates an empty `ems` with tables, so restore beside it and swap, exactly as above. Files (documents, payslip PDFs, bank proofs) live in R2, not on the box, so nothing else needs restoring. *Not yet run* (it needs R2).
+
+## Looking at it
 
 ```bash
-cd /srv/ems/server && npm ci && npm run build
-npm run backup -- --list
-createdb -h localhost -U ems ems_prod_restored
-npm run restore -- --target-db ems_prod_restored        # the newest backup
-# set both URLs in .env to ems_prod_restored, then carry on from step 7
+./deploy.sh --status                     # versions, and each container's state
+docker compose logs -f --tail 100 api    # the API's log: one JSON line per event
+docker compose logs --tail 50 ems-web jobs db
+docker stats --no-stream                 # memory against each container's limit
 ```
 
-The files (documents, payslip PDFs, bank proofs) live in R2, not on the server, so nothing else needs restoring.
+Docker keeps at most 5 × 10 MB of log per container. A container that crashes is started again (rehearsed: the API's process killed, back and healthy within seconds), and when Docker itself starts again it starts the stack (rehearsed by restarting Docker; a reboot of the box is *not yet run*).
 
 ## R2 notes
 
+*Not yet run* — in step 4, with the company's keys.
+
 - **The bucket** is **private** and belongs to the **company's** Cloudflare account, not a developer's. It holds employees' documents.
-- **The API token** should have **Object Read & Write** on that one bucket only.
+- **The API token** has **Object Read & Write** on that one bucket only.
 - **Backups** are kept in the same bucket, under `backups/db/`. The orphan-file sweeper only ever looks under `org/`, so it never touches them.
-- **Optional extra safety:** add a bucket lock rule on the `backups/` prefix for **28 days**. Then not even the app's own key can delete a recent backup. Keep the lock shorter than the 30 daily backups the job keeps: the job deletes each backup once it is 30 days old, and a longer lock would make that delete fail and the job report itself failed.
+- **Optional extra safety:** a bucket lock rule on the `backups/` prefix, so not even the app's own key can delete a recent backup. Keep it to **7 days**: pruning counts backups, not days (see *Backups*), and a lock longer than the newest backup it prunes would make the nightly job fail.
 
 ## What protects what
 
 | Layer | Setting |
 |---|---|
-| Network | `ufw`: 22, 80 and 443 only. Node listens on 127.0.0.1 and PostgreSQL on localhost. |
-| SSH | Keys only (`sshd_config.d/00-ems.conf`) |
-| HTTPS | Let's Encrypt, renewed by Certbot. HSTS for a year. TLS 1.2 and 1.3. |
-| Browser | CSP, X-Frame-Options, nosniff, Referrer-Policy and Permissions-Policy (`deploy/nginx/ems-security-headers.conf`). The API adds its own through helmet. |
-| Secrets | `.env` is chmod 600 and owned by ems. The two JWT secrets differ. The backup passphrase also has a copy off the server. |
-| Backups | Nightly and sealed (AES-256-GCM), stored off the server in R2: 30 daily and 12 monthly, counted by the company's own month. **Restored and checked every month** by the drill. |
+| Network | No EMS container publishes a port. The edge reaches only `ems-web`; `api` and `db` are on EMS's own network (rehearsed: `api:4000` and `db:5432` are not reachable from the edge's network). On the shared network EMS uses only `ems-` names |
+| Containers | `api`, `jobs` and `ems-web` run as non-root users, with a read-only file system and every Linux capability dropped, and may not gain privileges |
+| HTTPS | The edge's certificate. HSTS for a year, including subdomains: EMS has its domain to itself |
+| Visitor's address | The edge passes it on; `ems-web` trusts only private addresses; the API counts back two hops (`TRUST_PROXY_HOPS=2`). Rehearsed: a forged `X-Forwarded-For` is ignored, and the sign-in limits and the audit log see the real address. Private addresses include the box owner's other containers on `edge`, which could therefore name an address too: the box and its owner are trusted |
+| Browser | CSP, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy and Cross-Origin-Opener-Policy on the page (`web/security-headers.caddy`); the API sets its own through helmet |
+| Uploads | Over 12 MB, `ems-web` refuses before the API reads it; over the company's limit (Settings → Documents), the API refuses |
+| Database | The app's login is not a superuser: it owns the `ems` database, and the scratch and restore databases it creates |
+| Secrets | `.env` is chmod 600 on the box, never in git, never in an image. The two JWT secrets differ. The backup passphrase also has a copy off the box. Anyone in the box's `docker` group can read a running container's settings (`docker inspect`): that group is the box owner and `deploy` |
+| Backups | Nightly and sealed, off the box: the newest 30 and the first of each of 12 months. **Restored and checked every month** by the drill |

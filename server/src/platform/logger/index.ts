@@ -9,9 +9,9 @@ import { isoInstant } from '../../domain/shared/dates'
  * which is how a user's "it broke at 3pm" becomes a single grep.
  *
  * The plan was to swap this for pino on Day 20. It was kept instead: in
- * production it already writes one JSON line per event to stdout, which PM2
- * collects and rotates (deploy/ecosystem.config.cjs), and a dependency adds
- * nothing to that. Swapping later would still leave the call sites unchanged.
+ * production it already writes one JSON line per event to stdout, which Docker
+ * collects and rotates (deploy/compose.yml), and a dependency adds nothing to
+ * that. Swapping later would still leave the call sites unchanged.
  */
 
 type Level = 'debug' | 'info' | 'warn' | 'error'

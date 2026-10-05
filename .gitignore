@@ -8,6 +8,9 @@ dist-ssr/
 # Local file storage (development only — production uses Cloudflare R2)
 uploads/
 
+# The laptop rehearsal of the box (deploy/local/rehearse.sh): its .env holds secrets
+deploy/local/.box/
+
 # Environment variables
 # Deny everything, then allow back the examples. Naming .env, .env.local and
 # .env.*.local individually let .env.test through — and that holds a password too.

@@ -1,0 +1,192 @@
+# EMS on the client's box: /srv/ems/compose.yml, beside its .env (deploy/env.example).
+#
+#   db       PostgreSQL 17; its data in the named volume `db-data`
+#   api      the server (deploy/api.Dockerfile)
+#   jobs     the nightly backup, the maintenance sweep, the monthly restore drill (deploy/crontab)
+#   ems-web  the built app, the security headers, /api passed on (deploy/web.Dockerfile)
+#
+# Nothing publishes a port: Docker would open it past the box's firewall. The
+# box's shared Caddy (the `edge`, in /srv/edge) holds the certificate and
+# reaches only `ems-web`, as `ems-web:8080`, over the shared Docker network
+# `edge`. The API and the database sit on this stack's own network, out of its
+# reach.
+#
+# Images are never built here. deploy/build.sh builds them on a laptop or in
+# CI, they are loaded onto the box, and deploy/deploy.sh points the `current`
+# tags at a version, backs up, migrates and switches.
+#
+# Every setting comes from .env. A required one that is missing stops
+# `docker compose` with its name; the API checks the rest when it starts.
+
+name: ems
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "5"
+
+# The API's settings, shared by `api` and `jobs` (and every `docker compose run api …`).
+x-api-environment: &api-environment
+  NODE_ENV: production
+  HOST: 0.0.0.0
+  PORT: "4000"
+  # Two proxies stand in front: the edge, then `ems-web` (see deploy/web/Caddyfile).
+  TRUST_PROXY_HOPS: "2"
+  CORS_ORIGIN: https://${EMS_DOMAIN:?set EMS_DOMAIN in .env}
+  APP_URL: https://${EMS_DOMAIN}
+  # One database server, no pooler in between: both URLs are the same.
+  DATABASE_URL: postgresql://ems:${EMS_DB_PASSWORD:?set EMS_DB_PASSWORD in .env}@db:5432/ems
+  DIRECT_URL: postgresql://ems:${EMS_DB_PASSWORD}@db:5432/ems
+  JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET in .env}
+  JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET in .env}
+  # Production keeps every file in the company's R2 bucket, never on this box.
+  STORAGE_DRIVER: r2
+  # A backup is never stored unsealed.
+  BACKUP_PASSPHRASE: ${BACKUP_PASSPHRASE:?set BACKUP_PASSPHRASE in .env}
+
+# Settings passed on only when .env has them: with no value here, a name left
+# out of .env is not set at all. The API refuses an EMPTY value, so in .env a
+# line is removed (or commented out), never left blank.
+x-api-optional: &api-optional
+  R2_ACCOUNT_ID:
+  R2_ACCESS_KEY_ID:
+  R2_SECRET_ACCESS_KEY:
+  R2_BUCKET:
+  R2_ENDPOINT:
+  BACKUP_KEEP_DAILY:
+  BACKUP_KEEP_MONTHLY:
+  SMTP_HOST:
+  SMTP_PORT:
+  SMTP_SECURE:
+  SMTP_USER:
+  SMTP_PASS:
+  SMTP_FROM:
+
+services:
+  db:
+    image: postgres:17-trixie
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      # Read once, by postgres/10-ems-role.sh, when the volume is first created.
+      EMS_DB_PASSWORD: ${EMS_DB_PASSWORD}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./postgres/10-ems-role.sh:/docker-entrypoint-initdb.d/10-ems-role.sh:ro
+    # Over TCP, as the app connects: the image's first-start setup listens on
+    # its socket only, so this is not "ready" until that setup has finished.
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "ems", "-d", "ems"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    shm_size: 128mb
+    # Stopping ends with a checkpoint; on a slow disk that can take longer than
+    # Docker's default 10 s, after which it would be killed mid-way.
+    stop_grace_period: 60s
+    mem_limit: 768m
+    logging: *logging
+
+  api:
+    image: ems-api:current
+    restart: unless-stopped
+    init: true
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      <<: [*api-environment, *api-optional]
+    # The web container finds the API by this name. It sits on `edge` as well,
+    # where another project may have an `api` of its own; `ems-api` is EMS's.
+    networks:
+      default:
+        aliases:
+          - ems-api
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    # The code is read-only; only /tmp and the user's home (npm's logs) are
+    # written — in memory, owned by the image's user `node` (1000). /tmp holds
+    # a backup's dump while it is sealed: capped, so an outsized one fails as
+    # "disk full", which the backup reports, rather than as an out-of-memory
+    # kill, which nobody would hear of.
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m
+      - /home/node:uid=1000,gid=1000,mode=0700,size=16m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Graceful stop: requests in flight finish first (src/shutdown.ts gives 10 s).
+    stop_grace_period: 15s
+    mem_limit: 640m
+    logging: *logging
+
+  jobs:
+    image: ems-api:current
+    restart: unless-stopped
+    # No `init`: supercronic, as the container's first process, reaps finished
+    # jobs itself and, when stopped, waits for a running one to finish.
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["supercronic", "/app/crontab"]
+    environment:
+      <<: [*api-environment, *api-optional]
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m
+      - /home/node:uid=1000,gid=1000,mode=0700,size=16m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # A backup or a restore drill can run for a while; stopping waits for it.
+    stop_grace_period: 2m
+    mem_limit: 768m
+    logging: *logging
+
+  # Named ems-web, not web: Docker gives every service its name on each network
+  # it joins, and `edge` is shared with the box's other project. A plain `web`
+  # there could answer for theirs. The edge reaches this as ems-web:8080.
+  ems-web:
+    image: ems-web:current
+    restart: unless-stopped
+    depends_on:
+      - api
+    networks:
+      - default
+      - edge
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    read_only: true
+    # Caddy's own folders, in memory and owned by `nobody` (65534), the user it
+    # runs as: nothing is kept (certificates are the edge's).
+    tmpfs:
+      - /data:uid=65534,gid=65534,mode=0700
+      - /config:uid=65534,gid=65534,mode=0700
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 128m
+    logging: *logging
+
+volumes:
+  db-data:
+
+networks:
+  default: {}
+  # Created by the box's edge stack; EMS only joins it.
+  edge:
+    external: true
