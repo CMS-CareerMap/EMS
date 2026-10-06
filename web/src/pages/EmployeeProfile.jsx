@@ -54,6 +54,8 @@ const STAGE_TONE = {
 }
 
 const money = (value) => (value == null ? '—' : '₹' + Number(value).toLocaleString('en-IN'))
+/** The work email — or, for a login with none, how they sign in (client, 6 Oct 2026). */
+const workEmail = (employee) => employee.email || (employee.account_status ? 'None — signs in with the Employee ID' : 'No login')
 
 export default function EmployeeProfile() {
   const { id } = useParams()
@@ -152,12 +154,12 @@ function Profile({ employee }) {
       )}
       {tab === 'logins' && (
         has('logins') ? (
-          <Card title="Logins" subtitle="Each login has its own email and password">
+          <Card title="Logins" subtitle="Each login has its own password; an employee login may sign in with the Employee ID alone">
             <EmployeeLogins employee={employee} />
           </Card>
         ) : (
           <Card title="Login">
-            <Facts items={[['Work email', employee.email || 'No login']]} />
+            <Facts items={[['Work email', workEmail(employee)]]} />
           </Card>
         )
       )}
@@ -187,7 +189,7 @@ function About({ employee }) {
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
       <Card title="Contact">
         <Facts columns={1} items={[
-          ['Work email', employee.email || 'No login'],
+          ['Work email', workEmail(employee)],
           ['Phone', employee.phone],
           ['Personal email', employee.personal_email],
         ]} />

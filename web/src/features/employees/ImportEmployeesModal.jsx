@@ -5,6 +5,7 @@ import { useImportEmployees, useMasterData } from '../../hooks/useEmployees'
 import { saveFromApi } from '../../api/http'
 import DataState from '../../components/DataState'
 import { EscapeCloses } from '../../hooks/useEscape'
+import { useAuthStore } from '../../stores/authStore'
 
 /**
  * Importing a roster from a spreadsheet.
@@ -14,9 +15,11 @@ import { EscapeCloses } from '../../hooks/useEscape'
  * the page called it, so the only way to add people in bulk was one form at a
  * time.
  *
- * Nobody gets a password from a file. Rows with an email get an invitation
- * link, shown once at the end; rows without one become employee records with
- * no login, which is right for somebody HR marks attendance for.
+ * Nobody gets a password from a file. Rows with an email get a login: where
+ * HR sets employees' passwords (the default, client 6 Oct 2026) it waits for
+ * HR to set one; where people set their own, it comes with an invitation link,
+ * shown once at the end. Rows without one become employee records with no
+ * login, which is right for somebody HR marks attendance for.
  */
 
 const MAX_BYTES = 1_000_000
@@ -33,6 +36,8 @@ function linkFor(token) {
 export default function ImportEmployeesModal({ onClose }) {
   const importer = useImportEmployees()
   const masterData = useMasterData()
+  // A roster's logins are employee logins: theirs to set from a link, or HR's to set (Settings → Passwords).
+  const hrSetsPasswords = useAuthStore((state) => state.passwords.rules.employeePasswords) === 'company'
   const fileInput = useRef(null)
 
   const [fileName, setFileName] = useState('')
@@ -186,7 +191,9 @@ export default function ImportEmployeesModal({ onClose }) {
                       <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
                       <p className="text-sm text-green-800">
                         Every row is ready. {preview.summary.with_login > 0
-                          ? `${preview.summary.with_login} of them have an email and will get an invitation link.`
+                          ? (hrSetsPasswords
+                            ? `${preview.summary.with_login} of them have an email and will get a login, waiting for HR to set its password.`
+                            : `${preview.summary.with_login} of them have an email and will get an invitation link.`)
                           : 'None has an email, so none will get a login.'}
                       </p>
                     </div>
@@ -223,6 +230,15 @@ function ImportDone({ result, copied, onCopy, onClose }) {
         <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
         <p className="text-sm text-green-800">{result.summary.imported} employees imported.</p>
       </div>
+
+      {/* Where the company sets employees' passwords (client, 6 Oct 2026): a
+          roster carries none, so each login waits for HR to set it. */}
+      {result.waiting_for_password > 0 && (
+        <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          {result.waiting_for_password === 1 ? '1 login waits' : `${result.waiting_for_password} logins wait`} for a password. Set each one from the
+          person’s page (Employees → their name → Logins), or from Settings → Users &amp; Roles, where they show as “No password yet”.
+        </p>
+      )}
 
       {invites.length > 0 && (
         <div className="space-y-2">

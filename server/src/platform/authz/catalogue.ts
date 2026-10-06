@@ -173,6 +173,7 @@ export const PERMISSION_MODULES: readonly PermissionModule[] = [
       { key: 'settings:read', label: 'Open company settings' },
       { key: 'settings:update', label: 'Change company settings', requires: ['settings:read'] },
       { key: 'user:invite', label: 'Invite people to EMS', reaches: 'employee' },
+      { key: 'user:password:set', label: "Give employees a login and set their passwords (a role login's is the Super Admin's)", reaches: 'employee' },
       { key: 'user:status:update', label: 'Turn a login on or off', reaches: 'employee' },
       { key: 'user:delete', label: 'Remove a person from EMS (their login is closed and their record archived; history is kept)', reaches: 'employee' },
       { key: 'membership:role:assign', label: "Change a person's role", reaches: 'employee' },

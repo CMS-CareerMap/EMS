@@ -1,10 +1,13 @@
 import { btn } from '../../components/ui/styles'
 import { useState } from 'react'
 import { X, Info } from 'lucide-react'
+import { toast } from 'sonner'
 import { useEmployees, useMasterData, useCreateEmployee, useUpdateEmployee } from '../../hooks/useEmployees'
 import { EscapeCloses } from '../../hooks/useEscape'
 import { useAuthStore } from '../../stores/authStore'
 import { PasswordLinkPanel } from '../settings/UserAccess'
+import PasswordFields from '../../components/PasswordFields'
+import { maySetPasswordOf, passwordPairProblem, passwordSetBy, passwordSetterName } from '../../lib/logins'
 import { useInvitableRoles } from '../../hooks/useRoles'
 import { optionsNote } from '../../lib/optionsNote'
 import { calendarDayIn } from '../../lib/dates'
@@ -159,12 +162,26 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
   // Set once an employee with a login has been created: the link is shown here,
   // once, before the modal closes.
   const [issued, setIssued] = useState(null)
+  // The new login's password, typed twice, where the company sets it (Settings → Passwords).
+  const [loginPair, setLoginPair] = useState({ password: '', again: '' })
+  const rules = useAuthStore((state) => state.passwords.rules)
+  const isSuperAdmin = useAuthStore((state) => state.can('role:manage'))
+  const holdsPasswords = useAuthStore((state) => state.can('user:password:set'))
   // The roles this person may give, asked for only once a login is wanted.
   const loginRoles = useInvitableRoles({ enabled: open && !isEdit && form.withLogin })
   // The Employee role unless somebody chose another; one they may not give is never sent.
   const loginRole = loginRoles.roles.some((r) => r.key === form.loginRole)
     ? form.loginRole
     : loginRoles.roles.some((r) => r.key === 'employee') ? 'employee' : (loginRoles.roles[0]?.key ?? '')
+  // The kind of login that role makes, and so how it starts: with the password
+  // typed here — where the company sets it and this person may — a link, or
+  // waiting for its password. An employee login needs no email: the person
+  // signs in with their Employee ID.
+  const loginChoice = loginRoles.roles.find((r) => r.key === loginRole)
+  const loginKind = loginChoice ? loginChoice.login_kind : null
+  const loginSetBy = loginKind ? passwordSetBy(loginKind, rules) : null
+  const typesPassword = loginSetBy === 'company' && maySetPasswordOf(loginKind, { isSuperAdmin, holds: holdsPasswords })
+  const emailOptional = loginKind === 'employee'
 
   if (!open) return null
 
@@ -187,7 +204,13 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
     if (form.lastWorkingDate && form.dateOfJoining && form.lastWorkingDate < form.dateOfJoining) {
       e.lastWorkingDate = 'Cannot be before the joining date'
     }
-    if (form.withLogin && !/\S+@\S+\.\S+/.test(form.loginEmail)) e.loginEmail = 'A valid work email is needed for a login'
+    const loginEmail = form.loginEmail.trim()
+    if (form.withLogin && loginEmail && !/\S+@\S+\.\S+/.test(loginEmail)) e.loginEmail = 'That is not a valid email'
+    if (form.withLogin && !loginEmail && !emailOptional) e.loginEmail = 'A role login needs a work email of its own'
+    if (form.withLogin && typesPassword) {
+      const wrong = passwordPairProblem(loginPair, rules.passwordMinLength)
+      if (wrong) e.loginPassword = wrong
+    }
     // Why there is no role to send, told truthfully: still loading, failed to
     // load, or genuinely none this person may give.
     if (form.withLogin && !loginRole) {
@@ -237,7 +260,12 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
     }
 
     if (!isEdit && form.withLogin) {
-      body.login = { email: form.loginEmail.trim().toLowerCase(), role: loginRole }
+      const loginEmail = form.loginEmail.trim().toLowerCase()
+      body.login = {
+        ...(loginEmail ? { email: loginEmail } : {}),
+        role: loginRole,
+        ...(typesPassword ? { password: loginPair.password } : {}),
+      }
     }
 
     return body
@@ -260,11 +288,18 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
     if (!result) return
 
     if (result.invite) {
-      setIssued({ email: form.loginEmail.trim().toLowerCase(), invite: result.invite })
-    } else {
-      onSave()
-      onClose()
+      setIssued({ email: form.loginEmail.trim().toLowerCase() || `Employee ID ${form.employeeCode.trim()}`, invite: result.invite })
+      return
     }
+    // A login with the password typed here works at once: say how they sign in.
+    if (result.loginStart === 'password') {
+      const email = form.loginEmail.trim().toLowerCase()
+      toast.success(`${form.fullName.trim()} added. They sign in with ${email ? `${email} or ` : ''}Employee ID ${form.employeeCode.trim()} and the password you set — tell them the password yourself.`)
+    } else if (result.loginStart === 'none') {
+      toast.success(`${form.fullName.trim()} added. Their login waits for its password — ${passwordSetterName(loginKind)} sets it on their page.`)
+    }
+    onSave()
+    onClose()
   }
 
   const saving = createEmployee.isPending || updateEmployee.isPending
@@ -488,8 +523,8 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
                 </label>
                 {form.withLogin && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
-                    <Field label="Work Email" error={errors.loginEmail} required>
-                      <input type="email" placeholder="priya@company.in" value={form.loginEmail}
+                    <Field label={emailOptional ? 'Work Email (optional)' : 'Work Email'} error={errors.loginEmail} required={!emailOptional}>
+                      <input type="email" placeholder={emailOptional ? 'Leave empty to sign in with the Employee ID' : 'priya@company.in'} value={form.loginEmail}
                         onChange={(e) => set('loginEmail', e.target.value)} className={inp(errors.loginEmail)} />
                     </Field>
                     <Field label="Role" error={errors.loginRole}>
@@ -508,9 +543,26 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
                         </button>
                       )}
                     </Field>
-                    <p className="sm:col-span-2 text-xs text-gray-500">
-                      No password is set here. After saving you get a one-time link to send them, and they choose their own.
-                    </p>
+                    {/* How the login starts, by whose password it is (Settings → Passwords). */}
+                    {typesPassword ? (
+                      <div className="sm:col-span-2 space-y-1.5">
+                        <PasswordFields value={loginPair} onChange={(next) => { setLoginPair(next); setErrors((e) => ({ ...e, loginPassword: '' })) }}
+                          minLength={rules.passwordMinLength} />
+                        {errors.loginPassword && <p role="alert" className="text-xs text-red-600">{errors.loginPassword}</p>}
+                        <p className="text-xs text-gray-500">
+                          They sign in with {emailOptional ? 'their Employee ID (or the email, if given)' : 'this email'} and this password, as soon as you save.
+                          Tell them the password yourself — it is not shown again, and {loginKind === 'employee' ? 'only HR or the Super Admin can change it' : 'only the Super Admin can change it'}.
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="sm:col-span-2 text-xs text-gray-500">
+                        {loginSetBy === 'self'
+                          ? 'No password is set here. After saving you get a one-time link to send them, and they choose their own.'
+                          : loginKind
+                            ? `No password is set here: the login waits for ${passwordSetterName(loginKind)} to set it on their page.`
+                            : null}
+                      </p>
+                    )}
                   </div>
                 )}
               </Section>

@@ -90,7 +90,9 @@ async function cleanup() {
 
 beforeAll(async () => {
   await cleanup()
-  orgId = (await prisma.organization.create({ data: { name: `${PREFIX}-org`, timezone: 'Asia/Kolkata' } })).id
+  // Written for people who set their own passwords, from links (Settings →
+  // Passwords, "self"); the company-set default is tested in user/passwords.test.ts.
+  orgId = (await prisma.organization.create({ data: { name: `${PREFIX}-org`, employeePasswords: 'self', rolePasswords: 'self', timezone: 'Asia/Kolkata' } })).id
   await prisma.organizationPolicy.create({ data: { organizationId: orgId, effectiveFrom: toDateColumn('2020-04-01'), leaveYearStartMonth: 4, weeklyOffDays: [0] } })
   clId = (await prisma.leaveType.create({ data: { organizationId: orgId, name: 'Casual Leave', code: 'CL', annualQuota: 12 } })).id
   // HR manages logins in this company — to show that acting on one login of
@@ -186,8 +188,8 @@ describe('adding a role login', () => {
     const res = await get(tokens.boss, `/api/employees/${emp.priya}`)
     expect(res.status).toBe(200)
     expect(res.body.data.logins).toEqual([
-      { id: login.priya, email: email('priya'), role: 'employee', role_name: 'Employee', status: 'active' },
-      { id: priyaHrLogin, email: PRIYA_HR_EMAIL, role: 'hr', role_name: 'HR', status: 'active' },
+      { id: login.priya, email: email('priya'), role: 'employee', role_name: 'Employee', status: 'active', login_kind: 'employee', has_password: true },
+      { id: priyaHrLogin, email: PRIYA_HR_EMAIL, role: 'hr', role_name: 'HR', status: 'active', login_kind: 'role', has_password: true },
     ])
     // The single fields every screen read before describe the first login.
     expect(res.body.data).toMatchObject({ email: email('priya'), role: 'employee', account_status: 'active' })
@@ -340,10 +342,13 @@ describe('one person, two logins', () => {
     expect(twice.body.error.message).toBe('This person already has a HR login. Each of their logins holds a different role.')
   })
 
-  it('signs in by employee code only when the code points at one login', async () => {
+  it('signs in by employee code to the employee login, when there are two', async () => {
     expect((await signIn(`${PREFIX}-ravi`)).status).toBe(200)
-    // Priya has two: the code cannot say which, so she uses an email.
-    expect((await signIn(`${PREFIX}-priya`)).status).toBe(401)
+    // Priya has two: the code opens her employee login (client, 6 Oct 2026 — it may
+    // have no email); the HR login, with its own password, signs in by its email.
+    const byCode = await signIn(`${PREFIX}-priya`)
+    expect(byCode.status).toBe(200)
+    expect(byCode.body.data.user.role).toBe('employee')
     expect((await signIn(`${PREFIX}-priya`, NEW_PASSWORD)).status).toBe(401)
   })
 

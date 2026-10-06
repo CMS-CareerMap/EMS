@@ -5,7 +5,8 @@ import { withTransaction } from '../../platform/db/transaction'
 import { logger } from '../../platform/logger'
 import { importRowSchema } from '../../http/validators/employeeImport.validator'
 import { isCalendarDate, isoInstant, toDateColumn } from '../../domain/shared/dates'
-import { createLoginInTransaction, rolesForGrant, rolesLock } from '../user/user.service'
+import { createLoginInTransaction, freeEmployeeCode, loginStartFor, rolesForGrant, rolesLock } from '../user/user.service'
+import { passwordRules } from '../user/user.repository'
 import { lifecycleStart } from './employee.service'
 import { companyToday } from '../organization/organization.service'
 import { mayGive } from '../user/user.policy'
@@ -72,6 +73,11 @@ export interface ImportResult {
    * so a spreadsheet can be built from the response.
    */
   invites: { employeeCode: string; email: string; token: string; expiresAt: string }[]
+  /**
+   * Logins made with no password yet, where the company sets employees'
+   * passwords (Settings → Passwords): HR sets each from the person's page.
+   */
+  waitingForPassword: number
 }
 
 /**
@@ -398,7 +404,7 @@ export async function importEmployees(
   }
 
   if (input.dryRun) {
-    return { dryRun: true, summary, rows, invites: [] }
+    return { dryRun: true, summary, rows, invites: [], waitingForPassword: 0 }
   }
 
   // Nothing is written while any row is bad. The dry run has already listed
@@ -410,6 +416,7 @@ export async function importEmployees(
   }
 
   const invites: ImportResult['invites'] = []
+  let waitingForPassword = 0
 
   await withTransaction(ctx.db, async (tx) => {
     await lockFor(tx, rolesLock(ctx.organizationId))
@@ -420,6 +427,18 @@ export async function importEmployees(
       throw Forbidden('Importing a roster adds people anywhere in the company, so it needs a company-wide reach. Add people one at a time under Employees instead.')
     }
     if (withLogin > 0) await assertMayGiveLogins(tx, ctx)
+    // A roster carries no passwords — a file of them would travel between
+    // laptops and inboxes (client, 6 Oct 2026). Where the company sets
+    // employees' passwords, each login waits for HR to set it; where they set
+    // their own, each gets its invitation link.
+    const start = loginStartFor('employee', await passwordRules(tx, ctx.organizationId), actor, false)
+    // Each Employee ID once more, under its lock — in one order, so two imports
+    // never wait on each other — as somebody may have been added since the
+    // preview, in other letters too (signing in matches either case).
+    const codes = prepared.map((row) => (row.data as Record<string, string | undefined>).employeeCode!)
+    for (const code of [...codes].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))) {
+      await freeEmployeeCode(tx, ctx.organizationId, code)
+    }
     for (const row of prepared) {
       const data = row.data as Record<string, string | undefined>
 
@@ -452,14 +471,20 @@ export async function importEmployees(
           organizationId: ctx.organizationId,
           invitedByUserId: ctx.userId,
           employeeId: employee.id,
+          start,
+          passwordHash: null,
         })
 
-        invites.push({
-          employeeCode: data.employeeCode!,
-          email: row.email,
-          token: login.inviteToken,
-          expiresAt: isoInstant(login.expiresAt),
-        })
+        if (login.inviteToken && login.expiresAt) {
+          invites.push({
+            employeeCode: data.employeeCode!,
+            email: row.email,
+            token: login.inviteToken,
+            expiresAt: isoInstant(login.expiresAt),
+          })
+        } else {
+          waitingForPassword++
+        }
       }
 
       if (data.pan) {
@@ -486,5 +511,5 @@ export async function importEmployees(
     withLogin,
   })
 
-  return { dryRun: false, summary, rows, invites }
+  return { dryRun: false, summary, rows, invites, waitingForPassword }
 }

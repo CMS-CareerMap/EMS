@@ -72,8 +72,11 @@ enum AccountStatus {
 model User {
   id String @id @default(uuid())
 
-  email        String  @unique
-  /// Null means invited but not yet activated — such a user cannot log in.
+  /// Null for an employee login with no email (client, 6 Oct 2026): that
+  /// person signs in with their Employee ID. A role login always has one.
+  /// Unique where present — PostgreSQL lets any number of rows be null.
+  email        String? @unique
+  /// Null means no password yet — such a user cannot log in.
   passwordHash String?
 
   /// Bumped on termination, password change and refresh-token reuse.

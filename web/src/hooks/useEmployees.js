@@ -10,8 +10,9 @@ import { api } from '../api/http'
  * roster, leave and payroll all read the real server and matched none of them.
  *
  * What the old create did that this does not, deliberately:
- *   · take a password — a new person gets an invitation link instead, so
- *     nobody types a colleague's first password into a form;
+ *   · take a password from anybody — only from whoever Settings → Passwords
+ *     says sets it (HR for an employee login, by default — client, 6 Oct 2026);
+ *     where people set their own, they get an invitation link instead;
  *   · save salary — that is Accounts' to set, under Payroll, and the employee
  *     endpoints refuse a salary field outright;
  *   · save bank details — those go through their own verification flow;
@@ -83,16 +84,18 @@ export function useMasterData() {
 /**
  * Creates an employee, with a login if one was asked for.
  *
- * Returns the invitation alongside the employee: the link is issued once and
- * the server keeps only its hash, so this response is the only place it is
- * ever seen.
+ * Returns how the login started alongside the employee, and any invitation:
+ * a link is issued once and the server keeps only its hash, so this response
+ * is the only place it is ever seen.
  */
 export function useCreateEmployee() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (body) => {
       const payload = await api.post('/employees', body)
-      return { employee: payload.data, invite: payload.meta?.invite ?? null }
+      // How the login started (client, 6 Oct 2026): 'password' typed by HR,
+      // 'link' — the invite, shown once — or 'none', waiting for its password.
+      return { employee: payload.data, invite: payload.meta?.invite ?? null, loginStart: payload.meta?.login_start ?? null }
     },
     onSuccess: () => invalidateAll(queryClient),
   })
@@ -110,7 +113,8 @@ export function useUpdateEmployee() {
 /**
  * The roster import: a dry run first, which saves nothing and says what is
  * wrong with each line, then the real import — all or nothing. The real one
- * returns each new person's invitation link, once.
+ * returns each new person's invitation link, once, where people set their own
+ * passwords — and how many logins wait for HR to set one, where HR does.
  */
 export function useImportEmployees() {
   const queryClient = useQueryClient()

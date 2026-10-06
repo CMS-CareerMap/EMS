@@ -104,7 +104,9 @@ async function cleanup() {
 
 beforeAll(async () => {
   await cleanup()
-  orgId = (await prisma.organization.create({ data: { name: `${PREFIX}-org`, timezone: 'Asia/Kolkata' } })).id
+  // Written for people who set their own passwords, from links (Settings →
+  // Passwords, "self"); the company-set default is tested in user/passwords.test.ts.
+  orgId = (await prisma.organization.create({ data: { name: `${PREFIX}-org`, employeePasswords: 'self', rolePasswords: 'self', timezone: 'Asia/Kolkata' } })).id
   await prisma.organizationPolicy.create({ data: { organizationId: orgId, effectiveFrom: toDateColumn('2020-04-01'), leaveYearStartMonth: 4, weeklyOffDays: [0] } })
   clId = (await prisma.leaveType.create({ data: { organizationId: orgId, name: 'Casual Leave', code: 'CL', annualQuota: 12 } })).id
   // HR here may also send password links — to show it still may not take over the person above it.

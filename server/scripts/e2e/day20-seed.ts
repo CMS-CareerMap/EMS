@@ -157,6 +157,9 @@ async function cleanup(stamp: string) {
     return
   }
   const where = { organizationId: org.id }
+  // Logins a suite made with no email (an employee signing in by Employee ID) are found through the company.
+  const loginUserIds = (await prisma.membership.findMany({ where, select: { userId: true } })).map((m) => m.userId)
+  const people = { OR: [{ userId: { in: loginUserIds } }, { user: { email: { startsWith: `d20-${stamp}-` } } }] }
   await prisma.notification.deleteMany({ where })
   await prisma.notificationSetting.deleteMany({ where })
   await prisma.employeeDocument.deleteMany({ where })
@@ -177,12 +180,13 @@ async function cleanup(stamp: string) {
   await prisma.employeeFinancial.deleteMany({ where })
   await prisma.employeeStatutoryIdentity.deleteMany({ where })
   await prisma.auditLog.deleteMany({ where })
-  await prisma.refreshToken.deleteMany({ where: { user: { email: { startsWith: `d20-${stamp}-` } } } }).catch(() => undefined)
-  await prisma.passwordResetToken.deleteMany({ where: { user: { email: { startsWith: `d20-${stamp}-` } } } }).catch(() => undefined)
+  await prisma.refreshToken.deleteMany({ where: people }).catch(() => undefined)
+  await prisma.passwordResetToken.deleteMany({ where: people }).catch(() => undefined)
   await prisma.employee.updateMany({ where, data: { reportingManagerId: null } })
   await prisma.employee.deleteMany({ where })
   await prisma.membership.deleteMany({ where })
-  await prisma.user.deleteMany({ where: { email: { startsWith: `d20-${stamp}-` } } })
+  // A login of this company only: none of them belongs to another.
+  await prisma.user.deleteMany({ where: { OR: [{ email: { startsWith: `d20-${stamp}-` } }, { id: { in: loginUserIds }, memberships: { none: {} } }] } })
   // Reference data (departments, leave types, components, PT, holidays, policy)
   // goes with the company.
   await prisma.organization.delete({ where: { id: org.id } })

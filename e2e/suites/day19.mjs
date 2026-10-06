@@ -181,6 +181,11 @@ const noSideScroll = (page) => page.evaluate(() => document.documentElement.scro
 
 try {
   for (const who of Object.keys(fx.users)) await login(who)
+  // These checks hand out links: people setting their own passwords (Settings →
+  // Passwords, "self"). The company setting them — the default since 6 Oct 2026 —
+  // has its own suite, passwords.mjs.
+  const asOwners = await api('sa', 'PUT', '/users/password-rules', { employeePasswords: 'self', rolePasswords: 'self', passwordMinLength: 10 })
+  if (asOwners.status !== 200) throw new Error(`password rules: ${asOwners.status} ${JSON.stringify(asOwners.body)}`)
 
   // ═══════════════════════════════════════════════════════════════════════
   section('Setup through the API: a leave, a paid August payroll, one filed document')
@@ -621,8 +626,9 @@ try {
   await hr.getByText('Largest upload').waitFor()
   check('HR may edit the checklist but not the limit (“Set by the Super Admin”)', await hr.getByLabel('Largest upload in MB').isDisabled() && await hr.getByText('Set by the Super Admin.').isVisible() && await hr.getByPlaceholder('Another document, e.g. Address Proof').isVisible())
   const hrTabs = await hr.locator('main aside nav button').allInnerTexts()
-  // Since the employee lifecycle (client §43), HR also reads the probation and notice period.
-  check('HR’s Settings has Leave Config, Documents and Employee Lifecycle only', hrTabs.length === 3 && hrTabs.some((t) => t.includes('Leave')) && hrTabs.some((t) => t.includes('Documents')) && hrTabs.some((t) => t.includes('Employee Lifecycle')), hrTabs.join(' / '))
+  // Since the employee lifecycle (client §43), HR also reads the probation and notice period;
+  // since HR sets employees' passwords (client, 6 Oct 2026), Users & Roles lists the logins.
+  check('HR’s Settings has Users & Roles, Leave Config, Documents and Employee Lifecycle only', hrTabs.length === 4 && hrTabs.some((t) => t.includes('Users & Roles')) && hrTabs.some((t) => t.includes('Leave')) && hrTabs.some((t) => t.includes('Documents')) && hrTabs.some((t) => t.includes('Employee Lifecycle')), hrTabs.join(' / '))
 
   // Notifications: switches from the server’s own list.
   await sa.goto(`${BASE}/settings?tab=notifications`)

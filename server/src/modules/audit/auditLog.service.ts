@@ -89,7 +89,8 @@ const detailsOf = (row: repo.AuditLogRow): Details =>
 const str = (value: unknown): string | null => (typeof value === 'string' && value ? value : null)
 
 type Login = Awaited<ReturnType<typeof repo.membershipsByIds>>[number]
-const loginName = (m: Login) => m.employee?.fullName ?? m.user.email
+// A login with no email is always somebody's employee login, so it has a name.
+const loginName = (m: Login) => m.employee?.fullName ?? m.user.email ?? 'A login'
 
 /** A page of rows in words. Every name is fetched in one query per kind. */
 async function describe(ctx: AppContext, rows: repo.AuditLogRow[]): Promise<AuditEntryView[]> {
@@ -197,7 +198,7 @@ export async function auditFilterPeople(ctx: AppContext) {
   const loginsPerPerson = new Map<string, number>()
   for (const m of logins) if (m.employeeId) loginsPerPerson.set(m.employeeId, (loginsPerPerson.get(m.employeeId) ?? 0) + 1)
   const actorName = (m: (typeof logins)[number]) => {
-    const name = m.employee?.fullName ?? m.user.email
+    const name = m.employee?.fullName ?? m.user.email ?? 'A login'
     return m.employeeId && (loginsPerPerson.get(m.employeeId) ?? 0) > 1 ? `${name} — ${m.roleDef.name} login` : name
   }
   return {

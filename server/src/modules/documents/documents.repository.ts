@@ -3,6 +3,7 @@ import type { ScopedDb } from '../../platform/db/scoped'
 import type { TxDb } from '../../platform/db/transaction'
 import type { ScopeContext } from '../../platform/authz/scope'
 import { employeesInScope, ownedRowsInScope } from '../../platform/authz/scopeWhere'
+import { equalsInsensitive } from '../../platform/db/insensitive'
 
 /**
  * Documents: the checklist of types, each employee's files, and the company's.
@@ -52,7 +53,7 @@ export async function typeCodesLike(db: Db, prefix: string): Promise<string[]> {
 
 export async function typeLabelTaken(db: Db, label: string, exceptId?: string): Promise<boolean> {
   const row = await db.documentType.findFirst({
-    where: { label: { equals: label, mode: 'insensitive' }, archivedAt: null, ...(exceptId ? { id: { not: exceptId } } : {}) },
+    where: { label: equalsInsensitive(label), archivedAt: null, ...(exceptId ? { id: { not: exceptId } } : {}) },
     select: { id: true },
   })
   return row !== null
@@ -300,5 +301,5 @@ export async function namesOfUsers(db: Db, userIds: readonly string[]): Promise<
     where: { userId: { in: ids } },
     select: { userId: true, employee: { select: { fullName: true } }, user: { select: { email: true } } },
   })
-  return new Map(rows.map((r) => [r.userId, r.employee?.fullName ?? r.user.email]))
+  return new Map(rows.map((r) => [r.userId, r.employee?.fullName ?? r.user.email ?? 'A login']))
 }

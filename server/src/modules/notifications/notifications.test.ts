@@ -61,7 +61,9 @@ async function apply(who: Who, from: string, to: string) {
 
 beforeAll(async () => {
   await cleanup()
-  const org = await prisma.organization.create({ data: { name: `${PREFIX}-org`, timezone: 'Asia/Kolkata' } })
+  // Written for people who set their own passwords, from links (Settings →
+  // Passwords, "self"); the company-set default is tested in user/passwords.test.ts.
+  const org = await prisma.organization.create({ data: { name: `${PREFIX}-org`, employeePasswords: 'self', rolePasswords: 'self', timezone: 'Asia/Kolkata' } })
   orgId = org.id
   await prisma.organizationPolicy.create({ data: { organizationId: orgId, effectiveFrom: day('2020-04-01') } })
   leaveTypeId = (await prisma.leaveType.create({ data: { organizationId: orgId, code: 'CL', name: 'Casual Leave', annualQuota: 12 } })).id

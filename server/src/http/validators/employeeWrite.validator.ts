@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { assignableRole } from './user.validator'
+import { assignableRole, loginEmail, passwordForThem } from './user.validator'
 
 /**
  * Creating and editing employees.
@@ -77,22 +77,26 @@ const personalSchema = z
 /**
  * Giving the new employee a login, optionally.
  *
- * No password field. An invited user is created with `passwordHash = null` and
- * a single-use token — so there is no default credential for anyone to guess,
- * and nobody types a colleague's first password into a form.
+ * How it starts is the company's choice (Settings → Passwords): where the
+ * company sets employees' passwords, HR types it here (client, 6 Oct 2026) and
+ * the login works at once — never a default or shared one, as nothing is
+ * generated; where people set their own, there is no password field's worth
+ * and a single-use link is made instead. The email is optional for an
+ * employee login, which signs in with the Employee ID.
  */
 const loginSchema = z
   .object({
-    email: z.email('That is not a valid email address'),
+    email: loginEmail,
     // One of the company's roles, by key; the service checks it exists and
     // that the caller may give it. Never super_admin from this form.
     role: assignableRole,
+    password: passwordForThem.optional(),
   })
   .strict()
 
 export const createEmployeeSchema = z
   .object({
-    employeeCode: z.string().trim().min(1, 'An employee code is required').max(30),
+    employeeCode: z.string().trim().min(1, 'An employee code is required').max(30).refine((c) => !c.includes('@'), 'An Employee ID cannot contain @: signing in would read it as an email'),
     fullName: z.string().trim().min(1, 'A name is required').max(120),
 
     personalEmail: z.email().nullish(),

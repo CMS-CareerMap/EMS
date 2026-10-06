@@ -257,5 +257,5 @@ export async function namesOfUsers(db: Db, userIds: readonly string[]): Promise<
     where: { userId: { in: ids } },
     select: { userId: true, user: { select: { email: true } }, employee: { select: { fullName: true } } },
   })
-  return new Map(rows.map((r) => [r.userId, r.employee?.fullName ?? r.user.email]))
+  return new Map(rows.map((r) => [r.userId, r.employee?.fullName ?? r.user.email ?? 'A login']))
 }

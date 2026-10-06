@@ -4,8 +4,8 @@
 //
 //   1. `npm run bootstrap` makes the company and the first Super Admin — and refuses a second time.
 //   2. The Super Admin fills in the company and the office location.
-//   3. Staff are added one by one (with their role logins) and in bulk from a CSV.
-//   4. Everybody sets their password from their invitation link; the tree is placed; the owner marked.
+//   3. Staff are added one by one (with their role logins, the Super Admin typing each password) and in bulk from a CSV.
+//   4. HR sets the imported employees' passwords; the owner sets his own from his link; the tree is placed; the owner marked.
 //   5. HR grants the year's leave and imports last month's biometric attendance.
 //   6. Accounts records salaries and bank accounts.
 //   7. Today: a check-in at the office with GPS, one refused from across town, a check-out.
@@ -199,6 +199,9 @@ try {
         check('the Add Employee form never offers the Super Admin role', !offered.includes('Super Admin') && offered.includes('HR'), offered.join(', '))
       }
       await field(modal, 'Role').selectOption({ label: p.role })
+      // A role login's password is the Super Admin's to set (client, 6 Oct 2026): typed here, and told to them.
+      await modal.getByLabel('Password', { exact: true }).fill(PASSWORD)
+      await modal.getByLabel('Type it again').fill(PASSWORD)
     }
     const created = op.waitForResponse((r) => r.url().endsWith('/api/employees') && r.request().method() === 'POST')
     await modal.getByRole('button', { name: 'Add Employee' }).click()
@@ -209,10 +212,9 @@ try {
       await modal.waitFor({ state: 'detached', timeout: 10_000 }).catch(() => modal.getByRole('button', { name: 'Done' }).click())
       continue
     }
-    await op.getByText(`Invitation link for ${p.email}`).waitFor()
-    links[key] = await op.locator('input[readonly].font-mono').inputValue()
-    check(`…and a one-time invitation link to send them`, /\/set-password#token=/.test(links[key]))
-    await op.getByRole('button', { name: 'Done' }).click()
+    await toast(op, `${p.name} added. They sign in with ${p.email} or Employee ID ${p.code} and the password you set`)
+    check('…its password set by the Super Admin, so it works at once — no link to send',
+      psql(`SELECT m.status FROM "Membership" m WHERE m."employeeId" = '${ids[key]}'`) === 'active' && (await op.locator('input[readonly].font-mono').count()) === 0)
   }
 
   // The owner's Super Admin login, given on his own page.
@@ -224,8 +226,9 @@ try {
   const drawer = op.locator('main')
   await drawer.getByRole('button', { name: /^Add login$/ }).click()
   const addLogin = drawer.getByRole('form', { name: 'Add a login' })
-  await addLogin.getByLabel('Email for this login').fill(STAFF.rahul.email)
+  // The role first: it starts on Employee, whose email is optional, and the field's label follows the role.
   await addLogin.getByLabel('Role').selectOption({ label: 'Super Admin' })
+  await addLogin.getByLabel('Email for this login').fill(STAFF.rahul.email)
   check('…where giving a Super Admin login says what it hands over', await seen(addLogin.getByText(/hold the Super Admin panel/)))
   await addLogin.getByRole('button', { name: 'Add login' }).click()
   const panel = drawer.locator('input[readonly].font-mono')
@@ -250,36 +253,56 @@ try {
   const imp = op.locator('div.fixed.inset-0').filter({ hasText: 'Import Employees' })
   await imp.locator('input[type="file"]').setInputFiles(csvPath)
   await imp.getByText('Every row is ready.').waitFor({ timeout: 20_000 })
-  check('the preview finds every row ready, two with an email for a login', (await imp.innerText()).includes('2 of them have an email'))
+  check('the preview finds every row ready, two with an email for a login waiting for HR', (await imp.innerText()).includes('2 of them have an email and will get a login, waiting for HR to set its password.'))
   await imp.getByRole('button', { name: 'Import 3 employees' }).click()
   await imp.getByText('3 employees imported.').waitFor({ timeout: 20_000 })
-  const importedLinks = await imp.locator('p.font-mono').allInnerTexts()
-  check('three are imported, and the two with an email get invitation links', importedLinks.length === 2 && importedLinks.every((l) => l.includes('/set-password#token=')))
-  links.priya = importedLinks.find((_, i) => i === 0)
-  links.ravi = importedLinks.find((_, i) => i === 1)
-  const inviteRows = await imp.locator('p.font-medium').allInnerTexts()
-  if (inviteRows[0]?.includes('ravi')) [links.priya, links.ravi] = [links.ravi, links.priya]
+  check('three are imported; the two logins wait for HR to set their passwords — no links handed out',
+    (await imp.innerText()).includes('2 logins wait for a password.') && (await imp.locator('p.font-mono').count()) === 0)
   await shot(op, '03-imported')
   await imp.getByRole('button', { name: 'Done' }).click()
   for (const k of ['priya', 'ravi', 'sunil']) ids[k] = psql(`SELECT id FROM "Employee" WHERE "employeeCode" = '${STAFF[k].code}'`)
 
-  section('Everybody sets their own password from their link')
-  for (const key of ['rahul', 'hema', 'anil', 'manoj', 'priya', 'ravi']) {
-    const page = await context(key)
-    await page.goto(links[key])
+  section('HR sets the employees’ passwords; the owner sets his own from his link')
+  const hemaFirst = await signIn('hema', STAFF.hema.email)
+  check('Hema signs in with the password the Super Admin set her', !hemaFirst.url().includes('/signin'))
+  await go(hemaFirst, '/settings?tab=users')
+  for (const key of ['priya', 'ravi']) {
+    const row = hemaFirst.locator('tr', { hasText: STAFF[key].email })
+    check(`${STAFF[key].name}’s login waits: “No password yet”`, await seen(row.getByText('No password yet')))
+    await row.getByRole('button', { name: `Set the password for ${STAFF[key].email}` }).click()
+    const dialog = hemaFirst.getByRole('dialog', { name: `Set the password for ${STAFF[key].name}` })
+    await dialog.getByLabel('New password', { exact: true }).fill(PASSWORD)
+    await dialog.getByLabel('Type it again').fill(PASSWORD)
+    await dialog.getByRole('button', { name: 'Set password' }).click()
+    await toast(hemaFirst, `Password set for ${STAFF[key].name}`)
+    check('…HR sets it, and it works at once', await seen(row.getByText('Can sign in')))
+  }
+  await shot(hemaFirst, '03b-hr-sets-passwords')
+  await hemaFirst.context().close()
+  // A Super Admin's password is always their own: Rahul sets his from the link.
+  {
+    const page = await context('rahul')
+    await page.goto(links.rahul)
     await page.getByPlaceholder(/^At least/).fill(PASSWORD)
     await page.getByPlaceholder('The same password').fill(PASSWORD)
     await page.getByRole('button', { name: 'Save password' }).click()
     await page.waitForURL('**/signin', { timeout: 20_000 })
-    await page.getByLabel('Work Email or Employee ID').fill(STAFF[key].email)
+    await page.getByLabel('Work Email or Employee ID').fill(STAFF.rahul.email)
     await page.getByPlaceholder('Enter your password').fill(PASSWORD)
     await page.getByRole('button', { name: 'Sign In' }).click()
     await page.waitForURL((url) => !url.pathname.startsWith('/signin'), { timeout: 20_000 })
-    check(`${STAFF[key].name} sets a password and signs in`, true)
+    check(`${STAFF.rahul.name} sets his own password from his link and signs in`, true)
     await page.context().close()
   }
+  for (const key of ['anil', 'manoj', 'priya', 'ravi']) {
+    const page = await signIn(key, STAFF[key].email)
+    check(`${STAFF[key].name} signs in with the password given`, !page.url().includes('/signin'))
+    await page.context().close()
+  }
+  const byCode = await fetch(`${API}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifier: STAFF.priya.code.toLowerCase(), password: PASSWORD }) })
+  check('…Priya by her Employee ID too, in small letters', byCode.status === 200)
   const usedAgain = await context('reuse')
-  await usedAgain.goto(links.priya)
+  await usedAgain.goto(links.rahul)
   // Checked on arrival: a used link says so before anybody types a password.
   await usedAgain.getByRole('link', { name: 'Go to sign in' }).waitFor({ timeout: 20_000 })
   check('an invitation link works once only — opened again, it says so and offers no form',

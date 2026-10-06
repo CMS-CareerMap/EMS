@@ -55,6 +55,9 @@ export const AUDIT_ACTIONS = {
   'user.status_changed': { label: 'Login turned on or off', category: 'users' },
   'user.terminated': { label: 'User removed', category: 'users' },
   'user.password_link_issued': { label: 'Password link issued', category: 'users' },
+  // HR or the Super Admin setting somebody's password for them (client, 6 Oct 2026).
+  'user.password_set': { label: 'Password set', category: 'users' },
+  'user.password_rules_updated': { label: 'Password rules changed', category: 'settings' },
   // Roles themselves (Day 21): what each one may do is the Super Admin's choice.
   'role.created': { label: 'Role created', category: 'users' },
   'role.updated': { label: 'Role changed', category: 'users' },
@@ -556,6 +559,10 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
         : `Removed ${who()}’s access`
     case 'user.password_link_issued':
       return `Issued ${d.purpose === 'reset' ? 'a password reset' : 'an invitation'} link for ${text(d.email) ?? who()}${d.via === 'terminal' ? ', from the server terminal' : ''}`
+    case 'user.password_set':
+      return `Set ${d.firstPassword ? 'the first password' : 'a new password'} for ${who()}’s ${roleLabel(d.role, names, d.roleName)} login${text(d.email) ? ` (${text(d.email)})` : ''}${Number(d.sessionsEnded) > 0 ? `, signing out ${count(d.sessionsEnded, 'session')}` : ''}`
+    case 'user.password_rules_updated':
+      return `Set the password rules: employee logins’ passwords by ${d.employeePasswords === 'self' ? 'the employee' : 'HR'}, role logins’ by ${d.rolePasswords === 'self' ? 'the person' : 'the Super Admin'}, at least ${count(d.passwordMinLength, 'character')}${Number(d.linksSpent) > 0 ? `; ${count(d.linksSpent, 'password link')} still out stopped working` : ''}`
 
     case 'employee.created':
       return d.withLogin ? `Added ${who()} with a ${roleLabel(d.role, names, d.roleName)} login` : `Added ${who()}`

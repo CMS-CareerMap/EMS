@@ -167,8 +167,10 @@ export const postInspectLink: RequestHandler = async (req, res) => {
   res.status(200).json({
     data: {
       email: link.email,
+      employee_code: link.employeeCode,
       purpose: link.purpose,
       expires_at: isoInstant(link.expiresAt),
+      min_length: link.minLength,
     },
     meta: { requestId: res.locals.requestId },
   })

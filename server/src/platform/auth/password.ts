@@ -38,10 +38,11 @@ const DUMMY_HASH = '$2b$12$C6UzMDM.H6dfI/f/IKcEe.0OaAkKn7VeCa5.d0/BnZzLBr2q8Z8Ry
 /**
  * Minimum policy. Deliberately about length rather than character classes —
  * length is what actually resists cracking, and complexity rules mostly produce
- * P@ssw0rd1.
+ * P@ssw0rd1. The fewest characters is the company's setting (Settings →
+ * Passwords, 10 unless changed); bootstrap, before there is a company, uses 10.
  */
-export function passwordProblem(plain: string): string | null {
-  if (plain.length < 10) return 'Password must be at least 10 characters'
+export function passwordProblem(plain: string, minLength = 10): string | null {
+  if (plain.length < minLength) return `Password must be at least ${minLength} characters`
   if (plain.length > 200) return 'Password must be at most 200 characters'
   if (/^\s|\s$/.test(plain)) return 'Password must not start or end with a space'
   return null

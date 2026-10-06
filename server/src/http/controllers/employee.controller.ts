@@ -80,12 +80,14 @@ export const postEmployee: RequestHandler = async (req, res) => {
   const ctx = appContext(res)
   const input = parseBody(createEmployeeSchema, req.body)
 
-  const { row, access, invite } = await createEmployee(ctx, input)
+  const { row, access, invite, loginStart } = await createEmployee(ctx, input)
 
   res.status(201).json({
     data: serializeEmployee(row, access),
     meta: {
       requestId: res.locals.requestId,
+      // How the login started: a password typed for them, a link, or none yet.
+      ...(loginStart ? { login_start: loginStart } : {}),
       // Shown once. Nothing can retrieve it again, because only its hash is
       // stored — a second look means issuing a new invitation.
       ...(invite

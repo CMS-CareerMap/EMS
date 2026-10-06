@@ -18,15 +18,16 @@ const NEW_PASSWORD = 'RememberedPassword2'
 const WEB = 'http://localhost:5173'
 const app = createApp()
 let orgId = ''
+let companyOrgId = ''
 
 const tokenOf = (link: string) => decodeURIComponent(link.split('#token=')[1]!)
 
-async function account(key: string, role: 'super_admin' | 'employee', status: 'active' | 'invited' | 'inactive') {
+async function account(key: string, role: 'super_admin' | 'employee', status: 'active' | 'invited' | 'inactive', organizationId = orgId) {
   const email = `${PREFIX}-${key}@example.com`
   const user = await prisma.user.create({
     data: { email, passwordHash: status === 'invited' ? null : await hashPassword(OLD_PASSWORD) },
   })
-  await prisma.membership.create({ data: { userId: user.id, organizationId: orgId, role, status } })
+  await prisma.membership.create({ data: { userId: user.id, organizationId, role, status } })
   return { email, userId: user.id }
 }
 
@@ -38,12 +39,30 @@ async function cleanup() {
 
 beforeAll(async () => {
   await cleanup()
-  orgId = (await prisma.organization.create({ data: { name: `${PREFIX}-org` } })).id
+  // Written for people who set their own passwords, from links (Settings →
+  // Passwords, "self"); the company-set default is the second company's.
+  orgId = (await prisma.organization.create({ data: { name: `${PREFIX}-org`, employeePasswords: 'self', rolePasswords: 'self' } })).id
+  companyOrgId = (await prisma.organization.create({ data: { name: `${PREFIX}-company` } })).id
 })
 
 afterAll(async () => {
   await cleanup()
   await prisma.$disconnect()
+})
+
+describe('where the company sets passwords (the default)', () => {
+  it('makes no link for an employee login — the Super Admin sets it', async () => {
+    const who = await account('companyset', 'employee', 'active', companyOrgId)
+    await expect(issueRecoveryLink(who.email, { webOrigin: WEB })).rejects.toThrow('set by HR at this company, not from a link')
+    expect(await prisma.passwordResetToken.count({ where: { userId: who.userId } })).toBe(0)
+  })
+
+  it('still makes one for the Super Admin’s own login, which is always theirs', async () => {
+    const boss = await account('companyboss', 'super_admin', 'active', companyOrgId)
+    const result = await issueRecoveryLink(boss.email, { webOrigin: WEB })
+    const redeemed = await request(app).post('/api/auth/password-link/redeem').send({ token: tokenOf(result.link), password: NEW_PASSWORD })
+    expect(redeemed.status, JSON.stringify(redeemed.body)).toBe(200)
+  })
 })
 
 describe('a recovery link from the terminal', () => {

@@ -42,10 +42,12 @@ export default function SignIn() {
   }
 
   function handleForgotPassword() {
-    // There is no self-service reset: an administrator issues a reset link
-    // from Settings → Users. Say that, rather than show a button that looks
-    // like it sent something.
-    setError('Ask your administrator for a password reset link. They can create one from Settings → Users.')
+    // There is no self-service reset: HR sets a new password for an employee,
+    // the Super Admin for anybody (client, 6 Oct 2026) — or, where people set
+    // their own, a reset link comes from Settings → Users. Say that, rather
+    // than show a button that looks like it sent something.
+    // Said for either setting — this page cannot know the company's choice before anybody signs in.
+    setError('Ask HR — or, if you sign in for a role (HR, Accounts, a manager), the Super Admin. They set a new password for you, or send you a link to choose one.')
   }
 
   return (
@@ -75,8 +77,9 @@ export default function SignIn() {
             <input type="text" required autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)}
               placeholder="Your work email or employee ID" className={inputCls} />
           </span>
-          {/* An Employee ID names a person; somebody with two logins (Day 23) picks one by its email. */}
-          <span className="block text-xs text-gray-400">Have two logins? Sign in with the email of the one you want.</span>
+          {/* An Employee ID names a person; somebody with two logins (Day 23) reaches the role login by its email,
+              and the ID opens the employee login, which may have no email (client, 6 Oct 2026). */}
+          <span className="block text-xs text-gray-400">Have two logins? Your Employee ID opens your employee login; sign in to the other with its email.</span>
         </label>
 
         <div className="space-y-1.5">

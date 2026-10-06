@@ -107,6 +107,11 @@ async function signedOut(page) {
 
 try {
   for (const who of Object.keys(fx.users)) await login(who)
+  // These checks hand out links: people setting their own passwords (Settings →
+  // Passwords, "self"). The company setting them — the default since 6 Oct 2026 —
+  // has its own suite, passwords.mjs.
+  const asOwners = await api('sa', 'PUT', '/users/password-rules', { employeePasswords: 'self', rolePasswords: 'self', passwordMinLength: 10 })
+  if (asOwners.status !== 200) throw new Error(`password rules: ${asOwners.status} ${JSON.stringify(asOwners.body)}`)
 
   // ── Day 22, in the browser ──────────────────────────────────────────────
   section('Making an owner of somebody who has a manager (Day 22)')
@@ -217,7 +222,7 @@ try {
   await list.locator('li').nth(1).waitFor({ timeout: 20_000 })
   const both = await list.innerText()
   check('her page now lists both logins, each with its own email', both.includes(fx.users.emp) && both.includes(PRIYA_HR) && both.includes('Invited — has not set a password · HR'), both.replace(/\n/g, ' | '))
-  check('…and says what two logins mean', await drawer.getByText('One person, 2 logins.', { exact: false }).isVisible())
+  check('…and says what two logins mean', await drawer.getByText('One person, 2 logins, each with its own password.', { exact: false }).isVisible())
   await shot(sa, '05-drawer-two-logins')
   // The first link "lost": a new one from her page, and the old one stops working.
   await list.locator('li', { hasText: PRIYA_HR }).getByRole('button', { name: /New invitation link/ }).click()
@@ -238,7 +243,7 @@ try {
   await typoForm.getByRole('button', { name: 'Add login' }).click()
   const typoRow = list.locator('li', { hasText: TYPO })
   await typoRow.waitFor({ timeout: 20_000 })
-  await typoRow.getByRole('button', { name: /Withdraw the invitation/ }).click()
+  await typoRow.getByRole('button', { name: /^Withdraw the login/ }).click()
   await sa.getByRole('dialog').getByRole('button', { name: 'Withdraw' }).click()
   await typoRow.waitFor({ state: 'detached', timeout: 20_000 })
   check('a mistyped login is withdrawn from her page, leaving her two', (await loginsOf(E.priya.id)).length === 2)
@@ -361,12 +366,13 @@ try {
   check('…and turns it back on', (await loginsOf(E.priya.id)).find((l) => l.email === PRIYA_HR)?.status === 'active')
 
   section('Signing in by Employee ID')
+  // Her employee login may have no email (client, 6 Oct 2026): the ID is its way in, the HR login has its own email.
   const byCode = await signIn(E.priya.code)
-  check('her Employee ID no longer signs in — it cannot say which login', byCode.status === 401)
+  check('her Employee ID opens her employee login', byCode.status === 200 && byCode.body.data?.user?.email === fx.users.emp && byCode.body.data?.user?.role === 'employee', `${byCode.status} ${byCode.body.data?.user?.email} ${byCode.body.data?.user?.role}`)
   check('somebody with one login still signs in by Employee ID', (await signIn(E.ravi.code)).status === 200)
   const signinPage = await (await browser.newContext()).newPage()
   await signinPage.goto(`${BASE}/signin`)
-  check('the sign-in page says to use the email of the login wanted', await signinPage.getByText('Have two logins? Sign in with the email of the one you want.').isVisible())
+  check('the sign-in page says the ID opens the employee login, the other its email', await signinPage.getByText('Have two logins? Your Employee ID opens your employee login; sign in to the other with its email.').isVisible())
 
   section('On a phone (390px)')
   const hrPhone = await open({ email: PRIYA_HR, label: 'priya-hr-phone' }, PHONE)

@@ -1,13 +1,17 @@
 import { btn, th } from '../../components/ui/styles'
 import { useState } from 'react'
 import {
-  Trash2, Edit2, X, Check, ToggleLeft, ToggleRight, Loader2, KeyRound, UserPlus,
+  Trash2, Edit2, X, Check, ToggleLeft, ToggleRight, Loader2, KeyRound, Link2, UserPlus,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import {
   useUsers, useUpdateUserRole,
   useToggleUserStatus, useDeleteUser, useIssuePasswordLink, useWithdrawInvitation,
 } from '../../hooks/useUsers'
 import { InviteUserForm, PasswordLinkPanel } from './UserAccess'
+import SetPasswordDialog from './SetPasswordDialog'
+import PasswordRules from './PasswordRules'
+import { loginName, loginStatusWords, maySetPasswordOf, passwordSetBy, passwordSetterName } from '../../lib/logins'
 import { Section, inpSm } from './ui'
 import { Avatar } from '../../components/ui/bits'
 import { roleColor, roleLabel } from '../../lib/roles'
@@ -31,13 +35,18 @@ import ConfirmDialog from '../../components/ConfirmDialog'
  * same rule the server applies, read from the same list.
  *
  * Since Day 23 a person can have two logins — an employee login and a role
- * login, each with its own email — and they are listed together, the person's
+ * login, each with its own password — and they are listed together, the person's
  * name once. Each login is turned on or off by itself; removing the person
  * closes all of them, so Remove sits on the person and needs every one of
  * their logins to be one you could manage. Your own other login is yours too.
+ *
+ * Passwords (client, 6 Oct 2026; the Passwords section below): where the
+ * company sets them, HR sets an employee login's and the Super Admin anybody's
+ * — Set password — and a login with none yet says so. Where people set their
+ * own, a login gets a link instead, as before. A login with no email is named
+ * by the Employee ID it signs in with.
  */
 
-const STATUS_WORDS = { active: 'Can sign in', invited: 'Invited', inactive: 'Turned off' }
 const STATUS_LOOK = { active: 'bg-green-100 text-green-700', invited: 'bg-brand-100 text-brand-700', inactive: 'bg-gray-100 text-gray-500' }
 
 /** Logins in the list's order, each person's together under their first. */
@@ -61,18 +70,23 @@ export default function UsersSettings() {
   const [editRole, setEditRole] = useState('')
 
   const permissions = useAuthStore((state) => state.permissions)
-  const myEmail = useAuthStore((state) => state.user?.email ?? null)
+  const myUserId = useAuthStore((state) => state.user?.id ?? null)
+  const rules = useAuthStore((state) => state.passwords.rules)
   const myPersonId = useAuthStore((state) => state.profile?.id ?? null)
   const mayAssign = permissions.includes('membership:role:assign')
   const mayInvite = permissions.includes('user:invite')
   const mayToggle = permissions.includes('user:status:update')
   const mayRemove = permissions.includes('user:delete')
+  const holdsPasswords = permissions.includes('user:password:set')
+  const isSuperAdmin = permissions.includes('role:manage')
+  // Who sets passwords is the Super Admin's to choose (role:manage), not any holder of settings:update.
+  const mayEditRules = permissions.includes('role:manage')
 
   const users = useUsers()
-  const assignable = useAssignableRoles({ enabled: mayAssign || mayInvite || mayToggle || mayRemove })
+  const assignable = useAssignableRoles({ enabled: mayAssign || mayInvite || mayToggle || mayRemove || holdsPasswords })
   // Whom this person may act on: not their own logins — this one or their
   // other — and only a role they could give. Until the roles are in, nobody.
-  const own = (user) => user.email === myEmail || (myPersonId !== null && user.person_id === myPersonId)
+  const own = (user) => user.user_id === myUserId || (myPersonId !== null && user.person_id === myPersonId)
   const manageable = (user) =>
     !own(user) && assignable.isSuccess && assignable.data.some((r) => r.key === user.role)
   // Acting on one login of a person is acting on the person (Day 23): every
@@ -96,12 +110,27 @@ export default function UsersSettings() {
   const [removing, setRemoving] = useState(null)
   const [turningOff, setTurningOff] = useState(null)
   const [withdrawing, setWithdrawing] = useState(null)
+  const [settingFor, setSettingFor] = useState(null)
   const withdraw = useWithdrawInvitation()
 
   async function issueLinkFor(user) {
     const result = await issueLink.mutateAsync({ user_id: user.id })
-    setIssued({ email: result.user.email, invite: result.invite })
+    setIssued({ email: loginName(result.user), invite: result.invite })
   }
+
+  // A login just added: its link to hand on, or word of how it started.
+  function invited(result) {
+    setShowInvite(false)
+    const who = loginName(result.user)
+    if (result.login_start === 'link') setIssued({ email: who, invite: result.invite })
+    else if (result.login_start === 'password') toast.success(`Login ready: ${who} signs in with the password you set. Tell them the password yourself.`)
+    else toast.success(`Login added. It waits for its password — ${passwordSetterName(result.user.login_kind)} sets it here.`)
+  }
+
+  // Set password: on a login the company sets, where the viewer may set it.
+  const maySetFor = (user, group) =>
+    mayActOn(group) && user.status !== 'inactive' && passwordSetBy(user.login_kind, rules) === 'company' &&
+    maySetPasswordOf(user.login_kind, { isSuperAdmin, holds: holdsPasswords })
 
   function handleIssueLink(user) {
     // A reset link lets whoever holds it take over that account, so it is
@@ -156,7 +185,7 @@ export default function UsersSettings() {
       : users.isLoading ? 'Loading…' : undefined
   // Rows listed but none to act on: the role order, not a fault — said once,
   // instead of a column of empty Actions cells.
-  const mayAct = mayAssign || mayInvite || mayToggle || mayRemove
+  const mayAct = mayAssign || mayInvite || mayToggle || mayRemove || holdsPasswords
   const actsOnNobody = mayAct && users.isSuccess && assignable.isSuccess &&
     users.data.rows.some((u) => !own(u) && !u.person_left) && !groups.some(mayActOn)
 
@@ -177,14 +206,14 @@ export default function UsersSettings() {
           {!(mayInvite && users.data?.reach === 'ORGANIZATION') ? null : showInvite ? (
             <InviteUserForm
               onCancel={() => setShowInvite(false)}
-              onInvited={(result) => { setShowInvite(false); setIssued(result) }}
+              onInvited={invited}
             />
           ) : (
             <button
               onClick={() => setShowInvite(true)}
               className={btn.primary}
             >
-              <UserPlus className="w-4 h-4" /> Invite user
+              <UserPlus className="w-4 h-4" /> Add user
             </button>
           )}
         </div>
@@ -215,7 +244,7 @@ export default function UsersSettings() {
                     <td className="px-4 py-3.5">
                       {index === 0 ? (
                         <div className="flex items-center gap-3">
-                          <Avatar name={user.full_name || user.email} size="sm" />
+                          <Avatar name={user.full_name || loginName(user)} size="sm" />
                           <div>
                             <p className="text-sm font-medium text-gray-900">
                               {user.full_name || '—'}
@@ -224,14 +253,14 @@ export default function UsersSettings() {
                             </p>
                             {/* The address the link belongs to — for an invited
                                 person, often the only thing anybody knows yet. */}
-                            <p className="text-xs text-gray-500">{user.email}</p>
+                            <p className="text-xs text-gray-500">{loginName(user)}</p>
                           </div>
                         </div>
                       ) : (
-                        // The same person's other login: its own email, under their name.
+                        // The same person's other login: its own email (or Employee ID), under their name.
                         <div className="pl-11">
                           <p className="text-xs text-gray-400">{group.length > 2 ? 'Another login of theirs' : 'Their other login'}</p>
-                          <p className="text-xs text-gray-500">{user.email}</p>
+                          <p className="text-xs text-gray-500">{loginName(user)}</p>
                         </div>
                       )}
                     </td>
@@ -244,7 +273,7 @@ export default function UsersSettings() {
                               value={editRole}
                               onChange={(e) => setEditRole(e.target.value)}
                               disabled={!assignable.isSuccess}
-                              aria-label={`Role for ${user.full_name || user.email}`}
+                              aria-label={`Role for ${user.full_name || loginName(user)}`}
                               className={`${inpSm} py-1 bg-white text-xs`}
                             >
                               {/* Their current role stays in the list even when it is
@@ -285,7 +314,7 @@ export default function UsersSettings() {
                       {/* In words, the same as the person's page; never a made-up "active". */}
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
                         ${STATUS_LOOK[user.status] ?? 'bg-gray-100 text-gray-500'}`}>
-                        {STATUS_WORDS[user.status] ?? user.status}
+                        {loginStatusWords(user, rules)}
                       </span>
                     </td>
 
@@ -297,20 +326,30 @@ export default function UsersSettings() {
                             onClick={() => startEdit(user)}
                             className="p-1.5 rounded-lg hover:bg-brand-50 text-gray-400 hover:text-brand-600 transition-colors"
                             title="Edit role"
-                            aria-label={`Edit the role of ${user.email}`}
+                            aria-label={`Edit the role of ${loginName(user)}`}
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
                         )}
-                        {mayInvite && mayActOn(group) && user.status !== 'inactive' && (
+                        {maySetFor(user, group) && (
+                          <button
+                            onClick={() => setSettingFor({ user, group })}
+                            className={`p-1.5 rounded-lg hover:bg-brand-50 transition-colors ${user.has_password ? 'text-gray-400 hover:text-brand-600' : 'text-brand-600'}`}
+                            title={user.has_password ? 'Set a new password' : 'Set the password'}
+                            aria-label={`${user.has_password ? 'Set a new password for' : 'Set the password for'} ${loginName(user)}`}
+                          >
+                            <KeyRound className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {mayInvite && mayActOn(group) && user.status !== 'inactive' && passwordSetBy(user.login_kind, rules) === 'self' && (
                           <button
                             onClick={() => handleIssueLink(user)}
                             disabled={issueLink.isPending}
                             className="p-1.5 rounded-lg hover:bg-brand-50 text-gray-400 hover:text-brand-600 transition-colors"
                             title={user.status === 'invited' ? 'New invitation link' : 'Password reset link'}
-                            aria-label={`${user.status === 'invited' ? 'New invitation link' : 'Password reset link'} for ${user.email}`}
+                            aria-label={`${user.status === 'invited' ? 'New invitation link' : 'Password reset link'} for ${loginName(user)}`}
                           >
-                            <KeyRound className="w-3.5 h-3.5" />
+                            <Link2 className="w-3.5 h-3.5" />
                           </button>
                         )}
                         {/* An invitation nobody used — a mistyped address — is taken back, not switched off. */}
@@ -319,8 +358,8 @@ export default function UsersSettings() {
                             onClick={() => setWithdrawing(user)}
                             disabled={withdraw.isPending}
                             className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
-                            title="Withdraw invitation"
-                            aria-label={`Withdraw the invitation for ${user.email}`}
+                            title="Withdraw this unused login"
+                            aria-label={`Withdraw the login ${loginName(user)}`}
                           >
                             <X className="w-3.5 h-3.5" />
                           </button>
@@ -332,7 +371,7 @@ export default function UsersSettings() {
                             className={`p-1.5 rounded-lg transition-colors text-gray-400
                               ${user.status === 'active' ? 'hover:bg-amber-50 hover:text-amber-600' : 'hover:bg-green-50 hover:text-green-600'}`}
                             title={user.status === 'active' ? 'Turn off' : 'Turn on'}
-                            aria-label={`${user.status === 'active' ? 'Turn off' : 'Turn on'} ${user.email}`}
+                            aria-label={`${user.status === 'active' ? 'Turn off' : 'Turn on'} ${loginName(user)}`}
                           >
                             {user.status === 'active' ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
                           </button>
@@ -344,7 +383,7 @@ export default function UsersSettings() {
                             disabled={deleteUser.isPending}
                             className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
                             title="Remove user"
-                            aria-label={`Remove ${user.full_name || user.email}`}
+                            aria-label={`Remove ${user.full_name || loginName(user)}`}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -360,7 +399,7 @@ export default function UsersSettings() {
         </DataState>
 
         {resetting && (
-          <ConfirmDialog title={`Create a password reset link for ${resetting.email}?`} confirmLabel="Create link"
+          <ConfirmDialog title={`Create a password reset link for ${loginName(resetting)}?`} confirmLabel="Create link"
             onConfirm={() => issueLinkFor(resetting)}
             onClose={() => setResetting(null)}>
             <p>Whoever holds it can set a new password for this account.</p>
@@ -369,20 +408,20 @@ export default function UsersSettings() {
         )}
 
         {removing && (
-          <ConfirmDialog title={`Remove ${removing[0].full_name || removing[0].email}?`} confirmLabel="Remove" danger
+          <ConfirmDialog title={`Remove ${removing[0].full_name || loginName(removing[0])}?`} confirmLabel="Remove" danger
             onConfirm={() => deleteUser.mutateAsync({ user_id: removing[0].id })}
             onClose={() => setRemoving(null)}>
             {removing.length > 1 ? (
-              <p>All {removing.length} of their logins close together — {removing.map((u, i) => <span key={u.id}>{i > 0 && ' and '}<strong>{u.email}</strong></span>)} — and lose all access immediately.</p>
+              <p>All {removing.length} of their logins close together — {removing.map((u, i) => <span key={u.id}>{i > 0 && ' and '}<strong>{loginName(u)}</strong></span>)} — and lose all access immediately.</p>
             ) : (
-              <p><strong>{removing[0].email}</strong> will lose all access immediately.</p>
+              <p><strong>{loginName(removing[0])}</strong> will lose all access immediately.</p>
             )}
             {removing[0].person_id && <p>Their employee record is kept, marked as left.</p>}
           </ConfirmDialog>
         )}
 
         {turningOff && (
-          <ConfirmDialog title={`Turn off ${turningOff.email}?`} confirmLabel="Turn off" danger
+          <ConfirmDialog title={`Turn off ${loginName(turningOff)}?`} confirmLabel="Turn off" danger
             onConfirm={() => toggleStatus.mutateAsync({ user_id: turningOff.id, currentStatus: turningOff.status })}
             onClose={() => setTurningOff(null)}>
             <p>It is signed out everywhere at once and cannot sign in until it is turned back on.</p>
@@ -391,13 +430,21 @@ export default function UsersSettings() {
         )}
 
         {withdrawing && (
-          <ConfirmDialog title={`Withdraw the invitation for ${withdrawing.email}?`} confirmLabel="Withdraw" danger
+          <ConfirmDialog title={`Withdraw the login ${loginName(withdrawing)}?`} confirmLabel="Withdraw" danger
             onConfirm={() => withdraw.mutateAsync({ user_id: withdrawing.id })}
             onClose={() => setWithdrawing(null)}>
-            <p>Its link stops working and the login is taken away, so the right one can be added in its place.</p>
+            <p>It has never been used. It is taken away — any link with it stops working — so the right one can be added in its place.</p>
           </ConfirmDialog>
         )}
+
+        {settingFor && (
+          <SetPasswordDialog login={settingFor.user} personName={settingFor.group[0].full_name}
+            employeeCode={settingFor.user.employee_id} idOpensIt={settingFor.user.login_kind === 'employee' || settingFor.group.length === 1}
+            onClose={() => setSettingFor(null)} />
+        )}
       </Section>
+
+      {mayEditRules && <PasswordRules />}
     </div>
   )
 }

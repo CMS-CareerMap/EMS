@@ -110,6 +110,9 @@ const HR: readonly Permission[] = [
   // Their own payslips, and nobody else's: payslip scope is SELF for HR.
   'payslip:read',
   'notification:read',
+  // Sets employees' passwords, and gives an employee a login (client, 6 Oct
+  // 2026). Employee logins only: a role login's is the Super Admin's to set.
+  'user:password:set',
 ]
 
 /**

@@ -1,8 +1,10 @@
 import type { AccountStatus } from '@prisma/client'
 import { unsafeDb } from '../../platform/db/unsafe'
+import { equalsInsensitive, sameInsensitive } from '../../platform/db/insensitive'
 import { ownThingsOnly, toGrant, type RoleGrant, type RoleRowForGrant } from '../../platform/authz/grant'
 import { roleForGrant } from './session.repository'
-import { isSelfServiceLogin } from '../../domain/org/logins'
+import { holdsSuperAdmin, isSelfServiceLogin } from '../../domain/org/logins'
+import { loginKind, passwordSetBy, type LoginKind, type PasswordRules, type PasswordSetter } from '../../domain/org/passwords'
 import { EMPLOYEE_ROLE } from '../../platform/authz/defaultRoles'
 
 /**
@@ -15,7 +17,8 @@ import { EMPLOYEE_ROLE } from '../../platform/authz/defaultRoles'
  */
 export interface AuthIdentity {
   userId: string
-  email: string
+  /** Null for an employee login with no email: it signs in with the Employee ID. */
+  email: string | null
   passwordHash: string | null
   tokenVersion: number
 
@@ -38,11 +41,23 @@ export interface AuthIdentity {
    * each request again on its own.
    */
   decidesLeave: boolean
+  /**
+   * Whose this login's password is (Settings → Passwords): `company` — set
+   * for them, by HR or the Super Admin, and they cannot change it — or `self`.
+   */
+  loginKind: LoginKind
+  passwordSetBy: PasswordSetter
+  /** The fewest characters a password may have, at this company. */
+  passwordMinLength: number
+  /** The company's choices, for the screens that make logins and set passwords. */
+  passwordRules: PasswordRules
 }
 
 const membershipInclude = {
-  organization: { select: { id: true, name: true, timezone: true, leaveNoManagerApproverId: true } },
-  roleDef: { select: roleForGrant },
+  organization: {
+    select: { id: true, name: true, timezone: true, leaveNoManagerApproverId: true, employeePasswords: true, rolePasswords: true, passwordMinLength: true },
+  },
+  roleDef: { select: { ...roleForGrant, locked: true } },
   employee: {
     select: {
       id: true,
@@ -50,17 +65,32 @@ const membershipInclude = {
       employeeCode: true,
       attendanceMode: true,
       _count: { select: { directReports: { where: { archivedAt: null } } } },
-      // Their logins: the employee login of somebody with a live role login decides nothing (Day 23).
-      memberships: { select: { id: true, role: true, status: true } },
+      // Their logins: the employee login of somebody with a live role login decides nothing (Day 23),
+      // and a Super Admin's passwords are all their own (Settings → Passwords).
+      memberships: { select: { id: true, role: true, status: true, roleDef: { select: { locked: true } } } },
     },
   },
 } as const
 
 type LoginRow = { id: string; role: string; status: AccountStatus }
+type PersonLogin = LoginRow & { roleDef: { locked: boolean } }
 type IncludedMembership = LoginRow & {
-  organization: { leaveNoManagerApproverId: string | null }
-  roleDef: RoleRowForGrant
-  employee: { id: string; fullName: string; employeeCode: string; attendanceMode: string; _count: { directReports: number }; memberships: LoginRow[] } | null
+  organization: { leaveNoManagerApproverId: string | null; employeePasswords: PasswordSetter; rolePasswords: PasswordSetter; passwordMinLength: number }
+  roleDef: RoleRowForGrant & { locked: boolean }
+  employee: { id: string; fullName: string; employeeCode: string; attendanceMode: string; _count: { directReports: number }; memberships: PersonLogin[] } | null
+}
+
+/** Whose this login's password is, and how long one must be. */
+function passwordOf(membership: IncludedMembership) {
+  const kind = loginKind(membership.role, EMPLOYEE_ROLE, membership.roleDef.locked)
+  const { employeePasswords, rolePasswords, passwordMinLength } = membership.organization
+  const person = { holdsSuperAdmin: holdsSuperAdmin(membership.employee?.memberships ?? []) }
+  return {
+    loginKind: kind,
+    passwordSetBy: passwordSetBy(kind, membership.organization, person),
+    passwordMinLength,
+    passwordRules: { employeePasswords, rolePasswords, passwordMinLength },
+  }
 }
 
 /**
@@ -111,6 +141,7 @@ export async function findIdentityByEmail(email: string): Promise<AuthIdentity |
     grant,
     status: membership.status,
     ...personOf(membership, grant),
+    ...passwordOf(membership),
   }
 }
 
@@ -128,19 +159,27 @@ export async function findIdentityByEmail(email: string): Promise<AuthIdentity |
  * An employee code names a PERSON, and since Day 23 a person can have two
  * logins. The code signs in to their one login that can sign in; a role
  * login still only invited, or switched off, does not take it away. For
- * somebody with two that can, the code cannot say which one is meant, so it
- * signs in to neither — the same null — and the sign-in page says to use the
- * email of the login wanted. With none that can, the one login there is (or
- * the one still invited) is read, so its status gives the usual message.
+ * somebody with two that can, it signs in to their employee login (client,
+ * 6 Oct 2026): that one may have no email at all — the ID is its only way in
+ * — while a role login always has its own email. With none that can, the one
+ * login there is (or the one still invited, the employee login first) is read,
+ * so its status gives the usual message.
+ *
+ * Matched whatever the letters' case (client, 6 Oct 2026): "cms007" on a phone
+ * keyboard is CMS007. Codes that differ only in case are refused when an
+ * employee is added or changed, so the match names one person — and if two
+ * were ever there, `take: 2` signs in to neither. Matched as the text it is:
+ * `_` and `%` are not wildcards (`equalsInsensitive`).
  */
 export async function findIdentityByEmployeeCode(code: string): Promise<AuthIdentity | null> {
-  const matches = await unsafeDb.employee.findMany({
-    where: { employeeCode: code.trim(), archivedAt: null },
+  const wanted = code.trim()
+  const matches = (await unsafeDb.employee.findMany({
+    where: { employeeCode: equalsInsensitive(wanted), archivedAt: null },
     include: {
       memberships: { include: { user: true, ...membershipInclude } },
     },
     take: 2,
-  })
+  })).filter((e) => sameInsensitive(e.employeeCode, wanted))
 
   // Two rows means two organizations share this employee code. Refuse rather
   // than guess — handing over the wrong company's account is the worst
@@ -153,12 +192,17 @@ export async function findIdentityByEmployeeCode(code: string): Promise<AuthIden
   const logins = employee.memberships
   const active = logins.filter((m) => m.status === 'active')
   const invited = logins.filter((m) => m.status === 'invited')
+  // One of several: the employee login, if there is exactly one among them.
+  const oneOf = <T extends { role: string }>(rows: T[]) => {
+    if (rows.length === 1) return rows[0]
+    const own = rows.filter((m) => m.role === EMPLOYEE_ROLE)
+    return own.length === 1 ? own[0] : undefined
+  }
   const membership =
-    active.length === 1 ? active[0]
-      : active.length > 1 ? undefined
-        : logins.length === 1 ? logins[0]
-          : invited.length === 1 ? invited[0]
-            : undefined
+    active.length > 0 ? oneOf(active)
+      : logins.length === 1 ? logins[0]
+        : invited.length > 0 ? oneOf(invited)
+          : undefined
   if (!membership) return null
 
   const grant = grantOf(membership)
@@ -175,6 +219,7 @@ export async function findIdentityByEmployeeCode(code: string): Promise<AuthIden
     grant,
     status: membership.status,
     ...personOf(membership, grant),
+    ...passwordOf(membership),
   }
 }
 
@@ -209,5 +254,6 @@ export async function findIdentityByUserId(userId: string): Promise<AuthIdentity
     grant,
     status: membership.status,
     ...personOf(membership, grant),
+    ...passwordOf(membership),
   }
 }

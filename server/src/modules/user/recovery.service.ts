@@ -3,6 +3,8 @@ import { Conflict, NotFound } from '../../platform/errors/AppError'
 import { generateToken, hashInviteToken } from '../../platform/auth/tokenHash'
 import { logger } from '../../platform/logger'
 import * as repo from './recovery.repository'
+import { loginKind, passwordSetBy, passwordSetterName } from '../../domain/org/passwords'
+import { EMPLOYEE_ROLE } from '../../platform/authz/defaultRoles'
 
 /**
  * The way back in when nobody can sign in to issue a link.
@@ -51,6 +53,13 @@ export async function issueRecoveryLink(
     throw Conflict(`${email} is deactivated. Reactivate the account first, then issue the link.`)
   }
   const purpose: PasswordTokenPurpose = invited ? 'invite' : 'reset'
+  // A link is for choosing one's own password. Where the company sets this
+  // login's (Settings → Passwords), the link would be refused when used — so
+  // it is not made: the Super Admin sets it, and can always recover their own.
+  const kind = loginKind(membership.role, EMPLOYEE_ROLE, membership.roleDef.locked)
+  if (passwordSetBy(kind, membership.organization) === 'company') {
+    throw Conflict(`${email}’s password is set by ${passwordSetterName(kind)} at this company, not from a link. Sign in as the Super Admin and set it from Settings → Users — or issue this for the Super Admin’s own login.`)
+  }
 
   const token = generateToken()
   const expiresAt = new Date(now.getTime() + RECOVERY_LINK_MINUTES * 60 * 1000)

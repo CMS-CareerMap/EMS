@@ -1,5 +1,17 @@
 import type { AppContext } from '../../platform/context'
-import { AppError, BadRequest, Conflict, Forbidden, NotFound } from '../../platform/errors/AppError'
+import { AppError, BadRequest, Conflict, Forbidden, NotFound, ValidationFailed } from '../../platform/errors/AppError'
+import type { ScopedDb } from '../../platform/db/scoped'
+import { hashPassword, passwordProblem } from '../../platform/auth/password'
+import { EMPLOYEE_ROLE } from '../../platform/authz/defaultRoles'
+import {
+  loginKind,
+  maySetPasswordFor,
+  passwordSetBy,
+  passwordSetterName,
+  type LoginKind,
+  type PasswordRules,
+} from '../../domain/org/passwords'
+import { tellPasswordChanged } from '../auth/passwordNotice'
 import { withTransaction, type TxDb } from '../../platform/db/transaction'
 import { lockFor } from '../../platform/db/locks'
 import { tellLeft } from '../notifications/peopleNotices'
@@ -112,41 +124,47 @@ export async function listUsers(ctx: AppContext): Promise<repo.MembershipRow[]> 
 }
 
 export interface InviteInput {
-  email: string
+  /** Optional only for an employee login made with an employee record: it signs in with the Employee ID. */
+  email?: string | null | undefined
   /** A role key of this company. */
   role: string
   fullName?: string | undefined
   employeeCode?: string | undefined
+  /** Typed for them, when the company sets this kind of login's password (Settings → Passwords). */
+  password?: string | undefined
 }
 
 export interface InviteResult {
   membership: repo.MembershipRow
   /**
-   * The raw invitation token, returned ONCE and never stored.
+   * The raw invitation token, returned ONCE and never stored — when the login
+   * starts with a link, because the person sets their own password. Null when
+   * a password was typed for them, or it waits for one.
    *
    * There is no email infrastructure yet, so the administrator copies this to
    * the new joiner themselves. That is deliberate rather than a gap papered
    * over: a "we sent you an email" message that sends nothing is worse than
    * asking someone to paste a link, because nobody finds out for a week.
    */
-  inviteToken: string
-  expiresAt: Date
+  inviteToken: string | null
+  expiresAt: Date | null
 }
 
 /**
  * Creates a login for someone who does not have one.
  *
- * The new user gets `passwordHash = null`, which cannot match any password, and
- * a single-use token that expires. So there is no default credential, no shared
- * welcome password, and an invitation that is forwarded twice still only works
- * once.
+ * Whose password it is decides how it starts (Settings → Passwords): typed for
+ * them, a single-use link that expires, or none yet — never a default
+ * credential or a shared welcome password, and an invitation forwarded twice
+ * still only works once.
  */
 export async function inviteUser(ctx: AppContext, input: InviteInput): Promise<InviteResult> {
-  const email = input.email.toLowerCase().trim()
+  const email = input.email ? input.email.toLowerCase().trim() : null
 
-  if (await repo.findMembershipByEmail(ctx.db, email)) {
+  if (email && (await repo.findMembershipByEmail(ctx.db, email))) {
     throw Conflict('Someone with that email address already has access to this company')
   }
+  const { hash } = await preparedPassword(ctx.db, ctx.organizationId, input.password)
 
   const login = await withTransaction(ctx.db, async (tx) => {
     await lockFor(tx, rolesLock(ctx.organizationId))
@@ -162,12 +180,16 @@ export async function inviteUser(ctx: AppContext, input: InviteInput): Promise<I
     if (!actor.locked && actor.grant.scopes.employee !== 'ORGANIZATION') {
       throw Forbidden('Inviting adds somebody outside any team or department, so it needs a company-wide reach. Add them under Employees instead, with yourself as their reporting manager, and give them a login there.')
     }
+    const kind = loginKind(input.role, EMPLOYEE_ROLE, given.locked)
+    assertLoginEmail(kind, email, Boolean(input.employeeCode))
+    // The rules as they stand under the lock a change of them takes too.
+    const start = loginStartFor(kind, await repo.passwordRules(tx, ctx.organizationId), actor, hash !== null)
 
     const employee = input.employeeCode
       ? await employeeRepo.createEmployee(tx, {
           organizationId: ctx.organizationId,
-          employeeCode: input.employeeCode.trim(),
-          fullName: input.fullName?.trim() || email,
+          employeeCode: await freeEmployeeCode(tx, ctx.organizationId, input.employeeCode),
+          fullName: input.fullName?.trim() || email || input.employeeCode.trim(),
         })
       : null
 
@@ -177,13 +199,15 @@ export async function inviteUser(ctx: AppContext, input: InviteInput): Promise<I
       organizationId: ctx.organizationId,
       invitedByUserId: ctx.userId,
       employeeId: employee?.id ?? null,
+      start,
+      passwordHash: hash,
     })
 
     await audit(ctx, {
       action: 'user.invited',
       entityType: 'membership',
       entityId: created.membershipId,
-      details: { email, role: input.role, roleName: given.grant.name, withEmployeeRecord: Boolean(input.employeeCode) },
+      details: { email, role: input.role, roleName: given.grant.name, withEmployeeRecord: Boolean(input.employeeCode), start },
     }, tx)
 
     return created
@@ -241,6 +265,12 @@ export async function changeRole(
 
     if (refusal) throw Forbidden(REFUSAL_MESSAGES[refusal])
     await assertOtherLoginsBelow(tx, ctx, actor, order, roles, target)
+    // Only now, for a change that is the caller's to make: a role login signs
+    // in by its own email (client, 6 Oct 2026), so a login with none stays an
+    // employee login, signing in by the Employee ID.
+    if (!target.user.email && loginKind(newRole, EMPLOYEE_ROLE, next.locked) !== 'employee') {
+      throw BadRequest('This login has no email, so it can only be an employee login. Give them a role login of its own, with an email, on their page.')
+    }
     // One login per role per person (Day 23): their other login already holds it.
     if (target.employeeId && newRole !== target.role) {
       const others = await repo.loginsOfPerson(tx, target.employeeId)
@@ -489,38 +519,60 @@ export async function endSessionsOf(userIds: readonly string[]): Promise<void> {
 }
 
 export interface AddLoginInput {
-  email: string
+  /** Optional for an employee login: it signs in with the Employee ID. */
+  email?: string | null | undefined
   /** A role key of this company, different from every login the person has. */
   role: string
+  /** Typed for them, when the company sets this kind of login's password (Settings → Passwords). */
+  password?: string | undefined
 }
 
 /**
- * Gives somebody already here another login (Day 23) — a role login beside
- * their employee login, with its own email and its own invitation link. Never
- * a new person: it is the same employee record, the same place in the company
- * tree, and every rule about "your own" applies to both logins alike.
+ * Gives somebody already here a login (Day 23): their employee login, or a role
+ * login beside it, with its own email and its own password. Never a new person:
+ * it is the same employee record, the same place in the company tree, and every
+ * rule about "your own" applies to both logins alike.
  *
- * The Super Admin's, as the route says (role:manage): a second way into the
- * system for somebody is a decision about the company's roles.
+ * A role login is the Super Admin's to give (role:manage): a second way into
+ * the system for somebody is a decision about the company's roles. An employee
+ * login is also HR's (client, 6 Oct 2026; user:password:set) — for somebody
+ * within their reach, never themselves, nor anybody whose other login, or
+ * place in the company tree, is above them.
  */
 export async function addLogin(ctx: AppContext, employeeId: string, input: AddLoginInput): Promise<InviteResult> {
-  const email = input.email.toLowerCase().trim()
-
-  if (await repo.findMembershipByEmail(ctx.db, email)) {
-    throw Conflict('Someone with that email address already has access to this company. Each login needs an email of its own.')
-  }
+  const email = input.email ? input.email.toLowerCase().trim() : null
+  const { hash } = await preparedPassword(ctx.db, ctx.organizationId, input.password)
 
   const login = await withTransaction(ctx.db, async (tx) => {
     await lockFor(tx, rolesLock(ctx.organizationId))
-    const { actor, next: given, order } = await rolesForGrant(tx, ctx, input.role, ['role:manage'])
+    const needs: readonly Permission[] = input.role === EMPLOYEE_ROLE ? ['role:manage', 'user:password:set'] : ['role:manage']
+    const { actor, next: given, order, roles } = await rolesForGrant(tx, ctx, input.role, needs)
     if (!mayGive(actor, given, order)) throw Forbidden(REFUSAL_MESSAGES.not_below)
 
     const person = await repo.personForLogin(tx, employeeId)
     if (!person) throw NotFound('Employee not found')
+    // Somebody without the Super Admin panel gives an employee login only to
+    // somebody they could act on: within reach, not themselves, nobody senior.
+    if (!actor.grant.permissions.has('role:manage')) {
+      if (ctx.employeeId === person.id) throw Forbidden('Not your own: ask the Super Admin to give you a login.')
+      const scope = { ...ctx.scopeFor('employee'), scope: actor.grant.scopes.employee }
+      if (scope.scope !== 'ORGANIZATION' && !isInScope(scope, { id: person.id, reportingManagerId: person.reportingManagerId, departmentId: person.departmentId })) {
+        throw NotFound('Employee not found')
+      }
+      await assertOtherLoginsBelow(tx, ctx, actor, order, roles, { id: '', employeeId: person.id })
+    }
     if (person.archivedAt) throw BadRequest(`${person.fullName} has left the company.`)
     if (person.memberships.some((m) => m.role === input.role)) {
       throw Conflict(`${person.fullName} already has a ${given.grant.name} login. Choose a different role for this one.`)
     }
+    const kind = loginKind(input.role, EMPLOYEE_ROLE, given.locked)
+    assertLoginEmail(kind, email, true)
+    // Asked only now, for somebody the caller may act on: no probing addresses from a narrow reach.
+    if (email && (await repo.findMembershipByEmail(tx, email))) {
+      throw Conflict('Someone with that email address already has access to this company. Each login needs an email of its own.')
+    }
+    // The rules as they stand under the lock a change of them takes too.
+    const start = loginStartFor(kind, await repo.passwordRules(tx, ctx.organizationId), actor, hash !== null)
 
     const created = await createLoginInTransaction(tx, {
       email,
@@ -528,12 +580,14 @@ export async function addLogin(ctx: AppContext, employeeId: string, input: AddLo
       organizationId: ctx.organizationId,
       invitedByUserId: ctx.userId,
       employeeId: person.id,
+      start,
+      passwordHash: hash,
     })
     await audit(ctx, {
       action: 'user.login_added',
       entityType: 'membership',
       entityId: created.membershipId,
-      details: { employeeId: person.id, email, role: input.role, roleName: given.grant.name, logins: person.memberships.length + 1 },
+      details: { employeeId: person.id, email, role: input.role, roleName: given.grant.name, logins: person.memberships.length + 1, start },
     }, tx)
     return created
   }).catch((err: unknown) => {
@@ -613,49 +667,268 @@ async function assertOtherLoginsBelow(
   }
 }
 
+// ─── Passwords set by the company (client, 6 Oct 2026) ─────────────────────
+
+/**
+ * A password typed for somebody, checked against the company's rule and hashed
+ * — before any lock is taken, as hashing is deliberately slow. No password, no
+ * hash; the rules either way, for deciding how a login starts.
+ */
+export async function preparedPassword(
+  db: ScopedDb | TxDb,
+  organizationId: string,
+  password: string | undefined,
+): Promise<{ rules: PasswordRules; hash: string | null }> {
+  const rules = await repo.passwordRules(db, organizationId)
+  if (password === undefined) return { rules, hash: null }
+  const problem = passwordProblem(password, rules.passwordMinLength)
+  if (problem) throw ValidationFailed(problem, [{ field: 'password', message: problem }])
+  return { rules, hash: await hashPassword(password) }
+}
+
+/** How a new login starts: a password typed for them, a link to set their own, or neither yet. */
+export type LoginStart = 'password' | 'link' | 'none'
+
+/**
+ * How a new login starts, by whose password it is (Settings → Passwords) and
+ * who is making it. The person's own: an invitation link. The company's: the
+ * password typed for them, by somebody who may set it — or, left out, none
+ * yet, so the login waits for HR or the Super Admin to set it.
+ */
+export function loginStartFor(kind: LoginKind, rules: PasswordRules, actor: PolicyRole, passwordGiven: boolean): LoginStart {
+  if (passwordSetBy(kind, rules) === 'self') {
+    if (passwordGiven) {
+      throw BadRequest(kind === 'employee'
+        ? 'At this company employees set their own password, from a link. Leave the password out.'
+        : 'The holder of this login sets its password, from a link. Leave the password out.')
+    }
+    return 'link'
+  }
+  if (!passwordGiven) return 'none'
+  if (!maySetPasswordFor(kind, { locked: actor.locked, holds: actor.grant.permissions.has('user:password:set') })) {
+    throw Forbidden(kind === 'employee'
+      ? 'You cannot set passwords. Leave it out: HR or the Super Admin sets it.'
+      : 'Only the Super Admin sets the password of a role login. Leave it out: the login waits for the Super Admin.')
+  }
+  return 'password'
+}
+
+/**
+ * A role login — and any login with no person behind it — needs an email to
+ * sign in with. An employee login can sign in with the person's Employee ID.
+ */
+export function assertLoginEmail(kind: LoginKind, email: string | null, hasEmployeeRecord: boolean): void {
+  if (email) return
+  if (kind !== 'employee') {
+    throw ValidationFailed('A role login needs an email of its own.', [{ field: 'email', message: 'A role login needs an email of its own' }])
+  }
+  if (!hasEmployeeRecord) {
+    throw ValidationFailed('A login with no employee record needs an email to sign in with.', [{ field: 'email', message: 'Needed to sign in: there is no Employee ID' }])
+  }
+}
+
+/**
+ * An Employee ID nobody else has, whatever the letters' case — signing in by
+ * it matches either case, so "cms7" beside "CMS7" would be two people behind
+ * one ID. A person who has left keeps theirs, as the database does.
+ *
+ * Checked under a lock on the ID in small letters, held until the caller's
+ * transaction ends: two people added at once as "cms7" and "CMS7" wait for
+ * each other, and the second sees the first. The refusal names nobody — whose
+ * the ID is may be outside the caller's reach.
+ */
+export async function freeEmployeeCode(db: TxDb, organizationId: string, code: string, exceptEmployeeId?: string): Promise<string> {
+  const wanted = code.trim()
+  await lockFor(db, employeeCodeLock(organizationId, wanted))
+  const clash = await employeeRepo.employeeWithCodeLike(db, wanted, exceptEmployeeId)
+  if (!clash) return wanted
+  throw Conflict(
+    clash.employeeCode === wanted
+      ? `Employee ID ${wanted} is already in use.`
+      : `Employee ID ${wanted} is already in use in other letters (${clash.employeeCode}): two IDs that differ only in capitals would sign in to one person.`,
+  )
+}
+
+/** The lock an Employee ID is taken under, the same in any letters. */
+export const employeeCodeLock = (organizationId: string, code: string) => `employee-code:${organizationId}:${code.trim().toLowerCase()}`
+
 export interface LoginSeed {
-  email: string
+  /** Null for an employee login with no email: it signs in with the Employee ID. */
+  email: string | null
   /** A role key of this company, already checked by the caller. */
   role: string
   organizationId: string
   invitedByUserId: string
   /** The person the login belongs to; null for an operator with no employee record. */
   employeeId: string | null
+  start: LoginStart
+  /** The hash of the password typed for them — needed when `start` is 'password'. */
+  passwordHash: string | null
 }
 
 export interface CreatedLogin {
   membershipId: string
-  inviteToken: string
-  expiresAt: Date
+  inviteToken: string | null
+  expiresAt: Date | null
 }
 
 /**
- * Creates a User, a Membership and an invitation token INSIDE a caller's
- * transaction.
+ * Creates a User and a Membership — with the password typed for them, an
+ * invitation token, or neither yet — INSIDE a caller's transaction.
  *
- * The one implementation behind POST /users/invite, POST /employees and the
- * roster import — it used to be written out three times. Having the employee
- * endpoint call inviteUser() instead would open a second transaction inside the
- * first, and a failure after that point would leave the login created and the
- * employee rolled back. One transaction, one outcome.
+ * The one implementation behind POST /users/invite, POST /employees, giving
+ * somebody a login and the roster import — it used to be written out three
+ * times. Having the employee endpoint call inviteUser() instead would open a
+ * second transaction inside the first, and a failure after that point would
+ * leave the login created and the employee rolled back. One transaction, one
+ * outcome.
  *
- * The raw token is made here and returned once; only its hash is stored.
+ * A raw token is made here and returned once; only its hash is stored.
  */
 export async function createLoginInTransaction(tx: TxDb, seed: LoginSeed): Promise<CreatedLogin> {
-  const rawToken = generateToken()
-  const expiresAt = new Date(Date.now() + INVITE_VALID_FOR_HOURS * 60 * 60 * 1000)
+  if (seed.start === 'password' && !seed.passwordHash) throw new Error('A login started with a password needs its hash')
+  const link = seed.start === 'link'
+    ? { rawToken: generateToken(), expiresAt: new Date(Date.now() + INVITE_VALID_FOR_HOURS * 60 * 60 * 1000) }
+    : null
 
-  const { membershipId } = await repo.createInvitedLogin(tx, {
-    email: seed.email.toLowerCase().trim(),
-    organizationId: seed.organizationId,
-    role: seed.role,
-    tokenHash: hashInviteToken(rawToken),
-    expiresAt,
-    createdByUserId: seed.invitedByUserId,
-    employeeId: seed.employeeId,
+  try {
+    const { membershipId } = await repo.createLogin(tx, {
+      email: seed.email ? seed.email.toLowerCase().trim() : null,
+      organizationId: seed.organizationId,
+      role: seed.role,
+      employeeId: seed.employeeId,
+      passwordHash: seed.start === 'password' ? seed.passwordHash : null,
+      link: link ? { tokenHash: hashInviteToken(link.rawToken), expiresAt: link.expiresAt, createdByUserId: seed.invitedByUserId } : null,
+    })
+    return { membershipId, inviteToken: link?.rawToken ?? null, expiresAt: link?.expiresAt ?? null }
+  } catch (err) {
+    if (err instanceof repo.LoginEmailTaken) throw Conflict(err.message)
+    throw err
+  }
+}
+
+/**
+ * Sets somebody's password for them (client, 6 Oct 2026): HR an employee
+ * login's, the Super Admin anybody's whose password the company sets. Never
+ * the login one is signed in with — My Profile is for that, where the company
+ * lets one — nor one's other login, except a Super Admin's: their passwords
+ * are all their own, and nobody else could set the one beside theirs. Nor a
+ * login whose role is not below the caller's, nor any login of somebody whose
+ * other login, or place in the company tree, is above them (Day 23). Nor a
+ * login whose owner sets their own (Settings → Passwords): they get a link.
+ * Everything signed in with the old password is signed out, and the person is
+ * told.
+ *
+ * The password is checked only once the login is known to be within reach —
+ * a short one for somebody out of reach is "not found", like anything else
+ * asked about them — but hashed before the lock, as hashing is slow.
+ */
+export async function setPassword(ctx: AppContext, membershipId: string, password: string): Promise<repo.MembershipRow> {
+  const target = await repo.findMembership(ctx.db, membershipId)
+  if (!target) throw NotFound('User not found')
+  if (target.id === ctx.membershipId) {
+    throw BadRequest(ctx.can('role:manage')
+      ? 'This is the login you are signed in with: change its password on My Profile.'
+      : 'This is your own login. Ask the Super Admin to set its password.')
+  }
+  const prepared = await preparedPassword(ctx.db, ctx.organizationId, password)
+    .then((p) => ({ hash: p.hash, refusal: null }), (err: unknown) => ({ hash: null, refusal: err }))
+
+  const { by, own, sessionsEnded } = await withTransaction(ctx.db, async (tx) => {
+    await lockFor(tx, rolesLock(ctx.organizationId))
+    const current = await repo.findMembershipForChange(tx, membershipId)
+    if (!current) throw NotFound('User not found')
+    const { actor, next: targetRole, order, roles } = await rolesForGrant(tx, ctx, current.role, ['user:password:set'])
+    // Reach first: somebody outside it is not found, whatever else is true.
+    await assertTargetInReach(tx, ctx, actor, membershipId)
+    if (prepared.refusal) throw prepared.refusal
+    const own = ctx.employeeId !== null && current.employeeId === ctx.employeeId
+    if (own && !actor.locked) {
+      throw Forbidden('This is your own login. Ask the Super Admin to set its password.')
+    }
+    const kind = loginKind(current.role, EMPLOYEE_ROLE, targetRole.locked)
+    if (!maySetPasswordFor(kind, { locked: actor.locked, holds: true })) {
+      throw Forbidden('Only the Super Admin sets the password of a role login.')
+    }
+    if (!mayManage(actor, targetRole, order)) {
+      throw Forbidden('You can set a password only for people whose role is below yours.')
+    }
+    // A key to a senior's employee login is a key to the senior (Day 23).
+    await assertOtherLoginsBelow(tx, ctx, actor, order, roles, current)
+    if (current.status === 'inactive') {
+      throw Conflict('This login is turned off. Turn it on before setting its password.')
+    }
+    // Whose password it is, once the login is known to be the caller's to act
+    // on — read under the lock a change of the rules takes too. A person
+    // holding the Super Admin panel owns every one of theirs.
+    if (!own) {
+      const holdsSuperAdmin = current.employeeId !== null &&
+        (await repo.loginsOfPerson(tx, current.employeeId)).some((l) => l.status === 'active' && roles.get(l.role)?.locked === true)
+      if (passwordSetBy(kind, await repo.passwordRules(tx, ctx.organizationId), { holdsSuperAdmin }) === 'self') {
+        throw Conflict(kind === 'super_admin' || holdsSuperAdmin
+          ? 'A Super Admin sets their own passwords, on every login of theirs — their employee login from their own page. If they have forgotten their Super Admin password, send them a password link.'
+          : 'At this company they set their own password (Settings → Passwords). Send them a password link instead.')
+      }
+    }
+    const result = await repo.setPasswordFor(tx, { userId: target.userId, passwordHash: prepared.hash!, now: new Date() })
+    await audit(ctx, {
+      action: 'user.password_set',
+      entityType: 'membership',
+      entityId: target.id,
+      details: {
+        role: current.role,
+        roleName: targetRole.grant.name,
+        email: target.email,
+        firstPassword: result.activated,
+        sessionsEnded: result.sessionsEnded,
+      },
+    }, tx)
+    return { by: actor.locked ? 'the Super Admin' : actor.grant.name, own, sessionsEnded: result.sessionsEnded }
   })
 
-  return { membershipId, inviteToken: rawToken, expiresAt }
+  // A Super Admin's own other login: told as their own change, not as somebody setting it for them.
+  await tellPasswordChanged(ctx.organizationId, target.userId, own ? { how: 'changed' } : { how: 'set', by })
+  logger.warn('Password set for somebody', { by: ctx.userId, forUserId: target.userId, sessionsEnded, organizationId: ctx.organizationId })
+
+  const after = await repo.findMembership(ctx.db, membershipId)
+  if (!after) throw NotFound('User not found')
+  return after
+}
+
+/** The company's password rules, for Settings → Users & Roles → Passwords. */
+export async function getPasswordRules(ctx: AppContext): Promise<PasswordRules> {
+  return repo.passwordRules(ctx.db, ctx.organizationId)
+}
+
+/**
+ * Changes the password rules. A rule made stricter does not touch passwords
+ * already set — they are checked when next changed — and switching a kind of
+ * login to "set by the company" spends the links still out for it, for good:
+ * switched back, a link handed out before must not start working again.
+ */
+export async function updatePasswordRules(ctx: AppContext, rules: PasswordRules): Promise<PasswordRules> {
+  await withTransaction(ctx.db, async (tx) => {
+    // The lock every login start, link and password set takes: none of them
+    // reads the rules half-changed, and no link is made after its kind's were spent.
+    await lockFor(tx, rolesLock(ctx.organizationId))
+    const before = await repo.passwordRules(tx, ctx.organizationId)
+    await repo.updatePasswordRules(tx, ctx.organizationId, rules)
+    const now = new Date()
+    let linksSpent = 0
+    if (before.employeePasswords === 'self' && rules.employeePasswords === 'company') {
+      linksSpent += await repo.spendLinksOfKind(tx, { organizationId: ctx.organizationId, kind: 'employee', employeeRole: EMPLOYEE_ROLE, now })
+    }
+    if (before.rolePasswords === 'self' && rules.rolePasswords === 'company') {
+      linksSpent += await repo.spendLinksOfKind(tx, { organizationId: ctx.organizationId, kind: 'role', employeeRole: EMPLOYEE_ROLE, now })
+    }
+    await audit(ctx, {
+      action: 'user.password_rules_updated',
+      entityType: 'organization',
+      entityId: ctx.organizationId,
+      details: { ...rules, before: { ...before }, linksSpent },
+    }, tx)
+  })
+  return repo.passwordRules(ctx.db, ctx.organizationId)
 }
 
 /**
@@ -752,6 +1025,17 @@ export async function issuePasswordLink(
     // Their status as it stands under the lock, not as first read.
     if (current.status === 'inactive') {
       throw Conflict('This account is deactivated. Reactivate it before issuing a link.')
+    }
+    // A password the company sets is never the person's to choose from a link
+    // (Settings → Passwords): it is set for them instead.
+    const kind = loginKind(current.role, EMPLOYEE_ROLE, targetRole.locked)
+    if (passwordSetBy(kind, await repo.passwordRules(tx, ctx.organizationId)) === 'company') {
+      // The other login of a Super Admin is theirs to set, from their own page.
+      const holdsSuperAdmin = current.employeeId !== null &&
+        (await repo.loginsOfPerson(tx, current.employeeId)).some((l) => l.status === 'active' && roles.get(l.role)?.locked === true)
+      throw Conflict(holdsSuperAdmin
+        ? 'A Super Admin sets the password of this login themselves, from their own page.'
+        : `At this company ${passwordSetterName(kind)} sets this login’s password: use Set password instead of a link.`)
     }
     const purpose: 'invite' | 'reset' = current.status === 'invited' ? 'invite' : 'reset'
     await repo.replacePasswordLink(tx, {

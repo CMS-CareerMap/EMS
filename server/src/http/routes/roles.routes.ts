@@ -18,11 +18,12 @@ export const rolesRouter = Router()
 
 rolesRouter.use(authenticate)
 rolesRouter.get('/', authorize('role:manage'), getRoles)
-// Also for switching logins on and off and removing them: the Users screen
-// offers those only on the people whose role is one the caller could give.
+// Also for switching logins on and off, removing them and setting their
+// passwords: the Users screen offers those only on the people whose role is
+// one the caller could give.
 rolesRouter.get(
   '/assignable',
-  authorize(['user:invite', 'membership:role:assign', 'employee:create', 'user:status:update', 'user:delete']),
+  authorize(['user:invite', 'membership:role:assign', 'employee:create', 'user:status:update', 'user:delete', 'user:password:set']),
   getAssignableRoles,
 )
 rolesRouter.post('/', authorize('role:manage'), postRole)

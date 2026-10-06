@@ -3,6 +3,7 @@ import type { ScopedDb } from '../../platform/db/scoped'
 import type { TxDb } from '../../platform/db/transaction'
 import type { ScopeContext } from '../../platform/authz/scope'
 import { employeesInScope } from '../../platform/authz/scopeWhere'
+import { equalsInsensitive, sameInsensitive } from '../../platform/db/insensitive'
 
 /**
  * Reading employees, filtered by what the caller is allowed to see.
@@ -98,9 +99,10 @@ function includeFor(access: FieldAccess) {
     // An open resignation: where they stand in the lifecycle depends on it.
     resignations: { where: { status: { in: ['submitted', 'accepted'] } }, select: { status: true }, take: 1 },
     // Every login of theirs (Day 23) — an employee login, and a role login
-    // beside it for somebody with a role — oldest first.
+    // beside it for somebody with a role — oldest first. The password hash is
+    // read only to say whether one is set; the serializer sends that, not it.
     memberships: {
-      select: { id: true, role: true, roleDef: { select: { name: true } }, status: true, user: { select: { email: true } } },
+      select: { id: true, role: true, roleDef: { select: { name: true, locked: true } }, status: true, user: { select: { email: true, passwordHash: true } } },
       orderBy: { createdAt: 'asc' },
     },
 
@@ -201,6 +203,23 @@ export async function findById(
 // Scope is for reading. A write acts on a row the service has already found
 // through a scoped read, or on a new row it is creating — and the company
 // filter still applies to every one of these, through the client.
+
+/**
+ * Somebody whose Employee ID is this one whatever the letters' case — left or
+ * not, as the database's own uniqueness counts them. For keeping IDs that
+ * would sign in to two people apart.
+ */
+export async function employeeWithCodeLike(db: TxDb | ScopedDb, code: string, exceptEmployeeId?: string) {
+  const rows = await db.employee.findMany({
+    where: {
+      employeeCode: equalsInsensitive(code),
+      ...(exceptEmployeeId ? { id: { not: exceptEmployeeId } } : {}),
+    },
+    select: { id: true, fullName: true, employeeCode: true },
+    take: 2,
+  })
+  return rows.find((row) => sameInsensitive(row.employeeCode, code)) ?? null
+}
 
 export async function createEmployee(db: TxDb, data: Prisma.EmployeeUncheckedCreateInput) {
   return db.employee.create({ data })

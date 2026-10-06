@@ -1,5 +1,6 @@
 import type { ScopedDb } from '../../platform/db/scoped'
 import type { TxDb } from '../../platform/db/transaction'
+import { equalsInsensitive } from '../../platform/db/insensitive'
 
 /**
  * The company's own lists: departments, designations, shifts.
@@ -77,7 +78,7 @@ export async function findNamedById(db: ScopedDb, kind: NamedKind, id: string) {
 
 /** Case-insensitively, archived or not — "Sales" and "sales" are one department. */
 export async function findNamedByName(db: ScopedDb, kind: NamedKind, name: string) {
-  return named(db, kind).findFirst({ where: { name: { equals: name, mode: 'insensitive' } } })
+  return named(db, kind).findFirst({ where: { name: equalsInsensitive(name) } })
 }
 
 export async function createNamed(db: TxDb, kind: NamedKind, organizationId: string, name: string) {
@@ -111,7 +112,7 @@ export async function findShiftById(db: ScopedDb, id: string) {
 }
 
 export async function findShiftByName(db: ScopedDb, name: string) {
-  return db.shift.findFirst({ where: { name: { equals: name, mode: 'insensitive' } } })
+  return db.shift.findFirst({ where: { name: equalsInsensitive(name) } })
 }
 
 export async function createShift(

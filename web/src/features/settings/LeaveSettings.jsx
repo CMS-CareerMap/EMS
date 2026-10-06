@@ -1,5 +1,6 @@
 import { btn, th } from '../../components/ui/styles'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { Plus, Trash2, Edit2, X, Check, Archive, Info, SlidersHorizontal } from 'lucide-react'
 import {
   usePayrollSettings, useSavePayroll,
@@ -344,6 +345,31 @@ function Holidays({ canManage }) {
   const [notice, setNotice] = useState('')
   const [removing, setRemoving] = useState(null)
 
+  // Opened from Home's "Add holidays" (…#holidays): straight to here, below the
+  // leave types, with the focus here too, so the next Tab goes into this
+  // section. The sections above may still be loading, and grow after the first
+  // scroll, so for a moment it is kept in place as they do — until the person
+  // scrolls, clicks or types themselves.
+  const { hash } = useLocation()
+  useEffect(() => {
+    const section = hash === '#holidays' ? document.getElementById('holidays') : null
+    if (!section) return undefined
+    const bring = () => section.scrollIntoView({ block: 'start' })
+    bring()
+    section.focus({ preventScroll: true })
+    const grows = new ResizeObserver(bring)
+    grows.observe(section.parentElement ?? section)
+    const stop = () => grows.disconnect()
+    const timer = setTimeout(stop, 3000)
+    const theirs = ['wheel', 'touchstart', 'pointerdown', 'keydown']
+    for (const event of theirs) window.addEventListener(event, stop, { passive: true })
+    return () => {
+      stop()
+      clearTimeout(timer)
+      for (const event of theirs) window.removeEventListener(event, stop)
+    }
+  }, [hash])
+
   async function handleAdd(e) {
     e.preventDefault()
     const result = await addHoliday.mutateAsync({ date: draft.date, name: draft.name.trim(), type: draft.type }).catch(() => null)
@@ -364,7 +390,7 @@ function Holidays({ canManage }) {
   const publicCount = holidays.data?.filter((h) => h.type === 'public').length
 
   return (
-    <Section title="Holidays" desc="Diwali, Holi, Eid and the state holidays move every year — enter them here. Leave is not charged for a public holiday.">
+    <Section id="holidays" title="Holidays" desc="Diwali, Holi, Eid and the state holidays move every year — enter them here. Leave is not charged for a public holiday.">
       <div className="py-3 space-y-3">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex rounded-lg border border-gray-200 overflow-hidden">
