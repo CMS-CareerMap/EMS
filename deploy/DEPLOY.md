@@ -25,7 +25,7 @@ Everything below was run end to end on a laptop rehearsal of the box (`deploy/lo
 | # | What | State |
 |---|---|---|
 | 1 | **Packaging**: the two images, `compose.yml`, `deploy.sh`, the jobs, the laptop rehearsal | ✅ Built and rehearsed, 5 Oct 2026 |
-| 2 | **CI** (GitHub Actions) on pull requests and `main`: server typecheck, lint and tests against a Postgres service; web lint and build; the field contract; both images build | Next. Needs the repository in the CMS-CareerMap organization |
+| 2 | **CI** (GitHub Actions, `.github/workflows/ci.yml`) on pull requests and `main`: the migrations on an empty Postgres 17, server typecheck, the §A5 rules, the field contract and every test (clock in UTC, as the containers run); web lint and build; both images built, not pushed | ✅ Built 7 Oct 2026. No secrets, so it runs on the repository where it is today and moves with it to the CMS-CareerMap organization. After the move: allow Actions in the organization, and require CI on `main` |
 | 3 | **The Caddy block** for the EMS domain (the site, and `www` sent to it), handed to the box owner | Needs the domain |
 | 4 | **First deploy, by hand**: images over SSH, `.env`, the first Super Admin, the Caddy block, R2, the first backup and drill, a reboot, the smoke test, tag `v1.0` | Needs SSH as `deploy`, the domain, R2 keys, the Super Admin's email, who keeps the backup passphrase |
 | 5 | **CD**: on a version tag, build, ship over SSH, `deploy.sh` | After 4 |
