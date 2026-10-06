@@ -110,9 +110,12 @@ function Check({ done, children }) {
 
 /** What onboarding asks of a person, as the server found it. Shown, not enforced: HR decides. */
 export function OnboardingChecklist({ facts }) {
+  // A login waiting for its first password: HR's to set, or theirs from a link (Settings → Passwords).
+  const hrSets = useAuthStore((state) => state.passwords.rules.employeePasswords) === 'company'
+  const waiting = hrSets ? 'Has a login, waiting for HR to set its password' : 'Invited — has not set a password yet'
   return (
     <ul className="space-y-1.5">
-      <Check done={facts.login_active}>{facts.login_active ? 'Has signed in' : facts.login_invited ? 'Invited — has not set a password yet' : 'No login yet'}</Check>
+      <Check done={facts.login_active}>{facts.login_active ? 'Has a login that can sign in' : facts.login_invited ? waiting : 'No login yet'}</Check>
       <Check done={facts.required_documents === 0 || facts.verified_documents === facts.required_documents}>
         {facts.required_documents === 0 ? 'No documents are required' : `${facts.verified_documents} of ${facts.required_documents} required documents verified`}
       </Check>

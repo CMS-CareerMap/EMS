@@ -60,7 +60,9 @@ const HEADER = 'employee_code,full_name,email,phone,date_of_joining,department,d
 
 beforeAll(async () => {
   await cleanup()
-  const org = await prisma.organization.create({ data: { name: `${PREFIX}-org` } })
+  // Written for people who set their own passwords, from links (Settings →
+  // Passwords, "self"); the company-set default is tested in user/passwords.test.ts.
+  const org = await prisma.organization.create({ data: { name: `${PREFIX}-org`, employeePasswords: 'self', rolePasswords: 'self' } })
   orgId = org.id
 
   await prisma.department.create({ data: { organizationId: orgId, name: 'Sales' } })

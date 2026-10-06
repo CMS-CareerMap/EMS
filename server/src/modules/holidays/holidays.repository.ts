@@ -1,6 +1,7 @@
 import type { HolidayType } from '@prisma/client'
 import type { ScopedDb } from '../../platform/db/scoped'
 import type { TxDb } from '../../platform/db/transaction'
+import { equalsInsensitive } from '../../platform/db/insensitive'
 
 /** The company's holiday calendar. */
 
@@ -18,7 +19,7 @@ export async function findById(db: ScopedDb, id: string) {
 
 /** The same holiday on the same day, whatever the capitalisation. */
 export async function findSame(db: ScopedDb, date: Date, name: string) {
-  return db.holiday.findFirst({ where: { date, name: { equals: name, mode: 'insensitive' } } })
+  return db.holiday.findFirst({ where: { date, name: equalsInsensitive(name) } })
 }
 
 export async function create(

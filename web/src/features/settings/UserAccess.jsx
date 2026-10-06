@@ -3,8 +3,11 @@ import { useRef, useState } from 'react'
 import { Copy, Check, KeyRound, Loader2, UserPlus, X } from 'lucide-react'
 import { useInviteUser } from '../../hooks/useUsers'
 import { useInvitableRoles } from '../../hooks/useRoles'
+import { useAuthStore } from '../../stores/authStore'
+import PasswordFields from '../../components/PasswordFields'
 import { formatInstant } from '../../lib/dates'
 import { optionsNote } from '../../lib/optionsNote'
+import { maySetPasswordOf, passwordPairProblem, passwordSetBy, passwordSetterName } from '../../lib/logins'
 
 /**
  * Inviting somebody, and handing them their link.
@@ -99,17 +102,37 @@ export function PasswordLinkPanel({ email, invite, onDone }) {
   )
 }
 
-/** Invites somebody by email and reports the link it produced. */
+/**
+ * Adds somebody's login, and reports how it started (client, 6 Oct 2026):
+ * with the password typed here, where the company sets this kind of login's
+ * and this person may set it; with a link, where the person sets their own;
+ * or waiting for its password. The raw result goes back to the page.
+ */
 export function InviteUserForm({ onInvited, onCancel }) {
   const invite = useInviteUser()
   const { query: rolesQuery, roles } = useInvitableRoles()
+  const rules = useAuthStore((state) => state.passwords.rules)
+  const isSuperAdmin = useAuthStore((state) => state.can('role:manage'))
+  const holdsPasswords = useAuthStore((state) => state.can('user:password:set'))
   const [form, setForm] = useState({ email: '', full_name: '', role: '', employee_code: '' })
+  const [pair, setPair] = useState({ password: '', again: '' })
+  const [problem, setProblem] = useState('')
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }))
   // Until somebody picks, the Employee role if it may be given, else the first.
   const role = form.role || (roles.some((r) => r.key === 'employee') ? 'employee' : roles[0]?.key ?? '')
+  const chosen = roles.find((r) => r.key === role)
+  const kind = chosen ? chosen.login_kind : null
+  const typed = kind !== null && passwordSetBy(kind, rules) === 'company' && maySetPasswordOf(kind, { isSuperAdmin, holds: holdsPasswords })
+  // An employee login made with an employee record signs in with its Employee ID.
+  const emailOptional = kind === 'employee' && form.employee_code.trim() !== ''
 
   async function handleSubmit(e) {
     e.preventDefault()
+    if (typed) {
+      const wrong = passwordPairProblem(pair, rules.passwordMinLength)
+      setProblem(wrong)
+      if (wrong) return
+    }
     // A failure is already shown by the app-wide error toast; the form simply
     // stays open with what was typed, so it can be corrected.
     const result = await invite.mutateAsync({
@@ -117,23 +140,24 @@ export function InviteUserForm({ onInvited, onCancel }) {
       role,
       full_name: form.full_name.trim(),
       employee_code: form.employee_code.trim(),
+      ...(typed ? { password: pair.password } : {}),
     }).catch(() => null)
 
-    if (result) onInvited({ email: result.user.email, invite: result.invite })
+    if (result) onInvited(result)
   }
 
   return (
     <form onSubmit={handleSubmit} className="border border-gray-200 rounded-xl p-4 space-y-4 bg-gray-50">
       <div className="flex items-center gap-2">
         <UserPlus className="w-4 h-4 text-brand-600" />
-        <p className="text-sm font-semibold text-gray-900">Invite a user</p>
+        <p className="text-sm font-semibold text-gray-900">Add a user</p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-1">
-          <label htmlFor="invite-email" className="text-xs font-medium text-gray-600">Work email</label>
-          <input id="invite-email" type="email" required value={form.email} onChange={(e) => set('email', e.target.value)}
-            placeholder="name@company.in" className={inp} />
+          <label htmlFor="invite-email" className="text-xs font-medium text-gray-600">{emailOptional ? 'Work email (optional)' : 'Work email'}</label>
+          <input id="invite-email" type="email" required={!emailOptional} value={form.email} onChange={(e) => set('email', e.target.value)}
+            placeholder={emailOptional ? 'Leave empty to use the employee code' : 'name@company.in'} className={inp} />
         </div>
         <div className="space-y-1">
           <label htmlFor="invite-name" className="text-xs font-medium text-gray-600">Full name</label>
@@ -156,15 +180,29 @@ export function InviteUserForm({ onInvited, onCancel }) {
         </div>
       </div>
 
+      {typed && (
+        <>
+          <PasswordFields value={pair} onChange={(next) => { setPair(next); setProblem('') }} minLength={rules.passwordMinLength} />
+          {problem && <p role="alert" className="text-sm text-red-600">{problem}</p>}
+        </>
+      )}
+      {kind !== null && !typed && (
+        <p className="text-xs text-gray-500">
+          {passwordSetBy(kind, rules) === 'self'
+            ? 'They get a link to set their own password.'
+            : `The login waits for its password — ${passwordSetterName(kind)} sets it.`}
+        </p>
+      )}
+
       {/* A login invited without an employee code belongs to no person (an
           operator), so it sits outside the company tree and the rule that one's
           own work goes up. Somebody already on the staff gets theirs on their page. */}
       <p className="text-xs text-gray-500">
-        Already an employee? Give them their role login on their page instead (Employees → their name → Logins), so it is the same person.
+        Already an employee? Give them their login on their page instead (Employees → their name → Logins), so it is the same person.
         Without an employee code this login belongs to nobody on the staff.
       </p>
 
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <button type="button" onClick={onCancel}
           className="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100">
           Cancel
@@ -172,7 +210,7 @@ export function InviteUserForm({ onInvited, onCancel }) {
         <button type="submit" disabled={invite.isPending || !role}
           className={btn.primary}>
           {invite.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
-          Create invitation
+          {kind !== null && passwordSetBy(kind, rules) === 'self' ? 'Create invitation' : 'Add login'}
         </button>
       </div>
     </form>

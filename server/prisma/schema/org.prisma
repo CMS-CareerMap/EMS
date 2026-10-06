@@ -74,6 +74,17 @@ model Organization {
   /// check-in (client §32). Off: the approved request is enough.
   wfhGpsRequired     Boolean         @default(false)
 
+  /// Settings → Users & Roles → Passwords (client, 6 Oct 2026). Who sets the
+  /// password of an employee login: the company — HR, or the Super Admin —
+  /// with the employee unable to change it; or the employee, from a link.
+  employeePasswords PasswordSetter @default(company)
+  /// The same for every role login (HR, Accounts, a manager's …): the company
+  /// here means the Super Admin alone, and the person cannot change it either.
+  /// A Super Admin's own password is always theirs to change.
+  rolePasswords     PasswordSetter @default(company)
+  /// The fewest characters any password may have.
+  passwordMinLength Int            @default(10)
+
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
@@ -124,6 +135,15 @@ model Organization {
   emailOutbox      EmailOutbox[]
 
   auditLogs AuditLog[]
+}
+
+/// Who sets a kind of login's password (Settings → Users & Roles → Passwords).
+enum PasswordSetter {
+  /// The company: HR or the Super Admin for an employee login, the Super Admin
+  /// alone for a role login. The person cannot change it.
+  company
+  /// The person, from a link; they may change it afterwards.
+  self
 }
 
 /// Who may decide a request instead of a reporting manager who is away.

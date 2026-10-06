@@ -1,4 +1,5 @@
-import { Unauthorized, ValidationFailed } from '../../platform/errors/AppError'
+import { Forbidden, Unauthorized, ValidationFailed } from '../../platform/errors/AppError'
+import { passwordSetterName } from '../../domain/org/passwords'
 import { tellPasswordChanged } from './passwordNotice'
 import {
   signAccessToken,
@@ -228,13 +229,23 @@ export async function changePassword(
   const credentials = await sessions.findUserCredentials(userId)
   if (!credentials) throw Unauthorized('Not authenticated')
 
+  // A password the company sets (Settings → Passwords) is not the person's to
+  // change: HR sets an employee login's, the Super Admin a role login's.
+  const own = await findIdentityByUserId(userId)
+  if (!own) throw Unauthorized('Not authenticated')
+  if (own.passwordSetBy === 'company') {
+    logger.warn('Password change refused', { userId, reason: 'set_by_company' })
+    const who = passwordSetterName(own.loginKind)
+    throw Forbidden(`Your password is set by ${who}. Ask ${who} to change it.`)
+  }
+
   const ok = await verifyPassword(currentPassword, credentials.passwordHash)
   if (!ok) {
     logger.warn('Password change refused', { userId, reason: 'wrong_current_password' })
     throw Unauthorized('Your current password is not correct')
   }
 
-  const problem = passwordProblem(newPassword)
+  const problem = passwordProblem(newPassword, own.passwordMinLength)
   if (problem) throw ValidationFailed(problem, [{ field: 'newPassword', message: problem }])
 
   if (newPassword === currentPassword) {
@@ -263,7 +274,7 @@ export async function changePassword(
     requestId: meta.requestId,
   })
 
-  await tellPasswordChanged(identity.organizationId, userId, 'changed')
+  await tellPasswordChanged(identity.organizationId, userId, { how: 'changed' })
 
   return issueSession(identity, meta)
 }

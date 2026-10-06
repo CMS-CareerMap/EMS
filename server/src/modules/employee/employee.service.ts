@@ -5,7 +5,20 @@ import { withTransaction } from '../../platform/db/transaction'
 import { lockFor } from '../../platform/db/locks'
 import { isUniqueViolation } from '../../platform/db/errors'
 import { logger } from '../../platform/logger'
-import { assertMayGive, createLoginInTransaction, rolesLock } from '../user/user.service'
+import {
+  assertLoginEmail,
+  createLoginInTransaction,
+  freeEmployeeCode,
+  loginStartFor,
+  preparedPassword,
+  rolesForGrant,
+  rolesLock,
+  type LoginStart,
+} from '../user/user.service'
+import { findMembershipByEmail, passwordRules } from '../user/user.repository'
+import { mayGive, REFUSAL_MESSAGES } from '../user/user.policy'
+import { loginKind } from '../../domain/org/passwords'
+import { EMPLOYEE_ROLE } from '../../platform/authz/defaultRoles'
 import { isInScope, type PersonPlace } from '../../platform/authz/scopeWhere'
 import { SCOPED_RESOURCES } from '../../platform/authz/scope'
 import { RESOURCE_LABELS } from '../../platform/authz/catalogue'
@@ -47,7 +60,7 @@ async function accessFor(ctx: AppContext): Promise<repo.FieldAccess> {
     compensationScope: ctx.scopeFor('compensation'),
     includeBank: ctx.can('employee:bank:read'),
     includeIdentity: ctx.can('employee:identity:read'),
-    includeLogins: (['role:manage', 'user:invite', 'user:status:update', 'user:delete', 'membership:role:assign'] as const).some((p) => ctx.can(p)),
+    includeLogins: (['role:manage', 'user:invite', 'user:status:update', 'user:delete', 'membership:role:assign', 'user:password:set'] as const).some((p) => ctx.can(p)),
     today: await companyToday(ctx),
     lifecycleOf: await lifecycleVisibility(ctx),
   }
@@ -164,7 +177,12 @@ export interface CreateEmployeeInput {
       }
     | undefined
   /** `role` is a role key of this company. */
-  login?: { email: string; role: string } | undefined
+  /**
+   * A login with the record. Its email is optional for an employee login,
+   * which signs in with the Employee ID; the password is typed for them when
+   * the company sets it (Settings → Passwords).
+   */
+  login?: { email?: string | null | undefined; role: string; password?: string | undefined } | undefined
   /** Somebody already working here: onboarded and confirmed on this day (the employee lifecycle). */
   confirmedOn?: string | null | undefined
 }
@@ -172,8 +190,10 @@ export interface CreateEmployeeInput {
 export interface CreateEmployeeResult {
   row: repo.EmployeeRow
   access: repo.FieldAccess
-  /** Present only when a login was requested. Shown once, never stored. */
+  /** Present only when a login was made that starts with a link. Shown once, never stored. */
   invite?: { token: string; expiresAt: Date } | undefined
+  /** How the login started: a password typed for them, a link, or none yet. */
+  loginStart?: LoginStart | undefined
 }
 
 /**
@@ -356,12 +376,20 @@ export async function createEmployee(
   input: CreateEmployeeInput,
 ): Promise<CreateEmployeeResult> {
   let invite: { token: string; expiresAt: Date } | undefined
+  let loginStart: LoginStart | undefined
 
   assertMayWriteStatutory(ctx, input)
   assertLeavesAfterJoining(input.dateOfJoining ?? null, input.lastWorkingDate ?? null)
   // A new record has no id yet, so it is in reach only by its manager or department.
   assertWithinReach(ctx, { id: '', reportingManagerId: input.reportingManagerId ?? null, departmentId: input.departmentId ?? null }, true)
   const lifecycle = await lifecycleStart(ctx, input)
+  const loginEmail = input.login?.email ? input.login.email.toLowerCase().trim() : null
+  // Told as what it is, not as a duplicate employee code (the unique index would say that).
+  if (loginEmail && (await findMembershipByEmail(ctx.db, loginEmail))) {
+    throw Conflict('Someone with that email address already has access to this company. Each login needs an email of its own.')
+  }
+  // Checked and hashed before any lock: hashing is deliberately slow.
+  const password = input.login ? await preparedPassword(ctx.db, ctx.organizationId, input.login.password) : null
 
   const employeeId = await withTransaction(ctx.db, async (tx) => {
     let roleName: string | null = null
@@ -371,16 +399,22 @@ export async function createEmployee(
       await assertManagerFits(tx, ctx, null, input.reportingManagerId)
     }
 
-    if (input.login) {
+    if (input.login && password) {
       // An inviter cannot hand out a role above their own — the same rule the
       // invite endpoint applies, reused rather than restated.
       await lockFor(tx, rolesLock(ctx.organizationId))
-      roleName = (await assertMayGive(tx, ctx, input.login.role, ['employee:create'])).grant.name
+      const { actor, next: given, order } = await rolesForGrant(tx, ctx, input.login.role, ['employee:create'])
+      if (!mayGive(actor, given, order)) throw Forbidden(REFUSAL_MESSAGES.not_below)
+      roleName = given.grant.name
+      const kind = loginKind(input.login.role, EMPLOYEE_ROLE, given.locked)
+      assertLoginEmail(kind, loginEmail, true)
+      // The rules as they stand under the lock a change of them takes too.
+      loginStart = loginStartFor(kind, await passwordRules(tx, ctx.organizationId), actor, password.hash !== null)
     }
 
     const employee = await repo.createEmployee(tx, {
       organizationId: ctx.organizationId,
-      employeeCode: input.employeeCode.trim(),
+      employeeCode: await freeEmployeeCode(tx, ctx.organizationId, input.employeeCode),
       fullName: input.fullName.trim(),
       personalEmail: input.personalEmail ?? null,
       phone: input.phone ?? null,
@@ -400,15 +434,17 @@ export async function createEmployee(
       ...lifecycle,
     })
 
-    if (input.login) {
+    if (input.login && password && loginStart) {
       const created = await createLoginInTransaction(tx, {
-        email: input.login.email,
+        email: loginEmail,
         role: input.login.role,
         organizationId: ctx.organizationId,
         invitedByUserId: ctx.userId,
         employeeId: employee.id,
+        start: loginStart,
+        passwordHash: password.hash,
       })
-      invite = { token: created.inviteToken, expiresAt: created.expiresAt }
+      if (created.inviteToken && created.expiresAt) invite = { token: created.inviteToken, expiresAt: created.expiresAt }
     }
 
     if (input.statutory) {
@@ -448,9 +484,9 @@ export async function createEmployee(
   const row = await repo.findById(ctx.db, { ...ctx.scopeFor('employee'), scope: 'ORGANIZATION' }, employeeId, access)
   if (!row) throw NotFound('Employee was created but could not be read back')
 
-  logger.info('Employee created', { by: ctx.userId, employeeId, withLogin: Boolean(input.login) })
+  logger.info('Employee created', { by: ctx.userId, employeeId, withLogin: Boolean(input.login), loginStart })
 
-  return { row, access, invite }
+  return { row, access, invite, loginStart }
 }
 
 export type UpdateEmployeeInput = Partial<Omit<CreateEmployeeInput, 'login' | 'confirmedOn'>>
@@ -582,7 +618,11 @@ export async function updateEmployee(
       if (departmentChanged) changes.department = { from: fromDepartment, to: toDepartment }
     }
 
-    if (input.employeeCode !== undefined) data.employeeCode = input.employeeCode.trim()
+    // Checked only when it changes: the edit form sends it every time, and an
+    // ID kept as it was is no new clash.
+    if (input.employeeCode !== undefined && input.employeeCode.trim() !== existing.employeeCode) {
+      data.employeeCode = await freeEmployeeCode(tx, ctx.organizationId, input.employeeCode, existing.id)
+    }
     if (input.fullName !== undefined) data.fullName = input.fullName.trim()
     if (input.personalEmail !== undefined) data.personalEmail = input.personalEmail
     if (input.phone !== undefined) data.phone = input.phone

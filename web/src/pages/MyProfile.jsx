@@ -8,6 +8,7 @@ import MyEmployment from '../features/employees/MyEmployment'
 import MyDetails from '../features/requests/MyDetails'
 import { useMyDashboardStats } from '../hooks/useDashboard'
 import { roleLabel } from '../lib/roles'
+import { passwordSetterName } from '../lib/logins'
 import DataState from '../components/DataState'
 import ProfileCover from '../components/ui/ProfileCover'
 import { TabPanel } from '../components/ui/Tabs'
@@ -118,6 +119,11 @@ function getPasswordStrength(password) {
 
 function PasswordCard() {
   const setSession = useAuthStore((state) => state.setSession)
+  // Whose this login's password is (Settings → Passwords): the company's — set
+  // by HR or the Super Admin — or the person's own to change.
+  const own = useAuthStore((state) => state.passwords.own)
+  const kind = useAuthStore((state) => state.passwords.kind)
+  const minLength = useAuthStore((state) => state.passwords.rules.passwordMinLength)
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -135,7 +141,7 @@ function PasswordCard() {
     e.preventDefault()
     setNotice(null)
     if (!currentPassword) return setNotice({ type: 'error', message: 'Please enter your current password.' })
-    if (!newPassword || newPassword.length < 10) return setNotice({ type: 'error', message: 'New password must be at least 10 characters.' })
+    if (!newPassword || newPassword.length < minLength) return setNotice({ type: 'error', message: `New password must be at least ${minLength} characters.` })
     if (newPassword !== confirmPassword) return setNotice({ type: 'error', message: 'New password and confirm password do not match.' })
 
     setLoading(true)
@@ -165,8 +171,24 @@ function PasswordCard() {
     </div>
   )
 
+  // Not theirs to change: said plainly, with who does — instead of a form the server would refuse.
+  if (own === 'company') {
+    const who = passwordSetterName(kind)
+    return (
+      <Card title="Password" subtitle="Your password is set for you.">
+        <div className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-700 max-w-xl">
+          <KeyRound className="w-4 h-4 shrink-0 mt-0.5 text-gray-500" aria-hidden="true" />
+          <p>
+            At this company {who} sets your password, and you cannot change it here. If you have forgotten it, or think
+            somebody else knows it, ask {who} to set a new one. You will be signed out everywhere and told in the app.
+          </p>
+        </div>
+      </Card>
+    )
+  }
+
   return (
-    <Card title="Edit password" subtitle="At least 10 characters. Changing it signs out your other devices.">
+    <Card title="Edit password" subtitle={`At least ${minLength} characters. Changing it signs out your other devices.`}>
       <form onSubmit={handleUpdatePassword} className="space-y-4 max-w-md">
         {notice && (
           <div className={`flex items-start gap-2.5 p-3 rounded-xl border text-xs leading-relaxed ${notice.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-700'}`}>

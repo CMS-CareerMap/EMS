@@ -1,13 +1,14 @@
 # Role & Permission Documentation
 
-**EMS — CareerMap Solutions** | Version 2.1 | 3 October 2026
+**EMS — CareerMap Solutions** | Version 2.2 | 6 October 2026
 
 This document says who can do what in EMS, and how the system enforces it. It describes the model built on Days 21–23:
 
 - **Roles are the company's own.** The Super Admin creates, edits and orders them on **Settings → Roles & Permissions**. A new company starts with seven, listed in §3.
 - **Approvals follow the company tree**, not a role. The person somebody reports to decides their leave (§5).
 - **Your own work goes up the tree.** Nobody checks, corrects or enters their own items in their role's area, and neither do their peers or juniors (§6).
-- **Two logins, one person.** Somebody with a role has an employee login and a role login, each with its own email. Both are the same person, so every rule above holds from both (§7).
+- **Two logins, one person.** Somebody with a role has an employee login and a role login, each with its own password. Both are the same person, so every rule above holds from both (§7).
+- **Passwords are set by the company** (client, 6 Oct 2026). HR gives an employee their Employee ID and a password typed by hand, and sets a new one when asked; the Super Admin sets a role login's. Nobody but a Super Admin changes their own. An employee login needs no email: the person signs in with their Employee ID. Settings can hand either kind back to the person (§7.5).
 - **The employee lifecycle** (client §43): joining soon → onboarding → probation → confirmed → transfers and promotions → resigned → serving notice → exit. HR takes the steps; a resignation is accepted by the person somebody reports to, like leave (§9).
 
 The client's own description of the same model, in plain words, is `docs/client/EMS-Roles-and-Approvals.pdf`.
@@ -91,6 +92,8 @@ The order decides who may hand out or manage which role (§8). It does **not** p
 | Settings (company, payroll config, notifications) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Settings → Employee Lifecycle (probation, notice period) | ✅ | ❌ | 👁 | ❌ | ❌ | ❌ |
 | Users, roles, company tree, approvals | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Set employees’ passwords — give an employee login, set a new password (§7.5) | ✅ any login | ❌ | ✅ employee logins | ❌ | ❌ | ❌ |
+| Change one's own password | ✅ | ❌ ask the Super Admin | ❌ ask the Super Admin | ❌ ask the Super Admin | ❌ ask the Super Admin | ❌ ask HR |
 | Audit log | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Notifications (the bell) | own | own | own | own | own | own |
 
@@ -104,6 +107,7 @@ Notes:
 - **Accounts** has no `employee:read`. Salaries and bank details reach Accounts through the payroll screens only.
 - **Admin and Accounts cannot apply for leave** from their role login. They do it from their employee login (§7).
 - **Manager, RM and Accounts** have no employee documents, so they cannot upload even their own from the role login. That is still an open question for the client (§12). From the employee login they can.
+- **HR and passwords.** HR holds `user:password:set`: it gives an employee login to somebody below HR who has none, and sets the password of an employee login — never a role login's, never its own, never a senior's. The two password rows are the starting settings (§7.5); handed back to the person, they change their own.
 
 ### 3.3 The starting scopes
 
@@ -200,7 +204,7 @@ A person who holds a role has two logins:
 | **Employee login** | Their own things only: punch in, own attendance, apply for and withdraw leave, own documents, own payslips, own bank account | `priya@careermap.in`, role Employee |
 | **Role login** | The role's work, and their team's leave | `priya.hr@careermap.in`, role HR |
 
-- Each login has its **own email and its own password**. Ordinary employees have one login.
+- Each login has its **own password**. A role login has its own email; an employee login may have none, and then the person signs in with their Employee ID. Ordinary employees have one login.
 - Nothing makes the second login by itself: the Super Admin adds it (§7.3). A login invited from Settings → Users **without an employee code** belongs to nobody on the staff (an operator, such as an outside administrator). It is outside the company tree, and so outside the rule that one's own work goes up. Somebody already on the staff gets their role login on their page, never this way; the invite form says so.
 - Both logins belong to the **same person**: the same employee record and the same place in the company tree.
 - The top bar always says which one is open: "Signed in as HR" or "Signed in as Employee". On a phone it shows the role as a small label.
@@ -210,23 +214,47 @@ A person who holds a role has two logins:
 - **Own work goes up** (§6) from both logins. A person "does" a kind of work if **any** of their live logins' roles holds it. So once Priya has an HR login, a fellow HR person can no longer correct her leave balance either.
 - **Leave:** nobody decides their own leave from either login. A person with people under them decides their team's leave from the **role login**. Their employee login is for their own things: it shows no Team Requests, is not told of the team's requests, and cannot decide them (`ctx.selfServiceOnly`, `domain/org/logins.ts` `isSelfServiceLogin`). While the role login is only invited or switched off, the employee login decides, so nothing waits.
 - **The Super Admin panel** counts from any live login: for the owner mark, and for "the Super Admin is always above".
-- **User management:** nobody changes the role of, switches off or removes their own logins, either one. Acting on any one login of a person (a password link, switching it, giving it a role, removing them) needs the right over **every** login of theirs: a senior's employee login is the senior. Nor does anybody but the Super Admin manage the logins of somebody above them in the company tree, whatever the role order says.
+- **User management:** nobody changes the role of, switches off or removes their own logins, either one. Acting on any one login of a person (setting its password, a password link, switching it, giving it a role, removing them) needs the right over **every** login of theirs: a senior's employee login is the senior. Nor does anybody but the Super Admin manage the logins of somebody above them in the company tree, whatever the role order says.
 - **Who sees a person's logins:** the list of every login (each email, role and status) goes only to whoever manages logins (`role:manage` or a `user:*` permission). Everybody else reading the directory sees the work email, as before.
 - **Notifications** about the person go to all their logins that are not switched off; a request waiting for their decision goes to the role login. Nobody is told about their own action on their other login. A password change on one login is also told on the other.
 - **The audit log** filter "about a person" finds the entries of both logins.
 
 ### 7.3 Adding, switching off, leaving
 
-- **Adding a role login** is the Super Admin's (`role:manage`). It is done on the person's page (**Employees → the person → Logins → Add role login**), never by adding a new person. The login gets its own email and its own invitation link. The role must be one the person does not hold already (`POST /api/employees/:id/logins`).
+- **Adding a role login** is the Super Admin's (`role:manage`). It is done on the person's page (**Employees → the person → Logins → Add another login**), never by adding a new person. The login gets its own email, and its password from the Super Admin (or a link, where people set their own — §7.5). The role must be one the person does not hold already (`POST /api/employees/:id/logins`).
+- **Adding an employee login** to somebody already here who has none is also HR's (`user:password:set`), on the same page, for somebody below HR in the tree; its email is optional.
 - **Switching one login off** (Settings → Users, or the person's page) leaves the other as it is. It is asked once more, since it signs that login out at once.
 - **Withdrawing an invitation** nobody used (a mistyped address) deletes that login, so the right one can be added with the same role (`POST /api/users/:id/withdraw`). A login somebody has signed in with is switched off instead.
 - **Leaving** (Remove in Settings → Users) closes **every** login of the person together, ends every session of both, and archives the employee record. The caller must be allowed to manage every one of those logins: HR cannot remove somebody whose other login is Accounts. The logins of somebody who has left stay closed: turning one back on is refused, and Users shows them as "Left" with no buttons.
 - **Settings → Users & Roles** lists a person's logins together, with the name once, "2 logins", and "Their other login" on the second row. The role picker leaves out the roles their other logins hold.
-- **Signing in by Employee ID** works when exactly one of the person's logins can sign in (a role login still invited, or switched off, does not count). An Employee ID names a person, so somebody with two live logins signs in with the email of the login they want. The sign-in page says so.
+- **Signing in by Employee ID** opens the one login of the person that can sign in (a role login still waiting for its password, or switched off, does not count). For somebody with two live logins it opens the **employee login**, which may have no email; the role login signs in with its own email. The sign-in page says so. The ID is matched in any letters (`cms007` is `CMS007`), so two Employee IDs that differ only in capitals are refused when a person is added or changed.
 
 ### 7.4 Data
 
-`Membership.employeeId` links a login to its person. A person may have any number of logins, but only one per role (`@@unique([organizationId, employeeId, role])`). Migration `20261002045302_two_logins` copied every existing link from the old `Employee.membershipId` before dropping it; `20261002055519_two_logins_person_fk` makes a login go with its person if an employee row were ever hard-deleted (EMS never does).
+`Membership.employeeId` links a login to its person. A person may have any number of logins, but only one per role (`@@unique([organizationId, employeeId, role])`). Migration `20261002045302_two_logins` copied every existing link from the old `Employee.membershipId` before dropping it; `20261002055519_two_logins_person_fk` makes a login go with its person if an employee row were ever hard-deleted (EMS never does). `User.email` may be empty (migration `20261006020727_hr_sets_passwords`) for an employee login that signs in by Employee ID.
+
+### 7.5 Passwords
+
+Who sets a password is a company setting: **Settings → Users & Roles → Passwords** (the Super Admin alone, `role:manage`; reading it needs `settings:read`). The starting settings are the client's choice (6 Oct 2026):
+
+| Login | Starting setting | The other choice |
+|-------|------------------|------------------|
+| Employee login | **Set by HR.** HR types it when giving the login and sets a new one when asked. The employee cannot change it. | Set by the employee, from a link; they change it whenever they like |
+| Role login (HR, Accounts, a manager…) | **Set by the Super Admin.** Nobody else sets it, and the person cannot change it. | Set by the person, from a link |
+| Super Admin | Always their own — on every login of theirs, their employee login too: they change it on My Profile, or set their employee login's from their own page | — |
+| Shortest password | **10 characters** | 8 to 64 |
+
+- **Nothing is generated.** Whoever sets a password types it twice and tells the person; it is never shown again or sent anywhere. HR also chooses the Employee ID by hand.
+- **Adding somebody** (Employees → Add Employee, Settings → Users & Roles → Add user, a person's Logins): where the company sets the password, it is typed there and the login works at once. Left out, the login waits ("No password yet") until it is set. A role login typed by HR is refused: HR may make one, and it waits for the Super Admin.
+- **A roster import** carries no passwords. Each login it makes waits for HR, and the result says how many.
+- **Setting a new one** (the person's page → Logins → Set new password, or the key in Settings → Users & Roles) signs out every device on the old one, spends any link still out, and tells the person in the bell ("A new password was set for you"). It is in the audit log ("Password set"), without the password.
+- **Who may set it** (`user:password:set`): the Super Admin anybody's whose password the company sets — never another Super Admin's, on any login of theirs; a holder of the permission (HR) an employee login's, for somebody below them whose every login is below them too (§7.2). Never the login one is signed in with, nor one's other login — except a Super Admin's employee login, which they set from their Super Admin login. Where people set their own (the other choice), nobody sets it for them: they get a link. HR adds an employee login only to somebody whose every login is below HR.
+- **A role login always has an email.** A login with none stays an employee login: changing its role is refused.
+- **Employee IDs** are matched in any letters, so one that differs from another only in capitals is refused (under a lock, so two added at once cannot both get through — the roster import too); the refusal does not say whose it is. An ID cannot contain `@`, which signing in reads as an email.
+- **Changing one's own** (My Profile → Password) is refused where the company sets it; the page says whom to ask. Forgot password on the sign-in page says the same.
+- **Switching the setting** to the person changes nothing already set: they get a link the next time one is issued. Switching it to the company spends every link still out for that kind of login, for good — switched back later, an old link does not work again (links from before this setting existed were spent when it came in, migration `20261006093000_spend_old_password_links`; a Super Admin's are kept). A change of the rules takes the same lock as making a login, a link or a password, so none of them reads the rules half-changed. A longer minimum applies to the next password set; passwords already set stay.
+- **A custom role placed above HR** that does not hold "Set employees’ passwords" can no longer manage HR's logins once HR holds it (a role manages only roles that hold nothing it lacks, §8). The Super Admin ticks it for that role on the Roles screen. The starting roles are not affected.
+- Code: `server/src/domain/org/passwords.ts` (the rules), `server/src/modules/user/user.service.ts` (`setPassword`, `loginStartFor`, `updatePasswordRules`, `freeEmployeeCode`), `web/src/lib/logins.js`.
 
 ---
 
@@ -241,8 +269,8 @@ A person who holds a role has two logins:
 - **Ticks that need another.** "Enter monthly incentives" needs "See salaries" (an incentive is pay; without it the tick reaches nobody). PAN, UAN, PF and ESIC are written only by somebody who may read them.
 - **Reach.** Managing logins works within the role's employee scope. A role reaching one department manages only that department's logins.
 - **Moving people.** Who somebody reports to is the Super Admin's to change (§5.1). A department move is still HR's, but nobody moves somebody into their own department when that would show them more (salaries, for example), and nobody moves a senior.
-- **Adding people.** Inviting (Settings → Users) and importing a roster need a company-wide employee scope, because both add people outside any team or department (the import checks it again at the moment it saves). A narrower role adds people under Employees, with itself as their reporting manager. The Import button shows only for a company-wide reach.
-- A roster with an email column gives each person an Employee login, so only a role that may give the Employee role can import it. The preview says so.
+- **Adding people.** Adding a user (Settings → Users) and importing a roster need a company-wide employee scope, because both add people outside any team or department (the import checks it again at the moment it saves). A narrower role adds people under Employees, with itself as their reporting manager. The Import button shows only for a company-wide reach.
+- A roster with an email column gives each person an Employee login — waiting for HR to set its password, or with a link where employees set their own — so only a role that may give the Employee role can import it. The preview says so.
 - A role without "Open the dashboard" signs in to the first area it can open.
 - The screen warns, and asks once more, before saving a role that both prepares and approves the payroll, or one that can read the audit log.
 
@@ -385,9 +413,9 @@ Accounts sets salaries → creates the month's run (draft) → recalculates as n
 
 | Area | Implementation |
 |------|----------------|
-| Sign-in | Email, or Employee ID for somebody with one login, and password |
+| Sign-in | Email, or Employee ID (any letters; the employee login for somebody with two), and password |
 | Tokens | Access token 15 minutes; refresh token 7 days, rotated on use; a reused one ends the session. A role change ends access tokens at once |
-| Passwords | bcrypt, cost 12; no default password; invitations and resets are single-use links valid 72 hours |
+| Passwords | bcrypt, cost 12; no default password and none generated; set by HR or the Super Admin (§7.5), or — where the company hands it back — from single-use links valid 72 hours; at least 10 characters to start |
 | Self-protection | Nobody changes their own role, switches off or removes their own logins, or does their own work in their role's area (§6, §7) |
 | Roles | Rows per company; the starting set in `defaultRoles.ts`, checked against the database trigger by tests |
 | Files | Checked by content, private storage, opened through the app, every download recorded |
@@ -412,9 +440,17 @@ Accounts sets salaries → creates the month's run (draft) → recalculates as n
 ## 12. Testing checklist
 
 **Sign-in**
-- [ ] Each role signs in with email; somebody with one login also with Employee ID
-- [ ] Somebody with two logins cannot sign in by Employee ID, and the sign-in page says to use the email
+- [ ] Each role signs in with email; anybody also with their Employee ID, in any letters
+- [ ] An employee login with no email signs in by Employee ID; somebody with two logins reaches the employee login by ID and the role login by its email, and the sign-in page says so
 - [ ] The top bar says which login is open, on desktop and on a phone
+
+**Passwords**
+- [ ] HR adds an employee with an Employee ID and a typed password; the login works at once; short and mismatched passwords are stopped
+- [ ] HR sets a new password: the old sessions end, the person is told in the bell, the old password no longer works
+- [ ] The employee and every role login cannot change their own; My Profile and Forgot password say whom to ask; the Super Admin can
+- [ ] HR cannot set a role login's, its own, or a senior's; the Super Admin sets a role login's
+- [ ] A roster import makes logins that wait ("No password yet") and hands out no links
+- [ ] Settings → Passwords: the length applies to the next password; handed back to people, links and own changes work; taken back, every link still out stops working for good
 
 **Permissions and scopes**
 - [ ] The menu shows only what the role opens; a direct URL to anything else is refused

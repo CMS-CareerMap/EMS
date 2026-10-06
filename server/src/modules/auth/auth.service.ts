@@ -15,7 +15,7 @@ export interface LoginInput {
   password: string
 }
 
-/** Anything with an @ is treated as an email. Employee codes never contain one. */
+/** Anything with an @ is treated as an email. Employee codes never contain one: the validators refuse it. */
 function looksLikeEmail(identifier: string): boolean {
   return identifier.includes('@')
 }

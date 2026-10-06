@@ -1,5 +1,6 @@
 import type { ScopedDb } from '../../platform/db/scoped'
 import type { TxDb } from '../../platform/db/transaction'
+import { equalsInsensitive } from '../../platform/db/insensitive'
 
 /**
  * Everything a salary calculation reads, and nothing it writes.
@@ -71,7 +72,7 @@ export async function findPolicyOn(db: ScopedDb, on: Date) {
 export async function findPtSlabsOn(db: ScopedDb, state: string, on: Date) {
   return db.ptSlab.findMany({
     where: {
-      state: { equals: state, mode: 'insensitive' },
+      state: equalsInsensitive(state),
       ...inForceOn(on),
     },
     orderBy: { minGross: 'asc' },

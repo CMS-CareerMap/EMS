@@ -7,6 +7,8 @@ import * as repo from './invite.repository'
 import { findIdentityByUserId } from './auth.repository'
 import { recordSecurityEvent } from '../audit/audit.service'
 import { tellPasswordChanged } from './passwordNotice'
+import { loginKind, passwordSetBy, passwordSetterName } from '../../domain/org/passwords'
+import { EMPLOYEE_ROLE } from '../../platform/authz/defaultRoles'
 
 /**
  * The other half of an invitation: using it.
@@ -32,14 +34,24 @@ import { tellPasswordChanged } from './passwordNotice'
 const DEAD_LINK = 'This link is invalid or has expired. Ask your administrator for a new one.'
 
 export interface LinkInfo {
-  email: string
+  /** Null for an employee login with no email: named by its Employee ID. */
+  email: string | null
+  employeeCode: string | null
   purpose: PasswordTokenPurpose
   expiresAt: Date
+  /** The fewest characters the new password may have, at this company. */
+  minLength: number
 }
 
 async function liveLink(token: string, now: Date) {
-  const found = await repo.findLiveToken(hashInviteToken(token), now)
+  const tokenHash = hashInviteToken(token)
+  const found = await repo.findLiveToken(tokenHash, now)
   if (!found) {
+    // A link spent when the company took the password over (Settings →
+    // Passwords) says so: "ask for a new one" would send them for a link
+    // nobody can issue.
+    const spent = await repo.findTokenLogin(tokenHash)
+    if (spent) companySetsRefusal(spent, null)
     logger.warn('Dead password link presented', { reason: 'unknown_used_or_expired' })
     throw BadRequest(DEAD_LINK)
   }
@@ -52,8 +64,23 @@ async function liveLink(token: string, now: Date) {
     throw BadRequest(DEAD_LINK)
   }
 
+  // A login whose password the company sets (Settings → Passwords) takes no
+  // link: one issued before the company chose so is spent as of then.
+  const login = found.user.memberships[0]
+  if (login) companySetsRefusal(login, found.userId)
+
   return found
 }
+
+/** Refuses a link to a login whose password the company sets, naming who sets it. */
+function companySetsRefusal(login: NonNullable<Awaited<ReturnType<typeof repo.findTokenLogin>>>, userId: string | null): void {
+  const kind = loginKind(login.role, EMPLOYEE_ROLE, login.roleDef.locked)
+  if (passwordSetBy(kind, login.organization) !== 'company') return
+  logger.warn('Dead password link presented', { userId, reason: 'password_set_by_company' })
+  throw BadRequest(`This link can no longer be used. Your password is set by ${passwordSetterName(kind)}: ask them for it.`)
+}
+
+const minLengthOf = (found: Awaited<ReturnType<typeof liveLink>>) => found.user.memberships[0]?.organization.passwordMinLength ?? 10
 
 /**
  * What a link is for, before anybody types a password into it.
@@ -64,7 +91,13 @@ async function liveLink(token: string, now: Date) {
  */
 export async function inspectLink(token: string, now = new Date()): Promise<LinkInfo> {
   const found = await liveLink(token, now)
-  return { email: found.user.email, purpose: found.purpose, expiresAt: found.expiresAt }
+  return {
+    email: found.user.email,
+    employeeCode: found.user.memberships[0]?.employee?.employeeCode ?? null,
+    purpose: found.purpose,
+    expiresAt: found.expiresAt,
+    minLength: minLengthOf(found),
+  }
 }
 
 export async function redeemLink(
@@ -72,12 +105,12 @@ export async function redeemLink(
   password: string,
   meta: { requestId?: string | undefined } = {},
   now = new Date(),
-): Promise<{ email: string; purpose: PasswordTokenPurpose }> {
+): Promise<{ email: string | null; purpose: PasswordTokenPurpose }> {
   const found = await liveLink(token, now)
 
   // Checked BEFORE the link is spent. A password that fails the policy must
   // leave the link usable, or one typo would cost the person their invitation.
-  const problem = passwordProblem(password)
+  const problem = passwordProblem(password, minLengthOf(found))
   if (problem) throw ValidationFailed(problem, [{ field: 'password', message: problem }])
 
   const result = await repo.redeem({
@@ -113,7 +146,7 @@ export async function redeemLink(
     })
     // A reset changes a password somebody already had: the same security
     // notice as changing it while signed in. A first password is not a change.
-    if (found.purpose === 'reset') await tellPasswordChanged(owner.organizationId, found.userId, 'reset')
+    if (found.purpose === 'reset') await tellPasswordChanged(owner.organizationId, found.userId, { how: 'reset' })
   }
 
   return { email: found.user.email, purpose: found.purpose }

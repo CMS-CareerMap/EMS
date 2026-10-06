@@ -63,8 +63,10 @@ async function invite(role: 'employee' | 'hr' = 'employee') {
 
 beforeAll(async () => {
   await cleanup()
+  // Written for people who set their own passwords, from links (Settings →
+  // Passwords, "self"); the company-set default is tested in user/passwords.test.ts.
 
-  orgId = (await prisma.organization.create({ data: { name: `${PREFIX}-org` } })).id
+  orgId = (await prisma.organization.create({ data: { name: `${PREFIX}-org`, employeePasswords: 'self', rolePasswords: 'self' } })).id
   otherOrgId = (await prisma.organization.create({ data: { name: `${PREFIX}-other` } })).id
 
   const email = `${PREFIX}-boss@example.com`

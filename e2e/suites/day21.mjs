@@ -316,9 +316,9 @@ try {
 
   await sa.goto(`${BASE}/settings?tab=users`)
   await settle(sa)
-  await sa.getByRole('button', { name: 'Invite user' }).click()
+  await sa.getByRole('button', { name: 'Add user' }).click()
   const inviteOptions = await sa.locator('form select').first().locator('option').allInnerTexts()
-  check('the invite form never offers Super Admin', !inviteOptions.includes('Super Admin') && inviteOptions.includes('Employee'), inviteOptions.join(', '))
+  check('the Add user form never offers Super Admin', !inviteOptions.includes('Super Admin') && inviteOptions.includes('Employee'), inviteOptions.join(', '))
 
   section('A role holding only the audit log')
   const readerRole = (await api('sa', 'GET', '/roles')).body.data.roles.find((r) => r.name === `Log Reader ${STAMP}`)

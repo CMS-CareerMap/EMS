@@ -73,6 +73,8 @@ export const NAV_GROUPS = [
           'user:status:update',
           'user:delete',
           'membership:role:assign',
+          // Users & Roles, for whoever sets employees' passwords (client, 6 Oct 2026).
+          'user:password:set',
           // Roles & Permissions, the Company tree and Approvals (Days 21–22).
           'role:manage',
           // The probation and notice period the lifecycle runs on (client §43).

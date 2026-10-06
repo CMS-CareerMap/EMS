@@ -4,6 +4,8 @@ import type { FieldAccess } from '../../modules/employee/employee.repository'
 import { fromDateColumn, isoInstant } from '../../domain/shared/dates'
 import { isInScope } from '../../platform/authz/scopeWhere'
 import { stageOf } from '../../domain/org/lifecycle'
+import { loginKind } from '../../domain/org/passwords'
+import { EMPLOYEE_ROLE } from '../../platform/authz/defaultRoles'
 
 /**
  * What an employee looks like over the wire.
@@ -53,7 +55,10 @@ function base(employee: EmployeeRow) {
     // The login address lives on User; the personal one on Employee. They are
     // different things and the UI shows the work address, so `email` is the
     // login and `personal_email` is separate rather than one field guessing.
-    email: first?.user.email ?? null,
+    // The first login with an email: an employee login may have none, and
+    // signs in with the Employee ID (client, 6 Oct 2026).
+    // "No email" is not "no login": `account_status` says whether there is one.
+    email: employee.memberships.find((m) => m.user.email !== null)?.user.email ?? null,
     personal_email: employee.personalEmail,
     phone: employee.phone,
 
@@ -142,10 +147,15 @@ function logins(employee: EmployeeRow) {
   return {
     logins: employee.memberships.map((m) => ({
       id: m.id,
+      // Null for an employee login with no email: it signs in with the Employee ID.
       email: m.user.email,
       role: m.role,
       role_name: m.roleDef.name,
       status: m.status,
+      // An employee login, a role login or a Super Admin's (Settings → Passwords).
+      login_kind: loginKind(m.role, EMPLOYEE_ROLE, m.roleDef.locked),
+      // Whether a password was ever set — the hash itself never leaves here.
+      has_password: m.user.passwordHash !== null,
     })),
   }
 }

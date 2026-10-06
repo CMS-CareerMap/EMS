@@ -45,6 +45,14 @@ export function serializeSessionUser(identity: AuthIdentity) {
     // The company's zone, so the browser can tell which calendar day it is
     // THERE. Taking the day from UTC shows yesterday until 05:30 in India.
     organizationTimezone: identity.organizationTimezone,
+    // Whose this login's password is (Settings → Passwords): the screens
+    // offer Change password only for `self`, and check a typed password's length.
+    loginKind: identity.loginKind,
+    passwordSetBy: identity.passwordSetBy,
+    passwordMinLength: identity.passwordMinLength,
+    // The company's choices: whether making a login asks for a password or
+    // gives a link (Settings → Users & Roles → Passwords).
+    passwordRules: identity.passwordRules,
     employee: identity.employee
       ? {
           id: identity.employee.id,

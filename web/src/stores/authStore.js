@@ -52,6 +52,14 @@ export const useAuthStore = create((set, get) => ({
   /** Whose leave the role reaches. Beyond one's own, the home page lists leave waiting for others' decisions. */
   leaveReach: null,
   organization: null,
+  /**
+   * Passwords (client, 6 Oct 2026; Settings → Users & Roles → Passwords).
+   * `ownPassword` is whose this login's is: 'self' — they may change it — or
+   * 'company', set by HR or the Super Admin. `passwordRules` is the company's
+   * choice for each kind of login, which decides whether making a login asks
+   * for a password or gives a link; `minLength` how long one must be.
+   */
+  passwords: { own: 'self', kind: 'employee', rules: { employeePasswords: 'company', rolePasswords: 'company', passwordMinLength: 10 } },
   /** True until the session is either confirmed or ruled out. */
   loading: true,
 
@@ -70,6 +78,9 @@ export const useAuthStore = create((set, get) => ({
       organization: session
         ? { id: session.organizationId, name: session.organizationName, timezone: session.organizationTimezone }
         : null,
+      passwords: session?.passwordRules
+        ? { own: session.passwordSetBy, kind: session.loginKind, rules: session.passwordRules }
+        : { own: 'self', kind: 'employee', rules: { employeePasswords: 'company', rolePasswords: 'company', passwordMinLength: 10 } },
       loading: false,
     }),
 
@@ -89,6 +100,13 @@ export const useAuthStore = create((set, get) => ({
     }),
 
   setLoading: (loading) => set({ loading }),
+
+  /**
+   * The company's password rules, just changed in Settings → Passwords — so the
+   * screens that make logins follow at once, not at the next session read.
+   * The Super Admin who changed them always owns their own password.
+   */
+  setPasswordRules: (rules) => set((state) => ({ passwords: { ...state.passwords, rules } })),
 
   /**
    * Ask this, never `role === 'hr'`.

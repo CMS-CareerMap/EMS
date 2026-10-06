@@ -46,6 +46,9 @@ export const postImport: RequestHandler = async (req, res) => {
         token: invite.token,
         expires_at: invite.expiresAt,
       })),
+      // Logins made with no password yet, where the company sets employees'
+      // passwords: HR sets each from the person's page (client, 6 Oct 2026).
+      waiting_for_password: result.waitingForPassword,
     },
     meta: { requestId: res.locals.requestId },
   })

@@ -48,9 +48,9 @@ export async function decidingUsersOfEmployee(db: Db, employeeId: string): Promi
  * for "the password of your other login was changed" (Day 23). None for an
  * operator with no employee record.
  */
-export async function otherLoginsOfPerson(db: Db, userId: string): Promise<{ email: string; others: string[] }> {
+export async function otherLoginsOfPerson(db: Db, userId: string): Promise<{ email: string | null; others: string[] }> {
   const mine = await db.membership.findFirst({ where: { userId }, select: { employeeId: true, user: { select: { email: true } } } })
-  if (!mine?.employeeId) return { email: mine?.user.email ?? '', others: [] }
+  if (!mine?.employeeId) return { email: mine?.user.email ?? null, others: [] }
   const rows = await db.membership.findMany({
     where: { employeeId: mine.employeeId, userId: { not: userId }, ...REACHABLE },
     select: { userId: true },
@@ -92,13 +92,17 @@ export async function saveSetting(tx: TxDb, organizationId: string, event: strin
   })
 }
 
-/** The sign-in email of each of these logins that is still allowed in — where an emailed notice goes. */
+/**
+ * The sign-in email of each of these logins that is still allowed in — where
+ * an emailed notice goes. A login with no email (Employee ID only) is told in
+ * the app alone.
+ */
 export async function loginEmails(db: Db, userIds: readonly string[]): Promise<string[]> {
   const rows = await db.membership.findMany({
     where: { userId: { in: [...userIds] }, status: 'active' },
     select: { user: { select: { email: true } } },
   })
-  return [...new Set(rows.map((r) => r.user.email).filter(Boolean))]
+  return [...new Set(rows.map((r) => r.user.email).filter((email): email is string => Boolean(email)))]
 }
 
 /** Email to send once this transaction commits (client §45). */

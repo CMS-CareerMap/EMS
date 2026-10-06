@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { SUPER_ADMIN_ROLE } from '../../platform/authz/defaultRoles'
+import { PASSWORD_MIN_LENGTH_LIMITS } from '../../domain/org/passwords'
 
 /**
  * User management input.
@@ -23,13 +24,45 @@ const assignableRole = roleKey.refine((key) => key !== SUPER_ADMIN_ROLE, {
   message: 'Make somebody a Super Admin from Users & Roles, not with an invitation',
 })
 
+/**
+ * A login's email: optional where the service allows it — an employee login,
+ * which signs in with the Employee ID. Left blank on a form is left out.
+ */
+export const loginEmail = z.preprocess(
+  (v) => (v === '' || v === null ? undefined : v),
+  z.email('That is not a valid email address').optional(),
+)
+
+/**
+ * A password typed for somebody else. Its length is the company's rule
+ * (Settings → Passwords), checked by the service; this only bounds it.
+ */
+export const passwordForThem = z.string().min(1, 'Enter the password').max(200, 'That is too long to be a password')
+
 export const inviteUserSchema = z
   .object({
-    email: z.email('That is not a valid email address'),
+    email: loginEmail,
     role: assignableRole,
     fullName: z.string().trim().max(120).optional(),
     /** Given only when this invitation should also create an HR record. */
-    employeeCode: z.string().trim().max(30).optional(),
+    employeeCode: z.string().trim().max(30).refine((c) => !c.includes('@'), 'An Employee ID cannot contain @: signing in would read it as an email').optional(),
+    password: passwordForThem.optional(),
+  })
+  .strict()
+
+/** HR, or the Super Admin, setting somebody's password for them. */
+export const setPasswordSchema = z
+  .object({
+    password: passwordForThem,
+  })
+  .strict()
+
+/** Settings → Users & Roles → Passwords. */
+export const passwordRulesSchema = z
+  .object({
+    employeePasswords: z.enum(['company', 'self']),
+    rolePasswords: z.enum(['company', 'self']),
+    passwordMinLength: z.number().int().min(PASSWORD_MIN_LENGTH_LIMITS.min).max(PASSWORD_MIN_LENGTH_LIMITS.max),
   })
   .strict()
 
@@ -51,15 +84,16 @@ export const changeStatusSchema = z
   .strict()
 
 /**
- * Another login for somebody already here (Day 23). Any role, the Super
- * Admin's included: only the Super Admin reaches this, choosing the role on
- * purpose for a person they picked — the service refuses one the person
- * already has.
+ * A login for somebody already here (Day 23). Any role, the Super Admin's
+ * included: the Super Admin chooses the role on purpose for a person they
+ * picked; HR may give only the Employee role (client, 6 Oct 2026). The service
+ * refuses a role the person already has, and an email left out on a role login.
  */
 export const addLoginSchema = z
   .object({
-    email: z.email('That is not a valid email address'),
+    email: loginEmail,
     role: roleKey,
+    password: passwordForThem.optional(),
   })
   .strict()
 

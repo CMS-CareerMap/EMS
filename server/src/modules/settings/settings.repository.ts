@@ -1,5 +1,6 @@
 import type { ScopedDb } from '../../platform/db/scoped'
 import type { TxDb } from '../../platform/db/transaction'
+import { equalsInsensitive } from '../../platform/db/insensitive'
 
 /**
  * Company configuration.
@@ -154,7 +155,7 @@ export async function listPtSlabs(db: ScopedDb, state?: string) {
 /** A state's table as it stands — the slabs nobody has closed. */
 export async function listOpenPtSlabsForState(db: TxDb, state: string) {
   return db.ptSlab.findMany({
-    where: { state: { equals: state, mode: 'insensitive' }, effectiveTo: null },
+    where: { state: equalsInsensitive(state), effectiveTo: null },
     orderBy: [{ gender: 'asc' }, { minGross: 'asc' }],
   })
 }
@@ -209,8 +210,8 @@ export async function countLeaveLedgerEntries(db: ScopedDb) {
 /** Leave types matching a code or a name, archived or not, whatever the case. */
 export async function findLeaveTypesLike(db: ScopedDb, code: string | undefined, name: string | undefined) {
   const or = [
-    ...(code ? [{ code: { equals: code, mode: 'insensitive' as const } }] : []),
-    ...(name ? [{ name: { equals: name, mode: 'insensitive' as const } }] : []),
+    ...(code ? [{ code: equalsInsensitive(code) }] : []),
+    ...(name ? [{ name: equalsInsensitive(name) }] : []),
   ]
   if (or.length === 0) return []
   return db.leaveType.findMany({ where: { OR: or } })

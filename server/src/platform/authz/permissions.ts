@@ -99,6 +99,10 @@ export const PERMISSIONS = [
   'user:status:update',
   'user:delete',
   'membership:role:assign',
+  // Setting somebody's password for them, and giving an employee a login
+  // (client, 6 Oct 2026). An employee login's — a role login's password is
+  // the Super Admin's alone, whatever role holds this.
+  'user:password:set',
 
   // Reading the audit log: who did what, including every salary change and
   // every document opened. Super Admin only.

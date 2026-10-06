@@ -10,6 +10,18 @@ import { unsafeDb } from '../../platform/db/unsafe'
  * as a hash, that names exactly one user.
  */
 
+// Whose password it is (Settings → Passwords), how long it must be, and the
+// Employee ID a login with no email is named by.
+const tokenLogin = {
+  take: 1,
+  select: {
+    role: true,
+    roleDef: { select: { locked: true } },
+    organization: { select: { employeePasswords: true, rolePasswords: true, passwordMinLength: true } },
+    employee: { select: { employeeCode: true } },
+  },
+} as const
+
 /** A link that can still be used: not spent, not expired. */
 export async function findLiveToken(tokenHash: string, now: Date) {
   return unsafeDb.passwordResetToken.findFirst({
@@ -19,9 +31,21 @@ export async function findLiveToken(tokenHash: string, now: Date) {
       userId: true,
       purpose: true,
       expiresAt: true,
-      user: { select: { email: true } },
+      user: { select: { email: true, memberships: tokenLogin } },
     },
   })
+}
+
+/**
+ * The login of a link that can no longer be used — spent or expired — so the
+ * page can say why, where the company now sets that password.
+ */
+export async function findTokenLogin(tokenHash: string) {
+  const row = await unsafeDb.passwordResetToken.findFirst({
+    where: { tokenHash },
+    select: { user: { select: { memberships: tokenLogin } } },
+  })
+  return row?.user.memberships[0] ?? null
 }
 
 /** Memberships still waiting for their first password. */

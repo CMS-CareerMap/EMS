@@ -183,11 +183,10 @@ try {
     const res = await api('sa', 'PATCH', `/employees/${who.id}`, { reportingManagerId: above.id })
     console.log(`${who.name} under ${above.name}`, res.status)
   }
-  // Hema, HR, gets her employee login beside it (Day 23).
-  const added = await api('sa', 'POST', `/employees/${E.hema.id}/logins`, { email: HEMA_SELF, role: 'employee' })
-  console.log('Hema employee login', added.status)
-  const redeemed = await fetch(`${API}/auth/password-link/redeem`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: added.body.data.invite.token, password: fx.password }) })
-  console.log('…password set', redeemed.status)
+  // Hema, HR, gets her employee login beside it (Day 23), its password set by
+  // the Super Admin — as the company does by default (client, 6 Oct 2026).
+  const added = await api('sa', 'POST', `/employees/${E.hema.id}/logins`, { email: HEMA_SELF, role: 'employee', password: fx.password })
+  console.log('Hema employee login', added.status, added.body.data?.login_start)
 
   const logins = { ...fx.users, hemaSelf: HEMA_SELF }
   for (const [who, email] of Object.entries(logins)) {

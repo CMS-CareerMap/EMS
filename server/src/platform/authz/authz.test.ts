@@ -125,6 +125,13 @@ const MATRIX: Record<string, { permission: Permission; allowed: Role[] }> = {
     permission: 'user:invite',
     allowed: ['super_admin'],
   },
+  // Client, 6 Oct 2026: HR gives employees their login and password. A role
+  // login's password stays the Super Admin's — the service, not the matrix,
+  // decides that (modules/user/passwords.test.ts).
+  'Set employees’ passwords': {
+    permission: 'user:password:set',
+    allowed: ['super_admin', 'hr'],
+  },
   'Manage roles/status': {
     permission: 'membership:role:assign',
     allowed: ['super_admin'],

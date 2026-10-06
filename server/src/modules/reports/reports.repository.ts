@@ -305,5 +305,5 @@ export async function deciderNames(db: ScopedDb, userIds: string[]): Promise<Map
     where: { userId: { in: userIds } },
     select: { userId: true, user: { select: { email: true } }, employee: { select: { fullName: true } } },
   })
-  return new Map(rows.map((r) => [r.userId, r.employee?.fullName ?? r.user.email]))
+  return new Map(rows.map((r) => [r.userId, r.employee?.fullName ?? r.user.email ?? 'A login']))
 }

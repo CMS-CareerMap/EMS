@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/http'
+import { useAuthStore } from '../stores/authStore'
 
 /**
  * Users and access, now served by our own API.
@@ -62,12 +63,14 @@ export function useInviteUser() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ email, full_name, role, employee_code }) => {
+    mutationFn: async ({ email, full_name, role, employee_code, password }) => {
       const payload = await api.post('/users/invite', {
-        email,
+        ...(email ? { email } : {}),
         role,
         ...(full_name ? { fullName: full_name } : {}),
         ...(employee_code ? { employeeCode: employee_code } : {}),
+        // Typed for them, where the company sets this kind of login's password.
+        ...(password ? { password } : {}),
       })
       return payload.data
     },
@@ -77,19 +80,76 @@ export function useInviteUser() {
 }
 
 /**
- * Another login for somebody already here (Day 23) — a role login beside their
- * employee login, with its own email. The Super Admin's. Returns the same
- * `invite` shape as inviting, so the one panel shows its link.
+ * A login for somebody already here (Day 23): their employee login — HR's to
+ * give too (client, 6 Oct 2026) — or a role login beside it, the Super
+ * Admin's. Returns `login_start` and, when it starts with a link, the same
+ * `invite` shape as inviting, so the one panel shows it.
  */
 export function useAddLogin() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ employee_id, email, role }) => {
-      const payload = await api.post(`/employees/${employee_id}/logins`, { email, role })
+    mutationFn: async ({ employee_id, email, role, password }) => {
+      const payload = await api.post(`/employees/${employee_id}/logins`, {
+        ...(email ? { email } : {}),
+        role,
+        ...(password ? { password } : {}),
+      })
       return payload.data
     },
     onSuccess: () => invalidateAccess(queryClient),
+  })
+}
+
+/**
+ * Sets somebody's password for them (client, 6 Oct 2026): HR an employee
+ * login's, the Super Admin anybody's. Every session signed in with the old one
+ * ends; the person is told. The password is never sent back.
+ */
+export function useSetPassword() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ user_id, password }) => {
+      const payload = await api.post(`/users/${user_id}/password`, { password })
+      return payload.data
+    },
+    onSuccess: () => invalidateAccess(queryClient),
+  })
+}
+
+const RULES_KEY = ['users', 'password-rules']
+
+/** Settings → Users & Roles → Passwords: who sets each kind of login's password, and how long one must be. */
+export function usePasswordRules({ enabled = true } = {}) {
+  return useQuery({
+    queryKey: RULES_KEY,
+    queryFn: async () => (await api.get('/users/password-rules')).data,
+    enabled,
+  })
+}
+
+export function useSavePasswordRules() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ employee_passwords, role_passwords, password_min_length }) =>
+      (await api.put('/users/password-rules', {
+        employeePasswords: employee_passwords,
+        rolePasswords: role_passwords,
+        passwordMinLength: password_min_length,
+      })).data,
+    onSuccess: (saved) => {
+      useAuthStore.getState().setPasswordRules({
+        employeePasswords: saved.employee_passwords,
+        rolePasswords: saved.role_passwords,
+        passwordMinLength: saved.password_min_length,
+      })
+      return Promise.all([
+        queryClient.invalidateQueries({ queryKey: RULES_KEY }),
+        queryClient.invalidateQueries({ queryKey: ['audit-log'] }),
+      ])
+    },
   })
 }
 

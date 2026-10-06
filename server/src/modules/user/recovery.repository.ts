@@ -15,7 +15,17 @@ export async function findAccount(email: string) {
     select: {
       id: true,
       email: true,
-      memberships: { select: { id: true, organizationId: true, role: true, status: true } },
+      memberships: {
+        select: {
+          id: true,
+          organizationId: true,
+          role: true,
+          status: true,
+          // Whose password it is (Settings → Passwords): a link is for one that is the person's own.
+          roleDef: { select: { locked: true } },
+          organization: { select: { employeePasswords: true, rolePasswords: true } },
+        },
+      },
     },
   })
 }

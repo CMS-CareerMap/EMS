@@ -32,7 +32,9 @@ const TABS = [
   { id: 'company', label: 'Company', icon: Building2, permission: 'settings:read', Component: CompanySettings },
   // Any of the four: since Day 21 a role can hold some of them and not others,
   // and the tab draws only the buttons each one allows.
-  { id: 'users', label: 'Users & Roles', icon: Users, permission: ['user:invite', 'membership:role:assign', 'user:status:update', 'user:delete'], Component: UsersSettings },
+  // HR too, who sets employees' passwords (client, 6 Oct 2026): the logins waiting for one are listed here.
+  // Not where Settings opens for them, though — that stays the tab they work in (notLanding).
+  { id: 'users', label: 'Users & Roles', icon: Users, permission: ['user:invite', 'membership:role:assign', 'user:status:update', 'user:delete', 'user:password:set'], Component: UsersSettings, notLanding: true },
   { id: 'roles', label: 'Roles & Permissions', icon: ShieldCheck, permission: 'role:manage', Component: RolesSettings },
   // Who reports to whom, the owner, and who decides when the tree has no answer (Day 22).
   { id: 'tree', label: 'Company Tree', icon: GitBranch, permission: 'role:manage', Component: CompanyTree },
@@ -69,7 +71,7 @@ export default function Settings() {
   const tabs = TABS.filter((t) => [t.permission].flat().some((p) => permissions.includes(p)))
 
   const [params, setParams] = useSearchParams()
-  const tab = tabs.find((t) => t.id === params.get('tab')) ?? tabs[0]
+  const tab = tabs.find((t) => t.id === params.get('tab')) ?? tabs.find((t) => !t.notLanding) ?? tabs[0]
   const choose = (id) => setParams({ tab: id }, { replace: true })
   const groups = GROUPS
     .map(([label, ids]) => [label, ids.map((id) => tabs.find((t) => t.id === id)).filter(Boolean)])

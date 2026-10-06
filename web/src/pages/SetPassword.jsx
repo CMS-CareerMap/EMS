@@ -17,7 +17,10 @@ import { btn } from '../components/ui/styles'
  * sent is the request body that redeems it.
  */
 
-/** The server's rule, repeated only as a hint. The server decides. */
+/**
+ * The server's rule, repeated only as a hint — the company's own length when
+ * the link says it (Settings → Passwords). The server decides.
+ */
 const MIN_LENGTH = 10
 
 const inputCls = 'w-full h-11 border border-gray-200 rounded-[10px] pl-10 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500'
@@ -59,8 +62,9 @@ export default function SetPassword() {
     e.preventDefault()
     setError('')
 
-    if (password.length < MIN_LENGTH) {
-      setError(`Use at least ${MIN_LENGTH} characters.`)
+    const minLength = link?.min_length ?? MIN_LENGTH
+    if (password.length < minLength) {
+      setError(`Use at least ${minLength} characters.`)
       return
     }
     if (password !== confirm) {
@@ -73,7 +77,8 @@ export default function SetPassword() {
       const result = await redeemPasswordLink(token, password)
       // Not signed in automatically. Typing the new password once, straight
       // away, is how somebody finds out they chose what they meant to.
-      navigate('/signin', { replace: true, state: { passwordSetFor: result.email } })
+      // What they sign in with: the email, or — a login with none — the Employee ID.
+      navigate('/signin', { replace: true, state: { passwordSetFor: result.email ?? link?.employee_code ?? null } })
     } catch (err) {
       setError(err.message)
       setSubmitting(false)
@@ -112,7 +117,7 @@ export default function SetPassword() {
               {isReset ? 'Choose a new password' : 'Set your password'}
             </h2>
             <p className="text-sm text-gray-500 mt-1">
-              For <span className="font-semibold text-gray-700">{link.email}</span>
+              For <span className="font-semibold text-gray-700">{link.email ?? `Employee ID ${link.employee_code}`}</span>
             </p>
           </div>
 
@@ -129,7 +134,7 @@ export default function SetPassword() {
               <span className="relative block">
                 <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" aria-hidden="true" />
                 <input type={showPassword ? 'text' : 'password'} required autoComplete="new-password" value={password}
-                  onChange={(e) => setPassword(e.target.value)} placeholder={`At least ${MIN_LENGTH} characters`} className={`${inputCls} pr-10`} />
+                  onChange={(e) => setPassword(e.target.value)} placeholder={`At least ${link?.min_length ?? MIN_LENGTH} characters`} className={`${inputCls} pr-10`} />
                 <button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Hide password' : 'Show password'}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}

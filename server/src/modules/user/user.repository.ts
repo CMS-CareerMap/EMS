@@ -4,6 +4,7 @@ import type { ScopedDb } from '../../platform/db/scoped'
 import type { TxDb } from '../../platform/db/transaction'
 import { unsafeDb } from '../../platform/db/unsafe'
 import { SUPER_ADMIN_ROLE } from '../../platform/authz/defaultRoles'
+import type { PasswordRules } from '../../domain/org/passwords'
 
 /**
  * Memberships — who may sign in to this company, and as what.
@@ -20,8 +21,13 @@ export interface MembershipRow {
   /** The role's key. Its name, for the screen, is `roleName`. */
   role: string
   roleName: string
+  /** The Super Admin's role: whose password is always their own. */
+  roleLocked: boolean
   status: AccountStatus
-  email: string
+  /** Null for an employee login with no email: it signs in with the Employee ID. */
+  email: string | null
+  /** Whether a password is set — false for a login still waiting for one. */
+  hasPassword: boolean
   fullName: string | null
   employeeId: string | null
   employeeCode: string | null
@@ -34,10 +40,11 @@ const membershipSelect = {
   id: true,
   userId: true,
   role: true,
-  roleDef: { select: { name: true } },
+  roleDef: { select: { name: true, locked: true } },
   status: true,
   createdAt: true,
-  user: { select: { email: true } },
+  // The hash is read only to say whether there is one; flatten() drops it.
+  user: { select: { email: true, passwordHash: true } },
   employee: { select: { id: true, fullName: true, employeeCode: true, archivedAt: true } },
 } as const
 
@@ -45,10 +52,10 @@ type RawMembership = {
   id: string
   userId: string
   role: string
-  roleDef: { name: string }
+  roleDef: { name: string; locked: boolean }
   status: AccountStatus
   createdAt: Date
-  user: { email: string }
+  user: { email: string | null; passwordHash: string | null }
   employee: { id: string; fullName: string; employeeCode: string; archivedAt: Date | null } | null
 }
 
@@ -58,14 +65,46 @@ function flatten(row: RawMembership): MembershipRow {
     userId: row.userId,
     role: row.role,
     roleName: row.roleDef.name,
+    roleLocked: row.roleDef.locked,
     status: row.status,
     email: row.user.email,
+    hasPassword: Boolean(row.user.passwordHash),
     fullName: row.employee?.fullName ?? null,
     employeeId: row.employee?.id ?? null,
     employeeCode: row.employee?.employeeCode ?? null,
     personLeft: Boolean(row.employee?.archivedAt),
     createdAt: row.createdAt,
   }
+}
+
+/** The company's password rules (Settings → Users & Roles → Passwords). */
+export async function passwordRules(db: TxDb | ScopedDb, organizationId: string): Promise<PasswordRules> {
+  const org = await db.organization.findFirst({
+    where: { id: organizationId },
+    select: { employeePasswords: true, rolePasswords: true, passwordMinLength: true },
+  })
+  if (!org) throw new Error(`Organization ${organizationId} not found`)
+  return org
+}
+
+export async function updatePasswordRules(db: TxDb, organizationId: string, rules: PasswordRules): Promise<void> {
+  await db.organization.update({ where: { id: organizationId }, data: rules })
+}
+
+/**
+ * Spends every link still out for one kind of login of the company — its
+ * employee logins, or its role logins (not a Super Admin's, whose password is
+ * always their own). Returns how many.
+ */
+export async function spendLinksOfKind(db: TxDb, input: { organizationId: string; kind: 'employee' | 'role'; employeeRole: string; now: Date }): Promise<number> {
+  const logins = input.kind === 'employee'
+    ? { organizationId: input.organizationId, role: input.employeeRole }
+    : { organizationId: input.organizationId, role: { not: input.employeeRole }, roleDef: { locked: false } }
+  const { count } = await db.passwordResetToken.updateMany({
+    where: { usedAt: null, user: { memberships: { some: logins } } },
+    data: { usedAt: input.now },
+  })
+  return count
 }
 
 /** Every login — or, given an employee filter, only the logins of the people it matches. */
@@ -100,7 +139,7 @@ export async function findMembership(db: ScopedDb, id: string): Promise<Membersh
 }
 
 export async function findMembershipByEmail(
-  db: ScopedDb,
+  db: ScopedDb | TxDb,
   email: string,
 ): Promise<MembershipRow | null> {
   const row = (await db.membership.findFirst({
@@ -138,7 +177,7 @@ export async function setStatus(
 export async function findMembershipForChange(db: TxDb, id: string) {
   return db.membership.findFirst({
     where: { id },
-    select: { id: true, role: true, status: true, employeeId: true, employee: { select: { fullName: true, archivedAt: true } } },
+    select: { id: true, role: true, status: true, employeeId: true, employee: { select: { fullName: true, archivedAt: true } }, user: { select: { email: true } } },
   })
 }
 
@@ -151,53 +190,118 @@ export async function loginsOfPerson(db: TxDb, employeeId: string) {
   })
 }
 
-/** Somebody already here, and their logins — for giving them another one. */
+/** Somebody already here, where they sit, and their logins — for giving them another one. */
 export async function personForLogin(db: TxDb, employeeId: string) {
   return db.employee.findFirst({
     where: { id: employeeId },
-    select: { id: true, fullName: true, archivedAt: true, memberships: { select: { role: true, status: true } } },
+    select: {
+      id: true,
+      fullName: true,
+      archivedAt: true,
+      reportingManagerId: true,
+      departmentId: true,
+      memberships: { select: { role: true, status: true } },
+    },
   })
 }
 
 /**
  * A login for somebody with none in this company: their User — reused if they
- * already have one, since the same person can belong to two companies — an
- * `invited` Membership, and the hashed invitation token.
+ * already have one, since the same person can belong to two companies — and a
+ * Membership, which starts one of three ways:
+ *
+ *   a password typed for them   `active` at once (the company sets passwords)
+ *   an invitation link          `invited`, with the hashed one-use token
+ *   neither yet                 `invited`, waiting for HR or the Super Admin
+ *                               to set its password (Settings → Users)
  *
  * On the caller's transaction, so it lands together with whatever else is
  * being created (an employee record, a whole import), or not at all.
  */
-export async function createInvitedLogin(
+export async function createLogin(
   db: TxDb,
   input: {
-    email: string
+    /** Null for an employee login with no email: it signs in with the Employee ID. */
+    email: string | null
     organizationId: string
     role: string
-    tokenHash: string
-    expiresAt: Date
-    createdByUserId: string
     /** The person it belongs to; null for an operator with no employee record. */
     employeeId: string | null
+    passwordHash: string | null
+    link: { tokenHash: string; expiresAt: Date; createdByUserId: string } | null
   },
 ): Promise<{ userId: string; membershipId: string }> {
-  const existing = await db.user.findUnique({ where: { email: input.email }, select: { id: true } })
-  const user = existing ?? (await db.user.create({ data: { email: input.email, passwordHash: null } }))
+  const existing = input.email
+    ? await db.user.findUnique({ where: { email: input.email }, select: { id: true, passwordHash: true } })
+    : null
+  // A User from another company keeps the password it has: one typed here
+  // would quietly replace it there.
+  if (existing?.passwordHash && input.passwordHash) {
+    throw new LoginEmailTaken()
+  }
+  const user = existing
+    ? input.passwordHash
+      ? await db.user.update({ where: { id: existing.id }, data: { passwordHash: input.passwordHash }, select: { id: true } })
+      : existing
+    : await db.user.create({ data: { email: input.email, passwordHash: input.passwordHash }, select: { id: true } })
 
   const membership = await db.membership.create({
-    data: { userId: user.id, organizationId: input.organizationId, role: input.role, status: 'invited', employeeId: input.employeeId },
-  })
-
-  await db.passwordResetToken.create({
     data: {
       userId: user.id,
-      tokenHash: input.tokenHash,
-      expiresAt: input.expiresAt,
-      purpose: 'invite',
-      createdByUserId: input.createdByUserId,
+      organizationId: input.organizationId,
+      role: input.role,
+      status: input.passwordHash ? 'active' : 'invited',
+      employeeId: input.employeeId,
     },
   })
 
+  if (input.link) {
+    await db.passwordResetToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: input.link.tokenHash,
+        expiresAt: input.link.expiresAt,
+        purpose: 'invite',
+        createdByUserId: input.link.createdByUserId,
+      },
+    })
+  }
+
   return { userId: user.id, membershipId: membership.id }
+}
+
+/** The email belongs to a login that already has a password, elsewhere. */
+export class LoginEmailTaken extends Error {
+  constructor() {
+    super('That email address already has a password for another account. Use a different email.')
+  }
+}
+
+/**
+ * A password set for somebody by HR or the Super Admin, on the caller's
+ * transaction. Everything signed in with the old one is signed out — every
+ * access token (the version goes up) and every refresh token — any link still
+ * out is spent, and a login that was waiting for its first password can now
+ * sign in. One switched off stays off.
+ */
+export async function setPasswordFor(db: TxDb, input: { userId: string; passwordHash: string; now: Date }): Promise<{ sessionsEnded: number; activated: boolean }> {
+  await db.user.update({
+    where: { id: input.userId },
+    data: { passwordHash: input.passwordHash, tokenVersion: { increment: 1 } },
+  })
+  const ended = await db.refreshToken.updateMany({
+    where: { userId: input.userId, revokedAt: null },
+    data: { revokedAt: input.now },
+  })
+  await db.passwordResetToken.updateMany({
+    where: { userId: input.userId, usedAt: null },
+    data: { usedAt: input.now },
+  })
+  const activated = await db.membership.updateMany({
+    where: { userId: input.userId, status: 'invited' },
+    data: { status: 'active' },
+  })
+  return { sessionsEnded: ended.count, activated: activated.count > 0 }
 }
 
 /** Whether a login's User has ever set a password — an invitation that was used. */

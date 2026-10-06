@@ -2,7 +2,7 @@
 
 How each section of the client's requirements document ("CMS HRMS Functional Requirements",
 69 sections) maps to the code and to the tests that prove it, for the single-company build
-for CareerMap Solutions. Checked on 5 Oct 2026, branch `feat/new-look`.
+for CareerMap Solutions. Checked on 6 Oct 2026, branch `fix/holiday-card`.
 
 Status:
 - **Built**: in the code, with a test.
@@ -26,7 +26,8 @@ Paths: `S` = `server/src`, `W` = `web/src`, `E2E` = `e2e/suites`.
 | § | Requirement | Status | Where | Proved by |
 |---|---|---|---|---|
 | 3, 19, 49 | System roles; the Super Admin edits permissions | Built, differs: seven roles, and the Super Admin may also add roles (client decision, Day 21) | `S/platform/authz/defaultRoles.ts`, `S/modules/roles`, `W/features/settings/RolesSettings.jsx` | `authz.test.ts`, `roles.test.ts`; E2E `day21` |
-| 4 | Sign in with Employee ID or email + password, no OTP | Built | `S/modules/auth` | `auth.test.ts`; E2E `day20`, `day23`, `demo-tour` |
+| 4 | Sign in with Employee ID or email + password, no OTP | Built (the ID in any letters; an employee login may have no email; for somebody with two logins the ID opens the employee login — 6 Oct) | `S/modules/auth` | `auth.test.ts`, `passwords.test.ts`, `twoLogins.test.ts`; E2E `day20`, `day23`, `passwords`, `demo-tour` |
+| 4, 63 | HR creates the Employee ID and password by hand; the employee cannot change it, HR can; a role login's password is the Super Admin's (client, 6 Oct 2026) | Built, as a setting with those defaults (Settings → Users & Roles → Passwords: either kind can be handed back to the person, with links; shortest password 10, from 8 to 64). Nothing generated; a roster import's logins wait for HR | `S/domain/org/passwords.ts`, `S/modules/user` (`setPassword`, `loginStartFor`), `W/features/settings/PasswordRules.jsx`, `W/features/settings/SetPasswordDialog.jsx` | `passwords.test.ts`, `recovery.test.ts`; E2E `passwords`, `golden` |
 | 4 | Statuses Active / Inactive / Suspended / Expired / Locked | Partly: active, inactive and invited; "locked" is the sign-in rate limit (10 tries / 15 min) | `S/http/middleware/rateLimit.ts` | `auth.test.ts`, `rateLimit.test.ts` |
 | 5, 58 | Works on phone, tablet, desktop | Built | whole web app | E2E `sweep23` (every page × role × 390 px), `demo-tour` |
 | 20 | View / Add / Edit / Approve / Upload / Download / Export per module | Partly: permissions are per module; downloads and exports ride on the read permission; approvals follow the company tree | `S/platform/authz/catalogue.ts` | `authz.test.ts` |
@@ -49,7 +50,7 @@ Paths: `S` = `server/src`, `W` = `web/src`, `E2E` = `e2e/suites`.
 | § | Requirement | Status | Where | Proved by |
 |---|---|---|---|---|
 | 42 | Personal, employment, salary, bank, tax, login details | Built (no separate Team Leader field: the reporting manager is it) | `S/modules/employee`, `W/features/employees` | `employee.test.ts`, `requests.test.ts` |
-| 63 | Add → ID → department → designation → manager → role → login → active; bulk import | Built (employee code typed, not generated; 4 Oct: the import takes a `shift` column, so imported people's days are measured) | Add Employee, Import Employees | `userManagement.test.ts`, `import.test.ts`; E2E `golden` |
+| 63 | Add → ID → department → designation → manager → role → login → active; bulk import | Built (employee code typed, not generated; the login's password typed by HR, so it is active at once — 6 Oct; 4 Oct: the import takes a `shift` column, so imported people's days are measured) | Add Employee, Import Employees | `userManagement.test.ts`, `import.test.ts`; E2E `golden` |
 | 43 | Joining → onboarding → probation → confirmed → transfer / promotion → resignation → notice → exit → inactive | Built | `S/modules/lifecycle`, `W/features/employees/EmploymentSection.jsx` | `lifecycle.test.ts`; E2E `lifecycle` |
 | 43 | Leave after the last working day | Built (4 Oct): waiting leave after it is cancelled, approved leave given back, leave across it cannot be approved | `S/modules/leave/leaveApproval.service.ts` `settleLeaveAfter` | `lifecycle.test.ts` "settles the leave after the last working day" |
 | 64 | Leaving closes every login and keeps the history | Built (no retention setting) | lifecycle exit, Settings → Users | `lifecycle.test.ts`, `userManagement.test.ts`; E2E `day23` |
@@ -119,7 +120,7 @@ Decisions for the client, or small items left:
 
 Small items the reviews found and that are left as they are, each low risk:
 
-13. Password links are handed over by whoever issues them; self-service "forgot password" by email can now be built, since email exists.
+13. Passwords are set by HR and the Super Admin, and told to the person by hand. Where the company hands them back to the person, links are handed over by whoever issues them; a "forgot password" email could be built then, since email exists.
 14. Sign-in is limited per address and per account from one address, not per account across many addresses.
 15. An access token stays valid for up to 15 minutes after signing out.
 16. On a fixed 30-day basis, the payslip PDF shows calendar paid days, and a part month counts calendar days.

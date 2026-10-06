@@ -1,6 +1,7 @@
 import type { ComponentEntry, ComponentType, Prisma } from '@prisma/client'
 import type { ScopedDb } from '../../platform/db/scoped'
 import type { TxDb } from '../../platform/db/transaction'
+import { equalsInsensitive } from '../../platform/db/insensitive'
 
 /** Salary components (client §40) — the company's own list of earnings and deductions. */
 
@@ -14,7 +15,7 @@ export async function findComponent(db: ScopedDb | TxDb, id: string) {
 
 /** By code, archived or not — a code is the company's for ever. */
 export async function findComponentByCode(db: ScopedDb | TxDb, code: string) {
-  return db.salaryComponent.findFirst({ where: { code: { equals: code, mode: 'insensitive' } } })
+  return db.salaryComponent.findFirst({ where: { code: equalsInsensitive(code) } })
 }
 
 export interface ComponentValues {

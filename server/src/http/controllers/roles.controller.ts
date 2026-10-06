@@ -3,6 +3,8 @@ import { assignableRoles, createRole, deleteRole, listRoles, resetRole, updateRo
 import { createRoleSchema, resetRoleSchema, roleKeyParamSchema, updateRoleSchema } from '../validators/roles.validator'
 import { parseBody } from '../validators/parse'
 import { appContext } from '../context'
+import { loginKind } from '../../domain/org/passwords'
+import { EMPLOYEE_ROLE } from '../../platform/authz/defaultRoles'
 
 /**
  * GET    /api/roles             every role, and the words the screen explains them in
@@ -53,7 +55,9 @@ export const getAssignableRoles: RequestHandler = async (_req, res) => {
   const ctx = appContext(res)
   const roles = await assignableRoles(ctx)
   res.status(200).json({
-    data: roles.map((r) => ({ key: r.key, name: r.name, locked: r.locked })),
+    // The kind of login each makes (Settings → Passwords): an employee login, a role
+    // login or a Super Admin's — so the screens never compare a role's key.
+    data: roles.map((r) => ({ key: r.key, name: r.name, locked: r.locked, login_kind: loginKind(r.key, EMPLOYEE_ROLE, r.locked) })),
     meta: { requestId: res.locals.requestId },
   })
 }

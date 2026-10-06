@@ -169,7 +169,8 @@ const SETTINGS_TABS = {
   // In the menu's groups since the new look: Organisation, People & access, Time & pay, Records.
   sa: ['Company', 'Organisation', 'Company Tree', 'Users & Roles', 'Roles & Permissions', 'Approvals', 'Employee Lifecycle', 'Leave Config', 'Payroll Config', 'Documents', 'Notifications', 'Audit Log'],
   admin: ['Leave Config', 'Documents'],
-  hr: ['Employee Lifecycle', 'Leave Config', 'Documents'],
+  // Users & Roles since HR sets employees' passwords (client, 6 Oct 2026).
+  hr: ['Users & Roles', 'Employee Lifecycle', 'Leave Config', 'Documents'],
 }
 
 let lastDocId = null
@@ -205,6 +206,11 @@ try {
   // Setup through the API: leave in every state, a document each side of the
   // scope line, and a few things to confirm or remove in Settings.
   for (const who of ['sa', 'hr', 'mgr', 'rm', 'emp', 'emp2', 'acc', 'admin']) await login(who)
+  // These checks hand out links: people setting their own passwords (Settings →
+  // Passwords, "self"). The company setting them — the default since 6 Oct 2026 —
+  // has its own suite, passwords.mjs.
+  const asOwners = await api('sa', 'PUT', '/users/password-rules', { employeePasswords: 'self', rolePasswords: 'self', passwordMinLength: 10 })
+  if (asOwners.status !== 200) throw new Error(`password rules: ${asOwners.status} ${JSON.stringify(asOwners.body)}`)
   const cl = fx.leaveTypeId
   const priyaPending = must(await api('emp', 'POST', '/leave-requests', { leaveTypeId: cl, fromDate: '2026-10-19', toDate: '2026-10-20', reason: 'Family function' }), 'Priya applies')
   const priyaWithdrawn = must(await api('emp', 'POST', '/leave-requests', { leaveTypeId: cl, fromDate: '2026-11-02', toDate: '2026-11-02', reason: 'Changed my mind' }), 'Priya applies again')

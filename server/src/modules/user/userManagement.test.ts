@@ -75,8 +75,10 @@ const as = (key: string) => `Bearer ${tokens[key]}`
 
 beforeAll(async () => {
   await cleanup()
+  // Written for people who set their own passwords, from links (Settings →
+  // Passwords, "self"); the company-set default is tested in user/passwords.test.ts.
 
-  const org = await prisma.organization.create({ data: { name: `${PREFIX}-org` } })
+  const org = await prisma.organization.create({ data: { name: `${PREFIX}-org`, employeePasswords: 'self', rolePasswords: 'self' } })
   orgId = org.id
   const other = await prisma.organization.create({ data: { name: `${PREFIX}-other` } })
   otherOrgId = other.id

@@ -28,7 +28,8 @@ export default function TopBar({ onMenuClick, onSearch }) {
   const unreadCount = notices.isError ? 0 : notices.unreadCount
 
   const displayName = profile?.full_name || user?.email?.split('@')[0] || 'User'
-  const displayEmail = user?.email ?? ''
+  // A login with no email signs in with the Employee ID (client, 6 Oct 2026): that is what it is shown by.
+  const displayEmail = user?.email ?? (profile?.employee_id ? `Employee ID ${profile.employee_id}` : '')
   const displayRole = roleLabel(role, roleName) || 'User'
 
   return (

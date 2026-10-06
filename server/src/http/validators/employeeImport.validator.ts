@@ -14,7 +14,7 @@ import { z } from 'zod'
  * never being read, not by being rejected.
  */
 export const importRowSchema = z.object({
-  employeeCode: z.string().trim().min(1, 'An employee code is required').max(30),
+  employeeCode: z.string().trim().min(1, 'An employee code is required').max(30).refine((c) => !c.includes('@'), 'An Employee ID cannot contain @: signing in would read it as an email'),
   fullName: z.string().trim().min(1, 'A name is required').max(120),
 
   email: z.email('That is not a valid email address').optional(),

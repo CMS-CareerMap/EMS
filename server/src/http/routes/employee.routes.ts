@@ -47,4 +47,5 @@ employeeRouter.post(
 employeeRouter.patch('/:id', authorize('employee:update'), patchEmployee)
 // Another login for this person — a role login beside their employee login
 // (Day 23). The Super Admin's: it decides who holds which role.
-employeeRouter.post('/:id/logins', authorize('role:manage'), postLogin)
+// A role login is the Super Admin's to give; an employee login HR's too (the service decides which).
+employeeRouter.post('/:id/logins', authorize(['role:manage', 'user:password:set']), postLogin)
