@@ -1,0 +1,112 @@
+# CI (deploy Phase 2): on every pull request, and every push to main.
+#
+#   server   the migrations from the first on an empty Postgres 17, the
+#            typecheck, the architecture rules (§A5), the field contract, and
+#            every test — with the clock in UTC, as the containers run
+#   web      lint and the production build
+#   images   both deploy images (ems-api, ems-web) built as deploy/build.sh
+#            builds them — not pushed anywhere
+#
+# No secrets. The database is a throwaway container on the runner, and the JWT
+# keys below exist only here, for the tests. Nothing reaches Neon, R2 or the box.
+# The browser suites (e2e/) stay on the laptop: they drive Edge on Windows.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch makes the older run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  server:
+    name: Server — typecheck, rules, field contract, tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ems_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ems_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      NODE_ENV: test
+      TZ: UTC
+      # localhost: the test setup refuses any other database (vitest.setup.ts).
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ems_test
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/ems_test
+      CORS_ORIGIN: http://localhost:5173
+      JWT_ACCESS_SECRET: ci-only-access-secret-used-nowhere-else-0001
+      JWT_REFRESH_SECRET: ci-only-refresh-secret-used-nowhere-else-0002
+      # Set and empty: email off (src/config/env.ts).
+      SMTP_HOST: ''
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - name: Install (also generates the Prisma client)
+        run: npm ci
+      - name: Migrations, from the first, on an empty database
+        run: npx prisma migrate deploy
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Architecture rules (§A5)
+        run: npm run lint
+      - name: Field contract matches the serializers
+        run: |
+          npm run field-contract
+          git diff --exit-code -- ../docs/field-contract.json || {
+            echo "::error::docs/field-contract.json is out of date: run 'npm run field-contract' in server and commit it."
+            exit 1
+          }
+      - name: Tests
+        run: npm test
+
+  web:
+    name: Web — lint and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+
+  images:
+    name: Deploy images — build only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build ems-api and ems-web (not pushed)
+        run: bash deploy/build.sh "v0.0-ci.${{ github.run_number }}"

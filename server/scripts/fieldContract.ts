@@ -73,8 +73,26 @@ const NOT_DATA = new Set([
   'node_modules',
 ])
 
+/** The file's path from the repository root, with / on every system. */
+const keyOf = (file: string) => relative(join(__dirname, '../..'), file).replace(/\\/g, '/')
+
+/**
+ * The date the contract last changed. Kept as it was when nothing else did, so
+ * CI can regenerate it and find no difference (.github/workflows/ci.yml).
+ */
+function generatedAt(rest: object): string {
+  const today = new Date().toISOString().slice(0, 10)
+  try {
+    const { generatedAt: before, ...old } = JSON.parse(readFileSync(OUT, 'utf8')) as { generatedAt: string }
+    return JSON.stringify(old) === JSON.stringify(rest) ? before : today
+  } catch {
+    return today
+  }
+}
+
 function main(): void {
-  const files = walk(WEB_SRC).sort()
+  // Ordered by the path as written in the contract, so Windows (\) and Linux (/) agree.
+  const files = walk(WEB_SRC).sort((a, b) => (keyOf(a) < keyOf(b) ? -1 : keyOf(a) > keyOf(b) ? 1 : 0))
   const byFile: Record<string, string[]> = {}
   const everywhere = new Set<string>()
 
@@ -85,13 +103,11 @@ function main(): void {
 
     if (fields.length === 0) continue
 
-    const key = relative(join(__dirname, '../..'), file).replace(/\\/g, '/')
-    byFile[key] = fields
+    byFile[keyOf(file)] = fields
     for (const f of fields) everywhere.add(f)
   }
 
-  const contract = {
-    generatedAt: new Date().toISOString().slice(0, 10),
+  const rest = {
     note:
       'Field names the frontend reads, pinned so the API cannot quietly stop ' +
       'sending one. A serializer that stops sending one of these will render an empty ' +
@@ -101,6 +117,7 @@ function main(): void {
     allFields: [...everywhere].sort(),
     byFile,
   }
+  const contract = { generatedAt: generatedAt(rest), ...rest }
 
   mkdirSync(join(__dirname, '../../docs'), { recursive: true })
   writeFileSync(OUT, JSON.stringify(contract, null, 2) + '\n')
