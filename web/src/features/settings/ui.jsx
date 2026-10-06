@@ -14,11 +14,15 @@ import { Check, Save, Loader2 } from 'lucide-react'
 export const inp = 'w-full border border-gray-200 bg-white rounded-lg px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 disabled:bg-gray-50 disabled:text-gray-500'
 export const inpSm = 'border border-gray-200 bg-white rounded-lg px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 disabled:bg-gray-50 disabled:text-gray-500'
 
-/** A titled card of settings — named by its title, so it is a region a screen reader can jump to. */
-export function Section({ title, desc, children }) {
+/**
+ * A titled card of settings — named by its title, so it is a region a screen
+ * reader can jump to. `id` makes it a place a link can open at (…#holidays),
+ * which can take the focus from a script, though not from Tab.
+ */
+export function Section({ id, title, desc, children }) {
   const titleId = useId()
   return (
-    <section aria-labelledby={titleId} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+    <section id={id} tabIndex={id ? -1 : undefined} aria-labelledby={titleId} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden scroll-mt-4 focus:outline-none">
       <div className="px-4 sm:px-6 py-4 border-b border-gray-100">
         <h3 id={titleId} className="text-sm font-bold text-gray-900">{title}</h3>
         {desc && <p className="text-xs text-gray-500 mt-0.5">{desc}</p>}

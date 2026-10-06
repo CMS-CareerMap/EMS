@@ -50,6 +50,7 @@ server reads files from `web/dist` on every request.
 | `v1gaps`, `v1gaps2` | day20 | Requests, shifts, overtime, leave rules, encashment, components, loans, email |
 | `sweep23` | day20 | Every page × every role × phone: no crash, no sideways scroll |
 | `newlook` | day20 | The app's frame as every role: menus, page titles, the user menu, search, the phone tab bar and Menu drawer, dialogs opened from links, the employee profile page, the attendance calendar's days off, tabs from the keyboard, the mid-month salary hint |
+| `holidays` | day20 | Home's holiday card: none left this year, some left, none ahead; the way to add them for HR and the Super Admin only, opening Settings at Holidays; a holiday added there on Home at once; a phone |
 | `demo-tour` | the demo | Read-only tour of the demo as all seven roles (run with the demo up) |
 | `rehearsal` | the laptop rehearsal | The Docker images behind a stand-in edge, over HTTPS (`deploy/local/rehearse.sh`, `deploy/DEPLOY.md`): headers, caching, 404s, the refresh cookie, every Super Admin page, a phone, a file up and back, the upload limits. Run by hand: `REHEARSAL_SA_PASSWORD='…' node suites/rehearsal.mjs` |
 

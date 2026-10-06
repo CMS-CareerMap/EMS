@@ -154,13 +154,28 @@ export function CompanyDocumentsCard() {
   )
 }
 
-/** The next holidays from HR's list — this year's and next year's. */
+/** Where holidays are entered: Settings → Leave Config, at its Holidays section. */
+const HOLIDAY_SETTINGS = '/settings?tab=leave#holidays'
+
+/**
+ * The next holidays from HR's list — this year's and next year's.
+ *
+ * A new company starts with only the three fixed national holidays; the
+ * festivals move every year, and HR enters them. So once this year's entered
+ * holidays are behind us, the next one is in January — said plainly, so it does
+ * not look like the calendar skipped the rest of the year, with the way to add
+ * them for whoever keeps the calendar.
+ */
 export function HolidaysCard() {
   const timezone = useAuthStore((state) => state.organization?.timezone)
+  const canManage = useAuthStore((state) => state.can('holiday:manage'))
   const today = calendarDayIn(timezone)
   const year = Number(today.slice(0, 4))
   const thisYear = useHolidays(year)
   const nextYear = useHolidays(year + 1)
+  const addLink = (label) => (
+    <Link to={HOLIDAY_SETTINGS} className="font-semibold text-brand-600 hover:text-brand-800 underline-offset-2 hover:underline">{label}</Link>
+  )
   return (
     <DataState queries={[thisYear, nextYear]}>
       {([a, b]) => {
@@ -169,10 +184,14 @@ export function HolidaysCard() {
         if (!next) {
           return (
             <Card title="Upcoming holidays" action={<CardLink to="/leave?tab=holidays">All</CardLink>}>
-              <EmptyState icon={Gift} title="No holidays ahead">HR has not entered any holidays after today.</EmptyState>
+              <EmptyState icon={Gift} title="No holidays ahead">
+                HR has not entered any holidays after today.
+                {canManage && <span className="block mt-2">{addLink('Add holidays')}</span>}
+              </EmptyState>
             </Card>
           )
         }
+        const noneLeftThisYear = Number(next.date.slice(0, 4)) > year
         const days = Math.round((new Date(`${next.date}T00:00:00Z`) - new Date(`${today}T00:00:00Z`)) / 86_400_000)
         return (
           <section className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden" aria-label="Upcoming holidays">
@@ -185,6 +204,13 @@ export function HolidaysCard() {
               <p className="relative text-[13px] text-white/95">{WEEKDAYS[new Date(`${next.date}T00:00:00Z`).getUTCDay()]}, {formatDay(next.date)}</p>
             </div>
             <div className="p-4">
+              {noneLeftThisYear && (
+                <p className="text-xs rounded-lg bg-amber-50 text-amber-800 px-3 py-2 mb-3">
+                  No more holidays entered for {year}.
+                  {/* "Add holidays", not "this year's": after Christmas it is next year's that are missing. */}
+                  {canManage && <span className="block mt-0.5">{addLink('Add holidays')}</span>}
+                </p>
+              )}
               {rest.length === 0
                 ? <p className="text-xs text-gray-500">No more holidays entered after this one.</p>
                 : (
@@ -197,7 +223,7 @@ export function HolidaysCard() {
                         </span>
                         <span className="min-w-0">
                           <span className="block text-[13px] font-semibold text-gray-900 truncate">{h.name}</span>
-                          <span className="block text-xs text-gray-500">{WEEKDAYS[new Date(`${h.date}T00:00:00Z`).getUTCDay()]}, {h.date.slice(0, 4)}</span>
+                          <span className="block text-xs text-gray-500">{formatDay(h.date, { weekday: true })}</span>
                         </span>
                       </li>
                     ))}
