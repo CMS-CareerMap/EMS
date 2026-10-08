@@ -1,0 +1,26 @@
+# EMS — the site block for the box's shared Caddy (the edge, /srv/edge), which
+# belongs to the box owner. They add it to the edge's Caddyfile, or `import`
+# this file, then run `caddy reload` (never `restart`: the other project's site
+# would drop for a moment).
+#
+# The edge holds the certificate: Caddy asks Let's Encrypt for one by itself,
+# once the DNS record below points at the box. Everything else — the security
+# headers, caching, upload limits, /api — is EMS's own web container's
+# (deploy/web/Caddyfile), reached over the shared Docker network `edge` as
+# ems-web:8080. Nothing of EMS's publishes a port.
+#
+# DNS (Hostinger, careermapsolutions.in): an A record `ems` → 187.77.96.52.
+# No AAAA record unless the box owner confirms the edge sees IPv6 visitors'
+# own addresses (DEPLOY.md, "On the box", step 1).
+#
+# The visitor's address reaches the API through two hops: this block sets
+# X-Forwarded-For to the address the visitor came from (Caddy replaces any the
+# visitor sent, as nobody outside is a trusted proxy here), and the web
+# container passes it on (TRUST_PROXY_HOPS=2, deploy/compose.yml).
+#
+# Added at the first deploy, once the EMS stack is up (DEPLOY.md, step 7):
+# before that, the address would answer 502.
+
+ems.careermapsolutions.in {
+	reverse_proxy ems-web:8080
+}

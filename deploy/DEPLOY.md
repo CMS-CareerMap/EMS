@@ -2,6 +2,8 @@
 
 EMS runs on the client's Hostinger box (`187.77.96.52`, Ubuntu 26.04, 8 GB). The box already runs another project and is already hardened: user `deploy`, keys-only SSH, ufw (22, 80, 443), unattended upgrades, and Docker. One shared **Caddy** container in `/srv/edge` (the *edge*) owns ports 80/443 and every certificate. Apps live in `/srv/<name>`, join the shared Docker network `edge`, and publish no ports, because Docker would open them past ufw.
 
+EMS answers at **https://ems.careermapsolutions.in**. The domain is the client's, at Hostinger, which also holds its DNS; the company website (`careermapsolutions.in`) is elsewhere and is not touched.
+
 EMS is four containers in `/srv/ems`:
 
 ```
@@ -26,8 +28,8 @@ Everything below was run end to end on a laptop rehearsal of the box (`deploy/lo
 |---|---|---|
 | 1 | **Packaging**: the two images, `compose.yml`, `deploy.sh`, the jobs, the laptop rehearsal | ✅ Built and rehearsed, 5 Oct 2026 |
 | 2 | **CI** (GitHub Actions, `.github/workflows/ci.yml`) on pull requests and `main`: the migrations on an empty Postgres 17, server typecheck, the §A5 rules, the field contract and every test (clock in UTC, as the containers run); web lint and build; both images built, not pushed | ✅ Built 7 Oct 2026. No secrets, so it runs on the repository where it is today and moves with it to the CMS-CareerMap organization. After the move: allow Actions in the organization, and require CI on `main` |
-| 3 | **The Caddy block** for the EMS domain (the site, and `www` sent to it), handed to the box owner | Needs the domain |
-| 4 | **First deploy, by hand**: images over SSH, `.env`, the first Super Admin, the Caddy block, R2, the first backup and drill, a reboot, the smoke test, tag `v1.0` | Needs SSH as `deploy`, the domain, R2 keys, the Super Admin's email, who keeps the backup passphrase |
+| 3 | **The Caddy block** for the EMS domain, handed to the box owner | ✅ Written 7 Oct 2026: `deploy/edge/ems.caddy`, for `ems.careermapsolutions.in` (a subdomain: no `www`). Added at step 4, once the stack is up. Waiting on the client: the DNS A record `ems` → `187.77.96.52` |
+| 4 | **First deploy, by hand**: images over SSH, `.env`, the first Super Admin, the Caddy block, R2, the first backup and drill, a reboot, the smoke test, tag `v1.0` | Needs SSH (key sent to the box owner 7 Oct 2026; they choose the user — their `deploy`, or one for EMS), R2 keys, the Super Admin's email, who keeps the backup passphrase |
 | 5 | **CD**: on a version tag, build, ship over SSH, `deploy.sh` | After 4 |
 | 6 | **The client's go-live guide** (settings to fill in, first employees, first payroll) | After 4 |
 
@@ -48,6 +50,7 @@ Everything below was run end to end on a laptop rehearsal of the box (`deploy/lo
 | `crontab` | The jobs' schedule, in UTC |
 | `deploy.sh` | On the box: back up, migrate, switch; `--rollback`; `--status` |
 | `build.sh` | On a laptop or in CI: builds `ems-api:<version>` and `ems-web:<version>` |
+| `edge/ems.caddy` | The site block for the box's shared Caddy: `ems.careermapsolutions.in` → `ems-web:8080`. The box owner adds it |
 | `local/` | The laptop rehearsal: a stand-in for the box's edge Caddy, and `rehearse.sh` |
 
 The three scripts are committed as executable. A copy that lost the bit (from a Windows folder, say) runs with `bash deploy.sh …`, or after `chmod +x deploy.sh`.
@@ -109,13 +112,13 @@ Stop it with `deploy/local/rehearse.sh --down` (the data stays), or remove it al
 
 > *Not yet run.* Written in full, and run, in step 4. The outline:
 
-1. **Before anything:** the domain's DNS record points at the box and is **DNS only** — never proxied through Cloudflare (orange cloud). Proxied, every visitor would arrive from a Cloudflare address, and the whole company would share one sign-in limit. An **A record only**: no AAAA (IPv6) record unless the box owner confirms the edge sees IPv6 visitors' own addresses — otherwise every phone on IPv6 (most of Jio) would share one. Check that the shared network is called `edge`: `docker network inspect edge`.
+1. **Before anything:** the domain's DNS record points at the box — at Hostinger, careermapsolutions.in → DNS records: type **A**, name **ems**, points to **187.77.96.52**; check from outside with `nslookup ems.careermapsolutions.in 1.1.1.1` — and is **DNS only** — never proxied through Cloudflare (orange cloud). Proxied, every visitor would arrive from a Cloudflare address, and the whole company would share one sign-in limit. An **A record only**: no AAAA (IPv6) record unless the box owner confirms the edge sees IPv6 visitors' own addresses — otherwise every phone on IPv6 (most of Jio) would share one. Check that the shared network is called `edge`: `docker network inspect edge`.
 2. As `deploy`: `sudo install -d -o deploy -g deploy /srv/ems`, then copy into it `compose.yml`, `deploy.sh`, `env.example` and `postgres/10-ems-role.sh` from `deploy/`. `chmod 755 deploy.sh postgres/10-ems-role.sh` — the database container must be able to read and run the second one.
 3. `cp env.example .env && chmod 600 .env`, and fill it in on the box (the secrets are generated there).
 4. The images arrive from the laptop: `docker save ems-api:v1.0 ems-web:v1.0 | gzip | ssh deploy@187.77.96.52 'gunzip | docker load'`.
 5. `./deploy.sh v1.0`: starts the database, creates the tables, starts everything. If it stops saying it could not ask the database, the database's first start went wrong (`docker compose logs db`; most often `postgres/10-ems-role.sh` was unreadable) and the app's login was never made. On this **first** deploy only, with nothing in it yet, start the database afresh: `docker compose down --volumes`, fix the cause, run `./deploy.sh v1.0` again. Never `--volumes` once there is data.
 6. The first Super Admin, as in the rehearsal above.
-7. The box owner adds the Caddy block for the domain (`reverse_proxy ems-web:8080`) and runs `caddy reload` (never `restart`).
+7. The box owner adds `deploy/edge/ems.caddy` to the edge (`ems.careermapsolutions.in { reverse_proxy ems-web:8080 }`) and runs `caddy reload` (never `restart`). Caddy gets the certificate by itself.
 8. `npm run storage:check` against R2; the first backup and a drill by hand; a reboot of the box; a failed sign-in from a phone on mobile data, whose own address must show in the audit log; the smoke test (`Role_Permission_Documentation.md` §12, the testing checklist); then tag `v1.0`.
 
 ## Updating to a new version
