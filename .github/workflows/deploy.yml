@@ -1,0 +1,135 @@
+# CD (deploy Phase 5): a version tag on main puts that version on the box.
+#
+#   git checkout main && git pull
+#   git tag v1.1 && git push origin v1.1
+#
+# Then, once a person approves it (Settings → Environments → production →
+# required reviewers), this:
+#   1. checks the tag is a release (v1.1, v1.1.2) on a commit already on main —
+#      where branch protection made CI pass before it got there;
+#   2. reaches the box over SSH, before building anything;
+#   3. builds ems-api:<tag> and ems-web:<tag> with deploy/build.sh, from that commit;
+#   4. streams both into the box's Docker (docker save | ssh docker load): no registry;
+#   5. runs ./deploy.sh <tag> in /srv/ems — back up, migrate, switch, wait until
+#      healthy, as by hand (DEPLOY.md, "Updating to a new version"); its whole
+#      output stays on the box, as these logs are public;
+#   6. asks the public address: the page, and the API behind both proxies.
+#
+# A rollback stays a person's: ./deploy.sh --rollback on the box (DEPLOY.md).
+#
+# Secrets of the `production` environment (DEPLOY.md, "Automatic deploys"):
+#   EMS_SSH_HOST          the box's address
+#   EMS_SSH_USER          the box user EMS runs under
+#   EMS_SSH_KEY           a private key made for this workflow alone; its .pub
+#                         is in that user's authorized_keys on the box
+#   EMS_SSH_KNOWN_HOSTS   the box's host key, as `ssh-keyscan` prints it, checked
+#                         by hand against the box — never trusted on first sight
+name: Deploy
+
+on:
+  push:
+    tags: ['v[0-9]*']
+
+permissions:
+  contents: read
+
+# One deploy at a time; a second waits rather than cancelling the first half-way.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy ${{ github.ref_name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment:
+      name: production
+      url: https://ems.careermapsolutions.in
+    env:
+      VERSION: ${{ github.ref_name }}
+      SITE: https://ems.careermapsolutions.in
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Whole history, to check the tag's commit is on main.
+          fetch-depth: 0
+
+      - name: The tag is a release, on main
+        run: |
+          if ! [[ $VERSION =~ ^v[0-9]+(\.[0-9]+){1,2}$ ]]; then
+            echo "::error::$VERSION is not a release version (v1.2 or v1.2.3)."
+            exit 1
+          fi
+          git fetch --quiet origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$VERSION is not on main. Merge first, then tag a commit on main."
+            exit 1
+          fi
+
+      - name: Reach the box
+        env:
+          EMS_SSH_HOST: ${{ secrets.EMS_SSH_HOST }}
+          EMS_SSH_USER: ${{ secrets.EMS_SSH_USER }}
+          EMS_SSH_KEY: ${{ secrets.EMS_SSH_KEY }}
+          EMS_SSH_KNOWN_HOSTS: ${{ secrets.EMS_SSH_KNOWN_HOSTS }}
+        run: |
+          missing=""
+          for name in EMS_SSH_HOST EMS_SSH_USER EMS_SSH_KEY EMS_SSH_KNOWN_HOSTS; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Set these secrets on the production environment first:$missing (DEPLOY.md, \"Automatic deploys\")."
+            exit 1
+          fi
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$EMS_SSH_KEY" > ~/.ssh/ems
+          chmod 600 ~/.ssh/ems
+          printf '%s\n' "$EMS_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          {
+            echo "Host box"
+            echo "  HostName $EMS_SSH_HOST"
+            echo "  User $EMS_SSH_USER"
+            echo "  IdentityFile ~/.ssh/ems"
+            echo "  IdentitiesOnly yes"
+            echo "  StrictHostKeyChecking yes"
+            echo "  ServerAliveInterval 30"
+          } > ~/.ssh/config
+          ssh box 'cd /srv/ems && ./deploy.sh --status'
+
+      - name: Build ems-api and ems-web
+        run: bash deploy/build.sh "$VERSION"
+
+      - name: Send the images to the box
+        run: docker save "ems-api:$VERSION" "ems-web:$VERSION" | gzip | ssh box 'gunzip | docker load'
+
+      - name: Switch to the new version (back up, migrate, start)
+        run: |
+          # This repository's Actions logs can be read by anybody, and deploy.sh
+          # prints the API's own log when a version fails (sign-in attempts name
+          # people). So its whole output stays on the box, and only its step
+          # lines ("== …", "STOPPED: …") come here.
+          ssh box bash -s -- "$VERSION" <<'REMOTE'
+          cd /srv/ems || exit 1
+          log="deploy-$(date -u +%Y%m%dT%H%M%SZ)-$1.log"
+          ./deploy.sh "$1" > "$log" 2>&1
+          code=$?
+          grep -E '^(== |STOPPED)' "$log" || true
+          echo "The whole log stays on the box: /srv/ems/$log"
+          exit "$code"
+          REMOTE
+
+      - name: The public address answers
+        run: |
+          # The page, through the edge and the web container.
+          page=""
+          for _ in $(seq 1 20); do
+            page=$(curl -fsS --max-time 10 "$SITE/" || true)
+            [[ $page == *'id="root"'* ]] && break
+            sleep 6
+          done
+          [[ $page == *'id="root"'* ]] || { echo "::error::$SITE/ does not serve the app."; exit 1; }
+          # The API behind both proxies: signed out, the session is refused with 401.
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$SITE/api/auth/session")
+          [ "$code" = 401 ] || { echo "::error::$SITE/api/auth/session answered $code, not 401: the API is not reached."; exit 1; }
+          echo "$VERSION is live at $SITE"

@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EMS — Go-Live Guide</title>
+<style>
+  :root { --ink: #1f2937; --muted: #6b7280; --line: #e5e7eb; --soft: #f8fafc; --brand: #1d4ed8; --no: #b91c1c; }
+  @page { size: A4; margin: 16mm 14mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #fff; color: var(--ink); font: 14px/1.6 "Segoe UI", Arial, sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 20px 48px; }
+  h1 { font-size: 26px; margin: 0 0 4px; color: #0f172a; }
+  h2 { font-size: 18px; margin: 32px 0 10px; padding-bottom: 6px; border-bottom: 2px solid var(--brand); color: #0f172a; break-after: avoid; }
+  p { margin: 6px 0 10px; }
+  ul, ol { margin: 6px 0 12px; padding-left: 22px; }
+  li { margin: 0 0 6px; }
+  .sub { color: var(--muted); margin: 0 0 18px; }
+  .box { border: 1px solid var(--line); background: var(--soft); border-radius: 10px; padding: 12px 16px; margin: 12px 0; break-inside: avoid; }
+  .box.note { border-color: #bfdbfe; background: #eff6ff; }
+  .box.rule { border-color: #bbf7d0; background: #f0fdf4; }
+  .box.ask { border-color: #fde68a; background: #fffbeb; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; font-size: 13px; break-inside: auto; table-layout: fixed; }
+  th, td { border: 1px solid var(--line); padding: 7px 9px; text-align: left; vertical-align: top; }
+  th { background: #f1f5f9; font-weight: 600; }
+  tr { break-inside: avoid; }
+  .path { font-weight: 600; white-space: nowrap; }
+  .who { display: inline-block; font-size: 12px; font-weight: 600; color: #1e3a8a; background: #dbeafe; border-radius: 999px; padding: 1px 9px; margin-left: 6px; vertical-align: 2px; }
+  .muted { color: var(--muted); }
+  .keep { break-inside: avoid; }
+  footer { margin-top: 36px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+  @media print { main { padding: 0; } h2 { margin-top: 26px; } a { color: inherit; text-decoration: none; } }
+</style>
+</head>
+<body>
+<main>
+
+<h1>EMS — Go-Live Guide</h1>
+<p class="sub">How CareerMap Solutions starts using the Employee Management System, step by step · 8 October 2026</p>
+
+<div class="box note">
+  <strong>EMS is at: https://ems.careermapsolutions.in</strong> — on a computer or a phone.<br><br>
+  This guide takes you from the first sign-in to the first payroll. Each step says <strong>who</strong> does it:
+  the <strong>Super Admin</strong>, <strong>HR</strong> or <strong>Accounts</strong>.
+  Do the steps in order. Steps 1 to 5 take about half a day; most of it is typing in your own data.
+</div>
+
+<h2>What to keep ready</h2>
+<table>
+  <tr><th style="width:62%">What</th><th>Who has it</th></tr>
+  <tr><td>The <strong>administrator login</strong> we give you (an email and a first password)</td><td>The Super Admin</td></tr>
+  <tr><td>The owner's work email, and the work emails of people with a role (HR, Accounts, managers)</td><td>The Super Admin</td></tr>
+  <tr><td>A list of all employees: name, Employee ID, joining date, department, designation, and an email for those who have one. For people already working here, also the date each was <strong>confirmed</strong> (after probation)</td><td>HR</td></tr>
+  <tr><td>How much leave each person has already taken this year, if you start in the middle of the year</td><td>HR</td></tr>
+  <tr><td>This year's holidays (Diwali, Holi, Eid and the state holidays move every year)</td><td>HR</td></tr>
+  <tr><td>The office's location on Google Maps (for checking in from a phone)</td><td>The Super Admin</td></tr>
+  <tr><td>Everybody's salary, bank account (a cancelled cheque or passbook page), PAN and UAN</td><td>Accounts</td></tr>
+</table>
+
+<h2>Step 1 — Sign in, and change the first password <span class="who">Super Admin</span></h2>
+<ol>
+  <li>Open <strong>https://ems.careermapsolutions.in</strong> and sign in with the administrator login.</li>
+  <li>Top right, your name → <span class="path">My Profile → Password</span>. Choose a new password of at least 10 characters.</li>
+</ol>
+<p class="muted">This administrator login belongs to no employee. Keep it safe, for emergencies. The owner gets a login of their own in step 3.</p>
+
+<h2>Step 2 — The company's settings <span class="who">Super Admin</span></h2>
+<p>Everything is under <span class="path">Settings</span> (left menu). Most settings already have sensible values: change only what is different for you.</p>
+<table>
+  <tr><th style="width:28%">Settings tab</th><th>What to fill in or check</th></tr>
+  <tr><td class="path">Company</td><td>The company's legal name, address, phone and HR email. Under <strong>Attendance Geofence</strong>: the office's location and how far from it a check-in is allowed (50 metres works well).</td></tr>
+  <tr><td class="path">Organisation</td><td>Your <strong>Departments</strong>, <strong>Designations</strong> and <strong>Shifts</strong> (each shift's hours, grace period and half-day rules).</td></tr>
+  <tr><td class="path">Leave Config</td><td>The <strong>Working Week</strong>, the <strong>Leave Types</strong> and their rules, and this year's <strong>Holidays</strong>. HR can do this part too.</td></tr>
+  <tr><td class="path">Payroll Config</td><td>PF, ESI, professional tax, the pay day, loss of pay, overtime and income tax. Leave them as they are unless your accountant says otherwise. Overtime pay starts off.</td></tr>
+  <tr><td class="path">Employee Lifecycle</td><td>The probation length (6 months to start) and the notice period (30 days to start).</td></tr>
+  <tr><td class="path">Documents</td><td>Which documents to collect from each employee, and the largest file size (2 MB to start).</td></tr>
+  <tr><td class="path">Approvals</td><td>Who decides each kind of request (the reporting manager or HR), who decides for people with nobody above them, and who stands in for a manager.</td></tr>
+  <tr><td class="path">Users &amp; Roles → Passwords</td><td>Who sets passwords. To start: HR sets employees' passwords and the Super Admin sets those of people with a role. Nobody can change their own, except the Super Admin.</td></tr>
+  <tr><td class="path">Notifications</td><td>Which notices are sent. Every notice appears in the app's bell.</td></tr>
+</table>
+
+<h2>Step 3 — The owner <span class="who">Super Admin</span></h2>
+<ol>
+  <li><span class="path">Employees → Add Employee</span>: the owner's details. Leave "Give them a login" unticked here.</li>
+  <li>Open the owner's page → <span class="path">Logins → Add login</span>. Role: <strong>Super Admin</strong>; the owner's own work email; <strong>Add login</strong>.</li>
+  <li>EMS shows a <strong>one-time link</strong>. Copy it and send it to the owner. They open it and choose their own password. A Super Admin's password is always their own.</li>
+  <li>Once they have chosen it: <span class="path">Settings → Company Tree</span> → <strong>Make owner</strong> next to the owner's name.</li>
+</ol>
+<p>From now on the owner signs in with their own login. Their own leave and requests are recorded directly, with nobody's approval.</p>
+
+<h2>Step 4 — People with a role: HR, Accounts, managers <span class="who">Super Admin</span></h2>
+<p>For each of them, <span class="path">Employees → Add Employee</span>:</p>
+<ol>
+  <li>Fill in their details and their <strong>Reporting Manager</strong>. For somebody already working here, also <strong>Confirmed On</strong>: the date their probation ended. Left empty, EMS treats them as a new joiner, in onboarding and then on probation.</li>
+  <li>Tick <strong>Give them a login to the system</strong>. Choose their <strong>Role</strong>, type their <strong>work email</strong>, and type a <strong>password</strong> twice.</li>
+  <li><strong>Add Employee</strong>. The login works at once. Tell the person their password yourself; it is not shown again.</li>
+</ol>
+<p>Somebody with a role also needs an <strong>employee login</strong> for their own attendance, leave and payslips: their page → <span class="path">Logins → Add another login</span> → Role <strong>Employee</strong>. The email is optional. Without one, they sign in with their Employee ID.</p>
+
+<h2>Step 5 — Everybody else <span class="who">HR</span></h2>
+<p><strong>Many at once, from a spreadsheet:</strong></p>
+<ol>
+  <li><span class="path">Employees → Import → Download a template</span>. Fill it in: one row per employee. For people already working here, fill in <strong>confirmed_on</strong> too (the date their probation ended); left empty, they start as new joiners.</li>
+  <li>Upload it. EMS checks every row first and names any problem with its line number. Nothing is saved until every row is right.</li>
+  <li><strong>Import</strong>. Employees with an email get a login that waits for its password ("No password yet"). Those without an email get no login yet: give one on their page → <span class="path">Logins → Add login</span>, Role <strong>Employee</strong>, no email needed, and a password.</li>
+</ol>
+<p><strong>One at a time:</strong> <span class="path">Employees → Add Employee</span>, tick <strong>Give them a login</strong>, keep the role <strong>Employee</strong>, and type a password twice. The email is optional. For somebody already working here, fill in <strong>Confirmed On</strong>.</p>
+<p><strong>Passwords:</strong> for each login that waits, <span class="path">Settings → Users &amp; Roles</span> → the key button next to "No password yet". You can also open the person's page → <span class="path">Logins → Set password</span>. Tell each person:</p>
+<div class="box rule">Sign in at <strong>https://ems.careermapsolutions.in</strong> with your <strong>Employee ID</strong> (capital or small letters both work) or your email, and the password HR gave you. If you forget it, ask HR for a new one.</div>
+<p><strong>Who reports to whom</strong> <span class="who">Super Admin</span>: <span class="path">Settings → Company Tree</span> → place each person under their manager. Leave and requests go to that person.</p>
+
+<h2>Step 6 — Before the first payroll</h2>
+<table>
+  <tr><th style="width:24%">Who</th><th>What</th></tr>
+  <tr><td><strong>HR</strong></td><td><span class="path">Leave → Team Balances → Grant leave</span>: gives everybody this year's leave. New joiners get the months that are left. Starting in the middle of the year? EMS does not know the leave people took before it: on the same page, <strong>Correct</strong> each person's balance (whole or half days, with a reason they see).</td></tr>
+  <tr><td><strong>HR</strong></td><td>PAN, UAN, PF and ESIC numbers: each person's page → <span class="path">Edit → Statutory Details</span>.</td></tr>
+  <tr><td><strong>Accounts</strong></td><td><span class="path">Payroll → Salary structure → Set salary</span> for each person: the start date, the yearly CTC and the monthly components.</td></tr>
+  <tr><td><strong>Accounts</strong></td><td><span class="path">Payroll → Bank accounts</span>: add each salary account from a cancelled cheque or passbook page, then check it. Salary is paid only into checked accounts. Employees can also send in their own from <span class="path">My Profile</span>.</td></tr>
+  <tr><td><strong>Everybody</strong></td><td>Attendance: <strong>Check In</strong> and <strong>Check Out</strong> on Home, from a phone at the office. If you use a biometric machine, HR imports its file: <span class="path">Attendance → Import</span>.</td></tr>
+</table>
+
+<h2>Step 7 — The first payroll, at month end <span class="who">Accounts</span> <span class="who">Super Admin</span></h2>
+<ol>
+  <li><strong>Accounts:</strong> <span class="path">Payroll → Payroll runs</span> → the month → <strong>Run payroll</strong>. This makes a draft: check the payslips. After any correction, press <strong>Recalculate</strong>.</li>
+  <li><strong>Super Admin:</strong> the same month → <strong>Approve</strong>. Accounts prepares the payroll; only the Super Admin approves it.</li>
+  <li><strong>Accounts:</strong> <strong>Bank file → Download CSV</strong>, and upload it to the bank.</li>
+  <li><strong>Accounts:</strong> once the bank has paid, <strong>Mark as paid</strong>. Everybody then sees their payslip under <span class="path">Payslips</span>, as a PDF.</li>
+</ol>
+<p class="muted">Until a month is marked as paid, and before the lock day set in Payroll Config, the Super Admin can reopen it to correct a mistake. Once it is paid, it cannot be changed.</p>
+
+<div class="keep">
+<h2>Every day after that</h2>
+<ul>
+  <li><strong>Employees</strong> check in and out on Home, apply for leave, and send requests (attendance corrections, work from home, overtime) from <span class="path">Requests</span>.</li>
+  <li><strong>Managers</strong> approve or reject from <strong>Waiting for you</strong> on Home.</li>
+  <li><strong>HR</strong> sees the whole company's attendance and leave, and sets passwords when somebody forgets theirs.</li>
+  <li><strong>Backups</strong> are taken by themselves every night, and checked every month. The Super Admin can see them in <span class="path">Settings → Audit Log → System jobs</span>.</li>
+</ul>
+</div>
+
+<div class="box ask">
+  <strong>Need help?</strong> Forgotten passwords: employees ask HR; people with a role ask the Super Admin. For anything else, or anything that looks wrong, contact us. Tell us the page, what you clicked, and what you saw — a screenshot helps.
+</div>
+
+<footer>EMS — CareerMap Solutions Pvt. Ltd. · Go-live guide · 8 October 2026</footer>
+</main>
+</body>
+</html>

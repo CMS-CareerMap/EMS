@@ -115,7 +115,7 @@ Decisions for the client, or small items left:
 9. A salary that starts mid-month is paid from the next month. The payslip warning gives the arrears for the days from the change — each new salary for its own days when there are two — on the company's pay-day basis, to enter under the Arrears component (whether Arrears counts for PF is the accountant's call), and says so once it is entered; a lower salary is told as an overpayment to recover. The salary form says the same before saving and offers the 1st of the next month instead.
 10. Payroll: the alternate-Saturday weekly-off pattern is not built.
 11. The accountant has not yet signed off the golden payroll sheet (`golden.test.ts`).
-12. Deploy (Docker, CI/CD, domain, R2, SMTP, backup passphrase) is still to do.
+12. Deploy: the Docker packaging, CI (on every pull request, `main` protected), the edge block for `ems.careermapsolutions.in`, the first-deploy runbook, CD (on a release tag, approved by a person) and the client's go-live guide are built (`deploy/DEPLOY.md`, `docs/client/EMS-Go-Live-Guide.pdf`). Running it on the client's box waits for: SSH, the DNS record, R2 keys, the administrator and owner emails, who keeps the backup passphrase; SMTP is optional.
 12a. The statutory upload files — the EPFO ECR file and the ESIC monthly contribution file — are not built (in scope since 27 Sep 2026). Today Reports → PF and ESI contributions gives every figure they need, per person, as a CSV. To be built from a sample of the company's own last ECR and ESIC upload, with the accountant's rule for whole NCP days and the 58th-birthday EPS split (item 8).
 
 Small items the reviews found and that are left as they are, each low risk:
