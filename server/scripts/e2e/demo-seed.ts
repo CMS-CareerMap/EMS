@@ -64,7 +64,7 @@ interface Person {
 // The tree: Rahul (owner, Super Admin) at the top; Manoj's Sales under him with
 // Rekha leading a team; Karan's Technology team; Arjun with one person of his own.
 const PEOPLE: Person[] = [
-  { key: 'rahul', name: 'Rahul Mehta', gender: 'male', dept: 'Operations', designation: 'Head', manager: null, logins: [['superadmin@example.com', 'super_admin']], salary: { BASIC: 60_000, HRA: 24_000, SPECIAL: 16_000 }, ctc: 1_200_000, joined: '2021-04-01', phone: '9820011001', pan: 'AJKPM1234A', uan: '100200300401', bank: ['HDFC Bank', '50100200300401', 'HDFC0000123'] },
+  { key: 'rahul', name: 'Rahul Mehta', gender: 'male', dept: 'Operations', designation: 'Director', manager: null, logins: [['superadmin@example.com', 'super_admin']], salary: { BASIC: 60_000, HRA: 24_000, SPECIAL: 16_000 }, ctc: 1_200_000, joined: '2021-04-01', phone: '9820011001', pan: 'AJKPM1234A', uan: '100200300401', bank: ['HDFC Bank', '50100200300401', 'HDFC0000123'] },
   { key: 'arjun', name: 'Arjun Nair', gender: 'male', dept: 'Operations', designation: 'Senior Manager', manager: 'rahul', logins: [['admin@example.com', 'admin'], ['arjun@example.com', 'employee']], salary: { BASIC: 35_000, HRA: 14_000, SPECIAL: 6_000 }, ctc: 660_000, joined: '2022-06-13', phone: '9820011002', pan: 'BKLPN2345B', uan: '100200300402', bank: ['ICICI Bank', '002101500402', 'ICIC0000021'] },
   { key: 'hema', name: 'Hema Iyer', gender: 'female', dept: 'Human Resources', designation: 'Manager', manager: 'rahul', logins: [['hr@example.com', 'hr']], salary: { BASIC: 30_000, HRA: 12_000, SPECIAL: 5_000 }, ctc: 564_000, joined: '2022-01-10', phone: '9820011003', pan: 'CMNPI3456C', uan: '100200300403', bank: ['State Bank of India', '30200300403', 'SBIN0001234'] },
   { key: 'anil', name: 'Anil Kapoor', gender: 'male', dept: 'Finance', designation: 'Manager', manager: 'rahul', logins: [['accounts@example.com', 'accounts'], ['anil@example.com', 'employee']], salary: { BASIC: 32_000, HRA: 12_800, SPECIAL: 5_200 }, ctc: 600_000, joined: '2022-03-07', phone: '9820011004', pan: 'DNOPK4567D', uan: '100200300404', bank: ['Axis Bank', '917010300404', 'UTIB0000456'] },
@@ -261,7 +261,9 @@ async function seed() {
       }
       const inAt = at(d, hhmm(9 * 60 + 12 + Math.floor(noise(p.key, d, 'in') * 33)))
       const forgot = p.key === plan.correction.who && d === plan.correction.date
-      const outAt = r > 0.98 ? at(d, '15:40') : at(d, hhmm(18 * 60 + 22 + Math.floor(noise(p.key, d, 'out') * 45)))
+      // Out at 18:30–18:39: with no break off (client, 8 Oct 2026), a day of
+      // 8h46m to 9h27m — present, and short of the half hour that is overtime.
+      const outAt = r > 0.98 ? at(d, '15:40') : at(d, hhmm(18 * 60 + 30 + Math.floor(noise(p.key, d, 'out') * 10)))
       const hours = forgot ? null : hoursBetween(inAt, outAt, general.breakMinutes).hours
       const measure = measureInstants({ rules, date: d, timezone: TZ, checkIn: inAt, checkOut: forgot ? null : outAt, hoursWorked: hours })
       rows.push({

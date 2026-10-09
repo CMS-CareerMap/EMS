@@ -13,8 +13,8 @@ import { useNow } from '../hooks/useNow'
 import { useAuthStore } from '../stores/authStore'
 import { saveFromApi } from '../api/http'
 import { useDownload } from '../hooks/useDownload'
-import { calendarDayIn, wallClockIn, formatCalendarDay, isoInstant } from '../lib/dates'
-import { monthLabel, toMinutes } from '../lib/attendance'
+import { addDays, calendarDayIn, wallClockIn, formatCalendarDay } from '../lib/dates'
+import { clockSkew, monthLabel } from '../lib/attendance'
 import DataState from '../components/DataState'
 import PageHeader from '../components/ui/PageHeader'
 import Segmented from '../components/ui/Segmented'
@@ -53,8 +53,15 @@ export default function Attendance() {
   const [importing, setImporting]   = useState(false)
   const { busy: exporting, start: startExport } = useDownload()
 
-  const roster         = useDayRoster(date)
+  // Asked again every minute while somebody who sees others watches today's or
+  // yesterday's roster (a night shift's day is yesterday's), on the daily view —
+  // never for one's own page, whose Check In must not hang on it.
+  const attendanceReach = useAuthStore((state) => state.attendanceReach)
+  const watching = Boolean(attendanceReach) && attendanceReach !== 'SELF' && (viewChoice ?? 'daily') === 'daily' && (date === today || date === addDays(today, -1))
+  const roster         = useDayRoster(date, { live: watching })
   const rosterData     = roster.data
+  // Now by the server's clock: the time at work the roster runs is counted on it.
+  const serverNow      = new Date(now.getTime() + clockSkew(rosterData?.server_now, roster.dataUpdatedAt))
   const markAttendance = useMarkAttendance()
 
   const records = useMemo(() => (rosterData?.employees ?? []).map((emp) => ({
@@ -67,6 +74,12 @@ export default function Attendance() {
     // Shown, and handed to the edit form, as the company's wall clock.
     check_in: wallClockIn(timezone, emp.attendance?.check_in),
     check_out: wallClockIn(timezone, emp.attendance?.check_out),
+    // The instant itself, and whether they are still at work (the server's
+    // rule, their own card's): the roster runs their time from it (client, 9 Oct 2026).
+    check_in_at: emp.attendance?.check_in ?? null,
+    at_work: Boolean(emp.at_work),
+    // What wrote the day: the app, the machine, or HR by hand.
+    source: emp.attendance?.source ?? null,
     hours_worked: emp.attendance?.hours_worked ?? null,
     note: emp.attendance?.note ?? '',
     // Where they worked from (client §33) and what they checked in on — office days say nothing.
@@ -86,7 +99,6 @@ export default function Attendance() {
   // the roster it returned — never by a role name. Not by the roster alone:
   // on a day before everybody joined it can hold nobody else, and the page
   // turned into the personal one, its date picker gone with no way back.
-  const attendanceReach = useAuthStore((state) => state.attendanceReach)
   const seesOthers = (Boolean(attendanceReach) && attendanceReach !== 'SELF') || records.some((r) => r.id !== myEmployeeId)
   const view = viewChoice ?? 'daily'
 
@@ -144,7 +156,8 @@ export default function Attendance() {
     startExport('csv', () => saveFromApi(`/attendance/export?${params}`))
   }
 
-  const ready = roster.isSuccess || roster.isPlaceholderData
+  // A roster on screen — the last good one too, when a refresh failed (it stays, with a note).
+  const ready = roster.data !== undefined
   const self = ready && !seesOthers
   const [year, month] = monthKey.split('-').map(Number)
   const subtitle = self ? formatCalendarDay(today) : view === 'monthly' ? monthLabel(year, month) : formatCalendarDay(date)
@@ -172,8 +185,9 @@ export default function Attendance() {
       />
 
       {/* A day that could not be loaded still leaves a way to another day:
-          the date controls below live inside the roster's view. */}
-      {roster.isError && (
+          the date controls below live inside the roster's view. Not when a
+          refresh failed over a roster still on screen — its own controls stay. */}
+      {roster.isError && roster.data === undefined && (
         <div className={`${card} mb-4 px-4 py-3 flex flex-wrap items-center gap-3`}>
           <label htmlFor="attendance-other-day" className="text-sm text-gray-600">Choose another day</label>
           <input id="attendance-other-day" type="date" value={date} max={today} onChange={(e) => e.target.value && setDate(e.target.value)} className={field} />
@@ -186,7 +200,7 @@ export default function Attendance() {
       {/* Everything below is drawn from the roster — even which page is right,
           so guessing before it arrives would flash the wrong one at HR. A
           roster that failed shows the error, never an empty team. */}
-      <DataState query={roster} loading="Loading attendance…">
+      <DataState query={roster} loading="Loading attendance…" keepOnRefetchError>
         {() => !seesOthers ? (
           <SelfAttendance monthKey={monthKey} onMonth={setMonthKey} today={today} />
         ) : view === 'monthly' ? (
@@ -202,7 +216,7 @@ export default function Attendance() {
               departments={departments} deptFilter={deptFilter} onDept={setDeptFilter}
               search={search} onSearch={setSearch}
               canMark={canMark} onMark={setModalEmp}
-              nowMinutes={toMinutes(wallClockIn(timezone, isoInstant(now)))}
+              nowMs={serverNow.getTime()}
             />
           </div>
         )}

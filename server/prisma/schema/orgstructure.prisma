@@ -61,11 +61,15 @@ model Shift {
   startTime String
   endTime   String
 
-  /// Unpaid break, subtracted when hours worked are computed (Day 11).
-  breakMinutes Int @default(60)
+  /// Unpaid break, subtracted when hours worked are computed (Day 11). None by
+  /// default: the client's people take lunch whenever they like, so a day is
+  /// check-in to check-out and the full-day minimum allows for lunch (client,
+  /// 8 Oct 2026). A company that docks a fixed break sets it here.
+  breakMinutes Int @default(0)
 
-  /// What a full day is for this shift. The client's example is 9 hours.
-  /// Decimal because half-hours are real: 8.5 is a common shift.
+  /// The shift's length in hours; the client's is 9. Overtime counts past it,
+  /// and a shift with no minimums of its own reads full and half days as
+  /// fractions of it. Decimal because half-hours are real: 8.5 is a common shift.
   expectedHours Decimal @default(9) @db.Decimal(4, 2)
 
   /// The shift's rules (client §34). Every one defaults to what the system did
@@ -80,8 +84,10 @@ model Shift {
   /// Leaving more than this many minutes before the end makes the day a half
   /// day at best. Null: leaving early is marked, never costs a day.
   earlyLeavingMinutes  Int?
-  /// Hours worked for a full day and for a half day. Null: three quarters and
-  /// half of the expected hours, as before.
+  /// Hours worked for a full day and for a half day; under the half-day figure
+  /// the day is absent. The client's (8 Oct 2026): 8 and 4.5 on a nine-hour
+  /// shift, given to the shifts a company starts with. Null: three quarters and
+  /// half of the expected hours.
   minFullDayHours      Decimal? @db.Decimal(4, 2)
   minHalfDayHours      Decimal? @db.Decimal(4, 2)
   /// Work past the expected hours counts as overtime (client §35) once it

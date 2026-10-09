@@ -10,7 +10,7 @@ import { Avatar } from './ui/bits'
 import { roleLabel } from '../lib/roles'
 
 /**
- * The white bar across the top: the company's logo in its own colours, the
+ * The white bar across the top: the EMS logo in its own colours, the
  * search, the bell, and who is signed in.
  *
  * "Signed in as HR" stays in the user button: somebody with two logins
@@ -41,7 +41,7 @@ export default function TopBar({ onMenuClick, onSearch }) {
       </button>
 
       <Link to="/dashboard" className="shrink-0 md:pl-4.5" aria-label="Home">
-        <img src="/logo-wide.png" alt="CareerMap Solutions" className="h-8 md:h-10 w-auto" />
+        <img src="/logo-wide.png" alt="EMS" className="h-8 md:h-10 w-auto" />
       </Link>
 
       <span aria-hidden="true" className="hidden lg:block w-px h-7 bg-gray-200" />

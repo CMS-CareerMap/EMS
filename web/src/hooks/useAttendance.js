@@ -59,12 +59,22 @@ export function useAttendance(date) {
  */
 const keepPrevious = (previous) => previous
 
-export function useDayRoster(date) {
+/**
+ * `live` (today's or yesterday's roster, watched by somebody who sees others):
+ * asked again every minute and on coming back to the tab, so a check-in or
+ * check-out made meanwhile shows without a reload, and the time at work it runs
+ * stops for somebody who has left (client, 9 Oct 2026). A failed refresh keeps
+ * the last answer on the page (DataState keepOnRefetchError), without a toast.
+ */
+export function useDayRoster(date, { live = false } = {}) {
   return useQuery({
     queryKey: keys.roster(date),
     queryFn: async () => (await api.get(`/attendance/day?date=${date}`)).data,
     enabled: !!date,
     placeholderData: keepPrevious,
+    refetchInterval: live ? 60_000 : false,
+    refetchOnWindowFocus: live,
+    meta: { quietRefetch: true },
   })
 }
 

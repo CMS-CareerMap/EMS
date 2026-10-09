@@ -17,6 +17,10 @@ function payload(result: PunchResult) {
     late_minutes: result.lateMinutes,
     early_leaving_minutes: result.earlyLeavingMinutes,
     overtime_minutes: result.overtimeMinutes,
+    // The day's own shift's unpaid break, taken off the hours at check-out.
+    break_minutes: result.breakMinutes,
+    // The hours worked a full day needs, as check-out grades it — the card counts down to it (client, 9 Oct 2026).
+    full_day_hours: result.fullDayHours,
     geofence: result.geofence
       ? {
           verified: result.geofence.verified,
@@ -66,7 +70,14 @@ export const getMyWorkplace: RequestHandler = async (_req, res) => {
       location_needed: where.locationNeeded,
       overtime_enabled: where.overtimeEnabled,
       shift: where.shift
-        ? { name: where.shift.name, start_time: where.shift.startTime, end_time: where.shift.endTime, break_minutes: where.shift.breakMinutes }
+        ? {
+            name: where.shift.name,
+            start_time: where.shift.startTime,
+            end_time: where.shift.endTime,
+            break_minutes: where.shift.breakMinutes,
+            full_day_hours: where.shift.fullDayHours,
+            half_day_hours: where.shift.halfDayHours,
+          }
         : null,
       weekly_off_days: where.weeklyOffDays,
       date_of_joining: where.dateOfJoining,
@@ -81,7 +92,9 @@ export const getMyToday: RequestHandler = async (_req, res) => {
   const result = await myToday(ctx)
 
   res.status(200).json({
-    data: result ? payload(result) : null,
+    // The server's clock: "Time today" counts the time at work by it, not by a
+    // phone that may be minutes out (client, 8 Oct 2026).
+    data: result ? { ...payload(result), server_now: isoInstant(new Date()) } : null,
     meta: { requestId: res.locals.requestId },
   })
 }

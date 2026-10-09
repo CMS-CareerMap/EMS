@@ -11,7 +11,8 @@ import { useAuthStore } from '../../stores/authStore'
 import { formatDay } from '../../lib/dates'
 import { minutesLabel, statusOf, summaryOf, typeLabel } from '../../lib/requests'
 import { money, monthLabel } from '../payroll/format'
-import { STATUS } from '../../lib/attendance'
+import { STATUS, clockSkew } from '../../lib/attendance'
+import { useNow } from '../../hooks/useNow'
 
 /**
  * The home page's cards about the signed-in person themselves: their month,
@@ -115,6 +116,7 @@ export function LeaveBalanceCard({ stats, canApply }) {
 
 /** The last seven days, hours a day — the company's days off named, a day with no check-out flagged. */
 export function MyWeekCard({ stats }) {
+  const tick = useNow(30_000)
   return (
     <Card title="My last 7 days" subtitle="Hours worked each day" action={<CardLink to="/attendance">Attendance</CardLink>}>
       <DataState query={stats} compact>
@@ -123,19 +125,26 @@ export function MyWeekCard({ stats }) {
           const worked = days.filter((d) => d.hours_worked > 0)
           const average = worked.length ? worked.reduce((sum, d) => sum + d.hours_worked, 0) / worked.length : 0
           const tallest = Math.max(9, ...worked.map((d) => d.hours_worked))
+          // A day still at work: its time so far, on the server's clock, where
+          // today said only "In" (client, 9 Oct 2026). Not in the average.
+          const nowMs = tick.getTime() + clockSkew(s.serverNow, stats.dataUpdatedAt)
+          const soFarMs = (d) => Math.max(0, nowMs - Date.parse(d.check_in))
           return (
             <div>
               <div className="grid grid-cols-7 gap-1.5 sm:gap-2 items-end h-32" role="list" aria-label="Hours worked, last seven days">
                 {days.map((d, i) => {
                   const today = i === days.length - 1
                   const off = d.day_off
-                  const noOut = d.check_in && !d.check_out && !today
-                  const label = off === 'holiday' ? 'Holiday' : off === 'weekly_off' && !d.status ? 'Off' : noOut ? 'No out' : d.hours_worked ? minutesLabel(Math.round(d.hours_worked * 60)) : today && d.check_in ? 'In' : '—'
-                  const height = d.hours_worked ? Math.max(8, Math.round((d.hours_worked / tallest) * 84)) : 8
+                  // Still at work (the server's rule: a night shift's day is yesterday's) runs its time; a day left open otherwise is a forgotten check-out.
+                  const atWork = d.at_work ?? (today && d.check_in && !d.check_out)
+                  const noOut = d.check_in && !d.check_out && !today && !atWork
+                  const label = off === 'holiday' ? 'Holiday' : off === 'weekly_off' && !d.status ? 'Off' : noOut ? 'No out' : d.hours_worked ? minutesLabel(Math.round(d.hours_worked * 60)) : atWork ? minutesLabel(Math.floor(soFarMs(d) / 60_000)) : today && d.check_in && !d.check_out ? 'In' : '—'
+                  const hours = d.hours_worked || (atWork ? soFarMs(d) / 3_600_000 : 0)
+                  const height = hours ? Math.max(8, Math.round((Math.min(hours, tallest) / tallest) * 84)) : 8
                   return (
-                    <div key={d.date} role="listitem" className="flex flex-col items-center justify-end gap-1 h-full" title={d.holiday ? `${formatDay(d.date)} · ${d.holiday}` : formatDay(d.date)}>
+                    <div key={d.date} role="listitem" className="flex flex-col items-center justify-end gap-1 h-full" title={d.holiday ? `${formatDay(d.date)} · ${d.holiday}` : atWork ? `${formatDay(d.date)} · at work so far` : formatDay(d.date)}>
                       <span className={`text-[10px] sm:text-[11px] font-bold tabular-nums whitespace-nowrap ${off ? 'text-gray-400' : noOut ? 'text-red-500' : 'text-gray-700'}`}>{label}</span>
-                      <span className={`w-full max-w-6 rounded-t-md rounded-b-sm ${off === 'holiday' ? 'bg-orange-100' : off ? 'bg-gray-100' : noOut ? 'bg-red-100' : today ? 'bg-[repeating-linear-gradient(45deg,#E7D5FB_0_5px,#D4B6F7_5px_10px)]' : 'bg-linear-to-b from-pink-400 to-brand-500'}`}
+                      <span className={`w-full max-w-6 rounded-t-md rounded-b-sm ${off === 'holiday' ? 'bg-orange-100' : off ? 'bg-gray-100' : noOut ? 'bg-red-100' : today || atWork ? 'bg-[repeating-linear-gradient(45deg,#E7D5FB_0_5px,#D4B6F7_5px_10px)]' : 'bg-linear-to-b from-pink-400 to-brand-500'}`}
                         style={{ height }} />
                       <span className="text-[11px] font-semibold text-gray-400">{today ? 'Today' : weekdayOf(d.date)}</span>
                     </div>

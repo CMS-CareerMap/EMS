@@ -128,7 +128,7 @@ async function api(identifier, method, path, body) {
 }
 
 const STAFF = {
-  rahul: { name: 'Rahul Mehta', code: 'CMS001', email: 'rahul@example.com', role: 'Super Admin', dept: 'Operations', designation: 'Head', salary: { BASIC: 60_000, HRA: 24_000, SPECIAL: 16_000 } },
+  rahul: { name: 'Rahul Mehta', code: 'CMS001', email: 'rahul@example.com', role: 'Super Admin', dept: 'Operations', designation: 'Director', salary: { BASIC: 60_000, HRA: 24_000, SPECIAL: 16_000 } },
   hema: { name: 'Hema Iyer', code: 'CMS002', email: 'hema@example.com', role: 'HR', dept: 'Human Resources', designation: 'Manager', salary: { BASIC: 30_000, HRA: 12_000, SPECIAL: 5_000 } },
   anil: { name: 'Anil Kapoor', code: 'CMS003', email: 'anil@example.com', role: 'Accounts', dept: 'Finance', designation: 'Manager', salary: { BASIC: 32_000, HRA: 12_800, SPECIAL: 5_200 } },
   manoj: { name: 'Manoj Sharma', code: 'CMS004', email: 'manoj@example.com', role: 'Manager', dept: 'Sales', designation: 'Senior Manager', salary: { BASIC: 40_000, HRA: 16_000, SPECIAL: 9_000 } },
@@ -435,7 +435,8 @@ try {
   await priya.getByRole('button', { name: /Check Out/ }).click()
   await until(() => psql(`SELECT count(*) FROM "Attendance" WHERE "employeeId" = '${ids.priya}' AND date = '${today}' AND "checkOut" IS NOT NULL`), '1')
   const hours = Number(psql(`SELECT "hoursWorked" FROM "Attendance" WHERE "employeeId" = '${ids.priya}' AND date = '${today}'`))
-  check('Priya checks out: her hours are worked out, less the break', hours > 7.5 && hours < 8.5, String(hours))
+  // The whole stay: no break comes off (client, 8 Oct 2026).
+  check('Priya checks out: her hours are worked out, check-in to check-out', hours > 9.1 && hours < 9.3, String(hours))
   await shot(priya, '06-punched')
 
   section('Leave, up the tree')

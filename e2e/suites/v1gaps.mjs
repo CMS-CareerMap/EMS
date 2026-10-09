@@ -216,8 +216,9 @@ try {
   await sunita.getByRole('button', { name: 'Save Changes' }).click()
   await sunita.getByRole('button', { name: 'Saved' }).waitFor({ timeout: 20_000 })
   check('Sunita turns overtime pay on', (await api('sa', 'GET', '/settings/payroll')).body.data.overtime_enabled === true)
-  const marked = await api('hr', 'POST', '/attendance/mark', { employeeId: E.priya.id, date: worked, status: 'present', checkIn: '09:30', checkOut: '21:00' })
-  check(`HR records ${worked}, 09:30 to 21:00`, marked.status === 201, JSON.stringify(marked.body).slice(0, 200))
+  // No break comes off (client, 8 Oct 2026): ten and a half hours on the nine-hour General shift.
+  const marked = await api('hr', 'POST', '/attendance/mark', { employeeId: E.priya.id, date: worked, status: 'present', checkIn: '09:30', checkOut: '20:00' })
+  check(`HR records ${worked}, 09:30 to 20:00`, marked.status === 201, JSON.stringify(marked.body).slice(0, 200))
   await go(hema, `/attendance`)
   await hema.locator('input[type="date"]').first().fill(worked)
   await settle(hema)

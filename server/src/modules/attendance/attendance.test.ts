@@ -277,6 +277,36 @@ describe('punching out — the thing that never worked', () => {
     expect(res.body.data.status).toBe('half_day')
   })
 
+  it("grades a check-out by the client's day: no break taken off, 8 h present, under 8 h a half day (8 Oct 2026)", async () => {
+    const general = await prisma.shift.findFirstOrThrow({ where: { organizationId: orgId, name: 'General' } })
+    await prisma.shift.update({ where: { id: general.id }, data: { breakMinutes: 0, minFullDayHours: 8, minHalfDayHours: 4.5 } })
+    try {
+      const day = async (hoursIn: number) => {
+        await prisma.attendance.deleteMany({ where: { employeeId: appEmpId } })
+        await punchIn('app', goodReading)
+        const row = await prisma.attendance.findFirstOrThrow({ where: { employeeId: appEmpId } })
+        await prisma.attendance.update({ where: { id: row.id }, data: { checkIn: new Date(Date.now() - hoursIn * 60 * 60 * 1000) } })
+        return (await punchOut('app')).body.data
+      }
+
+      // While at work, the card is told a full day needs eight hours.
+      await prisma.attendance.deleteMany({ where: { employeeId: appEmpId } })
+      await punchIn('app', goodReading)
+      expect((await request(app).get('/api/attendance/me/today').set('Authorization', at('app'))).body.data.full_day_hours).toBe(8)
+
+      const full = await day(8.05)
+      expect(full.hours_worked).toBeCloseTo(8.05, 1) // the whole stay: no break comes off
+      expect(full.break_minutes).toBe(0)
+      expect(full.status).toBe('present')
+
+      expect((await day(7.9)).status).toBe('half_day')
+      expect((await day(4.55)).status).toBe('half_day')
+      expect((await day(4.4)).status).toBe('absent')
+    } finally {
+      await prisma.shift.update({ where: { id: general.id }, data: { breakMinutes: 60, minFullDayHours: null, minHalfDayHours: null } })
+    }
+  })
+
   it('refuses a check-out with no check-in', async () => {
     const res = await punchOut('app')
 
@@ -529,6 +559,22 @@ describe('today, for the app to know which button to show', () => {
 
     expect(res.body.data.check_in).toEqual(expect.any(String))
     expect(res.body.data.check_out).toBeNull()
+  })
+
+  it('says the break the day\'s own shift takes off, and the server\'s clock to count the time at work by', async () => {
+    await punchIn('app', goodReading)
+    const before = Date.now()
+    const res = await request(app)
+      .get('/api/attendance/me/today')
+      .set('Authorization', at('app'))
+
+    // The General shift of this file: a 60-minute break.
+    expect(res.body.data.break_minutes).toBe(60)
+    // No minimums of its own: a full day is three quarters of its nine hours — the card counts down to it.
+    expect(res.body.data.full_day_hours).toBe(6.75)
+    const serverNow = Date.parse(res.body.data.server_now)
+    expect(serverNow).toBeGreaterThanOrEqual(before - 1000)
+    expect(serverNow).toBeLessThanOrEqual(Date.now() + 1000)
   })
 })
 

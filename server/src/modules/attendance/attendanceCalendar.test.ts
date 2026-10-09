@@ -140,10 +140,22 @@ describe('the workplace — the Timings card', () => {
   it('carries the shift with its break, and the working week’s days off', async () => {
     const res = await get('/me/workplace', 'emp')
     expect(res.status).toBe(200)
-    expect(res.body.data.shift).toEqual({ name: 'General', start_time: '09:30', end_time: '18:30', break_minutes: 60 })
+    // A shift with no minimums of its own: three quarters and half of its nine hours.
+    expect(res.body.data.shift).toEqual({ name: 'General', start_time: '09:30', end_time: '18:30', break_minutes: 60, full_day_hours: 6.75, half_day_hours: 4.5 })
     expect(res.body.data.weekly_off_days).toEqual([0])
     // Their log starts on the day they joined.
     expect(res.body.data.date_of_joining).toBe('2026-03-16')
+  })
+
+  it("carries the hours the shift's own day needs — the client's 8 and 4.5, no break (8 Oct 2026)", async () => {
+    const general = await prisma.shift.findFirstOrThrow({ where: { organizationId: orgId, name: 'General' } })
+    await prisma.shift.update({ where: { id: general.id }, data: { breakMinutes: 0, minFullDayHours: 8, minHalfDayHours: 4.5 } })
+    try {
+      const res = await get('/me/workplace', 'emp')
+      expect(res.body.data.shift).toMatchObject({ break_minutes: 0, full_day_hours: 8, half_day_hours: 4.5 })
+    } finally {
+      await prisma.shift.update({ where: { id: general.id }, data: { breakMinutes: 60, minFullDayHours: null, minHalfDayHours: null } })
+    }
   })
 
   it('says no shift, rather than inventing one', async () => {

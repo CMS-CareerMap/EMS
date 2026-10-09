@@ -88,6 +88,8 @@ export const getDayRoster: RequestHandler = async (req, res) => {
   res.status(200).json({
     data: {
       date: roster.date,
+      // The server's clock, so the time at work runs right on a computer whose own is out.
+      server_now: isoInstant(roster.now),
       employees: roster.employees.map((employee) => ({
         employee_id: employee.id,
         employee_code: employee.employeeCode,
@@ -96,6 +98,9 @@ export const getDayRoster: RequestHandler = async (req, res) => {
         designation: employee.designation?.name ?? null,
         attendance_mode: employee.attendanceMode,
         attendance: employee.attendance[0] ? dayFields(employee.attendance[0]) : null,
+        // Checked in and still at work now, by the rule their own card counts by:
+        // the roster runs their time from check-in (client, 9 Oct 2026).
+        at_work: roster.atWork.has(employee.id),
         // Null when the caller may mark this day; otherwise whom it goes to (Day 22).
         mark_goes_to: roster.markGoesTo.get(employee.id) ?? null,
       })),

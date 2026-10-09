@@ -148,6 +148,19 @@ describe('classifying a day against the shift', () => {
     expect(classifyDay(10, SHIFT).shortfallHours).toBe(0)
   })
 
+  it("follows the client's own day on their nine-hour shift: 8 h full, 4.5 h half (8 Oct 2026)", () => {
+    const CLIENT = { full: 8, half: 4.5 }
+    // Hours as they are stored: two decimals of an hour.
+    const worked = (h: number, m: number) => Math.round((h + m / 60) * 100) / 100
+    expect(classifyDay(worked(9, 0), SHIFT, CLIENT).status).toBe('present')
+    expect(classifyDay(worked(8, 0), SHIFT, CLIENT).status).toBe('present')
+    expect(classifyDay(worked(7, 59), SHIFT, CLIENT).status).toBe('half_day')
+    expect(classifyDay(worked(6, 45), SHIFT, CLIENT).status).toBe('half_day') // present under the old three quarters
+    expect(classifyDay(worked(4, 30), SHIFT, CLIENT).status).toBe('half_day')
+    expect(classifyDay(worked(4, 29), SHIFT, CLIENT).status).toBe('absent')
+    expect(classifyDay(0, SHIFT, CLIENT).status).toBe('absent')
+  })
+
   it('adds a month up without rounding drift', () => {
     // Twenty days of 7.77 hours. Rounding each one first would lose minutes.
     expect(totalHours(Array(20).fill(7.77))).toBe(155.4)

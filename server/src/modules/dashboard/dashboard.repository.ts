@@ -1,6 +1,7 @@
 import type { ScopedDb } from '../../platform/db/scoped'
 import type { ScopeContext } from '../../platform/authz/scope'
 import { employeesInScope } from '../../platform/authz/scopeWhere'
+import { SHIFT_RULES_SELECT } from '../attendance/attendance.repository'
 
 /**
  * The home page's own questions. Each reaches only as far as the scope it is
@@ -71,7 +72,8 @@ export async function daysOffBetween(db: ScopedDb, from: Date, to: Date) {
 export async function myDays(db: ScopedDb, employeeId: string, from: Date, to: Date) {
   return db.attendance.findMany({
     where: { employeeId, date: { gte: from, lte: to } },
-    select: { date: true, status: true, checkIn: true, checkOut: true, hoursWorked: true, lateMinutes: true, workMode: true },
+    // With the day's shift: whether an open day is still theirs depends on it (stillAtWork).
+    select: { date: true, status: true, checkIn: true, checkOut: true, hoursWorked: true, lateMinutes: true, workMode: true, shift: { select: SHIFT_RULES_SELECT } },
     orderBy: { date: 'asc' },
   })
 }

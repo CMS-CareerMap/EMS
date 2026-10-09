@@ -25,16 +25,22 @@ import { zonedToday } from '../../src/domain/shared/dates'
  */
 const DEPARTMENTS = ['Human Resources', 'Sales', 'Operations', 'Finance', 'Technology']
 
-const DESIGNATIONS = ['Executive', 'Senior Executive', 'Team Lead', 'Manager', 'Senior Manager', 'Head']
+// Director for the owner: their record shows their post, not their login's role
+// (8 Oct 2026). Founder, CEO or any other is added in Settings → Organisation.
+const DESIGNATIONS = ['Executive', 'Senior Executive', 'Team Lead', 'Manager', 'Senior Manager', 'Head', 'Director']
 
 /**
  * The client's stated working day is nine hours (§A1.5), which is what makes
- * "did they work their shift?" answerable.
+ * "did they work their shift?" answerable. Their day (8 Oct 2026): eight hours
+ * worked is a full day, from four and a half a half day, under that absent —
+ * with no break taken off, as lunch is whenever a person likes. All of it is
+ * editable in Settings → Organisation → Shifts.
  */
+const DAY = { breakMinutes: 0, expectedHours: 9, minFullDayHours: 8, minHalfDayHours: 4.5 }
 const SHIFTS = [
-  { name: 'General', startTime: '09:30', endTime: '18:30', breakMinutes: 60, expectedHours: 9 },
-  { name: 'Early', startTime: '08:00', endTime: '17:00', breakMinutes: 60, expectedHours: 9 },
-  { name: 'Late', startTime: '11:00', endTime: '20:00', breakMinutes: 60, expectedHours: 9 },
+  { name: 'General', startTime: '09:30', endTime: '18:30', ...DAY },
+  { name: 'Early', startTime: '08:00', endTime: '17:00', ...DAY },
+  { name: 'Late', startTime: '11:00', endTime: '20:00', ...DAY },
 ]
 
 /**

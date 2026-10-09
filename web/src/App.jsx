@@ -83,7 +83,7 @@ export default function App() {
     return (
       <div role="alert" className="min-h-screen flex items-center justify-center bg-canvas px-4">
         <div className="max-w-md w-full bg-white border border-gray-200 rounded-2xl shadow-sm p-6 text-center space-y-3">
-          <img src="/logo-wide.png" alt="CareerMap Solutions" className="h-10 w-auto mx-auto" />
+          <img src="/logo-wide.png" alt="EMS" className="h-10 w-auto mx-auto" />
           <h1 className="text-base font-semibold text-gray-900">EMS cannot be reached right now</h1>
           <p className="text-sm text-gray-600">{unreachable.message || 'The server did not answer.'} Nothing has been lost, and you are still signed in.</p>
           <button type="button" onClick={() => window.location.reload()}

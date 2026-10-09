@@ -10,6 +10,7 @@ import DataState from '../../components/DataState'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import ShiftRulesDialog from './ShiftRulesDialog'
 import { rulesSummary } from '../../lib/rules'
+import { minutesLabel } from '../../lib/requests'
 
 /**
  * The company's departments, designations and shifts.
@@ -137,17 +138,28 @@ function NamedList({ kind, title, noun, rows }) {
   )
 }
 
-const EMPTY_SHIFT = { name: '', startTime: '09:30', endTime: '18:30', breakMinutes: '60', expectedHours: '9' }
+// A new shift starts on the client's day (8 Oct 2026): nine hours, a full day
+// from eight worked, a half day from four and a half, no break taken off.
+const EMPTY_SHIFT = { name: '', startTime: '09:30', endTime: '18:30', expectedHours: '9', minFullDayHours: '8', minHalfDayHours: '4.5', breakMinutes: '0' }
 
 function toBody(form) {
+  const hoursOrNull = (v) => (String(v).trim() === '' ? null : Number(v))
   return {
     name: form.name.trim(),
     startTime: form.startTime,
     endTime: form.endTime,
-    breakMinutes: Number(form.breakMinutes),
     expectedHours: Number(form.expectedHours),
+    minFullDayHours: hoursOrNull(form.minFullDayHours),
+    minHalfDayHours: hoursOrNull(form.minHalfDayHours),
+    breakMinutes: Number(form.breakMinutes || 0),
   }
 }
+
+/** A shift with no minimums of its own reads them as fractions of its hours (server: classifyDay). */
+const fallbackFull = (row) => Math.round(row.expected_hours * 0.75 * 100) / 100
+// Never more than the full day, as the server reads it (dayMinimums).
+const fallbackHalf = (row) => Math.round(Math.min(row.expected_hours * 0.5, row.min_full_day_hours ?? row.expected_hours * 0.75) * 100) / 100
+const hoursText = (h) => minutesLabel(Math.round(Number(h) * 60))
 
 function Shifts({ rows }) {
   const add = useAddShift()
@@ -177,28 +189,55 @@ function Shifts({ rows }) {
       name: row.name,
       startTime: row.start_time,
       endTime: row.end_time,
-      breakMinutes: String(row.break_minutes),
       expectedHours: String(row.expected_hours),
+      minFullDayHours: row.min_full_day_hours == null ? '' : String(row.min_full_day_hours),
+      minHalfDayHours: row.min_half_day_hours == null ? '' : String(row.min_half_day_hours),
+      breakMinutes: String(row.break_minutes),
     })
   }
 
-  const cells = (f, set) => (
-    <>
-      <td className="px-3 py-2"><input value={f.name} onChange={(e) => set({ ...f, name: e.target.value })} maxLength={40} placeholder="Name" className={`${inp} w-full py-1.5`} /></td>
-      <td className="px-3 py-2"><input type="time" value={f.startTime} onChange={(e) => set({ ...f, startTime: e.target.value })} className={`${inp} py-1.5`} /></td>
-      <td className="px-3 py-2"><input type="time" value={f.endTime} onChange={(e) => set({ ...f, endTime: e.target.value })} className={`${inp} py-1.5`} /></td>
-      <td className="px-3 py-2"><input type="number" min="0" max="600" value={f.breakMinutes} onChange={(e) => set({ ...f, breakMinutes: e.target.value })} className={`${inp} w-20 py-1.5`} /></td>
-      <td className="px-3 py-2"><input type="number" min="0.5" max="24" step="0.25" value={f.expectedHours} onChange={(e) => set({ ...f, expectedHours: e.target.value })} className={`${inp} w-20 py-1.5`} /></td>
-    </>
+  const hoursInput = (f, set, key, label, placeholder) => (
+    <input type="number" min="0.25" max="24" step="0.25" value={f[key]} placeholder={placeholder}
+      onChange={(e) => set({ ...f, [key]: e.target.value })} aria-label={label} className={`${inp} w-20 py-1.5`} />
   )
+  // A new shift's minimums follow its hours until somebody types them: the
+  // client's 8 and 4.5 on nine hours, otherwise empty ("auto"), so a 12-hour
+  // night shift is never saved with a nine-hour shift's full day.
+  const suggested = (hours) => (Number(hours) === 9 ? [EMPTY_SHIFT.minFullDayHours, EMPTY_SHIFT.minHalfDayHours] : ['', ''])
+  const withHours = (f, value, isNew) => {
+    const [full, half] = suggested(f.expectedHours)
+    if (!isNew || f.minFullDayHours !== full || f.minHalfDayHours !== half) return { ...f, expectedHours: value }
+    const [nextFull, nextHalf] = suggested(value)
+    return { ...f, expectedHours: value, minFullDayHours: nextFull, minHalfDayHours: nextHalf }
+  }
+  const cells = (f, set, isNew = false) => {
+    const expected = Number(f.expectedHours) || 0
+    // The add row's fields say so, beside the row being edited.
+    const label = (words) => (isNew ? `New shift: ${words}` : words)
+    return (
+      <>
+        <td className="px-3 py-2"><input value={f.name} onChange={(e) => set({ ...f, name: e.target.value })} maxLength={40} placeholder="Name" aria-label={label('Shift name')} className={`${inp} w-full py-1.5`} /></td>
+        <td className="px-3 py-2"><input type="time" value={f.startTime} onChange={(e) => set({ ...f, startTime: e.target.value })} aria-label={label('Start')} className={`${inp} py-1.5`} /></td>
+        <td className="px-3 py-2"><input type="time" value={f.endTime} onChange={(e) => set({ ...f, endTime: e.target.value })} aria-label={label('End')} className={`${inp} py-1.5`} /></td>
+        <td className="px-3 py-2"><input type="number" min="0.5" max="24" step="0.25" value={f.expectedHours} onChange={(e) => set(withHours(f, e.target.value, isNew))} aria-label={label('Shift hours')} className={`${inp} w-20 py-1.5`} /></td>
+        <td className="px-3 py-2">{hoursInput(f, set, 'minFullDayHours', label('Full day from (hours worked)'), String(Math.round(expected * 0.75 * 100) / 100))}</td>
+        <td className="px-3 py-2">{hoursInput(f, set, 'minHalfDayHours', label('Half day from (hours worked)'), String(Math.round(Math.min(expected * 0.5, String(f.minFullDayHours).trim() === '' ? expected * 0.75 : Number(f.minFullDayHours)) * 100) / 100))}</td>
+        <td className="px-3 py-2"><input type="number" min="0" max="600" value={f.breakMinutes} onChange={(e) => set({ ...f, breakMinutes: e.target.value })} aria-label={label('Unpaid break in minutes')} className={`${inp} w-20 py-1.5`} /></td>
+      </>
+    )
+  }
+  // A figure the shift sets, or the fraction it falls back on, marked as such.
+  const minimum = (value, fallback) => (value != null
+    ? <span className="text-gray-700">{hoursText(value)}</span>
+    : <span className="text-gray-400" title="Not set: worked out from the shift hours">{hoursText(fallback)} <span className="text-xs">(auto)</span></span>)
 
   return (
-    <Card title="Shifts" desc="Daily hours are read against a shift's expected hours, and its rules (the sliders button) mark lateness, leaving early and overtime. Changing a shift affects days recorded from now on — past days keep what they were measured against.">
+    <Card title="Shifts" desc="How a day is marked: Present once the hours worked reach “Full day from”, Half day once they reach “Half day from”, Absent below that. Hours worked run from check-in to check-out, less the unpaid break if a shift has one. The sliders button sets grace, lateness, leaving early and overtime. Days already recorded keep their status; a day marked or corrected later is measured by the shift as it is then.">
       <div className="border border-gray-200 rounded-xl overflow-x-auto">
-        <table className="w-full min-w-160">
+        <table className="w-full min-w-200">
           <thead>
             <tr>
-              {['Name', 'Start', 'End', 'Break (min)', 'Full day (h)', ''].map((h) => (
+              {['Name', 'Start', 'End', 'Shift hours', 'Full day from (h)', 'Half day from (h)', 'Unpaid break (min)', ''].map((h) => (
                 <th key={h} className={th}>{h}</th>
               ))}
             </tr>
@@ -222,8 +261,10 @@ function Shifts({ rows }) {
                     </td>
                     <td className="px-3 py-2.5 text-sm text-gray-700">{row.start_time}</td>
                     <td className="px-3 py-2.5 text-sm text-gray-700">{row.end_time}</td>
-                    <td className="px-3 py-2.5 text-sm text-gray-700">{row.break_minutes}</td>
-                    <td className="px-3 py-2.5 text-sm text-gray-700">{row.expected_hours}</td>
+                    <td className="px-3 py-2.5 text-sm text-gray-700">{hoursText(row.expected_hours)}</td>
+                    <td className="px-3 py-2.5 text-sm">{minimum(row.min_full_day_hours, fallbackFull(row))}</td>
+                    <td className="px-3 py-2.5 text-sm">{minimum(row.min_half_day_hours, fallbackHalf(row))}</td>
+                    <td className="px-3 py-2.5 text-sm text-gray-700">{row.break_minutes ? `${row.break_minutes} min` : 'None'}</td>
                     <td className="px-3 py-2.5 text-right whitespace-nowrap">
                       <button onClick={() => setRuling(row)} className="p-1.5 rounded-lg hover:bg-brand-50 text-gray-400 hover:text-brand-600" title="Rules: grace, late, overtime" aria-label={`Rules of ${row.name}`}><SlidersHorizontal className="w-3.5 h-3.5" /></button>
                       <button onClick={() => startEdit(row)} className="p-1.5 rounded-lg hover:bg-brand-50 text-gray-400 hover:text-brand-600" title="Edit"><Edit2 className="w-3.5 h-3.5" /></button>
@@ -235,7 +276,7 @@ function Shifts({ rows }) {
             ))}
             {/* The add row, always at the bottom */}
             <tr className="bg-gray-50/60">
-              {cells(form, setForm)}
+              {cells(form, setForm, true)}
               <td className="px-3 py-2 text-right">
                 <button onClick={handleAdd} disabled={add.isPending || !form.name.trim()}
                   className={`${btn.primarySm} ml-auto`}>

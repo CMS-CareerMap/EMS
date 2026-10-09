@@ -25,9 +25,21 @@ const keys = {
   me: ['dashboard', 'me'],
 }
 
-/** Today at work within the caller's attendance reach — a team, or the company. */
+/**
+ * Today at work within the caller's attendance reach — a team, or the company.
+ * Asked again every minute and on coming back to the tab: who has come in, and
+ * the time at work a team's list runs, stay current (client, 9 Oct 2026).
+ */
 export function useTodayAtWork({ enabled = true } = {}) {
-  return useQuery({ queryKey: keys.today, queryFn: async () => (await api.get('/dashboard/today')).data, enabled })
+  return useQuery({
+    queryKey: keys.today,
+    queryFn: async () => (await api.get('/dashboard/today')).data,
+    enabled,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+    // A failed refresh keeps the last answer on the card (DataState keepOnRefetchError), without a toast.
+    meta: { quietRefetch: true },
+  })
 }
 
 /** The staff within the caller's employee reach: headcount, departments, joiners, leavers. */
@@ -65,6 +77,8 @@ export function useMyDashboardStats({ enabled = true } = {}) {
 
         todayStatus: data.today.status,
         today: data.today,
+        // The server's clock, for today's time at work in the week (client, 9 Oct 2026).
+        serverNow: data.server_now ?? null,
         // The last seven days, today last, the company's days off named.
         recentDays: data.recent_days ?? [],
 

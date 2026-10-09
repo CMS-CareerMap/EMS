@@ -320,7 +320,8 @@ Employee sends a request (Requests → New request)
 
 ### Shifts and overtime
 
-- Each shift has rules (Settings → Organisation → Shifts, the sliders button): a grace period at either end; a late threshold and an early-leaving threshold past which a day is at best a half day (off to start); the hours a full and a half day need (three quarters and half of the shift to start); and when overtime starts (30 minutes past the expected hours to start — then all of it counts).
+- Each shift is set in Settings → Organisation → Shifts (Super Admin). In the table: its hours; the hours worked a full day needs (**Present**) and a half day needs (**Half day** — under it the day is **Absent**); and any unpaid break taken off the hours. A new company's shifts start at nine hours, a full day from 8 hours worked, a half day from 4½, and no break: lunch is taken whenever a person likes, so a day runs from check-in to check-out (the client's day, 8 Oct 2026). Left empty, the two figures are three quarters and half of the shift, marked "auto".
+- Behind the sliders button: a grace period at either end; a late threshold and an early-leaving threshold past which a day is at best a half day (off to start); and when overtime starts (30 minutes past the shift's hours to start — then all of it counts).
 - Lateness, leaving early and overtime are worked out when a day has its times — at check-out, when HR marks or corrects a day, and on a biometric import — and shown on the attendance roster and the person's check-in card.
 - Only approved overtime is paid, and only once the company turns overtime on (Settings → Payroll Config; off to start, so nobody is paid overtime by surprise). The rate (twice to start) and what an hour is worked out from (the full salary, or Basic and DA) are there too. Lateness and overtime are recorded on the days either way.
 

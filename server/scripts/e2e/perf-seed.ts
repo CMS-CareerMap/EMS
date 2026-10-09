@@ -77,7 +77,7 @@ async function seed() {
       const absent = (n * 31 + Number(d.slice(8, 10)) * 7 + Number(d.slice(5, 7))) % 40 === 0
       rows.push(absent
         ? { organizationId, employeeId, date: toDateColumn(d), status: 'absent', source: 'biometric' }
-        : { organizationId, employeeId, date: toDateColumn(d), status: 'present', source: 'biometric', checkIn: at(d, '09:25'), checkOut: at(d, '18:40'), hoursWorked: 8.25, shiftId: general.id, expectedHours: 9, lateMinutes: 0, earlyLeavingMinutes: 0, overtimeMinutes: 0 })
+        : { organizationId, employeeId, date: toDateColumn(d), status: 'present', source: 'biometric', checkIn: at(d, '09:25'), checkOut: at(d, '18:40'), hoursWorked: 9.25, shiftId: general.id, expectedHours: 9, lateMinutes: 0, earlyLeavingMinutes: 0, overtimeMinutes: 0 })
       if (rows.length >= 5_000) {
         total += (await prisma.attendance.createMany({ data: rows })).count
         rows = []

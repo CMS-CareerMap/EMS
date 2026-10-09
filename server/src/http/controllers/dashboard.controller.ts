@@ -1,6 +1,7 @@
 import type { RequestHandler } from 'express'
 import { mySummary, payrollSummary, peopleSummary, todaySummary } from '../../modules/dashboard/dashboard.service'
 import { appContext } from '../context'
+import { isoInstant } from '../../domain/shared/dates'
 
 /**
  * The home page's sections.
@@ -17,6 +18,8 @@ export const getToday: RequestHandler = async (_req, res) => {
   res.status(200).json({
     data: {
       date: s.date,
+      // The server's clock: the team's time at work runs on it (client, 9 Oct 2026).
+      server_now: isoInstant(new Date()),
       reach: s.reach,
       day_off: s.dayOff,
       holiday: s.holiday,
@@ -54,6 +57,8 @@ export const getToday: RequestHandler = async (_req, res) => {
         late_minutes: p.lateMinutes,
         work_mode: p.workMode,
         is_self: p.isSelf,
+        // Still at work now, by the roster's rule: the card runs their time (client, 9 Oct 2026).
+        at_work: p.atWork,
       })),
       away: s.away.map((a) => ({
         employee_id: a.employeeId,
@@ -148,6 +153,8 @@ export const getMySummary: RequestHandler = async (_req, res) => {
   res.status(200).json({
     data: {
       date: summary.date,
+      // The server's clock: today's time at work in the week runs on it (client, 9 Oct 2026).
+      server_now: isoInstant(new Date()),
       profile: {
         full_name: summary.employee.fullName,
         employee_id: summary.employee.employeeCode,
@@ -184,6 +191,8 @@ export const getMySummary: RequestHandler = async (_req, res) => {
         late_minutes: d.lateMinutes,
         day_off: d.dayOff,
         holiday: d.holiday,
+        // Still at work now (a night shift's day is yesterday's): the week runs its time (client, 9 Oct 2026).
+        at_work: d.atWork,
       })),
       // From the ledger, with no fallback. Somebody with no entitlement sees
       // zero — which is the truth, and stops them applying for days that were

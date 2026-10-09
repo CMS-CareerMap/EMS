@@ -7,7 +7,6 @@ export function rulesSummary(s) {
     s.grace_minutes ? `grace ${mins(s.grace_minutes)}` : null,
     s.late_threshold_minutes != null ? `late over ${mins(s.late_threshold_minutes)} → half day` : null,
     s.early_leaving_minutes != null ? `early over ${mins(s.early_leaving_minutes)} → half day` : null,
-    s.min_full_day_hours != null ? `full day ${s.min_full_day_hours}h` : null,
     `overtime after ${mins(s.overtime_after_minutes ?? 0)}`,
   ].filter(Boolean).join(' · ')
 }

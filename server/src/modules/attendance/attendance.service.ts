@@ -3,17 +3,18 @@ import { BadRequest, Conflict, Forbidden, NotFound } from '../../platform/errors
 import { logger } from '../../platform/logger'
 import { isUniqueViolation } from '../../platform/db/errors'
 import { zonedToday, toDateColumn, fromDateColumn, dayLabel, addCalendarDays, type CalendarDate } from '../../domain/shared/dates'
-import { hoursBetween } from '../../domain/attendance/hours'
+import { dayMinimums, hoursBetween } from '../../domain/attendance/hours'
 import {
   arrivingForLastNight,
   forWorkedHalf,
+  fullDayHoursFor,
   halfDayReason,
   isOvernight,
   measureInstants,
   nextCheckInOpens,
-  openDayCarries,
   overnightDayOpen,
   shiftRulesOf,
+  stillAtWork,
   withHalfDayLeave,
   type ShiftRow,
 } from '../../domain/attendance/shiftRules'
@@ -61,6 +62,16 @@ export interface PunchResult {
   lateMinutes: number | null
   earlyLeavingMinutes: number | null
   overtimeMinutes: number | null
+  /**
+   * The unpaid break the day's own shift takes off its hours at check-out — the
+   * shift the day was begun on, not the person's shift now. Null with none.
+   */
+  breakMinutes: number | null
+  /**
+   * The hours worked the day needs for a full day, as its check-out will grade
+   * it (fullDayHoursFor) — the card counts down to it. Null with no shift.
+   */
+  fullDayHours: number | null
 }
 
 /** The caller's own employee record, plus the shift the day is measured against. */
@@ -125,9 +136,6 @@ async function verifyLocation(
   return { verdict: checkGeofence(reading, fence), fence }
 }
 
-/** The longest one stretch of work can be: an open check-in older than this is a day somebody forgot to close. */
-const LONGEST_DAY_MS = 20 * 60 * 60_000
-
 /**
  * The day the caller is on: today's — or, while today's has not begun,
  * yesterday's (client §34):
@@ -144,8 +152,8 @@ async function currentDay(ctx: AppContext, employee: { id: string; shift: ShiftR
   const yesterday = addCalendarDays(today, -1)
   const before = await repo.findDayWithShift(ctx.db, employee.id, toDateColumn(yesterday))
   if (before?.checkIn) {
-    if (!before.checkOut && now.getTime() - before.checkIn.getTime() <= LONGEST_DAY_MS &&
-      openDayCarries({ rules: shiftRulesOf(before.shift), date: yesterday, timezone, now })) {
+    // Today's has not begun (above), so yesterday's is the day while it is still open.
+    if (stillAtWork({ date: yesterday, today, checkIn: before.checkIn, checkOut: before.checkOut, rules: shiftRulesOf(before.shift), timezone, now, checkedInToday: false })) {
       return { row: before, date: yesterday }
     }
     if (before.checkOut && isOvernight(shiftRulesOf(employee.shift)) && overnightDayOpen({ rules: shiftRulesOf(before.shift), date: yesterday, timezone, now })) {
@@ -308,6 +316,8 @@ export async function punchIn(ctx: AppContext, input: PunchInput): Promise<Punch
     lateMinutes: row.lateMinutes,
     earlyLeavingMinutes: null,
     overtimeMinutes: null,
+    breakMinutes: employee.shift?.breakMinutes ?? null,
+    fullDayHours: fullDayHoursFor(shiftRules, expectedHours, leave?.kind === 'half' ? leave.session : null),
   }
 }
 
@@ -336,7 +346,8 @@ export async function punchOut(ctx: AppContext): Promise<PunchResult> {
   const { hours, warning } = hoursBetween(row.checkIn, now, breakMinutes)
 
   // Measured against the shift the day began on, with the hours it was
-  // expected to be when it began — a shift edited since changes neither.
+  // expected to be when it began (both kept on the row); its break and rules
+  // are read as the shift stands now.
   const rules = shiftRulesOf(row.shift)
   const asBegun = rules && row.expectedHours ? { ...rules, expectedHours: Number(row.expectedHours) } : null
   // Half the day on approved leave: the worked half is graded as a half.
@@ -377,6 +388,8 @@ export async function punchOut(ctx: AppContext): Promise<PunchResult> {
     lateMinutes: updated.lateMinutes,
     earlyLeavingMinutes: updated.earlyLeavingMinutes,
     overtimeMinutes: updated.overtimeMinutes,
+    breakMinutes: row.shift?.breakMinutes ?? null,
+    fullDayHours: fullDayHoursFor(rules, row.expectedHours ? Number(row.expectedHours) : null, leave?.kind === 'half' ? leave.session : null),
   }
 }
 
@@ -389,6 +402,9 @@ export async function myToday(ctx: AppContext): Promise<PunchResult | null> {
   // Last night's shift, until it is checked out of, is still the day to show.
   const { row, date: today } = await currentDay(ctx, employee, zonedToday(now, timezone), timezone, now)
   if (!row) return null
+  // While the day is open, the hours a full day needs: half of them on a day half on leave.
+  const leave = row.checkIn && !row.checkOut ? await repo.approvedLeaveOn(ctx.db, employee.id, today) : null
+  const fullDayHours = fullDayHoursFor(shiftRulesOf(row.shift), row.expectedHours ? Number(row.expectedHours) : null, leave?.kind === 'half' ? leave.session : null)
 
   return {
     attendanceId: row.id,
@@ -409,6 +425,8 @@ export async function myToday(ctx: AppContext): Promise<PunchResult | null> {
     lateMinutes: row.lateMinutes,
     earlyLeavingMinutes: row.earlyLeavingMinutes,
     overtimeMinutes: row.overtimeMinutes,
+    breakMinutes: row.shift?.breakMinutes ?? null,
+    fullDayHours,
   }
 }
 
@@ -419,8 +437,12 @@ export interface Workplace {
   locationNeeded: boolean
   /** Whether the company pays overtime (client §35) — the app offers a claim only then. */
   overtimeEnabled: boolean
-  /** Their shift as it stands, for the day's timeline and the Timings card; null with none set. */
-  shift: { name: string; startTime: string; endTime: string; breakMinutes: number } | null
+  /**
+   * Their shift as it stands, for the day's timeline and the Timings card; null
+   * with none set. With the hours worked a full and a half day need on it (client,
+   * 8 Oct 2026: people should see the rule their day is marked by).
+   */
+  shift: { name: string; startTime: string; endTime: string; breakMinutes: number; fullDayHours: number; halfDayHours: number } | null
   /** The company's weekly off days, 0 = Sunday. */
   weeklyOffDays: number[]
   /** The day they joined: their attendance log starts there, not with days before it shown as missed. */
@@ -438,10 +460,17 @@ export async function myWorkplace(ctx: AppContext): Promise<Workplace> {
   ])
   const workMode: WorkMode = away === 'work_from_home' ? 'wfh' : away === 'on_duty' ? 'on_duty' : employee.workArrangement === 'remote' ? 'remote' : 'office'
   const overtimeEnabled = Boolean(payPolicy?.overtimeEnabled)
+  const s = employee.shift
+  const minimums = s
+    ? dayMinimums(Number(s.expectedHours), {
+        full: s.minFullDayHours === null ? null : Number(s.minFullDayHours),
+        half: s.minHalfDayHours === null ? null : Number(s.minHalfDayHours),
+      })
+    : null
   const about = {
     overtimeEnabled,
-    shift: employee.shift
-      ? { name: employee.shift.name, startTime: employee.shift.startTime, endTime: employee.shift.endTime, breakMinutes: employee.shift.breakMinutes }
+    shift: s && minimums
+      ? { name: s.name, startTime: s.startTime, endTime: s.endTime, breakMinutes: s.breakMinutes, fullDayHours: minimums.full, halfDayHours: minimums.half }
       : null,
     weeklyOffDays: policy?.weeklyOffDays ?? [0],
     dateOfJoining: fromDateColumn(employee.dateOfJoining),

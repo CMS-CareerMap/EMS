@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import PageHeader from '../components/ui/PageHeader'
 import Tabs from '../components/ui/Tabs'
@@ -72,7 +73,48 @@ export default function Settings() {
 
   const [params, setParams] = useSearchParams()
   const tab = tabs.find((t) => t.id === params.get('tab')) ?? tabs.find((t) => !t.notLanding) ?? tabs[0]
-  const choose = (id) => setParams({ tab: id }, { replace: true })
+  const panelRef = useRef(null)
+  const menuRef = useRef(null)
+  const asideRef = useRef(null)
+  // The menu ends 24px above the foot of the screen wherever it sits: below the
+  // page title at first, held at the top once the page scrolls. Its height is
+  // the room left, so it is never cut — where it does not fit, it scrolls itself.
+  useEffect(() => {
+    const aside = asideRef.current
+    const main = aside?.closest('main')
+    if (!aside || !main) return
+    let frame = 0
+    const fit = () => {
+      frame = 0
+      const room = Math.min(window.innerHeight, main.getBoundingClientRect().bottom) - aside.getBoundingClientRect().top - 24
+      aside.style.maxHeight = `${Math.max(160, Math.floor(room))}px`
+    }
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(fit) }
+    fit()
+    main.addEventListener('scroll', schedule, { passive: true })
+    window.addEventListener('resize', schedule)
+    return () => {
+      main.removeEventListener('scroll', schedule)
+      window.removeEventListener('resize', schedule)
+      cancelAnimationFrame(frame)
+    }
+  }, [])
+  // Another section opens at its top: one chosen from halfway down the last
+  // used to open halfway down itself (Devesh, 9 Oct 2026).
+  const choose = (id) => {
+    if (id !== tab?.id) panelRef.current?.closest('main')?.scrollTo({ top: 0 })
+    setParams({ tab: id }, { replace: true })
+  }
+  // The open section stays in view in the menu, when the menu scrolls itself.
+  useEffect(() => {
+    const menu = menuRef.current
+    const item = menu?.querySelector('[aria-current="page"]')
+    if (!menu || !item) return
+    const m = menu.getBoundingClientRect()
+    const r = item.getBoundingClientRect()
+    if (r.top < m.top) menu.scrollTop -= m.top - r.top + 8
+    else if (r.bottom > m.bottom) menu.scrollTop += r.bottom - m.bottom + 8
+  }, [tab?.id])
   const groups = GROUPS
     .map(([label, ids]) => [label, ids.map((id) => tabs.find((t) => t.id === id)).filter(Boolean)])
     .filter(([, items]) => items.length > 0)
@@ -89,16 +131,22 @@ export default function Settings() {
         </div>
       )}
 
-      {/* Side by side from lg up: the grouped menu, then the open section. */}
+      {/* Side by side from lg up: the grouped menu, then the open section. The
+          page scrolls the section; the menu stays put beside it and is never
+          taller than the room it has (see the effect above) — where it does not
+          fit (a short screen, a zoomed browser) it scrolls itself, so every
+          section is always in reach (Devesh, 9 Oct 2026: at 160% zoom it was cut
+          at the foot, then at the top). Before the script runs: the screen less
+          the top bar (58px) and the page's padding above and below (24px each). */}
       <div className="flex flex-col lg:flex-row gap-4 lg:gap-6 items-start">
-        <aside className="hidden lg:block w-60 shrink-0 lg:sticky lg:top-0">
-          <nav className={`${card} p-2`} aria-label="Settings sections">
+        <aside ref={asideRef} className="hidden lg:flex lg:flex-col w-60 shrink-0 lg:sticky lg:top-0 lg:max-h-[calc(100dvh-106px)]">
+          <nav ref={menuRef} className={`${card} p-2 min-h-0 overflow-y-auto overscroll-contain [scrollbar-width:thin] [scrollbar-color:var(--color-gray-300)_transparent]`} aria-label="Settings sections">
             {groups.map(([label, items]) => (
               <div key={label} className="mb-1 last:mb-0">
-                <p className="px-3 pt-2.5 pb-1 text-[10.5px] font-extrabold uppercase tracking-wider text-gray-400">{label}</p>
+                <p className="px-3 pt-2 pb-0.5 text-[10.5px] font-extrabold uppercase tracking-wider text-gray-400">{label}</p>
                 {items.map((item) => (
                   <button key={item.id} type="button" onClick={() => choose(item.id)} aria-current={tab?.id === item.id ? 'page' : undefined}
-                    className={`relative w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-semibold transition-colors text-left
+                    className={`relative w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] font-semibold transition-colors text-left
                       ${tab?.id === item.id ? 'bg-brand-50 text-brand-700' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>
                     {tab?.id === item.id && <span aria-hidden="true" className="absolute left-0 top-2 bottom-2 w-0.75 rounded-r bg-logo" />}
                     <item.icon className={`w-4 h-4 ${tab?.id === item.id ? 'text-brand-600' : 'text-gray-400'}`} aria-hidden="true" />
@@ -112,7 +160,7 @@ export default function Settings() {
 
         {/* The phone's tabs point here. Not a tab panel: from lg up those tabs are
             hidden and the side menu chooses — a panel would be announced with no tabs. */}
-        <div id="settings-panel" className="flex-1 min-w-0 w-full">
+        <div id="settings-panel" ref={panelRef} className="flex-1 min-w-0 w-full">
           {tab ? <tab.Component /> : <p className="text-sm text-gray-500">Nothing here is available to your role.</p>}
         </div>
       </div>

@@ -15,7 +15,6 @@ import { formatDay, isoInstant, wallClockIn } from '../../lib/dates'
 import { WORK_MODES, minutesLabel, statusOf, summaryOf, typeLabel } from '../../lib/requests'
 import { REQUEST_TONE, kindOf } from '../../lib/requestKinds'
 import PunchCard from './PunchCard'
-import DayBar from './DayBar'
 import MonthNav from './MonthNav'
 import MonthCalendar from './MonthCalendar'
 
@@ -109,7 +108,6 @@ export default function SelfAttendance({ monthKey, onMonth, today }) {
                     <thead>
                       <tr className="text-left text-[11px] font-bold text-gray-500 uppercase tracking-wider border-b border-gray-100">
                         <th className="px-4 py-2.5">Date</th>
-                        <th className="px-4 py-2.5 hidden lg:table-cell min-w-44">Day · 08:00 – 20:00</th>
                         <th className="px-4 py-2.5">Arrival</th>
                         <th className="px-4 py-2.5">Departure</th>
                         <th className="px-4 py-2.5">Hours</th>
@@ -123,11 +121,9 @@ export default function SelfAttendance({ monthKey, onMonth, today }) {
                         const state = dayState({ date: day, row, dayOff: off, today })
                         const inAt = clock(row?.check_in)
                         const outAt = clock(row?.check_out)
-                        const isOff = !row && off ? off.kind : row?.status === 'holiday' ? 'holiday' : row?.status === 'weekly_off' ? 'weekly_off' : null
                         return (
                           <tr key={day} className={day === today ? 'bg-brand-50/40' : ''}>
                             <td className="px-4 py-3 font-semibold text-gray-900 whitespace-nowrap">{formatDay(day, { weekday: true, year: false })}</td>
-                            <td className="px-4 py-3 hidden lg:table-cell"><DayBar checkIn={inAt} checkOut={outAt} nowMinutes={day === today ? nowMinutes : null} off={isOff} /></td>
                             <td className="px-4 py-3 tabular-nums whitespace-nowrap">
                               {inAt ?? <span className="text-gray-300">—</span>}
                               {row?.late_minutes > 0 && <span className="ml-1.5 text-xs font-bold text-amber-600">+{minutesLabel(row.late_minutes)}</span>}
@@ -288,10 +284,24 @@ function Timings({ workplace, calendar, today, mayPunch }) {
                   </dd>
                 </div>
               )}
-              {shift && (
+              {/* The rule the day is marked by (client, 8 Oct 2026): present from
+                  the full-day hours, a half day from the half-day hours, absent below. */}
+              {shift?.full_day_hours != null && (
                 <div className="flex items-baseline justify-between gap-3 py-2 border-t border-gray-100">
-                  <dt className="text-gray-600">Break</dt>
-                  <dd className="font-bold text-gray-900">{shift.break_minutes ? `${shift.break_minutes} min` : 'None'}</dd>
+                  <dt className="text-gray-600">Full day</dt>
+                  <dd className="font-bold text-gray-900">{minutesLabel(Math.round(shift.full_day_hours * 60))} worked</dd>
+                </div>
+              )}
+              {shift?.half_day_hours != null && (
+                <div className="flex items-baseline justify-between gap-3 py-2 border-t border-gray-100">
+                  <dt className="text-gray-600">Half day</dt>
+                  <dd className="font-bold text-gray-900">{minutesLabel(Math.round(shift.half_day_hours * 60))} worked</dd>
+                </div>
+              )}
+              {shift?.break_minutes > 0 && (
+                <div className="flex items-baseline justify-between gap-3 py-2 border-t border-gray-100">
+                  <dt className="text-gray-600">Unpaid break</dt>
+                  <dd className="font-bold text-gray-900">{shift.break_minutes} min</dd>
                 </div>
               )}
               <div className="flex items-baseline justify-between gap-3 py-2 border-t border-gray-100">

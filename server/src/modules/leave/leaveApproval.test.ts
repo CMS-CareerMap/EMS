@@ -752,6 +752,14 @@ describe('the home page, section by section, and the numbers it used to invent',
     // absences every morning.
     expect(res.body.data.counts.not_marked).toBe(7)
     expect(res.body.data.headcount).toBe(7)
+    // The server's clock, which the team's time at work runs on (client, 9 Oct 2026).
+    expect(res.body.data.server_now).toBe('2026-09-23T05:00:00.000Z')
+  })
+
+  it("carries the server's clock on one's own dashboard too, for today's time at work in the week", async () => {
+    const res = await at('2026-09-23T05:00:00Z', () => request(app).get('/api/dashboard/me').set('Authorization', as('hr')))
+    expect(res.status).toBe(200)
+    expect(res.body.data.server_now).toBe('2026-09-23T05:00:00.000Z')
   })
 
   it('expects nobody on the weekly off', async () => {
@@ -774,6 +782,23 @@ describe('the home page, section by section, and the numbers it used to invent',
     const alice = res.body.data.people.find((p: { id: string }) => p.id === aliceId)
     expect(alice).toMatchObject({ status: 'present', late_minutes: 17, is_self: false })
     expect(res.body.data.people.find((p: { id: string }) => p.id === managerEmpId).is_self).toBe(true)
+  })
+
+  it("runs a team member's time at work only for an app check-in, as the roster does (9 Oct 2026)", async () => {
+    await prisma.attendance.create({
+      data: { organizationId: orgId, employeeId: aliceId, date: new Date(Date.UTC(2026, 8, 23)), status: 'present', source: 'punch', checkIn: new Date('2026-09-23T04:00:00Z') },
+    })
+    const alice = async () => (await at('2026-09-23T05:00:00Z', () => request(app).get('/api/dashboard/today').set('Authorization', as('mgr'))))
+      .body.data.people.find((p: { id: string }) => p.id === aliceId)
+    expect((await alice()).at_work).toBe(true)
+    // On the biometric machine she has no card counting her time: neither does her manager's list.
+    const mode = (await prisma.employee.findUniqueOrThrow({ where: { id: aliceId } })).attendanceMode
+    await prisma.employee.update({ where: { id: aliceId }, data: { attendanceMode: 'biometric' } })
+    try {
+      expect((await alice()).at_work).toBe(false)
+    } finally {
+      await prisma.employee.update({ where: { id: aliceId }, data: { attendanceMode: mode } })
+    }
   })
 
   it("counts a manager's week for the team only", async () => {

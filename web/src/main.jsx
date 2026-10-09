@@ -56,6 +56,9 @@ const queryClient = new QueryClient({
   queryCache: new QueryCache({
     onError: (error, query) => {
       if (error instanceof ApiError && query?.meta?.quietCodes?.includes(error.code)) return
+      // A screen asking again on its own (meta.quietRefetch) says on the page
+      // that it could not refresh; a toast a minute would only shout it.
+      if (query?.meta?.quietRefetch && query.state.data !== undefined) return
       reportError(error)
     },
   }),

@@ -262,7 +262,8 @@ try {
       if (SETTINGS_TABS[who]) {
         await page.goto(`${BASE}/settings`)
         await settle(page)
-        const tabs = (await page.locator('aside.hidden.lg\\:block nav button').allInnerTexts()).map((s) => s.trim())
+        // The computer's menu by its name, not its layout classes (they changed on 9 Oct 2026).
+        const tabs = (await page.locator('nav[aria-label="Settings sections"] button').allInnerTexts()).map((s) => s.trim())
         check(`${who}: Settings shows exactly its tabs`, JSON.stringify(tabs) === JSON.stringify(SETTINGS_TABS[who]), tabs.join(', '))
       }
       await page.context().close()
