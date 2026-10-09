@@ -168,7 +168,10 @@ try {
   await hr.getByText('No employees found.').filter({ visible: true }).waitFor({ timeout: 10_000 })
   check('filtering by Onboarding shows nobody now', true)
   await hr.getByLabel('Stage').selectOption('confirmed')
-  check('filtering by Confirmed keeps Neha and Priya', await hr.locator('tr', { hasText: 'Neha Joshi' }).isVisible() && await hr.locator('tr', { hasText: 'Priya Deshmukh' }).isVisible())
+  // The list asks the server again for the new stage: wait for it, as for "No employees found." above.
+  const listed = (name) => hr.locator('tr', { hasText: name }).first().waitFor({ timeout: 10_000 }).then(() => true, () => false)
+  check('filtering by Confirmed keeps Neha and Priya', await listed('Neha Joshi') && await listed('Priya Deshmukh'))
+  check('…and leaves out Kiran, who left', (await hr.locator('tr', { hasText: 'Kiran Kumar' }).count()) === 0)
   await shot(hr, '04-list-stage')
 
   section('A transfer and a promotion')

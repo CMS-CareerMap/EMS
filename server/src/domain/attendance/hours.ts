@@ -81,23 +81,39 @@ export function hoursBetweenWallClock(
   return result
 }
 
-/**
- * Whether a day counts as full, half or absent against the shift.
- *
- * Thresholds are fractions of the EXPECTED hours rather than fixed numbers, so
- * a company with a six-hour shift gets a sensible half-day without anybody
- * editing this file. The client's shift is nine hours; half of that is 4.5.
- */
 /** Worked at least this fraction of the shift to earn a half day. */
 const HALF_DAY_FRACTION = 0.5
 /** Worked at least this fraction to count as a full day. */
 const FULL_DAY_FRACTION = 0.75
+
+/**
+ * The hours a full and a half day need on a shift, as classifyDay reads them:
+ * its own minimums, or fractions of its hours (a half day never more than a
+ * full one). Exact — round only to show them.
+ */
+export function dayMinimums(
+  expectedHours: number,
+  minimums: { full: number | null; half: number | null } = { full: null, half: null },
+): { full: number; half: number } {
+  const expected = expectedHours > 0 ? expectedHours : 0
+  const full = minimums.full ?? expected * FULL_DAY_FRACTION
+  return { full, half: Math.min(minimums.half ?? expected * HALF_DAY_FRACTION, full) }
+}
 
 export interface DayClassification {
   status: 'present' | 'half_day' | 'absent'
   shortfallHours: number
 }
 
+/**
+ * Whether a day counts as full, half or absent against the shift.
+ *
+ * The shift's own minimums decide, when it has them (Settings → Organisation →
+ * Shifts). The client's (8 Oct 2026), given to the shifts a company starts
+ * with: 8 hours a full day and 4.5 a half day on a nine-hour shift. A shift
+ * without them falls back on fractions of its EXPECTED hours, so a six-hour
+ * shift still gets a sensible half day.
+ */
 export function classifyDay(
   worked: number,
   expectedHours: number,
@@ -108,8 +124,7 @@ export function classifyDay(
   const shortfall = round(Math.max(0, expected - worked))
 
   if (expected > 0 && (minimums.full !== null || minimums.half !== null)) {
-    const full = minimums.full ?? expected * FULL_DAY_FRACTION
-    const half = Math.min(minimums.half ?? expected * HALF_DAY_FRACTION, full)
+    const { full, half } = dayMinimums(expected, minimums)
     if (worked < half) return { status: 'absent', shortfallHours: shortfall }
     if (worked < full) return { status: 'half_day', shortfallHours: shortfall }
     return { status: 'present', shortfallHours: shortfall }
@@ -117,10 +132,7 @@ export function classifyDay(
 
   // A half day means HALF. Below that it is absent — anything looser pays a
   // half day for two hours of work, which is a decision nobody made on purpose.
-  //
-  // CLIENT DECISION, not a fact. These two numbers determine what appears on a
-  // payslip, and companies differ: some pay a half day from four hours, some
-  // require a written approval below the full shift. Confirm before go-live.
+  // Only for a shift with no minimums of its own; the client gave theirs.
   if (expected > 0 && worked < expected * HALF_DAY_FRACTION) {
     return { status: 'absent', shortfallHours: shortfall }
   }

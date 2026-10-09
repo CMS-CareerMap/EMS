@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { forWorkedHalf, measureDay, minutesLabel, nextCheckInOpens, openDayCarries, overnightDayOpen, type ShiftRules } from './shiftRules'
+import { forWorkedHalf, fullDayHoursFor, measureDay, minutesLabel, nextCheckInOpens, openDayCarries, overnightDayOpen, stillAtWork, type ShiftRules } from './shiftRules'
 
 /** A day against its shift (client §34–35). Times are minutes from the date's midnight. */
 
@@ -92,6 +92,47 @@ describe('a day against its shift', () => {
     // No shift: until 06:00.
     expect(open('2026-10-04T05:59:00+05:30', null)).toBe(true)
     expect(open('2026-10-04T06:00:00+05:30', null)).toBe(false)
+  })
+
+  it('says the hours a full day needs, as check-out grades it — for the card to count down to (client, 9 Oct 2026)', () => {
+    const client: ShiftRules = { ...GENERAL, startTime: '09:30', endTime: '18:30', expectedHours: 9, minFullDayHours: 8, minHalfDayHours: 4.5 }
+    expect(fullDayHoursFor(client, 9, null)).toBe(8)
+    // Half the day on leave: half of it.
+    expect(fullDayHoursFor(client, 9, 'first_half')).toBe(4)
+    expect(fullDayHoursFor(client, 9, 'second_half')).toBe(4)
+    // A shift with no minimums of its own: three quarters of the hours it was expected to be.
+    expect(fullDayHoursFor({ ...client, minFullDayHours: null, minHalfDayHours: null }, 9, null)).toBe(6.75)
+    // Graded against the hours frozen on the day, not the shift's now.
+    expect(fullDayHoursFor({ ...client, minFullDayHours: null, minHalfDayHours: null }, 8, null)).toBe(6)
+    // No shift, or no hours recorded: nothing grades the day.
+    expect(fullDayHoursFor(null, 9, null)).toBeNull()
+    expect(fullDayHoursFor(client, null, null)).toBeNull()
+  })
+
+  it('says who is still at work, by the rule their own card counts by (client, 9 Oct 2026)', () => {
+    const day = { ...GENERAL, startTime: '09:30', endTime: '18:30' }
+    const night: ShiftRules = { ...GENERAL, startTime: '22:00', endTime: '06:00' }
+    const atWork = (o: { date: string; checkIn: string | null; checkOut?: string | null; now: string; rules?: ShiftRules | null; checkedInToday?: boolean }) =>
+      stillAtWork({
+        date: o.date, today: o.now.slice(0, 10), checkIn: o.checkIn ? new Date(o.checkIn) : null, checkOut: o.checkOut ? new Date(o.checkOut) : null,
+        rules: o.rules === undefined ? day : o.rules, timezone: 'Asia/Kolkata', now: new Date(o.now), checkedInToday: o.checkedInToday ?? false,
+      })
+    // Today, checked in and not out: at work. Out, or never in: not.
+    expect(atWork({ date: '2026-10-09', checkIn: '2026-10-09T09:31:00+05:30', now: '2026-10-09T11:00:00+05:30' })).toBe(true)
+    expect(atWork({ date: '2026-10-09', checkIn: '2026-10-09T09:31:00+05:30', checkOut: '2026-10-09T18:40:00+05:30', now: '2026-10-09T19:00:00+05:30' })).toBe(false)
+    expect(atWork({ date: '2026-10-09', checkIn: null, now: '2026-10-09T11:00:00+05:30' })).toBe(false)
+    // A night shift begun yesterday at 22:00: at work at 03:00 — unless they have checked in today.
+    expect(atWork({ date: '2026-10-08', checkIn: '2026-10-08T22:00:00+05:30', now: '2026-10-09T03:00:00+05:30', rules: night })).toBe(true)
+    expect(atWork({ date: '2026-10-08', checkIn: '2026-10-08T22:00:00+05:30', now: '2026-10-09T03:00:00+05:30', rules: night, checkedInToday: true })).toBe(false)
+    // A day shift left open: carried through the small hours, then forgotten.
+    expect(atWork({ date: '2026-10-08', checkIn: '2026-10-08T09:31:00+05:30', now: '2026-10-09T01:00:00+05:30' })).toBe(true)
+    expect(atWork({ date: '2026-10-08', checkIn: '2026-10-08T09:31:00+05:30', now: '2026-10-09T08:00:00+05:30' })).toBe(false)
+    // Never past twenty hours, even while the shift would carry it.
+    expect(atWork({ date: '2026-10-08', checkIn: '2026-10-08T05:00:00+05:30', now: '2026-10-09T02:00:00+05:30', rules: null })).toBe(false)
+    // A check-in typed for later today has not happened yet.
+    expect(atWork({ date: '2026-10-09', checkIn: '2026-10-09T18:00:00+05:30', now: '2026-10-09T10:00:00+05:30' })).toBe(false)
+    // Older days are forgotten check-outs.
+    expect(atWork({ date: '2026-10-07', checkIn: '2026-10-07T09:31:00+05:30', now: '2026-10-09T01:00:00+05:30' })).toBe(false)
   })
 
   it('measures the worked half of a half day of leave from its own start or end', () => {

@@ -1,7 +1,7 @@
 /**
  * The frame of the screens before sign-in — Sign in and Set password: the
  * logo's colours on the left (from a laptop up), the form on the right with
- * the company's logo above it.
+ * the EMS logo above it.
  */
 export default function AuthShell({ children }) {
   return (
@@ -13,7 +13,8 @@ export default function AuthShell({ children }) {
 
         <div className="relative">
           <span className="inline-flex rounded-2xl bg-white px-4 py-2.5 shadow-lg">
-            <img src="/logo-wide.png" alt="CareerMap Solutions" className="h-10 w-auto" />
+            {/* The form's own logo names the app; this one is the panel's decoration. */}
+            <img src="/logo-wide.png" alt="" className="h-10 w-auto" />
           </span>
         </div>
 
@@ -29,12 +30,12 @@ export default function AuthShell({ children }) {
           </div>
         </div>
 
-        <p className="relative text-xs text-white/80">© {new Date().getFullYear()} CareerMap Solutions. Internal platform.</p>
+        <p className="relative text-xs text-white/80">Powered by CareerMap Solutions</p>
       </aside>
 
       <main className="flex-1 flex items-center justify-center p-6 bg-white">
         <div className="w-full max-w-sm">
-          <img src="/logo-wide.png" alt="CareerMap Solutions" className="h-13 w-auto mb-7" />
+          <img src="/logo-wide.png" alt="EMS" className="h-13 w-auto mb-7" />
           {children}
         </div>
       </main>

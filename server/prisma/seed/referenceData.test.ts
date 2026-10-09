@@ -45,7 +45,8 @@ describe('reference data', () => {
 
     expect(await counts()).toEqual({
       departments: 5,
-      designations: 6,
+      // The ladder up to Head, and Director for the owner.
+      designations: 7,
       shifts: 3,
       leaveTypes: 5,
       // The client's six, Bonus and Commission (client §40), and Arrears for a
@@ -65,6 +66,15 @@ describe('reference data', () => {
     expect(policy.effectiveFrom).toEqual(new Date(Date.UTC(2026, 3, 1)))
     const nextYear = await prisma.holiday.count({ where: { organizationId: orgId, date: new Date(Date.UTC(2027, 0, 26)) } })
     expect(nextYear).toBe(1)
+
+    // The client's day (8 Oct 2026) on every shift: nine hours, a full day from
+    // eight worked, a half day from four and a half, no break taken off.
+    const shifts = await prisma.shift.findMany({ where: { organizationId: orgId }, orderBy: { name: 'asc' } })
+    expect(shifts.map((s) => [s.name, s.breakMinutes, Number(s.expectedHours), Number(s.minFullDayHours), Number(s.minHalfDayHours)])).toEqual([
+      ['Early', 0, 9, 8, 4.5],
+      ['General', 0, 9, 8, 4.5],
+      ['Late', 0, 9, 8, 4.5],
+    ])
   })
 
   it('changes nothing when it runs again', async () => {

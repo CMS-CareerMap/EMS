@@ -2,6 +2,7 @@ import type { AppContext } from '../../platform/context'
 import type { ScopeContext } from '../../platform/authz/scope'
 import { Forbidden } from '../../platform/errors/AppError'
 import { zonedToday, toDateColumn, fromDateColumn, isoInstant, addCalendarDays, type CalendarDate } from '../../domain/shared/dates'
+import { shiftRulesOf, stillAtWork } from '../../domain/attendance/shiftRules'
 import * as leaveRepo from '../leave/leave.repository'
 import * as attendanceRepo from '../attendance/attendance.repository'
 import * as employeeRepo from '../employee/employee.repository'
@@ -81,6 +82,8 @@ export interface TodaySummary {
     lateMinutes: number | null
     workMode: string | null
     isSelf: boolean
+    /** Checked in on the app and still at work now (stillAtWork) — the card runs their time. */
+    atWork: boolean
   }[]
   /** Leave, working from home and on duty from today to six days ahead — waiting or approved. */
   away: { employeeId: string; fullName: string; kind: 'leave' | 'work_from_home' | 'on_duty'; label: string; from: CalendarDate; to: CalendarDate; status: string }[]
@@ -94,7 +97,9 @@ export async function todaySummary(ctx: AppContext): Promise<TodaySummary> {
   if (scope.scope === 'SELF') {
     throw Forbidden('You see only your own attendance. Your own day is on your home page.')
   }
-  const today = zonedToday(new Date(), await companyTimezone(ctx))
+  const timezone = await companyTimezone(ctx)
+  const now = new Date()
+  const today = zonedToday(now, timezone)
   const weekFrom = addCalendarDays(today, -6)
   const aheadTo = addCalendarDays(today, 6)
 
@@ -184,6 +189,12 @@ export async function todaySummary(ctx: AppContext): Promise<TodaySummary> {
       lateMinutes: row?.lateMinutes ?? null,
       workMode: row?.workMode ?? null,
       isSelf: person.id === ctx.employeeId,
+      // At work now, by the roster's rule (stillAtWork): only somebody who
+      // checks in on the app — a day HR typed or the machine sent is not run on.
+      atWork: Boolean(person.attendanceMode === 'app' && row && stillAtWork({
+        date: today, today, checkIn: row.checkIn, checkOut: row.checkOut, rules: shiftRulesOf(row.shift),
+        timezone, now, checkedInToday: false,
+      })),
     })),
     away,
   }
@@ -392,6 +403,8 @@ export interface MySummary {
     lateMinutes: number | null
     dayOff: 'holiday' | 'weekly_off' | null
     holiday: string | null
+    /** Checked into and still theirs now, by the rule their own card counts by (stillAtWork; client, 9 Oct 2026). */
+    atWork: boolean
   }[]
   leaveBalances: { code: string; name: string; annualQuota: number; balance: number; pending: number; available: number }[]
   /** Leave requests waiting for this person to decide (Day 22: they have people under them). */
@@ -415,7 +428,8 @@ export async function mySummary(ctx: AppContext): Promise<MySummary> {
   }
 
   const timezone = await companyTimezone(ctx)
-  const today = zonedToday(new Date(), timezone)
+  const now = new Date()
+  const today = zonedToday(now, timezone)
   const monthStart = `${today.slice(0, 7)}-01`
   const weekFrom = addCalendarDays(today, -6)
 
@@ -451,8 +465,15 @@ export async function mySummary(ctx: AppContext): Promise<MySummary> {
   const holidays = new Map(daysOff.filter((d) => d.type === 'public').map((d) => [fromDateColumn(d.date), d.name]))
   const offRows = new Set(daysOff.filter((d) => d.type === 'weekly_off').map((d) => fromDateColumn(d.date)))
   const recentDays: MySummary['recentDays'] = []
+  // Still at work, by the rule their own card and the roster count by — a night
+  // shift's day is yesterday's — for somebody who checks in on the app (client, 9 Oct 2026).
+  const punches = employee?.attendanceMode === 'app'
   for (let day = weekFrom; day <= today; day = addCalendarDays(day, 1)) {
     const row = lastWeek.find((r) => fromDateColumn(r.date) === day)
+    const atWork = Boolean(punches && row && stillAtWork({
+      date: day, today, checkIn: row.checkIn, checkOut: row.checkOut, rules: shiftRulesOf(row.shift),
+      timezone, now, checkedInToday: Boolean(todayRow?.checkIn),
+    }))
     recentDays.push({
       date: day,
       status: row?.status ?? null,
@@ -462,6 +483,7 @@ export async function mySummary(ctx: AppContext): Promise<MySummary> {
       lateMinutes: row?.lateMinutes ?? null,
       dayOff: holidays.has(day) ? 'holiday' : offs.includes(weekdayOf(day)) || offRows.has(day) ? 'weekly_off' : null,
       holiday: holidays.get(day) ?? null,
+      atWork,
     })
   }
 

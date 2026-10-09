@@ -96,7 +96,8 @@ try {
   const general = (await api('sa', 'GET', '/master-data')).body.data.shifts.find((s) => s.name === 'General')
   check('Priya on the General shift', (await api('hr', 'PATCH', `/employees/${E.priya.id}`, { shiftId: general.id })).status === 200)
   check('overtime turned on', (await api('sa', 'PUT', '/settings/payroll', { overtimeEnabled: true })).status === 200)
-  check(`HR records a long ${worked}`, (await api('hr', 'POST', '/attendance/mark', { employeeId: E.priya.id, date: worked, status: 'present', checkIn: '09:30', checkOut: '21:00' })).status === 201)
+  // No break comes off (client, 8 Oct 2026): 10.5 hours on the nine-hour shift, 1.5 of them overtime.
+  check(`HR records a long ${worked}`, (await api('hr', 'POST', '/attendance/mark', { employeeId: E.priya.id, date: worked, status: 'present', checkIn: '09:30', checkOut: '20:00' })).status === 201)
   const ot = await api('emp', 'POST', '/requests', { type: 'overtime', date: worked, reason: 'Release night' })
   check('Priya claims it', ot.status === 201, JSON.stringify(ot.body).slice(0, 160))
   check('Manoj approves it', (await api('mgr', 'POST', `/requests/${ot.body.data.id}/approve`)).status === 200)

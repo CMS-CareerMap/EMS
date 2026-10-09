@@ -25,6 +25,23 @@ export function formatHours(hours) {
   return `${whole}h ${minutes}m`
 }
 
+/**
+ * How far this device's clock is from the server's, from an answer that
+ * carries `server_now` and the moment it arrived (a query's dataUpdatedAt).
+ * Added to the device's time, it gives the server's: a computer minutes out
+ * neither freezes nor jumps the time at work.
+ */
+export const clockSkew = (serverNow, receivedAt) => (serverNow && receivedAt ? Date.parse(serverNow) - receivedAt : 0)
+
+/**
+ * Time at work so far — before check-out, while the stored hours are still to
+ * come — in the same shape as the stored figure: "1h 5m". Whole minutes gone
+ * by, never rounded up: a minute shows once it has passed (client, 9 Oct 2026).
+ */
+export function soFarLabel(ms) {
+  return formatHours(Math.floor(Math.max(0, ms) / 60_000) / 60)
+}
+
 /** "09:30" → 570. */
 export const toMinutes = (hhmm) => {
   const [h, m] = String(hhmm).split(':').map(Number)

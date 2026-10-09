@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { LogIn, LogOut, Loader2, MapPin, CheckCircle2, Clock } from 'lucide-react'
+import { LogIn, LogOut, Loader2, MapPin, CheckCircle2, Clock, Flag } from 'lucide-react'
 import { useMyToday, useMyWorkplace, usePunchIn, usePunchOut } from '../../hooks/usePunch'
 import { useNow } from '../../hooks/useNow'
 import { WORK_MODES, minutesLabel } from '../../lib/requests'
@@ -8,6 +8,7 @@ import { Card, CardLink, Chip } from '../../components/ui/bits'
 import { btn } from '../../components/ui/styles'
 import { useAuthStore } from '../../stores/authStore'
 import { calendarDayIn, formatDay, isoInstant, wallClockIn } from '../../lib/dates'
+import { formatHours } from '../../lib/attendance'
 
 /**
  * "Time today": Check In / Check Out, for the employee themselves — on the home
@@ -28,10 +29,22 @@ function time(iso, timezone) {
   return iso ? wallClockIn(timezone, iso) : null
 }
 
-const toMinutes = (hhmm) => {
-  const [h, m] = String(hhmm).split(':').map(Number)
-  return h * 60 + m
+const pad = (n) => String(n).padStart(2, '0')
+
+/** Time at work so far, ticking: 2:05:09. */
+function elapsedClock(ms) {
+  const s = Math.floor(ms / 1000)
+  return `${Math.floor(s / 3600)}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`
 }
+
+/** The same, for a screen reader: "2 hours 5 minutes". */
+function spokenDuration(ms) {
+  const minutes = Math.floor(ms / 60_000)
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  return [h > 0 && `${h} hour${h === 1 ? '' : 's'}`, `${m} minute${m === 1 ? '' : 's'}`].filter(Boolean).join(' ')
+}
+
 
 /** `link` adds the way to the Attendance page — not wanted on that page itself. */
 export default function PunchCard({ link = true }) {
@@ -39,6 +52,9 @@ export default function PunchCard({ link = true }) {
   const workplace = useMyWorkplace()
   const canSeeAttendance = useAuthStore((state) => state.can('attendance:read'))
   const shift = workplace.data?.shift ?? null
+  // How far this device's clock is from the server's: the time at work is counted
+  // on the server's, so a phone minutes out neither freezes nor jumps it.
+  const skewMs = myToday.data?.server_now ? Date.parse(myToday.data.server_now) - myToday.dataUpdatedAt : 0
 
   return (
     <Card
@@ -55,47 +71,90 @@ export default function PunchCard({ link = true }) {
             <span className="text-gray-500">Loading today…</span>
           </span>
         }>
-        {(today) => <Today today={today} workplace={workplace} shift={shift} />}
+        {(today) => <Today today={today} workplace={workplace} skewMs={skewMs} />}
       </DataState>
     </Card>
   )
 }
 
 /** Today's row — null before the first punch — and the one button it calls for. */
-function Today({ today, workplace, shift }) {
+function Today({ today, workplace, skewMs }) {
   const timezone = useAuthStore((state) => state.organization?.timezone)
   const punchIn = usePunchIn()
   const punchOut = usePunchOut()
-  const now = useNow()
   const mode = today?.work_mode ?? workplace.data?.work_mode ?? 'office'
   const busy = punchIn.isPending || punchOut.isPending
   const checkedIn = Boolean(today?.check_in)
   const checkedOut = Boolean(today?.check_out)
+  // Checked in and not out yet: the time at work ticks by the second (the
+  // client watched it for ten minutes and saw nothing move) — read twice a
+  // second, so no second is skipped or shown twice. Otherwise the clock only
+  // needs the minute.
+  const atWork = checkedIn && !checkedOut
+  const dayDone = checkedIn && checkedOut
+  const tick = useNow(atWork ? 500 : 30_000)
+  const now = new Date(tick.getTime() + skewMs)
   // Last night's shift, still open this morning, is the day to check out of (client §34).
   const lastNight = today?.date && today.date !== calendarDayIn(timezone)
 
   const clock = wallClockIn(timezone, isoInstant(now))
-  const nowMinutes = toMinutes(clock)
-  const inMinutes = checkedIn ? toMinutes(time(today.check_in, timezone)) : null
-  const outMinutes = checkedOut ? toMinutes(time(today.check_out, timezone)) : null
-  const sofar = checkedIn && !checkedOut && !lastNight && nowMinutes >= inMinutes ? nowMinutes - inMinutes : null
+  // From the instants, not the wall clock: right across midnight, for a night shift too.
+  const atWorkMs = atWork ? Math.max(0, now.getTime() - Date.parse(today.check_in)) : null
+  const stayedMs = dayDone ? Math.max(0, Date.parse(today.check_out) - Date.parse(today.check_in)) : null
+  // The hours the server stored at check-out (the payslip's, two decimals), and
+  // the same in whole minutes read as formatHours reads them — 7.18 is 7h 11m on
+  // the screen, so it is "7 hours 11 minutes" to a screen reader too.
+  const workedHours = dayDone ? (today.hours_worked ?? Math.round(stayedMs / 36_000) / 100) : null
+  const workedMs = dayDone ? (Math.floor(workedHours) * 60 + Math.round((workedHours - Math.floor(workedHours)) * 60)) * 60_000 : null
+  // The unpaid break the day's own shift takes off the time at work when it
+  // closes — the server's figure for this day, not today's shift (domain/attendance/hours.ts).
+  const breakMinutes = today?.break_minutes ?? 0
+  const dayLine = lastNight ? `Shift of ${formatDay(today.date, { year: false })}` : formatDay(calendarDayIn(timezone), { weekday: true })
 
-  // The day's line, from two hours before the shift to two after (08:00–20:00 with none).
-  const from = shift ? Math.max(0, toMinutes(shift.start_time) - 120) : 8 * 60
-  const until = shift ? Math.min(24 * 60, toMinutes(shift.end_time) + 120) : 20 * 60
-  const span = Math.max(60, until - from)
-  const at = (m) => `${Math.min(100, Math.max(0, ((m - from) / span) * 100))}%`
-  const overnight = shift && toMinutes(shift.end_time) <= toMinutes(shift.start_time)
+  // How far to a full day, in words — the one thing the person wants to know
+  // while at work that the card did not say. It replaced a coloured line of the
+  // day whose every part the card already said in words, which nobody could
+  // read (Devesh, 9 Oct 2026). The hours a full day needs are the server's: the
+  // day's own shift, halved on a half day of leave. "To go" is the time still to
+  // stay, the unpaid break included (it comes off at check-out, as the note
+  // below says) — so it falls from the first minute, never sits still through
+  // the break. Nothing with no shift.
+  const fullDayMinutes = atWork && today.full_day_hours != null ? Math.round(today.full_day_hours * 60) : null
+  const toGo = fullDayMinutes == null ? null : fullDayMinutes + breakMinutes - Math.floor(atWorkMs / 60_000)
 
   return (
     <div className="space-y-3.5">
       <div className="flex flex-wrap items-end justify-between gap-3">
+        {/* The big figure is what the person wants at a glance: the clock before
+            they check in, the time at work while they are in, the hours worked
+            once they are out (client, 8 Oct 2026). */}
         <div>
-          <p className="text-[34px] leading-none font-extrabold tracking-tight text-gray-900 tabular-nums" aria-label={`The time is ${clock}`}>{clock}</p>
-          <p className="text-xs text-gray-500 mt-1.5">
-            {lastNight ? `Shift of ${formatDay(today.date, { year: false })}` : formatDay(calendarDayIn(timezone), { weekday: true })}
-            {sofar !== null && <> · <b className="text-gray-900">{minutesLabel(sofar)}</b> so far</>}
-          </p>
+          {atWork ? (
+            <>
+              <p role="timer" className="text-[34px] leading-none font-extrabold tracking-tight text-gray-900 tabular-nums" aria-label={`At work for ${spokenDuration(atWorkMs)}`}>
+                {elapsedClock(atWorkMs)}
+              </p>
+              <p className="text-xs text-gray-500 mt-1.5">
+                <b className="text-gray-900">At work</b> since {time(today.check_in, timezone)} · {dayLine} · now {clock}
+              </p>
+            </>
+          ) : dayDone ? (
+            <>
+              <p className="text-[34px] leading-none font-extrabold tracking-tight text-gray-900 tabular-nums">
+                <span className="sr-only">Worked {spokenDuration(workedMs)}</span>
+                <span aria-hidden="true">{formatHours(workedHours)}</span>
+              </p>
+              <p className="text-xs text-gray-500 mt-1.5">
+                <b className="text-gray-900">Worked</b>{lastNight ? '' : ' today'} · at work {time(today.check_in, timezone)} – {time(today.check_out, timezone)}
+                {breakMinutes > 0 && today.hours_worked != null ? `, less a ${minutesLabel(breakMinutes)} unpaid break` : ''}
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-[34px] leading-none font-extrabold tracking-tight text-gray-900 tabular-nums" aria-label={`The time is ${clock}`}>{clock}</p>
+              <p className="text-xs text-gray-500 mt-1.5">{dayLine}</p>
+            </>
+          )}
         </div>
 
         {!checkedIn && (
@@ -126,34 +185,31 @@ function Today({ today, workplace, shift }) {
         {today?.status && today.status !== 'present' && <Chip tone="info" dot={false}><span className="capitalize">{today.status.replace('_', ' ')}</span></Chip>}
       </div>
 
-      {/* The day at a glance: the shift, and the time worked so far. */}
-      {!overnight && (
-        <div aria-hidden="true">
-          <div className="relative h-2.5 rounded-full bg-gray-100 overflow-hidden">
-            {shift && <span className="absolute inset-y-0 rounded-full bg-brand-100" style={{ left: at(toMinutes(shift.start_time)), width: `calc(${at(toMinutes(shift.end_time))} - ${at(toMinutes(shift.start_time))})` }} />}
-            {inMinutes !== null && !lastNight && (
-              <span className="absolute inset-y-0 rounded-full bg-logo" style={{ left: at(inMinutes), width: `calc(${at(outMinutes ?? nowMinutes)} - ${at(inMinutes)})` }} />
-            )}
-            {!lastNight && <span className="absolute -inset-y-0.5 w-0.5 rounded bg-gray-900" style={{ left: at(nowMinutes) }} />}
-          </div>
-          <div className="flex justify-between mt-1 text-[11px] font-semibold text-gray-400 tabular-nums">
-            <span>{String(Math.floor(from / 60)).padStart(2, '0')}:00</span>
-            {shift && <span>Shift {shift.start_time} – {shift.end_time}</span>}
-            <span>{String(Math.floor(until / 60) % 24).padStart(2, '0')}:00</span>
-          </div>
+      {toGo != null && (toGo > 0 ? (
+        <div className="flex items-center gap-2 p-2.5 rounded-lg bg-brand-50 border border-brand-100">
+          <Flag className="w-4 h-4 text-brand-600 shrink-0" aria-hidden="true" />
+          <span className="text-sm text-gray-700">
+            Full day at <b className="text-gray-900">{minutesLabel(fullDayMinutes)}</b> · <b className="text-gray-900">{minutesLabel(toGo)}</b> to go
+          </span>
         </div>
-      )}
+      ) : (
+        <div className="flex items-center gap-2 p-2.5 rounded-lg bg-emerald-50 border border-emerald-100">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" aria-hidden="true" />
+          <span className="text-sm font-semibold text-emerald-800">Full day done</span>
+        </div>
+      ))}
 
       {/*
-        The hours the client explicitly asked to see — "jitne ghante usne work
-        kiya vo dikhe". Computed and stored by the server at check-out, not
-        recalculated here, so this figure and the payslip cannot disagree.
+        The hours the client asked to see — "jitne ghante usne work kiya vo
+        dikhe" — are the big figure once checked out: the server's, computed
+        and stored at check-out, so this and the payslip cannot disagree. While
+        at work, the break that will come off them is said up front.
       */}
-      {today?.hours_worked != null && (
+      {atWork && breakMinutes > 0 && (
         <div className="flex items-center gap-2 p-2.5 rounded-lg bg-gray-50 border border-gray-100">
           <Clock className="w-4 h-4 text-gray-400 shrink-0" />
           <span className="text-sm text-gray-700">
-            <strong className="text-gray-900">{today.hours_worked}</strong> hours worked{lastNight ? '' : ' today'}
+            Your {minutesLabel(breakMinutes)} unpaid break is taken off when you check out.
           </span>
         </div>
       )}
@@ -188,7 +244,7 @@ function Today({ today, workplace, shift }) {
         </div>
       )}
 
-      {checkedOut && (
+      {dayDone && (
         <p className="text-sm text-gray-500 text-center">Your day is recorded. See you tomorrow.</p>
       )}
 

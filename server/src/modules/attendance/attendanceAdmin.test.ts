@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest'
 import request from 'supertest'
 import { createApp } from '../../app'
 import { prisma } from '../../platform/db/prisma'
@@ -538,6 +538,69 @@ describe('the day roster', () => {
 
   it('refuses a date it cannot read', async () => {
     expect((await get('/day?date=14-09-2026')).status).toBe(422)
+  })
+
+  it('says who is at work now, and carries the server’s clock — the roster runs their time (client, 9 Oct 2026)', async () => {
+    const today = zonedToday(new Date(), 'Asia/Kolkata')
+    const threeDaysAgo = fromDateColumn(new Date(toDateColumn(today).getTime() - 3 * 86_400_000))!
+    const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000)
+    const row = (employeeId: string, date: string, checkIn: Date, checkOut: Date | null) =>
+      prisma.attendance.create({ data: { organizationId: orgId, employeeId, date: toDateColumn(date), checkIn, checkOut, status: 'present', source: 'punch' } })
+    const made = await Promise.all([
+      row(aliceId, today, minutesAgo(65), null), // in, not out: at work
+      row(bobId, today, minutesAgo(120), minutesAgo(5)), // in and out: not
+      row(aliceId, threeDaysAgo, new Date(toDateColumn(threeDaysAgo).getTime() + 4 * 3_600_000), null), // never checked out: forgotten
+    ])
+    try {
+      const now = await get(`/day?date=${today}`)
+      expect(now.status).toBe(200)
+      expect(Math.abs(Date.parse(now.body.data.server_now) - Date.now())).toBeLessThan(2000)
+      const of = (res: typeof now, id: string) => res.body.data.employees.find((e: { employee_id: string }) => e.employee_id === id)
+      expect(of(now, aliceId).at_work).toBe(true)
+      expect(of(now, bobId).at_work).toBe(false)
+      // Nobody with no day at all is at work.
+      expect(now.body.data.employees.filter((e: { attendance: unknown; at_work: boolean }) => !e.attendance && e.at_work)).toEqual([])
+
+      const before = await get(`/day?date=${threeDaysAgo}`)
+      expect(of(before, aliceId).attendance.check_out).toBeNull()
+      expect(of(before, aliceId).at_work).toBe(false)
+    } finally {
+      await prisma.attendance.deleteMany({ where: { id: { in: made.map((m) => m.id) } } })
+    }
+  })
+
+  it("runs a night shift's day on yesterday's roster — until they check in today", async () => {
+    // At a fixed moment: 03:00 on 9 Oct, in the middle of the night of the 8th.
+    const at = async <T>(iso: string, call: () => Promise<T>): Promise<T> => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date(iso))
+      try {
+        return await call()
+      } finally {
+        vi.useRealTimers()
+      }
+    }
+    const aliceOn = async () => {
+      const res = await at('2026-10-09T03:00:00+05:30', () => get('/day?date=2026-10-08'))
+      return res.body.data.employees.find((e: { employee_id: string }) => e.employee_id === aliceId)
+    }
+    const night = await prisma.shift.create({ data: { organizationId: orgId, name: `${PREFIX}-night`, startTime: '22:00', endTime: '06:00', breakMinutes: 0, expectedHours: 8 } })
+    const rows: string[] = []
+    try {
+      rows.push((await prisma.attendance.create({
+        data: { organizationId: orgId, employeeId: aliceId, date: toDateColumn('2026-10-08'), checkIn: new Date('2026-10-08T22:00:00+05:30'), status: 'present', source: 'punch', shiftId: night.id },
+      })).id)
+      expect((await aliceOn()).at_work).toBe(true)
+
+      // A check-in today leaves last night's open day behind.
+      rows.push((await prisma.attendance.create({
+        data: { organizationId: orgId, employeeId: aliceId, date: toDateColumn('2026-10-09'), checkIn: new Date('2026-10-09T02:30:00+05:30'), status: 'present', source: 'punch' },
+      })).id)
+      expect((await aliceOn()).at_work).toBe(false)
+    } finally {
+      await prisma.attendance.deleteMany({ where: { id: { in: rows } } })
+      await prisma.shift.delete({ where: { id: night.id } })
+    }
   })
 })
 

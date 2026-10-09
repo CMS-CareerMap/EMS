@@ -1,4 +1,5 @@
-import { NavLink } from 'react-router-dom'
+import { useEffect, useRef } from 'react'
+import { NavLink, useLocation } from 'react-router-dom'
 import { visibleNavItems } from '../config/navigation'
 import { useAuthStore } from '../stores/authStore'
 import { useNavCounts } from '../hooks/useNavCounts'
@@ -10,14 +11,38 @@ import { useNavCounts } from '../hooks/useNavCounts'
  * Which pages appear is the permissions' business (config/navigation.js), the
  * same list the router guards, so a link is never shown that would bounce.
  * Leave and Requests carry how many wait for this login.
+ *
+ * On a short screen (a small laptop, a zoomed browser) the strip keeps its
+ * spacing and scrolls, with a thin dark scrollbar, and the open page stays in
+ * view. Squeezing the items to fit was tried and looked cramped (Devesh,
+ * 9 Oct 2026: "pehle gap leke ache se dikh raha tha").
  */
 export default function Sidebar() {
   const canAny = useAuthStore((state) => state.canAny)
   const counts = useNavCounts()
   const items = visibleNavItems(canAny)
+  const navRef = useRef(null)
+  const { pathname } = useLocation()
+
+  // The open page in view: on arriving, and when the window changes size (a
+  // browser zoomed in shortens the strip under it).
+  useEffect(() => {
+    const reveal = () => {
+      const nav = navRef.current
+      const open = nav?.querySelector('[aria-current="page"]')
+      if (!nav || !open) return
+      const n = nav.getBoundingClientRect()
+      const r = open.getBoundingClientRect()
+      if (r.top < n.top) nav.scrollTop -= n.top - r.top + 8
+      else if (r.bottom > n.bottom) nav.scrollTop += r.bottom - n.bottom + 8
+    }
+    reveal()
+    window.addEventListener('resize', reveal)
+    return () => window.removeEventListener('resize', reveal)
+  }, [pathname])
 
   return (
-    <nav aria-label="Main" className="w-23 h-full bg-side flex flex-col gap-0.5 px-2 py-2.5 overflow-y-auto select-none">
+    <nav ref={navRef} aria-label="Main" className="w-23 h-full bg-side flex flex-col gap-0.5 px-2 py-2.5 overflow-y-auto overscroll-contain select-none [scrollbar-width:thin] [scrollbar-color:rgb(255_255_255/0.18)_transparent]">
       {items.map((item) => {
         const count = counts[item.to] ?? 0
         return (
@@ -25,7 +50,7 @@ export default function Sidebar() {
             key={item.to}
             to={item.to}
             className={({ isActive }) =>
-              `relative flex flex-col items-center gap-1.5 px-1 pt-2.5 pb-2 rounded-xl text-[11px] font-semibold leading-tight text-center transition-colors
+              `relative shrink-0 flex flex-col items-center gap-1.5 px-1 pt-2.5 pb-2 rounded-xl text-[11px] font-semibold leading-tight text-center transition-colors
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300
               ${isActive
                 ? 'text-white bg-[linear-gradient(140deg,rgba(255,138,61,0.24),rgba(242,71,154,0.22)_45%,rgba(139,47,230,0.34))]'

@@ -1,10 +1,9 @@
 import { ChevronLeft, ChevronRight, Search, Edit2, UserCheck, UserX, Clock, CalendarDays, CircleDashed } from 'lucide-react'
 import { Avatar, Chip, StatTile } from '../../components/ui/bits'
 import { btn, card, field, th, td } from '../../components/ui/styles'
-import { STATUS, formatHours } from '../../lib/attendance'
+import { STATUS, formatHours, soFarLabel } from '../../lib/attendance'
 import { addDays, formatDay } from '../../lib/dates'
 import { WORK_MODES, minutesLabel } from '../../lib/requests'
-import DayBar from './DayBar'
 
 /**
  * One day of everybody the caller's attendance reaches — a team, or the
@@ -28,8 +27,15 @@ const TILES = [
 
 export default function TeamDay({
   records, filtered, stats, date, onDate, today, tab, onTab,
-  departments, deptFilter, onDept, search, onSearch, canMark, onMark, nowMinutes,
+  departments, deptFilter, onDept, search, onSearch, canMark, onMark, nowMs,
 }) {
+  // Their time at work so far, while they are in: the stored hours come at check-out.
+  const soFar = (rec) => soFarLabel(nowMs - Date.parse(rec.check_in_at))
+  // In, never out, and no longer their day: somebody has to put the check-out
+  // in. Never today — somebody not on the app, in since this morning, may yet
+  // leave. A day HR typed is as HR left it — the form fills in a check-in by
+  // itself, so "present, no times" would read as a forgotten check-out.
+  const noCheckOut = (rec) => date !== today && !rec.at_work && rec.check_in && !rec.check_out && rec.hours_worked == null && rec.source !== 'manual'
   const marked = records.length - stats.unmarked
   // The day's attendance: present or half day, of everybody on the roster.
   const attended = records.length ? Math.round(((stats.present + stats.half_day) / records.length) * 100) : 0
@@ -98,7 +104,6 @@ export default function TeamDay({
                 <th className={th}>Department</th>
                 <th className={th}>Check-in</th>
                 <th className={th}>Check-out</th>
-                <th className={`${th} hidden xl:table-cell`}>Day · 08:00 – 20:00</th>
                 <th className={th}>Hours</th>
                 <th className={th}>Status</th>
                 {canMark && <th className={`${th} text-right pr-5`}>Action</th>}
@@ -108,7 +113,7 @@ export default function TeamDay({
               {/* The roster has answered by now, so nothing here is the empty of a
                   failed request — only of the filters. */}
               {filtered.length === 0 ? (
-                <tr><td colSpan={canMark ? 8 : 7} className="text-center py-14 text-sm text-gray-400">No records found.</td></tr>
+                <tr><td colSpan={canMark ? 7 : 6} className="text-center py-14 text-sm text-gray-400">No records found.</td></tr>
               ) : filtered.map((rec) => {
                 const meta = rec.status ? STATUS[rec.status] : null
                 return (
@@ -134,12 +139,16 @@ export default function TeamDay({
                     <td className={`${td} tabular-nums`}>
                       <span className={rec.check_out ? 'text-gray-900' : 'text-gray-300'}>{rec.check_out || '—'}</span>
                     </td>
-                    <td className={`${td} hidden xl:table-cell min-w-40`}>
-                      <DayBar checkIn={rec.check_in} checkOut={rec.check_out} nowMinutes={date === today ? nowMinutes : null}
-                        off={rec.status === 'holiday' || rec.status === 'weekly_off' ? rec.status : null} />
-                    </td>
                     <td className={`${td} tabular-nums whitespace-nowrap`}>
-                      {formatHours(rec.hours_worked)}
+                      {rec.at_work ? (
+                        <span className="inline-flex items-center gap-1.5 font-semibold text-gray-900" title={`At work since ${rec.check_in}`}>
+                          <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full bg-emerald-500 motion-safe:animate-pulse" />
+                          {soFar(rec)}
+                          <span className="text-xs font-normal text-gray-400">so far</span>
+                        </span>
+                      ) : noCheckOut(rec) ? (
+                        <span className="text-xs font-semibold text-amber-700">No check-out</span>
+                      ) : formatHours(rec.hours_worked)}
                       {rec.overtime_minutes > 0 && <span className="block text-xs font-semibold text-emerald-700">+{minutesLabel(rec.overtime_minutes)} overtime</span>}
                       {rec.early_leaving_minutes > 0 && <span className="block text-xs font-semibold text-amber-700">Left {minutesLabel(rec.early_leaving_minutes)} early</span>}
                     </td>
@@ -182,7 +191,7 @@ export default function TeamDay({
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-gray-900 truncate">{rec.full_name}</p>
                   <p className="text-xs text-gray-500 tabular-nums">
-                    {rec.check_in ? `In ${rec.check_in}${rec.check_out ? ` · Out ${rec.check_out}` : ''}${rec.late_minutes > 0 ? ` · late ${minutesLabel(rec.late_minutes)}` : ''}` : (rec.department || rec.employee_code)}
+                    {rec.check_in ? `In ${rec.check_in}${rec.check_out ? ` · Out ${rec.check_out}` : rec.at_work ? ` · ${soFar(rec)} so far` : noCheckOut(rec) ? ' · no check-out' : ''}${rec.late_minutes > 0 ? ` · late ${minutesLabel(rec.late_minutes)}` : ''}` : (rec.department || rec.employee_code)}
                   </p>
                   {canMark && rec.mark_goes_to && <p className="text-[11px] text-gray-400 italic">Goes to {rec.mark_goes_to}</p>}
                 </div>

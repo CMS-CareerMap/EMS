@@ -6,9 +6,9 @@ import { useEditShift } from '../../hooks/useMasterDataAdmin'
 
 /**
  * A shift's rules (client §34): grace, when lateness or leaving early costs
- * half a day, the hours a full and a half day need, and when overtime starts.
- * Each left empty is off, or takes the fraction of the expected hours it took
- * before these existed.
+ * half a day, and when overtime starts. Each left empty is off. The hours a
+ * full and a half day need are in the Shifts table itself, where the client
+ * looks for them (8 Oct 2026).
  */
 export default function ShiftRulesDialog({ shift, onClose }) {
   const edit = useEditShift()
@@ -17,8 +17,6 @@ export default function ShiftRulesDialog({ shift, onClose }) {
     graceMinutes: blank(shift.grace_minutes),
     lateThresholdMinutes: blank(shift.late_threshold_minutes),
     earlyLeavingMinutes: blank(shift.early_leaving_minutes),
-    minFullDayHours: blank(shift.min_full_day_hours),
-    minHalfDayHours: blank(shift.min_half_day_hours),
     overtimeAfterMinutes: blank(shift.overtime_after_minutes),
   })
   const set = (key) => (e) => setForm({ ...form, [key]: e.target.value })
@@ -32,8 +30,6 @@ export default function ShiftRulesDialog({ shift, onClose }) {
         graceMinutes: Number(form.graceMinutes || 0),
         lateThresholdMinutes: orNull(form.lateThresholdMinutes),
         earlyLeavingMinutes: orNull(form.earlyLeavingMinutes),
-        minFullDayHours: orNull(form.minFullDayHours),
-        minHalfDayHours: orNull(form.minHalfDayHours),
         overtimeAfterMinutes: Number(form.overtimeAfterMinutes || 0),
       })
       .then(() => true, () => false)
@@ -48,7 +44,7 @@ export default function ShiftRulesDialog({ shift, onClose }) {
     <Dialog title={`${shift.name} — rules`} onClose={edit.isPending ? () => {} : onClose}>
       <form onSubmit={submit} className="space-y-4">
         <p className="text-sm text-gray-500">
-          {shift.start_time} to {shift.end_time}, {full} hours expected. These apply to days recorded from now on; days already recorded keep what they were measured against.
+          {shift.start_time} to {shift.end_time}, {full} hours. These apply to days recorded from now on, and to a day marked or corrected later; days already recorded keep their status.
         </p>
         <Row label="Grace period (minutes)" hint="Arriving this late, or leaving this early, is not marked at all.">
           <input type="number" min="0" max="240" step="1" className={inputCls} value={form.graceMinutes} onChange={set('graceMinutes')} aria-label="Grace period in minutes" />
@@ -58,12 +54,6 @@ export default function ShiftRulesDialog({ shift, onClose }) {
         </Row>
         <Row label="Early leaving (minutes)" hint="Leaving more than this before the end makes the day a half day. Empty: marked only.">
           <input type="number" min="0" max="720" step="1" placeholder="Off" className={inputCls} value={form.earlyLeavingMinutes} onChange={set('earlyLeavingMinutes')} aria-label="Early leaving in minutes" />
-        </Row>
-        <Row label="Minimum hours — full day" hint={`Empty: three quarters of the shift (${Math.round(full * 0.75 * 100) / 100} h).`}>
-          <input type="number" min="0.25" max="24" step="0.25" placeholder={String(Math.round(full * 0.75 * 100) / 100)} className={inputCls} value={form.minFullDayHours} onChange={set('minFullDayHours')} aria-label="Minimum hours for a full day" />
-        </Row>
-        <Row label="Minimum hours — half day" hint={`Below this the day is absent. Empty: half the shift (${full / 2} h).`}>
-          <input type="number" min="0.25" max="24" step="0.25" placeholder={String(full / 2)} className={inputCls} value={form.minHalfDayHours} onChange={set('minHalfDayHours')} aria-label="Minimum hours for a half day" />
         </Row>
         <Row label="Overtime after (minutes)" hint="Work past the expected hours counts as overtime once it reaches this — then all of it counts. Only approved overtime is paid.">
           <input type="number" min="0" max="720" step="1" className={inputCls} value={form.overtimeAfterMinutes} onChange={set('overtimeAfterMinutes')} aria-label="Overtime after minutes" />

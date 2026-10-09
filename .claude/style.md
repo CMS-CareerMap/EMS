@@ -7,8 +7,9 @@ another page. When the look changes, it changes there.
 
 ## Brand
 
-- **Company:** CareerMap Solutions. **Product:** HR & Payroll.
-- **Logo:** `web/public/logo-wide.png` in the white top bar, in full colour.
+- **Company:** CareerMap Solutions. **Product:** EMS (Employee Management System), HR & Payroll.
+- **Logo:** the EMS logo, `web/public/logo-wide.png`, in the white top bar, in full colour (client, 8 Oct 2026; it replaced the CMS logo). The tab icon (`icon-32.png`, `icon-180.png`) is the logo's own "E". Its tagline is navy: keep it on white.
+- **Sign-in footer:** "Powered by CareerMap Solutions". Where a line names the company (the top bar's name from Settings, "Access is restricted to CareerMap Solutions employees", payslips) it stays the company.
 - **Font:** Plus Jakarta Sans (Google Fonts, loaded in `index.html`).
 - **Tone:** plain, friendly English. Say what happened and what to do next.
 

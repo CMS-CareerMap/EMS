@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-10-06",
+  "generatedAt": "2026-10-09",
   "note": "Field names the frontend reads, pinned so the API cannot quietly stop sending one. A serializer that stops sending one of these will render an empty cell rather than an error, so check new serializers against this list. Regenerate with: cd server && npm run field-contract",
-  "fieldCount": 274,
+  "fieldCount": 279,
   "allFields": [
     "absent_days",
     "accept_as_backup",
@@ -19,6 +19,7 @@
     "archived_at",
     "as_backup",
     "assumed_days",
+    "at_work",
     "attendance_mode",
     "bank_account",
     "bank_name",
@@ -43,6 +44,7 @@
     "changed_from_default",
     "check_goes_to",
     "check_in",
+    "check_in_at",
     "check_in_device",
     "check_out",
     "closed_note",
@@ -119,6 +121,7 @@
     "first_part",
     "fiscal_year_start_month",
     "from_date",
+    "full_day_hours",
     "full_name",
     "goes_to",
     "grace_minutes",
@@ -127,6 +130,7 @@
     "gross_monthly",
     "half_day",
     "half_day_allowed",
+    "half_day_hours",
     "half_days",
     "has_manager",
     "has_password",
@@ -239,6 +243,7 @@
     "salary_effective_from",
     "sandwich_rule",
     "scope_question",
+    "server_now",
     "shift_id",
     "start_month",
     "start_time",
@@ -294,9 +299,6 @@
       "employee_id",
       "full_name"
     ],
-    "web/src/features/attendance/DayBar.jsx": [
-      "weekly_off"
-    ],
     "web/src/features/attendance/ImportAttendanceModal.jsx": [
       "employee_id",
       "total_rows",
@@ -326,15 +328,18 @@
       "total_hours"
     ],
     "web/src/features/attendance/PunchCard.jsx": [
+      "break_minutes",
       "check_in",
       "check_out",
       "distance_meters",
       "end_time",
+      "full_day_hours",
       "hours_worked",
       "late_minutes",
       "location_needed",
       "overtime_enabled",
       "overtime_minutes",
+      "server_now",
       "start_time",
       "work_mode"
     ],
@@ -350,6 +355,8 @@
       "employee_uuid",
       "end_time",
       "expected_hours",
+      "full_day_hours",
+      "half_day_hours",
       "hours_worked",
       "late_minutes",
       "overtime_minutes",
@@ -359,7 +366,9 @@
       "work_mode"
     ],
     "web/src/features/attendance/TeamDay.jsx": [
+      "at_work",
       "check_in",
+      "check_in_at",
       "check_in_device",
       "check_out",
       "early_leaving_minutes",
@@ -513,6 +522,7 @@
     ],
     "web/src/features/home/MyCards.jsx": [
       "applied_on",
+      "at_work",
       "check_in",
       "check_out",
       "day_off",
@@ -537,6 +547,7 @@
     ],
     "web/src/features/home/TeamCards.jsx": [
       "as_backup",
+      "at_work",
       "can_decide",
       "check_in",
       "day_off",
@@ -552,6 +563,7 @@
       "not_marked",
       "on_leave",
       "requested_last_day",
+      "server_now",
       "submitted_on",
       "to_date",
       "work_mode"
@@ -768,6 +780,8 @@
       "break_minutes",
       "end_time",
       "expected_hours",
+      "min_full_day_hours",
+      "min_half_day_hours",
       "start_time"
     ],
     "web/src/features/settings/PasswordRules.jsx": [
@@ -826,8 +840,6 @@
       "expected_hours",
       "grace_minutes",
       "late_threshold_minutes",
-      "min_full_day_hours",
-      "min_half_day_hours",
       "overtime_after_minutes",
       "start_time"
     ],
@@ -859,6 +871,7 @@
       "present_days",
       "recent_days",
       "recent_leaves",
+      "server_now",
       "this_month",
       "total_hours",
       "waiting_for_me",
@@ -917,11 +930,11 @@
       "half_day_allowed",
       "late_threshold_minutes",
       "max_days_per_request",
-      "min_full_day_hours",
       "min_notice_days",
       "overtime_after_minutes"
     ],
     "web/src/pages/Attendance.jsx": [
+      "at_work",
       "check_in",
       "check_in_device",
       "check_out",
@@ -933,6 +946,7 @@
       "late_minutes",
       "mark_goes_to",
       "overtime_minutes",
+      "server_now",
       "work_mode"
     ],
     "web/src/pages/Dashboard.jsx": [

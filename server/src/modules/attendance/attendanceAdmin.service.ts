@@ -21,6 +21,8 @@ import {
   halfDayReason,
   marksOf,
   measureInstants,
+  shiftRulesOf,
+  stillAtWork,
   withHalfDayLeave,
   type DayMeasure,
 } from '../../domain/attendance/shiftRules'
@@ -190,10 +192,30 @@ export async function todaySummary(ctx: AppContext, date?: string) {
  * row or none. The company's today unless a date is given — never UTC's.
  */
 export async function dayRoster(ctx: AppContext, date?: string) {
-  const day = date ?? zonedToday(new Date(), await companyTimezone(ctx))
+  const timezone = await companyTimezone(ctx)
+  const now = new Date()
+  const today = zonedToday(now, timezone)
+  const day = date ?? today
   if (!isCalendarDate(day)) throw BadRequest(`"${day}" is not a date`)
 
   const employees = await repo.dayRoster(ctx.db, ctx.scopeFor('attendance'), day)
+
+  // Who is at work now, by the rule their own card counts by — so whoever
+  // watches the roster sees the time run as they do (client, 9 Oct 2026). Only
+  // people who check in on the app have that card: somebody on the biometric
+  // machine, or marked by HR, is not counted on. Only today's open days and
+  // yesterday's can be; yesterday's only for somebody not checked in today.
+  const yesterday = addCalendarDays(today, -1)
+  const punches = employees.filter((e) => e.attendanceMode === 'app')
+  const openIds = punches.filter((e) => e.attendance[0]?.checkIn && !e.attendance[0].checkOut).map((e) => e.id)
+  const checkedInToday = day === yesterday ? await repo.checkedInOn(ctx.db, openIds, today) : new Set<string>()
+  const atWork = new Set(punches.filter((e) => {
+    const row = e.attendance[0]
+    return row && stillAtWork({
+      date: day, today, checkIn: row.checkIn, checkOut: row.checkOut, rules: shiftRulesOf(row.shift),
+      timezone, now, checkedInToday: checkedInToday.has(e.id),
+    })
+  }).map((e) => e.id))
   // Whose day the caller may mark (Day 22: own work goes up the tree), and if
   // not, whom it goes to — asked only of somebody who marks at all.
   const work = ctx.can('attendance:mark') ? await loadWork(ctx.db, ctx.organizationId, 'attendance') : null
@@ -204,7 +226,7 @@ export async function dayRoster(ctx: AppContext, date?: string) {
       if (!check.allowed) markGoesTo.set(e.id, check.ask ?? 'the Super Admin')
     }
   }
-  return { date: day, employees, markGoesTo }
+  return { date: day, employees, markGoesTo, atWork, now }
 }
 
 /** A day before somebody joined, or after their last working day, is no working day of theirs. */

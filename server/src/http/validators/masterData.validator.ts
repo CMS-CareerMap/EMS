@@ -16,8 +16,9 @@ const shiftFields = {
   endTime: clock,
   // Up to ten hours of breaks is a typo guard, not a labour-law opinion.
   breakMinutes: z.number().int().min(0).max(600),
-  // What a full day is on this shift. Half-day and full-day thresholds are
-  // fractions of it, so a nonsense value here misclassifies every day.
+  // The shift's length in hours. Overtime is counted past it, and a shift with
+  // no minimums of its own reads full and half days as fractions of it, so a
+  // nonsense value here misclassifies every day.
   expectedHours: z.number().min(0.5).max(24).multipleOf(0.25),
 }
 

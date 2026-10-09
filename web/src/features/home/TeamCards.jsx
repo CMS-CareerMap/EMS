@@ -10,6 +10,8 @@ import { useLeaveRequests, useUpdateLeaveStatus } from '../../hooks/useLeave'
 import { useAuthStore } from '../../stores/authStore'
 import { formatDay, wallClockIn } from '../../lib/dates'
 import { minutesLabel, summaryOf } from '../../lib/requests'
+import { clockSkew } from '../../lib/attendance'
+import { useNow } from '../../hooks/useNow'
 import { AcceptResignationDialog, CancelResignationDialog } from '../employees/LifecycleDialogs'
 
 /**
@@ -217,10 +219,15 @@ export function PendingLeaveCard() {
  */
 export function TodayCard({ today }) {
   const timezone = useAuthStore((state) => state.organization?.timezone)
+  const tick = useNow(30_000)
   return (
-    <DataState query={today}>
+    <DataState query={today} keepOnRefetchError>
       {(t) => {
         const team = t.reach === 'team'
+        // At work now (the server's rule, the roster's: app check-ins only), its
+        // time running on the server's clock (client, 9 Oct 2026).
+        const nowMs = tick.getTime() + clockSkew(t.server_now, today.dataUpdatedAt)
+        const soFar = (p) => (p.at_work && p.check_in ? ` · ${minutesLabel(Math.floor(Math.max(0, nowMs - Date.parse(p.check_in)) / 60_000))} so far` : '')
         const notIn = t.people.filter((p) => !p.status)
         const present = t.counts.present + t.counts.half_day
         return (
@@ -246,8 +253,10 @@ export function TodayCard({ today }) {
                           <div className="min-w-0 flex-1">
                             <p className="text-[13px] font-semibold text-gray-900 truncate">{p.is_self ? 'You' : p.full_name}</p>
                             <p className="text-xs text-gray-500 truncate">{p.designation ?? p.employee_id}</p>
+                            {/* On a phone under the name, so the name keeps its room. */}
+                            {p.check_in && <p className="sm:hidden text-xs text-gray-500 tabular-nums">in {wallClockIn(timezone, p.check_in)}{soFar(p)}</p>}
                           </div>
-                          {p.check_in && <span className="text-xs text-gray-500 tabular-nums">in {wallClockIn(timezone, p.check_in)}</span>}
+                          {p.check_in && <span className="hidden sm:inline text-xs text-gray-500 tabular-nums whitespace-nowrap">in {wallClockIn(timezone, p.check_in)}{soFar(p)}</span>}
                           <PersonStatus p={p} dayOff={t.day_off} />
                         </li>
                       ))}

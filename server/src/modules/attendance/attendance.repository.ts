@@ -338,13 +338,24 @@ export async function dayRoster(db: ScopedDb, scope: ScopeContext, day: Calendar
       attendanceMode: true,
       department: { select: { name: true } },
       designation: { select: { name: true } },
-      attendance: { where: { date }, take: 1 },
+      // With the shift it was recorded on: whether an open day is still somebody's day depends on it.
+      attendance: { where: { date }, take: 1, include: { shift: { select: SHIFT_RULES_SELECT } } },
     },
     orderBy: { fullName: 'asc' },
   })
 }
 
 export type RosterRow = Awaited<ReturnType<typeof dayRoster>>[number]
+
+/** Which of these people have checked in on a day — a new day begun leaves an open one before it behind. */
+export async function checkedInOn(db: ScopedDb, employeeIds: string[], day: CalendarDate): Promise<Set<string>> {
+  if (employeeIds.length === 0) return new Set()
+  const rows = await db.attendance.findMany({
+    where: { employeeId: { in: employeeIds }, date: toDateColumn(day), checkIn: { not: null } },
+    select: { employeeId: true },
+  })
+  return new Set(rows.map((r) => r.employeeId))
+}
 
 /** One person's row for one day, whatever wrote it. */
 export async function findDay(db: TxDb, employeeId: string, date: Date) {

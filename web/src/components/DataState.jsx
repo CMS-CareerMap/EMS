@@ -23,9 +23,11 @@ import { btn } from './ui/styles'
  * `queries`).
  */
 
-function stateOf(query, queries) {
+function stateOf(query, queries, keepOnRefetchError = false) {
   const list = queries ?? [query]
-  const failed = list.filter((q) => q?.isError)
+  // A screen that asks again on its own may keep its last answer when asking
+  // again fails — and says so (below), rather than putting it out of sight.
+  const failed = list.filter((q) => q?.isError && !(keepOnRefetchError && q.data !== undefined))
   if (failed.length) {
     return {
       status: 'error',
@@ -88,15 +90,35 @@ function Note({ children, compact }) {
  * `empty` may be words or an element; leave it out and an empty answer goes
  * to the children, for screens that draw their own. `isEmpty` decides what
  * counts as empty when the data is not a plain list.
+ *
+ * `keepOnRefetchError`, for a screen that asks again on its own (a roster that
+ * refreshes every minute): when asking again fails, the last answer stays, under
+ * a line that says it could not be refreshed and offers to try again — a dropped
+ * connection for a moment does not take the page, or a Check In button on it,
+ * away (9 Oct 2026). The first answer failing is still the error above.
  */
-export default function DataState({ query, queries, empty, isEmpty = emptyByDefault, loading = 'Loading…', compact = false, children }) {
-  const state = stateOf(query, queries)
+export default function DataState({ query, queries, empty, isEmpty = emptyByDefault, loading = 'Loading…', compact = false, keepOnRefetchError = false, children }) {
+  const state = stateOf(query, queries, keepOnRefetchError)
 
   if (state.status === 'error') return <QueryError error={state.error} onRetry={state.retry} retrying={state.retrying} compact={compact} />
   if (state.status === 'loading') return <Note compact={compact}>{loading}</Note>
   if (state.status === 'idle') return null
   if (empty !== undefined && isEmpty(state.data)) return typeof empty === 'string' ? <Note compact={compact}>{empty}</Note> : empty
-  return typeof children === 'function' ? children(state.data) : children
+  const content = typeof children === 'function' ? children(state.data) : children
+  const stale = keepOnRefetchError && (queries ?? [query]).filter((q) => q?.isError)
+  if (!stale?.length) return content
+  return (
+    <>
+      <p role="status" className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-3 px-3 py-2 rounded-lg bg-amber-50 border border-amber-100 text-xs text-amber-800">
+        <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+        Could not refresh — showing the last update.
+        <button type="button" onClick={() => stale.forEach((q) => q.refetch())} disabled={stale.some((q) => q.isFetching)} className="font-semibold underline underline-offset-2 disabled:no-underline disabled:opacity-60">
+          {stale.some((q) => q.isFetching) ? 'Trying again…' : 'Try again'}
+        </button>
+      </p>
+      {content}
+    </>
+  )
 }
 
 /**

@@ -1,5 +1,5 @@
-import { parseWallClock, zonedMinutes, zonedToday, type CalendarDate } from '../shared/dates'
-import { classifyDay, type DayClassification } from './hours'
+import { addCalendarDays, parseWallClock, zonedMinutes, zonedToday, type CalendarDate } from '../shared/dates'
+import { classifyDay, dayMinimums, type DayClassification } from './hours'
 
 /**
  * A day measured against its shift's rules (client §34–35): how late, how
@@ -154,7 +154,10 @@ type ShiftWithBreak = ShiftRow & { breakMinutes: number }
 /**
  * What a day is graded against: the shift it was recorded on, with the hours
  * expected then — as a check-out is — or, for a day not yet recorded, the
- * person's shift now. A shift changed since must not regrade old days.
+ * person's shift now. Only the shift link and its hours are kept on the day;
+ * its break and rules are read as the shift stands, so a day marked or
+ * corrected later is graded by the shift as it is then. Nothing regrades a
+ * day on its own.
  */
 export function gradedBy(
   existing: { shiftId: string | null; expectedHours: unknown; shift: ShiftWithBreak | null } | null | undefined,
@@ -278,6 +281,50 @@ export function openDayCarries(input: { rules: ShiftRules | null; date: Calendar
   const until = start === null ? 6 * 60 : Math.max(0, start - 3 * 60)
   const now = clockMinutes(input.now, input.date, input.timezone) - 1440
   return now >= 0 && now < until
+}
+
+/**
+ * The hours worked a day needs to be a full day, as its check-out grades it:
+ * the day's own shift, against the hours expected when it began — half of them
+ * on a day half on leave. Null with no shift: nothing grades the day. For the
+ * card's "Full day at 8h · 2h 15m to go" (client, 9 Oct 2026).
+ */
+export function fullDayHoursFor(rules: ShiftRules | null, expectedHours: number | null, halfLeave: 'first_half' | 'second_half' | null): number | null {
+  if (!rules || !expectedHours) return null
+  const asBegun = { ...rules, expectedHours }
+  const graded = halfLeave ? forWorkedHalf(asBegun, halfLeave) : asBegun
+  if (!graded) return null
+  return dayMinimums(graded.expectedHours, { full: graded.minFullDayHours, half: graded.minHalfDayHours }).full
+}
+
+/** The longest one stretch of work can be: an open check-in older than this is a day somebody forgot to close. */
+const LONGEST_DAY_MS = 20 * 60 * 60_000
+
+/**
+ * Whether a day checked into and not out of is still somebody's day at `now` —
+ * the one their own card counts as "at work": today's; or yesterday's while it
+ * carries (openDayCarries), never past twenty hours, and only while they have
+ * not checked in today. Otherwise the check-out was forgotten. One rule for
+ * their card and for whoever watches the roster (client, 9 Oct 2026).
+ */
+export function stillAtWork(input: {
+  date: CalendarDate
+  today: CalendarDate
+  checkIn: Date | null
+  checkOut: Date | null
+  rules: ShiftRules | null
+  timezone: string
+  now: Date
+  /** Whether they have checked in on `today` — a new day begun leaves yesterday's behind. */
+  checkedInToday: boolean
+}): boolean {
+  if (!input.checkIn || input.checkOut) return false
+  // A check-in typed for later in the day has not happened yet.
+  if (input.checkIn.getTime() > input.now.getTime()) return false
+  if (input.date === input.today) return true
+  if (input.date !== addCalendarDays(input.today, -1) || input.checkedInToday) return false
+  return input.now.getTime() - input.checkIn.getTime() <= LONGEST_DAY_MS &&
+    openDayCarries({ rules: input.rules, date: input.date, timezone: input.timezone, now: input.now })
 }
 
 /** What a measure adds to a day's note: why a long enough day is still a half day. */
