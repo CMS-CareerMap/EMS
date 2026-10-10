@@ -20,7 +20,7 @@ import { btn, card, field, th } from '../../components/ui/styles'
  *
  *   Grant leave   the year's leave for everybody who has not had it: all at
  *                 once when a year begins, or only the people added since.
- *                 New joiners get the months that are left. Nothing is ever
+ *                 New joiners get what each type gives a joiner. Nothing is ever
  *                 granted twice, so pressing it again is safe.
  *   Correct       one person, one type, whole or half days, with a reason the
  *                 employee is shown. Written as its own entry — never an edit.
@@ -60,7 +60,7 @@ export default function TeamBalances() {
             <Gift className="w-5 h-5 text-amber-600 shrink-0" aria-hidden="true" />
             <p className="flex-1 text-sm text-amber-900">
               <strong>{data.waiting.people} {data.waiting.people === 1 ? 'person has' : 'people have'} not been given their {data.label} leave yet.</strong>{' '}
-              Until then their balance is zero and they cannot apply. New joiners get the months that are left; nobody is given it twice.
+              Until then their balance is zero and they cannot apply. New joiners get what each leave type gives a joiner; nobody is given it twice.
             </p>
             <button type="button" onClick={() => setGranting(true)} className={`shrink-0 ${btn.primary}`}>
               <Gift className="w-4 h-4" aria-hidden="true" />Grant leave
@@ -115,10 +115,9 @@ export default function TeamBalances() {
                       {data.types.map((t) => {
                         const b = p.balances.find((x) => x.leave_type_id === t.id)
                         return (
-                          <div key={t.id} className="rounded-lg bg-gray-50 px-3 py-2">
+                          <div key={t.id} className={`rounded-lg px-3 py-2 ${b.unlimited ? 'bg-amber-50' : 'bg-gray-50'}`}>
                             <p className="text-xs text-gray-500">{t.name}</p>
-                            <p className="text-base font-bold text-gray-900">{b.available}</p>
-                            {b.pending > 0 && <p className="text-[11px] text-amber-700">{days(b.pending)} applied for</p>}
+                            <Cell b={b} />
                           </div>
                         )
                       })}
@@ -135,7 +134,12 @@ export default function TeamBalances() {
             <thead>
               <tr>
                 <th className={`${th} pl-5`}>Employee</th>
-                {(data?.types ?? []).map((t) => <th key={t.id} className={`${th} text-right`}>{t.name}</th>)}
+                {(data?.types ?? []).map((t) => (
+                  <th key={t.id} className={`${th} text-right`}>
+                    {t.name}
+                    {t.unlimited && <span className="block text-[10px] font-semibold normal-case tracking-normal text-amber-700">unpaid · days taken</span>}
+                  </th>
+                ))}
                 <th className={`${th} text-right pr-5`}>{canManage ? 'Correct' : null}</th>
               </tr>
             </thead>
@@ -156,8 +160,7 @@ export default function TeamBalances() {
                       const b = p.balances.find((x) => x.leave_type_id === t.id)
                       return (
                         <td key={t.id} className="px-4 py-3 text-right tabular-nums">
-                          <span className="font-bold text-gray-900">{b.available}</span>
-                          {b.pending > 0 && <span className="block text-[11px] text-amber-700">{days(b.pending)} applied for</span>}
+                          <Cell b={b} />
                         </td>
                       )
                     })}
@@ -173,8 +176,25 @@ export default function TeamBalances() {
       </div>
 
       {granting && year && <GrantDialog leaveYear={year} onClose={() => setGranting(false)} />}
-      {correcting && data && <CorrectDialog person={correcting} types={data.types} leaveYear={year} label={data.label} onClose={() => setCorrecting(null)} />}
+      {/* A type with no limit has no balance to correct: its days are applied for. */}
+      {correcting && data && <CorrectDialog person={correcting} types={data.types.filter((t) => !correcting.balances.find((b) => b.leave_type_id === t.id)?.unlimited)} leaveYear={year} label={data.label} onClose={() => setCorrecting(null)} />}
     </div>
+  )
+}
+
+/**
+ * One person's figure for one type: what they can still apply for — or, for
+ * unpaid leave with no limit (Loss of Pay), the days taken this year, which
+ * are what was cut from pay (client, 9 Oct 2026).
+ */
+function Cell({ b }) {
+  return (
+    <>
+      {b.unlimited
+        ? <span className="font-bold text-amber-900" title="Days taken this year — cut from pay">{b.taken} <span className="text-[11px] font-semibold text-amber-700">taken</span></span>
+        : <span className="font-bold text-gray-900">{b.available}</span>}
+      {b.pending > 0 && <span className="block text-[11px] text-amber-700">{days(b.pending)} applied for</span>}
+    </>
   )
 }
 
@@ -218,7 +238,7 @@ function GrantDialog({ leaveYear, onClose }) {
               Everybody else already has it and is left as they are.
             </p>
             {p.pro_rated.length > 0 && (
-              <Lines title="Joined partway through the year — the months that are left" lines={p.pro_rated} />
+              <Lines title="Joined partway through the year — their share" lines={p.pro_rated} />
             )}
             {p.people === 0 && <p>Everybody already has it. There is nothing to grant.</p>}
             {p.no_joining_date.length > 0 && (

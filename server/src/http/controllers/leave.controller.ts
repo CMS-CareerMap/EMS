@@ -7,14 +7,20 @@ import {
   teamLeave,
   myBalances,
   cancelLeave,
+  partsOf,
+  myStatement,
   type LeaveList,
 } from '../../modules/leave/leave.service'
+import { statementPayload } from '../serializers/leaveStatement.serializer'
+import type { AppContext } from '../../platform/context'
+import { asApplications } from '../../domain/leave/applications'
 import {
   leavePreviewSchema,
   leaveApplySchema,
   leaveQuerySchema,
   teamLeaveQuerySchema,
   balanceQuerySchema,
+  statementQuerySchema,
   leaveIdSchema,
   leaveDecisionSchema,
 } from '../validators/leave.validator'
@@ -27,12 +33,20 @@ import { fromDateColumn, isoInstant } from '../../domain/shared/dates'
 const num = (value: Prisma.Decimal | null) => (value == null ? null : Number(value))
 
 /**
- * Snake_case out, matching the names the Leave page already reads. A list
- * says, for each request, what the caller may do with it and who decides it
- * (Day 22: the company tree) — so a screen draws Approve only where the
- * server would take it.
+ * One application as one line — snake_case out, matching the names the Leave
+ * page already reads. A list says, for each, what the caller may do with it
+ * and who decides it (Day 22: the company tree) — so a screen draws Approve
+ * only where the server would take it.
+ *
+ * An application in parts (client, 9 Oct 2026) — the days a paid balance
+ * covers, and the rest unpaid — reads as its first part, whose id every act on
+ * it takes, with the dates and days of the whole, and each part in `parts`.
+ * One of one type has `parts: null`.
  */
-function request(row: LeaveRequestRow, list?: LeaveList) {
+function application(parts: readonly LeaveRequestRow[], list?: LeaveList) {
+  const row = parts[0]!
+  const last = parts[parts.length - 1]!
+  const whole = parts.length > 1
   const rights = list?.rights.get(row.id)
   return {
     ...(rights
@@ -55,10 +69,10 @@ function request(row: LeaveRequestRow, list?: LeaveList) {
     is_paid: row.leaveType.isPaid,
 
     from_date: fromDateColumn(row.fromDate),
-    to_date: fromDateColumn(row.toDate),
-    half_day_dates: row.halfDayDates,
-    half_day_sessions: row.halfDaySessions,
-    days: num(row.days),
+    to_date: fromDateColumn(last.toDate),
+    half_day_dates: parts.flatMap((p) => p.halfDayDates),
+    half_day_sessions: whole ? Object.assign({}, ...parts.map((p) => p.halfDaySessions as Record<string, string>)) : row.halfDaySessions,
+    days: whole ? Math.round(parts.reduce((a, p) => a + Number(p.days), 0) * 2) / 2 : num(row.days),
     leave_year: row.leaveYear,
 
     reason: row.reason,
@@ -67,7 +81,36 @@ function request(row: LeaveRequestRow, list?: LeaveList) {
     applied_on: isoInstant(row.appliedAt),
     reviewed_at: isoInstant(row.reviewedAt),
     review_note: row.reviewNote,
+
+    group_id: row.groupId,
+    // Who else of their team is away on these days — on the lists of those who decide; null
+    // elsewhere, and for somebody with nobody above them: no team was looked at.
+    team_away: list?.away?.has(row.id) && row.status === 'pending'
+      ? list.away.get(row.id)!.map((a) => ({ employee_id: a.employeeId, full_name: a.fullName, leave_type_name: a.typeName, status: a.status, from_date: a.from, to_date: a.to }))
+      : null,
+    parts: whole
+      ? parts.map((p) => ({
+          id: p.id,
+          leave_type: p.leaveType.code,
+          leave_type_id: p.leaveTypeId,
+          leave_type_name: p.leaveType.name,
+          is_paid: p.leaveType.isPaid,
+          from_date: fromDateColumn(p.fromDate),
+          to_date: fromDateColumn(p.toDate),
+          days: num(p.days),
+        }))
+      : null,
   }
+}
+
+/** A list as applications, in the order it came. */
+function applications(rows: readonly LeaveRequestRow[], list?: LeaveList) {
+  return asApplications(rows, (r) => fromDateColumn(r.fromDate)!).map((a) => application(a.parts, list))
+}
+
+/** The answer to an act on a request: its whole application, as it now stands. */
+async function answerFor(ctx: AppContext, row: LeaveRequestRow) {
+  return application((await partsOf(ctx, row)).filter((p) => p.status === row.status))
 }
 
 /**
@@ -100,9 +143,28 @@ export const postPreview: RequestHandler = async (req, res) => {
         available: preview.balance.available,
         annual_quota: preview.balance.annualQuota,
       },
+      // Unpaid with no days a year: no balance is counted (client, 9 Oct 2026).
+      unlimited: preview.unlimited,
       // Null means it would be accepted. The page can show the problem without
       // the request having to fail first.
       problem: preview.problem,
+      // Where the balance runs out: the application in parts, the rest unpaid —
+      // sent back as `restLeaveTypeId` to apply like this. Null when not offered.
+      offer: preview.offer
+        ? {
+            rest_leave_type_id: preview.offer.restLeaveTypeId,
+            message: preview.offer.message,
+            parts: preview.offer.parts.map((p) => ({
+              leave_type_id: p.leaveTypeId,
+              leave_type: p.code,
+              leave_type_name: p.name,
+              is_paid: p.isPaid,
+              from_date: p.fromDate,
+              to_date: p.toDate,
+              days: p.days,
+            })),
+          }
+        : null,
     },
     meta: { requestId: res.locals.requestId },
   })
@@ -115,19 +177,20 @@ export const postLeave: RequestHandler = async (req, res) => {
 
   const created = await applyForLeave(ctx, input)
 
-  res.status(201).json({ data: request(created), meta: { requestId: res.locals.requestId } })
+  res.status(201).json({ data: await answerFor(ctx, created), meta: { requestId: res.locals.requestId } })
 }
 
-/** GET /api/leave-requests */
+/** GET /api/leave-requests — one line an application: its parts, when in parts, beneath. */
 export const getLeave: RequestHandler = async (req, res) => {
   const ctx = appContext(res)
   const filters = parseBody(leaveQuerySchema, req.query)
 
   const list = await listLeave(ctx, filters)
+  const data = applications(list.rows, list)
 
   res.status(200).json({
-    data: list.rows.map((row) => request(row, list)),
-    meta: { requestId: res.locals.requestId, total: list.rows.length },
+    data,
+    meta: { requestId: res.locals.requestId, total: data.length },
   })
 }
 
@@ -144,8 +207,8 @@ export const getTeamLeave: RequestHandler = async (req, res) => {
 
   res.status(200).json({
     data: {
-      requests: team.rows.map((row) => request(row, team)),
-      backup: team.backup.map((row) => request(row, team)),
+      requests: applications(team.rows, team),
+      backup: applications(team.backup, team),
     },
     // How many people's leave they decide: none, and the screen offers no Team tab.
     meta: { requestId: res.locals.requestId, decides_for: team.decidesFor },
@@ -172,6 +235,10 @@ export const getBalances: RequestHandler = async (req, res) => {
         // rather than one number that means neither.
         pending: b.pending,
         available: b.available,
+        is_paid: b.isPaid,
+        // Unpaid with no days a year: no balance — what matters is what was taken.
+        unlimited: b.unlimited,
+        taken: b.taken,
         accrual: b.accrual,
         unearned: b.unearned,
         encashable: b.encashable,
@@ -182,6 +249,14 @@ export const getBalances: RequestHandler = async (req, res) => {
   })
 }
 
+/** GET /api/leave-requests/statement — one type's passbook for a leave year: every movement, the balance after each. */
+export const getStatement: RequestHandler = async (req, res) => {
+  const ctx = appContext(res)
+  const input = parseBody(statementQuerySchema, req.query)
+  const statement = await myStatement(ctx, input)
+  res.status(200).json({ data: statementPayload(statement), meta: { requestId: res.locals.requestId } })
+}
+
 /** DELETE /api/leave-requests/:id — withdraw, while still pending. */
 export const deleteLeave: RequestHandler = async (req, res) => {
   const ctx = appContext(res)
@@ -189,7 +264,7 @@ export const deleteLeave: RequestHandler = async (req, res) => {
 
   const cancelled = await cancelLeave(ctx, id)
 
-  res.status(200).json({ data: request(cancelled), meta: { requestId: res.locals.requestId } })
+  res.status(200).json({ data: await answerFor(ctx, cancelled), meta: { requestId: res.locals.requestId } })
 }
 
 /**
@@ -205,7 +280,7 @@ export const postApprove: RequestHandler = async (req, res) => {
 
   const decided = await approveLeave(ctx, id, note ?? undefined)
 
-  res.status(200).json({ data: request(decided), meta: { requestId: res.locals.requestId } })
+  res.status(200).json({ data: await answerFor(ctx, decided), meta: { requestId: res.locals.requestId } })
 }
 
 /** POST /api/leave-requests/:id/reject */
@@ -216,7 +291,7 @@ export const postReject: RequestHandler = async (req, res) => {
 
   const decided = await rejectLeave(ctx, id, note ?? undefined)
 
-  res.status(200).json({ data: request(decided), meta: { requestId: res.locals.requestId } })
+  res.status(200).json({ data: await answerFor(ctx, decided), meta: { requestId: res.locals.requestId } })
 }
 
 /**
@@ -232,5 +307,5 @@ export const postReverse: RequestHandler = async (req, res) => {
 
   const reversed = await reverseLeave(ctx, id, note ?? undefined)
 
-  res.status(200).json({ data: request(reversed), meta: { requestId: res.locals.requestId } })
+  res.status(200).json({ data: await answerFor(ctx, reversed), meta: { requestId: res.locals.requestId } })
 }

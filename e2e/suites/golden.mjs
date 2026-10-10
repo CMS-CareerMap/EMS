@@ -328,13 +328,16 @@ try {
     psql(`SELECT count(*) FROM "Employee" WHERE "reportingManagerId" = '${ids.manoj}'`) === '3' &&
     psql(`SELECT "reportingManagerId" FROM "Employee" WHERE id = '${ids.manoj}'`) === ids.rahul)
 
-  section('HR grants the year’s leave')
+  // Since 10 Oct 2026 the year's leave is given the moment somebody is added
+  // with a joining date — by hand or in the roster file — so HR finds nothing
+  // left to grant (client: leave given automatically).
+  section('The year’s leave was given on joining — HR checks it')
   const hema = await signIn('hema', STAFF.hema.email)
   await go(hema, '/leave')
   await hema.getByRole('tab', { name: /Team Balances/ }).click()
-  await hema.getByRole('button', { name: 'Grant leave' }).click()
-  await hema.getByRole('dialog').getByRole('button', { name: 'Grant leave' }).click()
-  await toast(hema, 'Leave granted')
+  const everybody = await hema.getByText(/Everybody here has their .+ leave\./).first().waitFor({ timeout: 20_000 }).then(() => true, () => false)
+  check('everybody added with a joining date was given the year’s leave on joining — nothing left to grant',
+    everybody && (await hema.getByRole('button', { name: 'Grant leave' }).count()) === 0)
   check('everybody has the year’s leave', Number(psql('SELECT count(DISTINCT "employeeId") FROM "LeaveLedgerEntry"')) === 7)
 
   section('Accounts records salaries and bank accounts')

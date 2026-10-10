@@ -123,6 +123,13 @@ export default function ImportAttendanceModal({ onClose }) {
                     <Stat label="With problems" value={preview.summary.invalid} tone={preview.summary.invalid ? 'red' : undefined} />
                   </div>
 
+                  {preview.summary.on_leave > 0 && (
+                    <p className="text-sm text-gray-600">
+                      {preview.summary.on_leave} line{preview.summary.on_leave === 1 ? ' has' : 's have'} no times on a day of approved leave — left as the
+                      leave, not imported.
+                    </p>
+                  )}
+
                   {preview.summary.would_overwrite > 0 && (
                     <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200">
                       <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />

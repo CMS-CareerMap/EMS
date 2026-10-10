@@ -124,7 +124,7 @@ export async function leaveForMonth(db: ScopedDb, employeeIds: string[], monthSt
       toDate: true,
       halfDayDates: true,
       status: true,
-      leaveType: { select: { name: true, isPaid: true } },
+      leaveType: { select: { name: true, code: true, isPaid: true } },
     },
   })
 }

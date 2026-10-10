@@ -203,7 +203,8 @@ export async function payPolicyOn(db: Db, day: Date) {
 
 /** A leave type somebody may ask to encash. */
 export async function leaveTypeOf(db: Db, id: string) {
-  return db.leaveType.findFirst({ where: { id, archivedAt: null }, select: { id: true, name: true, code: true, accrual: true, encashable: true, encashMaxDaysPerYear: true } })
+  // The joiner rule too: a monthly type earns from the joining month or the one after (unearnedDays).
+  return db.leaveType.findFirst({ where: { id, archivedAt: null }, select: { id: true, name: true, code: true, accrual: true, joinerGrant: true, encashable: true, encashMaxDaysPerYear: true } })
 }
 
 /** Days of a type waiting to be encashed in a leave year — held, like leave applied for. */

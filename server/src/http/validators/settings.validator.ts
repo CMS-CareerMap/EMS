@@ -167,6 +167,11 @@ export const leaveTypeSchema = z
     countsNonWorkingDays: z.boolean().optional(),
     encashable: z.boolean().optional(),
     encashMaxDaysPerYear: z.number().min(0.5).max(365).multipleOf(0.5).nullable().optional(),
+    // Who gets how much, and from when (client, 9 Oct 2026).
+    joinerGrant: z.enum(['months_left', 'months_after_joining', 'full_year']).optional(),
+    usableAfterConfirmation: z.boolean().optional(),
+    // With new days a year: change this year's balances too, not only the next year's.
+    applyToThisYear: z.boolean().optional(),
   })
   .strict()
   .refine(

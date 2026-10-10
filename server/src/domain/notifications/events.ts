@@ -13,7 +13,7 @@ export type NotificationKind = 'leave' | 'payroll' | 'document' | 'bank' | 'acco
 
 export interface EventRule {
   kind: NotificationKind
-  group: 'Leave' | 'Requests' | 'Payroll' | 'Documents' | 'Bank accounts' | 'Employment' | 'Account'
+  group: 'Leave' | 'Attendance' | 'Requests' | 'Payroll' | 'Documents' | 'Bank accounts' | 'Employment' | 'Account'
   /** "A leave request is submitted" — what happened, for Settings. */
   label: string
   /** Who is told, in words, for Settings. */
@@ -47,6 +47,18 @@ export const NOTIFICATION_EVENTS = {
     kind: 'leave', group: 'Leave', optional: true,
     label: 'Leave is added to or taken from a balance',
     tells: 'The employee whose balance it is',
+  },
+  // Client, 10 Oct 2026: leave about to lapse, told before the leave year ends.
+  'leave.year_ending': {
+    kind: 'leave', group: 'Leave', optional: true,
+    label: 'The leave year is about to end with days that will lapse',
+    tells: 'Each employee with days that will not carry into the next year — before it ends, as set in Leave Config',
+  },
+  // Client, 10 Oct 2026: an absent day, with the way to apply leave for it.
+  'attendance.absent': {
+    kind: 'system', group: 'Attendance', optional: true,
+    label: 'A day is recorded as absent',
+    tells: 'The employee, with a link to apply for leave for that day',
   },
   'payroll.awaiting_approval': {
     kind: 'payroll', group: 'Payroll', optional: true,

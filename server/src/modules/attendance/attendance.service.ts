@@ -26,6 +26,8 @@ import {
 } from '../../domain/attendance/geofence'
 import * as repo from './attendance.repository'
 import { companyTimezone } from '../organization/organization.service'
+import { withTransaction } from '../../platform/db/transaction'
+import { tellAbsent } from './attendanceNotices'
 import { findActiveGeofence, getCurrentPolicy } from '../settings/settings.repository'
 import { awayOn, payPolicyOn, requestRules } from '../requests/requests.repository'
 import type { WorkMode } from '@prisma/client'
@@ -364,14 +366,22 @@ export async function punchOut(ctx: AppContext): Promise<PunchResult> {
   const classification = halfLeave ? withHalfDayLeave(measure.classification) : measure.classification
   const why = [warning, halfDayReason(measure)].filter(Boolean)
 
-  const updated = await repo.updateDay(ctx.db, row.id, {
-    checkOut: now,
-    hoursWorked: hours,
-    lateMinutes: measure.lateMinutes,
-    earlyLeavingMinutes: measure.earlyLeavingMinutes,
-    overtimeMinutes: measure.overtimeMinutes,
-    ...(classification ? { status: classification.status } : {}),
-    ...(why.length ? { note: [row.note, ...why].filter(Boolean).join(' · ') } : {}),
+  const updated = await withTransaction(ctx.db, async (tx) => {
+    // Closed only if still open: two taps at once close the day once, and tell once.
+    const day = await repo.closeDayIf(tx, row.id, {
+      checkOut: now,
+      hoursWorked: hours,
+      lateMinutes: measure.lateMinutes,
+      earlyLeavingMinutes: measure.earlyLeavingMinutes,
+      overtimeMinutes: measure.overtimeMinutes,
+      ...(classification ? { status: classification.status } : {}),
+      ...(why.length ? { note: [row.note, ...why].filter(Boolean).join(' · ') } : {}),
+    })
+    if (!day) throw Conflict('You have already checked out today.')
+    // Short of a half day: the day is absent — told, with the way to apply leave for it (client, 10 Oct 2026).
+    // With the check-out it came from: neither is kept without the other.
+    if (day.status === 'absent' && row.status !== 'absent') await tellAbsent(ctx, tx, employee.id, [today], { includeActor: true })
+    return day
   })
 
   logger.info('Punched out', { employeeId: employee.id, date: today, hours })

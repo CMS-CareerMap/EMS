@@ -1,5 +1,6 @@
 import type { AppContext } from '../../platform/context'
-import { NotFound, Conflict, BadRequest } from '../../platform/errors/AppError'
+import { NotFound, Conflict, BadRequest, Forbidden } from '../../platform/errors/AppError'
+import { applyTypeQuotaChange } from '../leave/leaveEntitlement.service'
 import { zonedToday, toDateColumn, fromDateColumn, addCalendarDays } from '../../domain/shared/dates'
 import { withTransaction } from '../../platform/db/transaction'
 import { lockFor } from '../../platform/db/locks'
@@ -307,9 +308,16 @@ export interface LeaveTypeInput {
   countsNonWorkingDays?: boolean | undefined
   encashable?: boolean | undefined
   encashMaxDaysPerYear?: number | null | undefined
+  joinerGrant?: 'months_left' | 'months_after_joining' | 'full_year' | undefined
+  usableAfterConfirmation?: boolean | undefined
+  /**
+   * With a change to the days a year: this leave year's balances change too,
+   * by the difference. Left out, the change applies from the next leave year.
+   */
+  applyToThisYear?: boolean | undefined
 }
 
-/** A leave type's own rules (client §36–37), each defaulting to what applied before they existed. */
+/** A leave type's own rules (client §36–37, and 9 Oct 2026), each defaulting to what applied before they existed. */
 const LEAVE_RULE_KEYS = [
   'minNoticeDays',
   'maxDaysPerRequest',
@@ -320,7 +328,19 @@ const LEAVE_RULE_KEYS = [
   'countsNonWorkingDays',
   'encashable',
   'encashMaxDaysPerYear',
+  'joinerGrant',
+  'usableAfterConfirmation',
 ] as const
+
+/**
+ * Unpaid leave has no paid days to keep or to turn into pay: an unpaid type
+ * never carries forward and is never encashed (client, 9 Oct 2026).
+ */
+function assertUnpaidRules(type: { isPaid: boolean; carryForward: boolean; encashable: boolean; name: string }): void {
+  if (type.isPaid) return
+  if (type.carryForward) throw BadRequest(`${type.name} is unpaid, so it does not carry forward. Turn carry forward off, or make it paid.`)
+  if (type.encashable) throw BadRequest(`${type.name} is unpaid, so it cannot be encashed. Turn encashment off, or make it paid.`)
+}
 
 export async function listLeaveTypes(ctx: AppContext) {
   return repo.listLeaveTypes(ctx.db)
@@ -355,7 +375,10 @@ export async function createLeaveType(ctx: AppContext, input: LeaveTypeInput) {
     countsNonWorkingDays: input.countsNonWorkingDays ?? false,
     encashable: input.encashable ?? false,
     encashMaxDaysPerYear: input.encashMaxDaysPerYear ?? null,
+    joinerGrant: input.joinerGrant ?? 'months_left',
+    usableAfterConfirmation: input.usableAfterConfirmation ?? false,
   }
+  assertUnpaidRules(values)
 
   const matches = await repo.findLeaveTypesLike(ctx.db, code, name)
   const active = matches.find((t) => !t.archivedAt)
@@ -400,6 +423,24 @@ export async function updateLeaveType(ctx: AppContext, id: string, input: LeaveT
 
   if (Object.keys(data).length === 0) throw BadRequest('Nothing to update')
 
+  // The type as it will stand: a change of one part (paid, or carry forward)
+  // is checked against the rest as stored.
+  assertUnpaidRules({
+    name: (data.name as string | undefined) ?? existing.name,
+    isPaid: (data.isPaid as boolean | undefined) ?? existing.isPaid,
+    carryForward: (data.carryForward as boolean | undefined) ?? existing.carryForward,
+    encashable: (data.encashable as boolean | undefined) ?? existing.encashable,
+  })
+
+  // Days a year changed (client, 9 Oct 2026): from the next leave year for
+  // everybody — and this year's balances too, when asked. Changing balances is
+  // `leave:balance:manage` (HR, the Super Admin), whoever may change the type.
+  const quotaChanged = data.annualQuota !== undefined && Number(data.annualQuota) !== Number(existing.annualQuota)
+  const thisYear = quotaChanged && input.applyToThisYear === true
+  if (thisYear && !ctx.can('leave:balance:manage')) {
+    throw Forbidden('Changing this year’s balances is for whoever manages leave balances. Save the new days without it: they apply from the next leave year.')
+  }
+
   // Checked here, not left to the unique index: a clash is somebody choosing a
   // name that is taken, which deserves a sentence, not a 500.
   const clash = (await repo.findLeaveTypesLike(
@@ -415,17 +456,26 @@ export async function updateLeaveType(ctx: AppContext, id: string, input: LeaveT
     )
   }
 
-  return withAudit(
-    ctx,
-    (tx) => repo.updateLeaveType(tx, id, data),
-    () => ({
+  return withTransaction(ctx.db, async (tx) => {
+    const row = await repo.updateLeaveType(tx, id, data)
+    // A year granted in advance always follows the new days; this one only when asked.
+    const balances = quotaChanged
+      ? await applyTypeQuotaChange(ctx, tx, { id, name: row.name, isPaid: row.isPaid, joinerGrant: row.joinerGrant }, Number(row.annualQuota), thisYear)
+      : null
+    await audit(ctx, {
       action: 'leave_type.updated',
       entityType: 'leave_type',
       entityId: id,
       // The old value beside each new one (client §47).
-      details: { code: existing.code, changes: data, before: Object.fromEntries(Object.keys(data).map((k) => [k, plain((existing as Record<string, unknown>)[k])])) },
-    }),
-  )
+      details: {
+        code: existing.code,
+        changes: data,
+        before: Object.fromEntries(Object.keys(data).map((k) => [k, plain((existing as Record<string, unknown>)[k])])),
+        ...(balances ? { thisYear, balancesChanged: balances } : {}),
+      },
+    }, tx)
+    return { row, balances, thisYear }
+  })
 }
 
 /**

@@ -12,6 +12,8 @@ import { useInvitableRoles } from '../../hooks/useRoles'
 import { optionsNote } from '../../lib/optionsNote'
 import { calendarDayIn } from '../../lib/dates'
 import { useLifecycleSettings } from '../../hooks/useLifecycle'
+import JoinerLeaveDays from './JoinerLeaveDays'
+import { leaveDaysOf } from '../../lib/leaveTypes'
 
 /**
  * Adding or editing an employee, against the server.
@@ -159,6 +161,10 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
 
   const [form, setForm] = useState(() => fromEmployee(initial))
   const [errors, setErrors] = useState({})
+  // A new joiner's own days a year of leave (client, 9 Oct 2026) — for whoever
+  // manages leave balances and reads the leave types.
+  const setsLeaveDays = useAuthStore((state) => state.can('leave:balance:manage') && state.can('leave:type:manage'))
+  const [leaveDays, setLeaveDays] = useState({})
   // Set once an employee with a login has been created: the link is shown here,
   // once, before the modal closes.
   const [issued, setIssued] = useState(null)
@@ -204,6 +210,7 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
     if (form.lastWorkingDate && form.dateOfJoining && form.lastWorkingDate < form.dateOfJoining) {
       e.lastWorkingDate = 'Cannot be before the joining date'
     }
+    if (!isEdit && setsLeaveDays && leaveDaysOf(leaveDays) === null) e.leaveDays = 'Days a year are whole or half days, from 0 to 365.'
     const loginEmail = form.loginEmail.trim()
     if (form.withLogin && loginEmail && !/\S+@\S+\.\S+/.test(loginEmail)) e.loginEmail = 'That is not a valid email'
     if (form.withLogin && !loginEmail && !emailOptional) e.loginEmail = 'A role login needs a work email of its own'
@@ -242,6 +249,9 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
 
     if (isEdit) body.lastWorkingDate = orNull(form.lastWorkingDate)
     else body.confirmedOn = orNull(form.confirmedOn)
+    // Only the boxes filled in; none sent at all by somebody who may not set them.
+    const ownLeave = !isEdit && setsLeaveDays ? leaveDaysOf(leaveDays) : null
+    if (ownLeave?.length) body.leaveEntitlements = ownLeave
     // Not theirs to change on an edit (the Super Admin's), so not sent at all.
     if (isEdit && !setsTree) delete body.reportingManagerId
 
@@ -437,6 +447,13 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
                 </div>
               </div>
             </Section>
+
+            {/* A new joiner's own days a year (client, 9 Oct 2026); later, the profile's Leave tab. */}
+            {!isEdit && setsLeaveDays && (
+              <Section title="Leave">
+                <JoinerLeaveDays value={leaveDays} onChange={(v) => { setLeaveDays(v); setErrors((e) => ({ ...e, leaveDays: '' })) }} error={errors.leaveDays} />
+              </Section>
+            )}
 
             {/* Personal details (client §42) — only for somebody who can see them */}
             {canSeeIdentity && (

@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Download, Calendar, CalendarDays, Loader2, Upload } from 'lucide-react'
 import MarkAttendanceModal from '../features/attendance/MarkAttendanceModal'
 import ImportAttendanceModal from '../features/attendance/ImportAttendanceModal'
@@ -8,13 +8,13 @@ import TeamDay from '../features/attendance/TeamDay'
 import MonthNav from '../features/attendance/MonthNav'
 import MonthCalendar from '../features/attendance/MonthCalendar'
 import MonthTotals from '../features/attendance/MonthTotals'
-import { useDayRoster, useMonthAttendance, useMonthCalendar, useMarkAttendance } from '../hooks/useAttendance'
+import { useDayRoster, useMonthAttendance, useMonthCalendar, useMarkAttendance, useMyPayDays } from '../hooks/useAttendance'
 import { useNow } from '../hooks/useNow'
 import { useAuthStore } from '../stores/authStore'
 import { saveFromApi } from '../api/http'
 import { useDownload } from '../hooks/useDownload'
 import { addDays, calendarDayIn, wallClockIn, formatCalendarDay } from '../lib/dates'
-import { clockSkew, monthLabel } from '../lib/attendance'
+import { clockSkew, monthLabel, payDayMaps } from '../lib/attendance'
 import DataState from '../components/DataState'
 import PageHeader from '../components/ui/PageHeader'
 import Segmented from '../components/ui/Segmented'
@@ -243,13 +243,27 @@ function TeamMonth({ monthKey, onMonth, today, myEmployeeId }) {
   const records = useMonthAttendance(year, month, { enabled: Boolean(myEmployeeId), employeeId: myEmployeeId })
   const calendar = useMonthCalendar(year, month, { enabled: Boolean(myEmployeeId) })
   const mine = (records.data ?? []).filter((a) => a.employee_id === myEmployeeId)
+  // Their own month in pay terms too (client, 10 Oct 2026): leave by type, absent days, days paid and unpaid.
+  const payDays = useMyPayDays(year, month, { enabled: Boolean(myEmployeeId) })
+  const { leaveOn, absentOn } = payDayMaps(payDays.data)
+  const navigate = useNavigate()
+  const applyFor = onStaff ? (day) => navigate(`/leave?apply=1&from=${day}&to=${day}`) : null
+  const pd = payDays.data
 
   return (
     <div className="space-y-4 sm:space-y-5">
       <MonthNav value={monthKey} onChange={onMonth} />
       {myEmployeeId && (
         <Card title={`${monthLabel(year, month)} — My attendance`} subtitle="Your own days, holidays and weekly offs">
-          <MonthCalendar year={year} month={month} today={today} rows={mine} rowsQuery={records} calendarQuery={calendar} />
+          {pd?.employed && pd.paid_days !== null && (
+            <p className="mb-3 text-sm text-gray-700">
+              Paid days <b className="tabular-nums">{pd.paid_days} of {pd.employment_days}</b>
+              {' · '}Unpaid days (loss of pay) <b className={`tabular-nums ${pd.unpaid_days > 0 ? 'text-amber-800' : ''}`}>{pd.unpaid_days}</b>
+              <span className="text-xs text-gray-400"> · so far; the payslip is final</span>
+            </p>
+          )}
+          <MonthCalendar year={year} month={month} today={today} rows={mine} rowsQuery={records} calendarQuery={calendar}
+            leaveOn={leaveOn} absentOn={absentOn} onApply={applyFor} />
           {/* A missed or wrong punch is put right by whoever decides corrections (client §28). */}
           {onStaff && (
             <p className="mt-3 text-xs text-gray-500">

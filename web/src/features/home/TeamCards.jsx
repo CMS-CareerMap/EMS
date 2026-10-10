@@ -10,6 +10,8 @@ import { useLeaveRequests, useUpdateLeaveStatus } from '../../hooks/useLeave'
 import { useAuthStore } from '../../stores/authStore'
 import { formatDay, wallClockIn } from '../../lib/dates'
 import { minutesLabel, summaryOf } from '../../lib/requests'
+import { leaveLabel } from '../../lib/leaveTypes'
+import TeamAway from '../leave/TeamAway'
 import { clockSkew } from '../../lib/attendance'
 import { useNow } from '../../hooks/useNow'
 import { AcceptResignationDialog, CancelResignationDialog } from '../employees/LifecycleDialogs'
@@ -105,7 +107,8 @@ export function WaitingCard({ leave, requests, resignations, failed = [] }) {
                 <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] font-semibold text-gray-900">
                   {r.full_name}
                   {kind === 'resignation' && <Chip tone="warn">Resignation</Chip>}
-                  {kind === 'leave' && <Chip tone="leave">{r.leave_type_name}</Chip>}
+                  {/* Unpaid leave in the warning colour — a pay cut is seen; both parts of one application named. */}
+                  {kind === 'leave' && <Chip tone={r.parts?.some((p) => !p.is_paid) || r.is_paid === false ? 'warn' : 'leave'} className="max-w-full whitespace-normal! h-auto! min-h-5.5 py-0.5">{leaveLabel(r)}</Chip>}
                   {kind === 'request' && <Chip tone="brand">{r.label}</Chip>}
                 </p>
                 {kind === 'resignation' && (
@@ -119,9 +122,12 @@ export function WaitingCard({ leave, requests, resignations, failed = [] }) {
                   </>
                 )}
                 {kind === 'leave' && (
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    {range(r.from_date, r.to_date)} · {r.days} day{r.days === 1 ? '' : 's'}{r.reason ? ` · “${r.reason}”` : ''}
-                  </p>
+                  <>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {range(r.from_date, r.to_date)} · {r.days} day{r.days === 1 ? '' : 's'}{r.reason ? ` · “${r.reason}”` : ''}
+                    </p>
+                    <div className="mt-0.5"><TeamAway req={r} /></div>
+                  </>
                 )}
                 {kind === 'request' && (
                   <p className="text-xs text-gray-500 mt-0.5 truncate">
@@ -197,7 +203,7 @@ export function PendingLeaveCard() {
                     <div className="min-w-0 flex-1">
                       <p className="text-[13px] font-semibold text-gray-900 truncate">{r.full_name}</p>
                       <p className="text-xs text-gray-500 truncate">
-                        {r.leave_type_name} · {range(r.from_date, r.to_date)}{r.decided_by ? ` · goes to ${r.decided_by}` : ''}
+                        {leaveLabel(r)} · {range(r.from_date, r.to_date)}{r.decided_by ? ` · goes to ${r.decided_by}` : ''}
                       </p>
                     </div>
                   </li>

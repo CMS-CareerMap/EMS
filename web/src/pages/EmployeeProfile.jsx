@@ -16,6 +16,7 @@ import { btn } from '../components/ui/styles'
 import AddEmployeeModal from '../features/employees/AddEmployeeModal'
 import EmployeeLogins from '../features/employees/EmployeeLogins'
 import EmploymentSection from '../features/employees/EmploymentSection'
+import EmployeeLeave from '../features/employees/EmployeeLeave'
 import { formatDay } from '../lib/dates'
 import { stageOf } from '../lib/lifecycle'
 
@@ -113,6 +114,9 @@ function Profile({ employee }) {
     ...(can('employee:compensation:read') && has('ctc') ? [{ key: 'salary', label: 'Salary' }] : []),
     ...(has('pan') ? [{ key: 'statutory', label: 'Statutory' }] : []),
     ...(has('bank_name') ? [{ key: 'bank', label: 'Bank account' }] : []),
+    // Their days a year of each leave type, for whoever manages leave balances
+    // (client, 9 Oct 2026). Not for somebody who has left: nothing to grant.
+    ...(can('leave:balance:manage') && !employee.archived_at ? [{ key: 'leave', label: 'Leave' }] : []),
   ]
   const tab = tabs.some((t) => t.key === params.get('tab')) ? params.get('tab') : 'about'
   const setTab = (key) => setParams(key === 'about' ? {} : { tab: key }, { replace: true })
@@ -167,6 +171,7 @@ function Profile({ employee }) {
       {tab === 'salary' && <Salary employee={employee} />}
       {tab === 'statutory' && <Statutory employee={employee} />}
       {tab === 'bank' && <Bank employee={employee} />}
+      {tab === 'leave' && <EmployeeLeave employeeId={employee.id} />}
       </TabPanel>
 
       {/* Keyed, so each opening starts from the record as it is now. */}

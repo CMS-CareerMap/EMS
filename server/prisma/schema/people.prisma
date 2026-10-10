@@ -149,6 +149,8 @@ model Employee {
   leaveLedger       LeaveLedgerEntry[]
   attendance        Attendance[]
   leaveRequests     LeaveRequest[]
+  leaveEntitlements EmployeeLeaveEntitlement[]
+  leaveYearEndNotices LeaveYearEndNotice[]
   esiCoverage       EsiCoverage[]
   payslips          Payslip[]
   tdsDirectives     EmployeeTdsDirective[]

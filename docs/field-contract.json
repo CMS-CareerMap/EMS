@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-10-09",
+  "generatedAt": "2026-10-10",
   "note": "Field names the frontend reads, pinned so the API cannot quietly stop sending one. A serializer that stops sending one of these will render an empty cell rather than an error, so check new serializers against this list. Regenerate with: cd server && npm run field-contract",
-  "fieldCount": 279,
+  "fieldCount": 294,
   "allFields": [
     "absent_days",
     "accept_as_backup",
@@ -21,6 +21,7 @@
     "assumed_days",
     "at_work",
     "attendance_mode",
+    "balance_change",
     "bank_account",
     "bank_name",
     "bank_proof_name",
@@ -32,6 +33,7 @@
     "built_in",
     "by_department",
     "calculated_at",
+    "can_apply",
     "can_be_owner",
     "can_decide",
     "can_reverse",
@@ -41,6 +43,7 @@
     "carry_forward_cap",
     "carry_later",
     "category_label",
+    "change_goes_to",
     "changed_from_default",
     "check_goes_to",
     "check_in",
@@ -48,6 +51,7 @@
     "check_in_device",
     "check_out",
     "closed_note",
+    "company_days",
     "component_code",
     "component_label",
     "confirmed_on",
@@ -140,7 +144,9 @@
     "in_draft",
     "include_header",
     "is_owner",
+    "is_paid",
     "is_self",
+    "joiner_grant",
     "last_part",
     "last_working_date",
     "last_working_day",
@@ -170,6 +176,7 @@
     "max_days_per_request",
     "max_gross",
     "max_upload_mb",
+    "may_change",
     "may_check",
     "may_correct",
     "may_enter",
@@ -185,6 +192,8 @@
     "no_manager_approver_id",
     "no_manager_approver_name",
     "not_marked",
+    "not_marked_days",
+    "not_taken_back",
     "notice_period_days",
     "on_behalf",
     "on_leave",
@@ -196,6 +205,7 @@
     "overtime_enabled",
     "overtime_minutes",
     "overtime_rate",
+    "own_days",
     "owner_id",
     "paid_days",
     "paid_on",
@@ -238,6 +248,7 @@
     "request_id",
     "requested_last_day",
     "required_documents",
+    "rest_leave_type_id",
     "role_name",
     "role_passwords",
     "salary_effective_from",
@@ -253,8 +264,10 @@
     "submitted_by_employee",
     "submitted_on",
     "tds_enabled",
+    "team_away",
     "template_saved",
     "this_month",
+    "this_year",
     "to_check",
     "to_date",
     "total_days",
@@ -262,9 +275,11 @@
     "total_hours",
     "total_rows",
     "unmarked_days",
+    "unpaid_days",
     "updated_at",
     "uploaded_at",
     "uploaded_by",
+    "usable_after_confirmation",
     "user_id",
     "verification_remarks",
     "verification_status",
@@ -299,8 +314,13 @@
       "employee_id",
       "full_name"
     ],
+    "web/src/features/attendance/AbsentAction.jsx": [
+      "can_apply",
+      "leave_type_name"
+    ],
     "web/src/features/attendance/ImportAttendanceModal.jsx": [
       "employee_id",
+      "on_leave",
       "total_rows",
       "would_overwrite"
     ],
@@ -310,10 +330,13 @@
       "full_name"
     ],
     "web/src/features/attendance/MonthCalendar.jsx": [
+      "can_apply",
       "check_in",
       "check_out",
       "days_off",
-      "hours_worked"
+      "hours_worked",
+      "leave_type_name",
+      "on_leave"
     ],
     "web/src/features/attendance/MonthTotals.jsx": [
       "days_absent",
@@ -353,15 +376,19 @@
       "early_leaving_minutes",
       "employee_id",
       "employee_uuid",
+      "employment_days",
       "end_time",
       "expected_hours",
       "full_day_hours",
       "half_day_hours",
       "hours_worked",
       "late_minutes",
+      "not_marked_days",
       "overtime_minutes",
+      "paid_days",
       "start_time",
       "total_hours",
+      "unpaid_days",
       "weekly_off_days",
       "work_mode"
     ],
@@ -436,6 +463,18 @@
       "shift_id",
       "start_time",
       "work_arrangement"
+    ],
+    "web/src/features/employees/EmployeeLeave.jsx": [
+      "balance_change",
+      "change_goes_to",
+      "company_days",
+      "employee_id",
+      "full_name",
+      "is_paid",
+      "leave_type_id",
+      "may_change",
+      "not_taken_back",
+      "own_days"
     ],
     "web/src/features/employees/EmployeeLogins.jsx": [
       "archived_at",
@@ -557,9 +596,9 @@
       "from_date",
       "full_name",
       "half_day",
+      "is_paid",
       "is_self",
       "late_minutes",
-      "leave_type_name",
       "not_marked",
       "on_leave",
       "requested_last_day",
@@ -572,8 +611,24 @@
       "first_part",
       "from_date",
       "half_day_allowed",
+      "is_paid",
       "last_part",
+      "leave_type",
       "leave_type_id",
+      "leave_type_name",
+      "rest_leave_type_id",
+      "to_date"
+    ],
+    "web/src/features/leave/StatementDialog.jsx": [
+      "from_date",
+      "to_date"
+    ],
+    "web/src/features/leave/TeamAway.jsx": [
+      "employee_id",
+      "from_date",
+      "full_name",
+      "leave_type_name",
+      "team_away",
       "to_date"
     ],
     "web/src/features/leave/TeamBalances.jsx": [
@@ -761,6 +816,8 @@
       "carry_forward",
       "carry_forward_cap",
       "leave_year_start_month",
+      "not_taken_back",
+      "this_year",
       "weekly_off"
     ],
     "web/src/features/settings/LeaveTypeRulesDialog.jsx": [
@@ -769,8 +826,10 @@
       "eligible_gender",
       "encash_max_days_per_year",
       "half_day_allowed",
+      "joiner_grant",
       "max_days_per_request",
-      "min_notice_days"
+      "min_notice_days",
+      "usable_after_confirmation"
     ],
     "web/src/features/settings/LifecycleSettings.jsx": [
       "notice_period_days",
@@ -909,8 +968,15 @@
       "role_passwords"
     ],
     "web/src/lib/attendance.js": [
+      "absent_days",
       "check_in",
-      "check_out"
+      "check_out",
+      "leave_days",
+      "leave_type_name"
+    ],
+    "web/src/lib/leaveTypes.js": [
+      "leave_type",
+      "leave_type_name"
     ],
     "web/src/lib/logins.js": [
       "employee_id",
@@ -928,10 +994,12 @@
       "encash_max_days_per_year",
       "grace_minutes",
       "half_day_allowed",
+      "joiner_grant",
       "late_threshold_minutes",
       "max_days_per_request",
       "min_notice_days",
-      "overtime_after_minutes"
+      "overtime_after_minutes",
+      "usable_after_confirmation"
     ],
     "web/src/pages/Attendance.jsx": [
       "at_work",
@@ -941,12 +1009,15 @@
       "early_leaving_minutes",
       "employee_code",
       "employee_id",
+      "employment_days",
       "full_name",
       "hours_worked",
       "late_minutes",
       "mark_goes_to",
       "overtime_minutes",
+      "paid_days",
       "server_now",
+      "unpaid_days",
       "work_mode"
     ],
     "web/src/pages/Dashboard.jsx": [
@@ -1007,6 +1078,7 @@
       "employee_id",
       "from_date",
       "full_name",
+      "is_paid",
       "leave_type",
       "leave_type_id",
       "leave_type_name",

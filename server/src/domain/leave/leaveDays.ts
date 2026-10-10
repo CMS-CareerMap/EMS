@@ -148,6 +148,55 @@ export function checkBalance(
 }
 
 /**
+ * Whether a type is counted against a balance at all. An unpaid type with no
+ * days a year has no limit (client, 9 Oct 2026): every day of it is loss of
+ * pay, it needs approval like any leave, and there is no balance to run out of.
+ * Given days a year, an unpaid type is a cap, granted and checked like any.
+ */
+export function isUnlimited(isPaid: boolean, quota: number): boolean {
+  return !isPaid && quota <= 0
+}
+
+/** One part of an application split where a balance runs out: its days, first to last, and what they cost. */
+export interface LeavePart {
+  from: CalendarDate
+  to: CalendarDate
+  days: number
+  halfDays: CalendarDate[]
+}
+
+/**
+ * An application split where its balance runs out (client, 9 Oct 2026): the
+ * earliest whole days the balance covers, and the rest — to be taken as
+ * unpaid leave. A day is never split between the two: with a day and a half
+ * left and three full days asked, one day is covered and the half is kept.
+ *
+ * Each part runs from its first charged day to its last, so neither starts or
+ * ends on a weekly off. `covered` is null when the balance covers not even the
+ * first day; the whole is a null answer when it covers everything.
+ */
+export function splitAtBalance(
+  counted: WorkingDaysResult['breakdown'],
+  available: number,
+): { covered: LeavePart | null; rest: LeavePart } | null {
+  const charged = counted.filter((d) => d.counted > 0)
+  let sum = 0
+  let take = 0
+  while (take < charged.length && sum + charged[take]!.counted <= available) {
+    sum += charged[take]!.counted
+    take += 1
+  }
+  if (take === charged.length) return null
+  const part = (days: typeof charged): LeavePart => ({
+    from: days[0]!.date,
+    to: days[days.length - 1]!.date,
+    days: Math.round(days.reduce((a, d) => a + d.counted, 0) * 2) / 2,
+    halfDays: days.filter((d) => d.counted === 0.5).map((d) => d.date),
+  })
+  return { covered: take > 0 ? part(charged.slice(0, take)) : null, rest: part(charged.slice(take)) }
+}
+
+/**
  * KNOWN GAP — alternate Saturdays.
  *
  * `weeklyOffDays` can say "every Saturday" or "no Saturday", and cannot say

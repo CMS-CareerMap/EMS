@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Briefcase, Clock, Fingerprint, Home, Inbox } from 'lucide-react'
 import { useAuthStore } from '../../stores/authStore'
-import { useMonthAttendance, useMonthCalendar, useMonthlyHours } from '../../hooks/useAttendance'
+import { useMonthAttendance, useMonthCalendar, useMonthlyHours, useMyPayDays } from '../../hooks/useAttendance'
 import { useMyWorkplace } from '../../hooks/usePunch'
 import { useMyRequests } from '../../hooks/useRequests'
 import { useNow } from '../../hooks/useNow'
@@ -10,7 +10,8 @@ import DataState from '../../components/DataState'
 import Tabs, { TabPanel } from '../../components/ui/Tabs'
 import { Card, CardLink, Chip, EmptyState, IconBox } from '../../components/ui/bits'
 import { btn } from '../../components/ui/styles'
-import { WEEKDAYS, WEEK_MONDAY_FIRST, dayState, daysOfMonth, formatHours, monthLabel, toMinutes, weekdayOf } from '../../lib/attendance'
+import { WEEKDAYS, WEEK_MONDAY_FIRST, dayState, daysOfMonth, formatHours, monthLabel, payDayMaps, toMinutes, weekdayOf } from '../../lib/attendance'
+import AbsentAction from './AbsentAction'
 import { formatDay, isoInstant, wallClockIn } from '../../lib/dates'
 import { WORK_MODES, minutesLabel, statusOf, summaryOf, typeLabel } from '../../lib/requests'
 import { REQUEST_TONE, kindOf } from '../../lib/requestKinds'
@@ -43,6 +44,12 @@ export default function SelfAttendance({ monthKey, onMonth, today }) {
   const asks = Boolean(profile) && can('leave:apply')
   const [sub, setSub] = useState('log')
   const now = useNow()
+  // The month in pay terms (client, 10 Oct 2026): leave days by type, absent days, days paid and unpaid.
+  const payDays = useMyPayDays(year, month, { enabled: Boolean(profile) })
+  const { leaveOn, absentOn } = payDayMaps(payDays.data)
+  const navigate = useNavigate()
+  // An absent day leave can still be asked for: the leave form, on that day.
+  const applyFor = asks ? (day) => navigate(`/leave?apply=1&from=${day}&to=${day}`) : null
 
   if (!profile) {
     return (
@@ -74,7 +81,7 @@ export default function SelfAttendance({ monthKey, onMonth, today }) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-5 items-start">
         {mayPunch && profile.attendance_mode === 'app' ? <PunchCard link={false} /> : <HowRecorded mode={profile.attendance_mode} mayPunch={mayPunch} />}
         <MonthFigures rows={rows.filter((r) => r.date <= today)} label={monthLabel(year, month)} query={records}
-          totals={totals} own={totals.data?.employees?.find((e) => e.employee_uuid === profile.id) ?? null} />
+          totals={totals} own={totals.data?.employees?.find((e) => e.employee_uuid === profile.id) ?? null} payDays={payDays} />
         <Timings workplace={workplace} calendar={calendar} today={today} mayPunch={mayPunch} />
       </div>
 
@@ -118,7 +125,7 @@ export default function SelfAttendance({ monthKey, onMonth, today }) {
                       {logDays.map((day) => {
                         const row = byDate.get(day)
                         const off = offOn.get(day)
-                        const state = dayState({ date: day, row, dayOff: off, today })
+                        const state = dayState({ date: day, row, dayOff: off, today, leave: leaveOn.get(day) ?? null })
                         const inAt = clock(row?.check_in)
                         const outAt = clock(row?.check_out)
                         return (
@@ -140,6 +147,7 @@ export default function SelfAttendance({ monthKey, onMonth, today }) {
                               <div className="flex flex-wrap items-center gap-1.5">
                                 <Chip tone={state.tone}>{state.label}</Chip>
                                 {row?.work_mode && row.work_mode !== 'office' && <Chip tone="info" dot={false}>{WORK_MODES[row.work_mode]}</Chip>}
+                                <AbsentAction absent={row?.status === 'absent' ? absentOn.get(day) : null} day={day} onApply={applyFor} />
                               </div>
                             </td>
                           </tr>
@@ -153,7 +161,7 @@ export default function SelfAttendance({ monthKey, onMonth, today }) {
                 <ul className="md:hidden divide-y divide-gray-100" aria-label={`Your days in ${monthLabel(year, month)}`}>
                   {logDays.map((day) => {
                     const row = byDate.get(day)
-                    const state = dayState({ date: day, row, dayOff: offOn.get(day), today })
+                    const state = dayState({ date: day, row, dayOff: offOn.get(day), today, leave: leaveOn.get(day) ?? null })
                     const inAt = clock(row?.check_in)
                     const outAt = clock(row?.check_out)
                     return (
@@ -162,6 +170,7 @@ export default function SelfAttendance({ monthKey, onMonth, today }) {
                           <span className="text-sm font-semibold text-gray-900">{formatDay(day, { weekday: true, year: false })}</span>
                           <Chip tone={state.tone}>{state.label}</Chip>
                         </div>
+                        <div className="mt-1 empty:hidden"><AbsentAction absent={row?.status === 'absent' ? absentOn.get(day) : null} day={day} onApply={applyFor} /></div>
                         {(inAt || row?.hours_worked != null) && (
                           <p className="text-xs text-gray-500 mt-1 tabular-nums">
                             {[inAt && `In ${inAt}${row?.late_minutes > 0 ? ` (+${minutesLabel(row.late_minutes)})` : ''}`, outAt && `Out ${outAt}`, row?.hours_worked != null && formatHours(row.hours_worked)].filter(Boolean).join(' · ')}
@@ -178,7 +187,8 @@ export default function SelfAttendance({ monthKey, onMonth, today }) {
 
         {sub === 'calendar' && (
           <div className="p-4">
-            <MonthCalendar year={year} month={month} today={today} rows={rows} rowsQuery={records} calendarQuery={calendar} joinedOn={joinedOn} />
+            <MonthCalendar year={year} month={month} today={today} rows={rows} rowsQuery={records} calendarQuery={calendar} joinedOn={joinedOn}
+              leaveOn={leaveOn} absentOn={absentOn} onApply={applyFor} />
             {asks && (
               <p className="mt-3 text-xs text-gray-500">
                 A day looks wrong? <Link to="/requests?new=attendance_correction" className="font-semibold text-brand-600 hover:text-brand-800">Request a correction</Link>
@@ -211,8 +221,13 @@ function HowRecorded({ mode, mayPunch }) {
   )
 }
 
-/** The month in figures: the hours as the server totals them, the rest from one's own rows up to today. */
-function MonthFigures({ rows, label, query, totals, own }) {
+/**
+ * The month in figures: the hours as the server totals them, the rest from
+ * one's own rows up to today — and the days paid and unpaid as payroll will
+ * count them (client, 10 Oct 2026), so far: days still ahead count as paid,
+ * and the payslip is final.
+ */
+function MonthFigures({ rows, label, query, totals, own, payDays }) {
   const count = (status) => rows.filter((r) => r.status === status).length
   const present = count('present')
   const half = count('half_day')
@@ -242,10 +257,31 @@ function MonthFigures({ rows, label, query, totals, own }) {
             {line('Average hours a day', average === null ? '—' : formatHours(average))}
             {line('On-time arrival', onTime === null ? '—' : `${onTime}%`, late ? `late on ${late} day${late === 1 ? '' : 's'}` : null)}
             {line('Leave · Absent', `${count('on_leave')} · ${count('absent')}`)}
+            <PayDaysLines payDays={payDays} line={line} />
           </dl>
         )}
       </DataState>
     </Card>
+  )
+}
+
+/**
+ * Paid days and unpaid days (loss of pay) for the month, from the server's
+ * reckoning — the payroll run's own. Nothing while it loads; a dash where no
+ * pay rules were in force; a quiet line if it failed, so the hours above stay.
+ */
+function PayDaysLines({ payDays, line }) {
+  const d = payDays?.data
+  if (payDays?.isError) return line('Paid · Unpaid days', '—', 'Could not be worked out just now')
+  if (!d || !d.employed) return null
+  const days = (n) => `${n} day${n === 1 ? '' : 's'}`
+  return (
+    <>
+      {line('Paid days', d.paid_days === null ? '—' : `${d.paid_days} of ${d.employment_days}`,
+        d.not_marked_days > 0 ? `so far · ${days(d.not_marked_days)} not marked yet, counted as paid` : 'so far · the payslip is final')}
+      {line('Unpaid days (loss of pay)', d.unpaid_days === null ? '—' : <span className={d.unpaid_days > 0 ? 'text-amber-800' : ''}>{d.unpaid_days}</span>,
+        d.unpaid_days > 0 ? 'cut from pay: absent, short days, or unpaid leave' : null)}
+    </>
   )
 }
 

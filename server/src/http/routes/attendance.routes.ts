@@ -1,6 +1,6 @@
 import { Router, json } from 'express'
 import { getAttendanceExport } from '../controllers/exports.controller'
-import { postPunchIn, postPunchOut, getMyToday, getMyWorkplace } from '../controllers/attendance.controller'
+import { postPunchIn, postPunchOut, getMyToday, getMyWorkplace, getMyPayDays } from '../controllers/attendance.controller'
 import {
   getAttendance,
   getMonthCalendar,
@@ -31,6 +31,9 @@ attendanceRouter.post('/punch-in', authorize('attendance:punch'), postPunchIn)
 attendanceRouter.post('/punch-out', authorize('attendance:punch'), postPunchOut)
 attendanceRouter.get('/me/today', authorize('attendance:punch'), getMyToday)
 attendanceRouter.get('/me/workplace', authorize('attendance:punch'), getMyWorkplace)
+// One's own month in pay terms — days paid and unpaid, leave by type, absent days (client, 10 Oct 2026).
+// Read with attendance: somebody marked by HR or the machine has a month too.
+attendanceRouter.get('/me/pay-days', authorize('attendance:read'), getMyPayDays)
 
 // Reading other people's attendance. What "other people" means is the data
 // scope — the whole company for HR, direct reports for a manager — applied in

@@ -267,6 +267,7 @@ describe('correcting a balance', () => {
   it('shows the corrected balance, and what is left after days applied for', async () => {
     const priya = (await list('hema')).body.data.people.find((p: { full_name: string }) => p.full_name === 'Priya Test')
     const cl = priya.balances.find((b: { leave_type_id: string }) => b.leave_type_id === clId)
-    expect(cl).toEqual({ leave_type_id: clId, balance: 11.5, pending: 1, available: 10.5 })
+    // Nothing taken yet, and a paid type is never "no limit".
+    expect(cl).toEqual({ leave_type_id: clId, balance: 11.5, pending: 1, available: 10.5, taken: 0, unlimited: false })
   })
 })

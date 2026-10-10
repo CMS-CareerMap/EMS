@@ -30,6 +30,7 @@ import { namesOf, treePeople } from '../organization/tree.repository'
 import { findApprovalRules } from '../organization/organization.repository'
 import { tellNewApprovers } from '../leave/leaveNotices'
 import { settleLeaveAfter } from '../leave/leaveApproval.service'
+import { afterJoiningChanged, grantOnJoining, holdGrantLocks, leaveYearNow, saveJoinerEntitlements } from '../leave/leaveEntitlement.service'
 import * as lifecycleRepo from '../lifecycle/lifecycle.repository'
 import { lifecycleSettings } from '../lifecycle/lifecycle.repository'
 import { aboveCaller, assertMayChangeEmployment, assertMayChangeRecord, checkWork, loadWork } from '../organization/workRules.service'
@@ -185,6 +186,8 @@ export interface CreateEmployeeInput {
   login?: { email?: string | null | undefined; role: string; password?: string | undefined } | undefined
   /** Somebody already working here: onboarded and confirmed on this day (the employee lifecycle). */
   confirmedOn?: string | null | undefined
+  /** Their own days a year of some leave types (client, 9 Oct 2026); `leave:balance:manage` only. */
+  leaveEntitlements?: { leaveTypeId: string; days: number }[] | undefined
 }
 
 export interface CreateEmployeeResult {
@@ -473,6 +476,11 @@ export async function createEmployee(
     // Their manager and HR hear of a new joiner (client §45).
     await tellJoined(ctx, tx, employee.id, input.dateOfJoining ?? null)
 
+    // Their share of this leave year, at once (client, 9 Oct 2026) — from any
+    // days a year of their own given here, by each type's rule for joiners.
+    await saveJoinerEntitlements(ctx, tx, employee.id, input.leaveEntitlements ?? [])
+    await grantOnJoining(ctx, tx, [employee.id])
+
     return employee.id
   }).catch(asConflict)
 
@@ -489,7 +497,7 @@ export async function createEmployee(
   return { row, access, invite, loginStart }
 }
 
-export type UpdateEmployeeInput = Partial<Omit<CreateEmployeeInput, 'login' | 'confirmedOn'>>
+export type UpdateEmployeeInput = Partial<Omit<CreateEmployeeInput, 'login' | 'confirmedOn' | 'leaveEntitlements'>>
 
 export async function updateEmployee(
   ctx: AppContext,
@@ -592,13 +600,19 @@ export async function updateEmployee(
         throw Conflict(`${existing.fullName}'s last working day comes from their resignation. Change it there: call the resignation off, or complete the exit.`)
       }
     }
+    // A corrected joining date changes their share of the leave years granted
+    // (client, 9 Oct 2026): the grant locks first, before the person's leave
+    // lock below — the order every grant takes them in.
+    if (joiningChanged) await holdGrantLocks(tx, ctx.organizationId, await leaveYearNow(ctx.db, ctx.organizationId))
     // The payroll locks of the months the dates reach — after the person's
     // leave lock, which settling their leave takes too; at once, earliest
     // first; and before any row is written — then checked again: a month
     // approved since the check above is refused rather than missed.
     const payFrom = [lastDayPayFrom, joiningPayFrom].filter((d): d is string => Boolean(d)).sort()[0]
     if (payFrom) {
-      if (lastDayChanged) await lockFor(tx, `leave-apply:${id}`)
+      // Before the payroll locks, as an approval takes it: a corrected joining
+      // date changes their leave balance too (afterJoiningChanged).
+      if (lastDayChanged || joiningChanged) await lockFor(tx, `leave-apply:${id}`)
       await holdPayrollFrom(ctx, tx, payFrom)
       if (lastDayPayFrom) await assertOpenFrom(ctx, lastDayPayFrom, 'a change to the last working day', tx)
       if (joiningPayFrom) await assertOpenFrom(ctx, joiningPayFrom, 'a change to the joining date', tx)
@@ -663,6 +677,9 @@ export async function updateEmployee(
     // A last working day set here, as by an accepted resignation: no leave is
     // taken from a job they will have left.
     if (lastDayChanged && lastDayAfter) await settleLeaveAfter(ctx, tx, id, lastDayAfter)
+    // Their leave worked out again from the new joining date — or granted, if
+    // they had none for want of one.
+    if (joiningChanged) await afterJoiningChanged(ctx, tx, id, joinedBefore)
 
     // The work record's old and new values are written out. Contact, personal
     // and statutory details are named only (below): a PAN or a phone number

@@ -1,6 +1,7 @@
 import { btn, th } from '../../components/ui/styles'
 import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
+import { toast } from 'sonner'
 import { Plus, Trash2, Edit2, X, Check, Archive, Info, SlidersHorizontal } from 'lucide-react'
 import {
   usePayrollSettings, useSavePayroll,
@@ -8,6 +9,7 @@ import {
   useHolidays, useAddHoliday, useUpdateHoliday, useDeleteHoliday,
 } from '../../hooks/useSettings'
 import { useAuthStore } from '../../stores/authStore'
+import { useLeaveReminder, useSaveLeaveReminder } from '../../hooks/useLeave'
 import { calendarDayIn } from '../../lib/dates'
 import DataState, { DataRows } from '../../components/DataState'
 import ConfirmDialog from '../../components/ConfirmDialog'
@@ -16,7 +18,7 @@ import { Section, Field, Toggle, inpSm } from './ui'
 import { MONTHS } from './format'
 import { formatDay } from '../../lib/dates'
 import LeaveTypeRulesDialog from './LeaveTypeRulesDialog'
-import { leaveRulesSummary } from '../../lib/rules'
+import { leaveRulesSummary, perMonth } from '../../lib/rules'
 
 /**
  * The Leave Config tab.
@@ -56,6 +58,12 @@ export default function LeaveSettings() {
       )}
 
       {canManageTypes && <LeaveTypes />}
+
+      {canManageTypes && (
+        <Section title="Year-end Reminder" desc="Before the leave year ends, each employee is told of the days that will lapse — once, by bell and email. It can be switched off in Settings → Notifications.">
+          <YearEndReminder />
+        </Section>
+      )}
 
       {canReadHolidays && <Holidays canManage={canManageHolidays} />}
     </div>
@@ -107,6 +115,42 @@ function LeaveYear() {
   )
 }
 
+// ─── Year-end reminder (client, 10 Oct 2026) ────────────────────────────────
+
+function YearEndReminder() {
+  const reminder = useLeaveReminder()
+  const save = useSaveLeaveReminder()
+  const [draft, setDraft] = useState(null)
+  const [saved, setSaved] = useState(false)
+  const current = reminder.data?.days
+  const value = draft ?? (current === undefined ? '' : String(current))
+  const n = Number(value)
+  const valid = value !== '' && Number.isInteger(n) && n >= 1 && n <= 90
+
+  async function handleSave() {
+    if (!valid) return
+    const ok = await save.mutateAsync({ days: n }).then(() => true, () => false)
+    if (ok) { setDraft(null); setSaved(true) }
+  }
+
+  return (
+    <Field label="Remind before the year ends" hint="Days before the last day of the leave year. Leave that carries forward is left out; only what would be lost is named.">
+      <DataState query={reminder} compact>
+        <div className="flex flex-wrap items-center gap-2">
+          <input type="number" min="1" max="90" step="1" className={`${inpSm} w-24`} value={value} aria-label="Days before the year ends"
+            onChange={(e) => { setDraft(e.target.value); setSaved(false) }} />
+          <span className="text-sm text-gray-600">days before</span>
+          <button type="button" onClick={handleSave} disabled={!valid || save.isPending || n === current} className={btn.primary}>
+            {save.isPending ? 'Saving…' : 'Save'}
+          </button>
+          {saved && n === current && <span className="text-xs text-green-700 flex items-center gap-1"><Check className="w-3.5 h-3.5" /> Saved</span>}
+        </div>
+        {value !== '' && !valid && <p className="text-xs text-red-700 mt-1.5">Whole days, from 1 to 90.</p>}
+      </DataState>
+    </Field>
+  )
+}
+
 // ─── Leave types ────────────────────────────────────────────────────────────
 
 const EMPTY_TYPE = { name: '', code: '', days: '12', paid: true, carry_forward: false, carry_forward_cap: '' }
@@ -118,19 +162,52 @@ function typeProblem(t) {
   const days = Number(t.days)
   if (t.days === '' || !(days >= 0 && days <= 365)) return 'Days a year is between 0 and 365.'
   if (t.carry_forward && !(Number(t.carry_forward_cap) > 0)) return 'Carry forward is on — say how many days may be carried.'
+  if (!t.paid && t.carry_forward) return 'Unpaid leave does not carry forward. Turn carry forward off, or make it paid.'
   return ''
+}
+
+const dayCount = (n) => `${n} day${Math.abs(n) === 1 ? '' : 's'}`
+
+/** Days a year, as the table reads them: unpaid with none is no limit (Loss of Pay); paid with none is given as needed. */
+function daysCell(t) {
+  if (t.unlimited) return <span className="text-amber-700 font-semibold" title="Unpaid with no days a year: no limit — each day is cut from pay">No limit</span>
+  // Earned a twelfth a month: the month's share said beside the year's, as people think of it.
+  if (t.days > 0 && t.accrual === 'monthly') return <>{dayCount(t.days)} <span className="text-gray-500">· {perMonth(t.days)} a month</span></>
+  if (t.days > 0) return dayCount(t.days)
+  return <span className="text-gray-500" title="Given to a person by HR, or as their own days a year">Granted as needed</span>
+}
+
+/** What saving new days a year did, in a sentence. */
+function daysSaved(name, days, balances) {
+  const head = `${name}: ${dayCount(days)} a year`
+  if (!balances) return `${head}.`
+  if (!balances.this_year) return `${head}, from the next leave year.${balances.days ? ` Next year’s grant changed to match for ${balances.people} ${balances.people === 1 ? 'person' : 'people'}.` : ''}`
+  const kept = balances.not_taken_back ? ` ${dayCount(balances.not_taken_back)} already taken or applied for ${balances.not_taken_back === 1 ? 'was' : 'were'} not taken back.` : ''
+  return `${head}. Balances changed for ${balances.people} ${balances.people === 1 ? 'person' : 'people'}.${kept}`
 }
 
 function LeaveTypes() {
   const leaveTypes = useLeaveTypes()
   const createType = useCreateLeaveType()
   const archiveType = useArchiveLeaveType()
+  const updateType = useUpdateLeaveType()
+  // Changing this year's balances is for whoever manages them (HR, the Super Admin).
+  const managesBalances = useAuthStore((s) => s.can('leave:balance:manage'))
 
   const [editId, setEditId] = useState(null)
   const [adding, setAdding] = useState(false)
   const [notice, setNotice] = useState('')
   const [archiving, setArchiving] = useState(null)
   const [ruling, setRuling] = useState(null)
+  // New days a year for a type, waiting for the word on this year's balances.
+  const [daysChange, setDaysChange] = useState(null)
+  const [thisYear, setThisYear] = useState(false)
+  const askDays = (type, body, done) => {
+    setThisYear(false)
+    // Unpaid with 0 days a year has no limit (Loss of Pay): said as such, going in or coming out of it.
+    const unpaid = (body.isPaid ?? type.paid) === false
+    setDaysChange({ type, body, done, wasUnlimited: Boolean(type.unlimited) && unpaid, becomesUnlimited: unpaid && body.annualQuota === 0 })
+  }
 
   async function handleAdd(t) {
     const result = await createType.mutateAsync({
@@ -151,7 +228,7 @@ function LeaveTypes() {
   }
 
   return (
-    <Section title="Leave Types" desc="Days granted each leave year, whether they are paid, and what carries into the next year. Each type's rules — notice, monthly accrual, who may use it, half days, encashment — are under its sliders button.">
+    <Section title="Leave Types" desc="Days granted each leave year, whether they are paid, and what carries into the next year. An unpaid type with 0 days a year has no limit — Loss of Pay: each day is cut from pay. Each type's rules — what a new joiner gets, from when it can be used, notice, monthly accrual, half days, encashment — are under its sliders button. One person's own days a year are set on their profile, under Leave.">
       <div className="py-3 space-y-3">
         {notice && (
           <div className="flex items-start gap-2 p-3 rounded-lg bg-brand-50 border border-brand-200 text-xs text-brand-800">
@@ -172,7 +249,7 @@ function LeaveTypes() {
             <tbody>
               <DataRows query={leaveTypes} colSpan={6} empty="No leave types yet. Add the first one below.">
                 {(types) => types.map((t) => (editId === t.id ? (
-                <LeaveTypeEditor key={t.id} type={t} onClose={() => setEditId(null)} />
+                <LeaveTypeEditor key={t.id} type={t} onClose={() => setEditId(null)} onAskDays={askDays} />
               ) : (
                 <tr key={t.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                   <td className="px-4 py-3">
@@ -182,7 +259,7 @@ function LeaveTypes() {
                   <td className="px-4 py-3">
                     <span className="font-mono text-xs font-semibold text-gray-600 bg-gray-100 px-2 py-0.5 rounded">{t.code}</span>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{t.days} days</td>
+                  <td className="px-4 py-3 text-sm text-gray-700">{daysCell(t)}</td>
                   <td className="px-4 py-3 text-sm">{t.paid ? <span className="text-green-700">Paid</span> : <span className="text-amber-700">Unpaid</span>}</td>
                   <td className="px-4 py-3 text-sm text-gray-700">{t.carry_forward ? `Up to ${t.carry_forward_cap} days` : 'No'}</td>
                   <td className="px-4 py-3">
@@ -213,6 +290,50 @@ function LeaveTypes() {
 
       {ruling && <LeaveTypeRulesDialog type={ruling} onClose={() => setRuling(null)} />}
 
+      {daysChange && (
+        <ConfirmDialog
+          title={`${daysChange.type.name}: ${daysChange.becomesUnlimited ? 'no limit' : `${dayCount(daysChange.body.annualQuota)} a year`}?`}
+          confirmLabel="Save"
+          onConfirm={async () => {
+            const result = await updateType.mutateAsync({ id: daysChange.type.id, ...daysChange.body, ...(thisYear ? { applyToThisYear: true } : {}) })
+            toast.success(daysChange.becomesUnlimited
+              ? `${daysChange.body.name ?? daysChange.type.name}: no limit.`
+              : daysSaved(daysChange.body.name ?? daysChange.type.name, daysChange.body.annualQuota, result.balances))
+            daysChange.done()
+          }}
+          onClose={() => setDaysChange(null)}>
+          {daysChange.becomesUnlimited ? (
+            // Unpaid with 0 days a year: no limit (Loss of Pay).
+            <p>
+              {daysChange.type.name} will have no limit: nobody needs days of it to apply, it is approved like any leave, and each day taken is cut from pay.
+              Days of it already given stay in balances, unless this year’s balances are changed below.
+            </p>
+          ) : daysChange.wasUnlimited ? (
+            // Unpaid with no limit becoming a limit: given like other leave from now on.
+            <p>
+              {daysChange.type.name} will have a limit of {dayCount(daysChange.body.annualQuota)} a year, given to each person like other leave — from the next leave year, or this year too if you tick below.
+              Nobody can take more than they are given. While no unpaid type has no limit, a short application is not offered the rest as unpaid leave.
+            </p>
+          ) : (
+            <p>
+              It was {dayCount(daysChange.type.days)}. From the next leave year everybody gets {dayCount(daysChange.body.annualQuota)} of {daysChange.type.name} — people given days of their own keep theirs.
+              A year already given in advance changes to match.
+            </p>
+          )}
+          {managesBalances ? (
+            <label className="flex items-start gap-2.5 rounded-lg border border-gray-200 p-3 cursor-pointer">
+              <input type="checkbox" checked={thisYear} onChange={(e) => setThisYear(e.target.checked)} className="mt-0.5 w-4 h-4 accent-brand-600" />
+              <span>
+                <span className="block font-semibold text-gray-900">Also change this year’s balances now</span>
+                <span className="block text-xs text-gray-500">Everybody already given this year’s leave gets the difference in {daysChange.type.name} — a joiner by their share. Days already taken or applied for are never taken back.</span>
+              </span>
+            </label>
+          ) : (
+            <p className="text-xs text-gray-500">This year’s balances stay as they are. Whoever manages leave balances can change them.</p>
+          )}
+        </ConfirmDialog>
+      )}
+
       {archiving && (
         <ConfirmDialog title={`Archive ${archiving.name}?`} confirmLabel="Archive" danger
           onConfirm={() => archiveType.mutateAsync({ id: archiving.id })}
@@ -229,7 +350,7 @@ function LeaveTypes() {
  * One row, editable. With `type` it changes that type and sends only what
  * changed; without, it is the new-type row and hands the draft to `onAdd`.
  */
-function LeaveTypeEditor({ type, onAdd, saving, onClose }) {
+function LeaveTypeEditor({ type, onAdd, saving, onClose, onAskDays }) {
   const updateType = useUpdateLeaveType()
   const [t, setT] = useState(() => (type
     ? { ...type, days: String(type.days), carry_forward_cap: type.carry_forward_cap ? String(type.carry_forward_cap) : '' }
@@ -237,7 +358,8 @@ function LeaveTypeEditor({ type, onAdd, saving, onClose }) {
   const [tried, setTried] = useState(false)
 
   const problem = typeProblem(t)
-  const set = (key, value) => setT({ ...t, [key]: value })
+  // Unpaid leave has no paid days to carry: turning Paid off turns carry forward off with it.
+  const set = (key, value) => setT({ ...t, [key]: value, ...(key === 'paid' && !value ? { carry_forward: false } : {}) })
 
   async function handleSave() {
     setTried(true)
@@ -257,8 +379,12 @@ function LeaveTypeEditor({ type, onAdd, saving, onClose }) {
     if (t.carry_forward && Number(t.carry_forward_cap) !== type.carry_forward_cap) body.carryForwardCap = Number(t.carry_forward_cap)
     // The server checks carry-forward and its cap together, so they travel together.
     if (body.carryForward === true) body.carryForwardCap = Number(t.carry_forward_cap)
+    // Unpaid — made so now, or saved so before the rule — cannot be encashed either (set under its rules).
+    if (!t.paid && type.encashable) body.encashable = false
 
     if (Object.keys(body).length === 0) return onClose()
+    // New days a year: asked first whether this year's balances change too.
+    if (body.annualQuota !== undefined && onAskDays) return onAskDays(type, body, onClose)
     const ok = await updateType.mutateAsync({ id: type.id, ...body }).then(() => true, () => false)
     if (ok) onClose()
   }
@@ -274,7 +400,8 @@ function LeaveTypeEditor({ type, onAdd, saving, onClose }) {
         <td className="px-4 py-2"><Toggle checked={t.paid} onChange={(v) => set('paid', v)} label="Paid leave" /></td>
         <td className="px-4 py-2">
           <div className="flex items-center gap-2">
-            <Toggle checked={t.carry_forward} onChange={(v) => set('carry_forward', v)} label="Carry forward" />
+            {/* Off for unpaid leave — but never stuck on: one saved on before the rule can still be turned off. */}
+            <Toggle checked={t.carry_forward} onChange={(v) => set('carry_forward', v)} label="Carry forward" disabled={!t.paid && !t.carry_forward} />
             {t.carry_forward && (
               <input type="number" min="0.5" max="365" step="0.5" className={`${inpSm} w-20`} value={t.carry_forward_cap}
                 placeholder="days" title="Most days that may be carried into the next leave year" onChange={(e) => set('carry_forward_cap', e.target.value)} />
@@ -290,6 +417,11 @@ function LeaveTypeEditor({ type, onAdd, saving, onClose }) {
           </div>
         </td>
       </tr>
+      {!t.paid && (
+        <tr><td colSpan={6} className="px-4 py-2 text-xs text-amber-800 bg-amber-50">
+          Unpaid: each day is cut from pay. 0 days a year means no limit (Loss of Pay); a number caps it. Unpaid leave does not carry forward.
+        </td></tr>
+      )}
       {tried && problem && (
         <tr><td colSpan={6} className="px-4 py-2 text-xs text-red-700 bg-red-50">{problem}</td></tr>
       )}

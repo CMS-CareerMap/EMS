@@ -110,10 +110,17 @@ export function useCreateLeaveType() {
   })
 }
 
+/**
+ * Changes a leave type. `balances` says what a change of days a year did to
+ * balances already granted — this year's when asked (`applyToThisYear`), next
+ * year's when granted in advance; null when the days did not change. Balances
+ * and the home page are read again, as they may have moved.
+ */
 export function useUpdateLeaveType() {
-  return useSettingMutation(keys.leaveTypes, async ({ id, ...body }) =>
-    (await api.patch(`/settings/leave-types/${id}`, body)).data,
-  )
+  return useSettingMutation(keys.leaveTypes, async ({ id, ...body }) => {
+    const payload = await api.patch(`/settings/leave-types/${id}`, body)
+    return { row: payload.data, balances: payload.meta?.balances ?? null }
+  }, [['leave'], ['dashboard']])
 }
 
 /** Archives. The row survives so existing leave balances stay explainable. */

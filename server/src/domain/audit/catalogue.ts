@@ -79,6 +79,7 @@ export const AUDIT_ACTIONS = {
   'lifecycle.resignation_cancelled': { label: 'Resignation called off', category: 'people' },
   'lifecycle.exited': { label: 'Exit completed', category: 'people' },
   'lifecycle.settings_updated': { label: 'Lifecycle settings changed', category: 'settings' },
+  'leave.reminder_updated': { label: 'Leave year-end reminder changed', category: 'settings' },
   // Requests (client §28–29)
   'request.submitted': { label: 'Request sent', category: 'time' },
   'request.approved': { label: 'Request approved', category: 'time' },
@@ -115,6 +116,7 @@ export const AUDIT_ACTIONS = {
   'leave.cancelled_on_leaving': { label: 'Leave cancelled: after the last working day', category: 'time' },
   'leave.granted': { label: 'Leave year granted', category: 'time' },
   'leave.balance_adjusted': { label: 'Leave balance corrected', category: 'time' },
+  'leave.entitlement_changed': { label: 'Own days a year of leave changed', category: 'time' },
   'attendance.marked': { label: 'Attendance marked', category: 'time' },
   'attendance.imported': { label: 'Attendance imported', category: 'time' },
   // Company rules
@@ -626,6 +628,8 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
       return 'Changed who decides each kind of request'
     case 'lifecycle.settings_updated':
       return `Set probation to ${count(d.probationMonths, 'month')} and the notice period to ${count(d.noticePeriodDays, 'day')}`
+    case 'leave.reminder_updated':
+      return `Set the leave year-end reminder to ${count(d.days, 'day')} before the year ends${typeof d.before === 'number' ? ` (was ${count(d.before, 'day')})` : ''}`
 
     case 'salary.set':
       return `Set ${who()}’s ${SALARY_KINDS[String(d.kind)] ?? 'salary'}: CTC ${money(d.ctc)} a year from ${day(d.effectiveFrom)}${d.previousCtc != null ? ` (was ${money(d.previousCtc)})` : ''}`
@@ -672,7 +676,19 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
     case 'leave.rejected':
       return `Rejected ${who()}’s request for ${leave()}${d.asBackup ? ', standing in for their reporting manager' : ''}`
     case 'leave.granted':
-      return `Granted the ${text(d.label) ?? 'year’s'} leave: ${count(d.days, 'day')} to ${count(d.people, 'person', 'people')}`
+      return d.via === 'joining'
+        ? `Granted the ${text(d.label) ?? 'year’s'} leave on joining: ${count(d.days, 'day')} to ${count(d.people, 'person', 'people')}`
+        : d.via === 'nightly'
+          ? `Granted the ${text(d.label) ?? 'year’s'} leave automatically: ${count(d.days, 'day')} to ${count(d.people, 'person', 'people')}`
+          : `Granted the ${text(d.label) ?? 'year’s'} leave: ${count(d.days, 'day')} to ${count(d.people, 'person', 'people')}`
+    case 'leave.entitlement_changed': {
+      const what = text(d.leaveTypeName) ?? 'leave'
+      const to = typeof d.to === 'number' ? `${count(d.to, 'day')} a year` : `the company’s ${typeof d.companyDays === 'number' ? `${count(d.companyDays, 'day')} a year` : 'days'}`
+      const from = typeof d.from === 'number' ? ` (was ${count(d.from, 'day')})` : ''
+      const moved = Number(d.daysChanged)
+      const balance = Number.isFinite(moved) && moved !== 0 ? `; ${count(Math.abs(moved), 'day')} ${moved > 0 ? 'added to' : 'taken from'} the balance` : ''
+      return `Set ${who()}’s ${what} to ${to}${from}${balance}${text(d.note) ? ` — “${text(d.note)}”` : ''}`
+    }
     case 'leave.balance_adjusted': {
       const n = Number(d.days)
       const amount = count(Number.isFinite(n) ? Math.abs(n) : NaN, 'day')

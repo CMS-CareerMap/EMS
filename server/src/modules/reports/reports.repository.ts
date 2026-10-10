@@ -121,7 +121,7 @@ export async function leaveYearStartMonth(db: ScopedDb): Promise<number> {
 export async function leaveTypes(db: ScopedDb) {
   return db.leaveType.findMany({
     orderBy: { code: 'asc' },
-    select: { id: true, code: true, name: true, isPaid: true, archivedAt: true },
+    select: { id: true, code: true, name: true, isPaid: true, annualQuota: true, archivedAt: true },
   })
 }
 

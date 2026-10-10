@@ -37,6 +37,12 @@ export const monthQuerySchema = z.object({
   employeeId: z.uuid().optional(),
 })
 
+/** One's own month in pay terms (client, 10 Oct 2026) — always one's own, so no employee is named. */
+export const payDaysQuerySchema = z.object({
+  year: z.coerce.number().int().min(2000).max(2100),
+  month: z.coerce.number().int().min(1).max(12),
+}).strict()
+
 export const daySummaryQuerySchema = z.object({
   date: z.iso.date().optional(),
 })

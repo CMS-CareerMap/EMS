@@ -45,6 +45,11 @@ model Organization {
   probationMonths  Int @default(6)
   noticePeriodDays Int @default(30)
 
+  /// How many days before the leave year ends each employee is told of the
+  /// days that will lapse (client, 10 Oct 2026) — Settings → Leave Config;
+  /// the notice itself can be switched off in Settings → Notifications.
+  leaveYearEndReminderDays Int @default(30)
+
   /// The owner (Day 22): the one person at the top of the company tree whose
   /// own leave, and own items generally, need nobody's approval. Marked by the
   /// Super Admin, never inferred: somebody left without a manager by mistake
@@ -102,6 +107,8 @@ model Organization {
 
   leaveTypes         LeaveType[]
   leaveLedgerEntries LeaveLedgerEntry[]
+  leaveEntitlements  EmployeeLeaveEntitlement[]
+  leaveYearEndNotices LeaveYearEndNotice[]
 
   policies  OrganizationPolicy[]
   ptSlabs   PtSlab[]

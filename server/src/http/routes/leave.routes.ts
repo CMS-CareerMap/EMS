@@ -5,6 +5,7 @@ import {
   getLeave,
   getTeamLeave,
   getBalances,
+  getStatement,
   deleteLeave,
   postApprove,
   postReject,
@@ -42,6 +43,8 @@ leaveRouter.post('/', authorize('leave:apply'), postLeave)
 leaveRouter.delete('/:id', deleteLeave)
 
 leaveRouter.get('/balances', authorize('leave:read'), getBalances)
+// One type's passbook for a leave year — one's own, or that of somebody whose leave one decides.
+leaveRouter.get('/statement', authorize('leave:read'), getStatement)
 leaveRouter.get('/team', getTeamLeave)
 leaveRouter.get('/', authorize('leave:read'), getLeave)
 

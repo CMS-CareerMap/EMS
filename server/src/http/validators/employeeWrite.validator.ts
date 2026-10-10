@@ -131,6 +131,17 @@ export const createEmployeeSchema = z
     /// on this day, so they do not start in onboarding and probation (the
     /// employee lifecycle). Left out for a new joiner.
     confirmedOn: z.iso.date().nullish(),
+    /// Their own days a year of some leave types, in place of the company's
+    /// (client, 9 Oct 2026) — for whoever manages leave balances. Changed
+    /// later on the profile's Leave tab.
+    leaveEntitlements: z
+      .array(z.object({
+        leaveTypeId: z.uuid('Choose a leave type'),
+        days: z.number().min(0).max(365).refine((d) => Number.isInteger(d * 2), 'Use whole or half days'),
+      }).strict())
+      .max(30)
+      .refine((list) => new Set(list.map((e) => e.leaveTypeId)).size === list.length, 'Each leave type once')
+      .optional(),
   })
   .strict()
 
@@ -142,8 +153,9 @@ export type CreateEmployeeBody = z.infer<typeof createEmployeeSchema>
  * permission.
  */
 export const updateEmployeeSchema = createEmployeeSchema
-  // Confirmation is a step in the lifecycle, with its own endpoint and history.
-  .omit({ login: true, confirmedOn: true })
+  // Confirmation is a step in the lifecycle, with its own endpoint and history;
+  // days a year of leave are changed on the profile's Leave tab.
+  .omit({ login: true, confirmedOn: true, leaveEntitlements: true })
   .partial()
   .strict()
   .refine((body) => Object.keys(body).length > 0, {
