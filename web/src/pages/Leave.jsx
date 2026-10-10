@@ -1,15 +1,17 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
-  CheckCircle, XCircle, Clock, Plus, Search, Undo2, Gift, Sparkles,
+  CheckCircle, XCircle, Clock, Plus, Search, Undo2, Gift, Sparkles, ScrollText,
 } from 'lucide-react'
 import ApplyLeaveModal from '../features/leave/ApplyLeaveModal'
+import TeamAway from '../features/leave/TeamAway'
+import StatementDialog from '../features/leave/StatementDialog'
 import TeamBalances from '../features/leave/TeamBalances'
 import { useLeaveRequests, useTeamLeave, useLeaveBalances, useHolidays, useApplyLeave, useUpdateLeaveStatus, useWithdrawLeave, useReverseLeave } from '../hooks/useLeave'
 import { useAuthStore } from '../stores/authStore'
-import { calendarDayIn, formatDay, formatDayOf } from '../lib/dates'
-import { typeColourOf } from '../lib/leaveTypes'
+import { addDays, calendarDayIn, formatDay, formatDayOf } from '../lib/dates'
+import { leaveCodesOf, leaveLabel, typeColourOf } from '../lib/leaveTypes'
 import DataState, { DataRows } from '../components/DataState'
 import ConfirmDialog from '../components/ConfirmDialog'
 import PageHeader from '../components/ui/PageHeader'
@@ -56,6 +58,16 @@ const RING_COLOURS = ['#8B2FE6', '#F2479A', '#3BB8F5', '#0E9F6E', '#FF8A3D', '#5
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
+/**
+ * What reversing gives back, part by part: paid days return to their balance;
+ * unpaid ones (Loss of Pay) have none — they are simply no longer cut from pay.
+ */
+function reverseWords(req) {
+  return (req.parts ?? [req]).map((p) => (p.is_paid === false
+    ? `${plural(p.days, 'day')} of ${p.leave_type_name} ${p.days === 1 ? 'is' : 'are'} no longer cut from pay.`
+    : `${plural(p.days, 'day')} go${p.days === 1 ? 'es' : ''} back to ${req.full_name}’s ${p.leave_type_name}.`)).join(' ')
+}
+
 // ─── Leave Requests tab ───────────────────────────────────────────────────────
 
 /** One empty list, so the filters below are not recomputed on every render. */
@@ -87,16 +99,17 @@ function RequestsTab({ query, onApprove, onReject, onWithdraw, onReverse, myEmpl
   // An empty list says nothing about whose it is: then whether this login could see anybody else's decides.
   const selfOnly = known && (requests.length > 0 ? requests.every(own) : !othersPossible)
 
-  // The types in this list, by name — the company's own, not a guess.
+  // The types in this list, by name — the company's own, not a guess. Every
+  // part's, for an application in parts.
   const types = useMemo(() => {
     const byCode = new Map()
-    for (const r of requests) byCode.set(r.leave_type, r.leave_type_name)
+    for (const r of requests) for (const p of r.parts ?? [r]) byCode.set(p.leave_type, p.leave_type_name)
     return [...byCode.entries()].sort((a, b) => a[1].localeCompare(b[1]))
   }, [requests])
 
   const filtered = useMemo(() => requests.filter((r) => {
     if (statusFilter !== 'all' && r.status !== statusFilter) return false
-    if (typeFilter !== 'all' && r.leave_type !== typeFilter) return false
+    if (typeFilter !== 'all' && !leaveCodesOf(r).includes(typeFilter)) return false
     if (search.trim()) {
       const q = search.toLowerCase()
       const name = (r.full_name || '').toLowerCase()
@@ -194,6 +207,7 @@ function RequestsTab({ query, onApprove, onReject, onWithdraw, onReverse, myEmpl
                     <td className={td}>
                       <p className="font-semibold text-gray-900 whitespace-nowrap">{formatDay(req.from_date, { year: false })} – {formatDay(req.to_date)}</p>
                       <p className="text-xs text-gray-400">{plural(req.days, 'working day')}</p>
+                      <div className="max-w-72 mt-1"><TeamAway req={req} /></div>
                     </td>
                     <td className={td}><Applied req={req} /></td>
                     <td className={td}><StatusCell req={req} /></td>
@@ -226,6 +240,7 @@ function RequestsTab({ query, onApprove, onReject, onWithdraw, onReverse, myEmpl
                       </div>
                       <StatusCell req={req} />
                     </div>
+                    <TeamAway req={req} />
                     <div className="flex flex-wrap items-center gap-2 *:flex-1">{actions(req)}</div>
                   </li>
                 ))}
@@ -244,12 +259,21 @@ function RequestsTab({ query, onApprove, onReject, onWithdraw, onReverse, myEmpl
   )
 }
 
+/**
+ * The type, as a chip in its colour — unpaid leave in its own, so a pay cut is
+ * seen. An application in parts (client, 9 Oct 2026) shows each part with its
+ * days: "Casual Leave · 1" and "Loss of Pay · 2".
+ */
 function TypeChip({ req }) {
-  return (
-    <span className={`inline-flex items-center h-5.5 px-2.5 rounded-full text-[11.5px] font-semibold whitespace-nowrap ${typeColourOf(req.leave_type)}`}>
-      {req.leave_type_name}
+  const chip = (p, days) => (
+    <span key={p.id ?? p.leave_type} className={`inline-flex items-center h-5.5 px-2.5 rounded-full text-[11.5px] font-semibold whitespace-nowrap ${typeColourOf(p.leave_type, p.is_paid)}`}>
+      {p.leave_type_name}{days != null ? ` · ${days}` : ''}{p.is_paid === false && days == null ? ' · unpaid' : ''}
     </span>
   )
+  if (req.parts?.length > 1) {
+    return <span className="inline-flex flex-wrap items-center gap-1" aria-label={leaveLabel(req)}>{req.parts.map((p) => chip(p, p.days))}</span>
+  }
+  return chip(req, null)
 }
 
 function Applied({ req }) {
@@ -321,13 +345,26 @@ function BalanceTab() {
   // No arguments: the server decides whose balances these are. Passing a user
   // id from the browser was never a filter, only a suggestion — see §A11.
   const balances = useLeaveBalances()
+  // The type whose statement is open — every movement in its balance (client, 10 Oct 2026).
+  const [statementOf, setStatementOf] = useState(null)
+  const statementButton = (b) => (
+    <button type="button" onClick={() => setStatementOf(b)} aria-label={`${b.name} statement`}
+      className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-800 hover:underline">
+      <ScrollText className="w-3.5 h-3.5" aria-hidden="true" />Statement
+    </button>
+  )
 
   return (
+    <>
+    {statementOf && <StatementDialog leaveTypeId={statementOf.leave_type_id} title={`${statementOf.name} — statement`} onClose={() => setStatementOf(null)} />}
     <DataState query={balances} empty={<Card><EmptyState icon={Gift} title="No leave types are configured yet." /></Card>}>
       {(list) => {
+        // Unpaid with no limit (Loss of Pay) has no balance: it is its own card, with the days taken.
+        const unlimited = list.filter((b) => b.unlimited)
+        const counted = list.filter((b) => !b.unlimited)
         const empty = (b) => !(b.annual_quota > 0) && !(b.balance > 0) && !(b.available > 0) && !(b.pending > 0)
-        const shown = list.filter((b) => !empty(b))
-        const none = list.filter(empty)
+        const shown = counted.filter((b) => !empty(b))
+        const none = counted.filter(empty)
         return (
           <div className="space-y-4">
             {shown.length === 0 && (
@@ -364,11 +401,30 @@ function BalanceTab() {
                       {b.unearned > 0 && (
                         <p className="text-xs text-indigo-700">{plural(b.unearned, 'more day')} earned through the year, a month at a time</p>
                       )}
+                      {statementButton(b)}
                     </div>
                   </section>
                 )
               })}
             </div>
+            {unlimited.length > 0 && (
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {unlimited.map((b) => (
+                  <section key={b.leave_type_id} className={`${card} p-4 flex items-center gap-4 border-amber-200`} aria-label={b.name}>
+                    <span className="w-14 h-14 rounded-full bg-amber-50 ring-1 ring-amber-200 grid place-items-center shrink-0">
+                      <b className="text-lg font-extrabold tabular-nums text-amber-900">{b.taken}</b>
+                    </span>
+                    <div className="min-w-0 space-y-1">
+                      <p className="text-[15px] font-bold text-gray-900">{b.name}</p>
+                      <p className="text-xs text-gray-600">{b.code} · unpaid, no limit · {plural(b.taken, 'day')} taken this year</p>
+                      <p className="text-xs text-amber-800">Each day is cut from pay. It needs approval like any leave.</p>
+                      {b.pending > 0 && <Chip tone="warn">{plural(b.pending, 'day')} awaiting approval</Chip>}
+                      {statementButton(b)}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            )}
             {none.length > 0 && (
               <p className="text-xs text-gray-500">{none.map((b) => b.name).join(', ')} {none.length === 1 ? 'is' : 'are'} granted as needed; {none.length === 1 ? 'it shows' : 'they show'} here once you have days in {none.length === 1 ? 'it' : 'them'}.</p>
             )}
@@ -376,6 +432,7 @@ function BalanceTab() {
         )
       }}
     </DataState>
+    </>
   )
 }
 
@@ -518,17 +575,33 @@ export default function Leave() {
   const [reverseNote, setReverseNote] = useState('')
 
   // "Apply leave" from the home page or the search (?apply=1) opens the form —
-  // once per link, followed while this page is already open.
-  const applyParam = params.get('apply')
+  // once per link, followed while this page is already open. An absent day's
+  // "Apply leave" (client, 10 Oct 2026) brings its dates too (&from=&to=): the
+  // form opens on them.
+  const applyLink = `${params.get('apply') ?? ''}|${params.get('from') ?? ''}|${params.get('to') ?? ''}`
   const [followedApply, setFollowedApply] = useState(null)
-  if (applyParam !== followedApply) {
-    setFollowedApply(applyParam)
-    if (applyParam === '1' && canApply) setApplyOpen(true)
+  const [applyDates, setApplyDates] = useState(null)
+  if (applyLink !== followedApply) {
+    setFollowedApply(applyLink)
+    if (params.get('apply') === '1' && canApply) {
+      // A real day: 2026-02-31 has the shape, and no date input can show it.
+      const isDay = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v ?? '') && addDays(v, 0) === v
+      const from = params.get('from')
+      const to = params.get('to') ?? from
+      setApplyDates(isDay(from) && isDay(to) && to >= from ? { from_date: from, to_date: to } : null)
+      setApplyOpen(true)
+    }
   }
+  // The link opened on a login that applies for nobody's leave — a role login beside the person's own (Day 23).
+  const applyElsewhere = params.get('apply') === '1' && !canApply
+  useEffect(() => {
+    if (applyElsewhere) toast.info('Leave is applied for from your own employee login.', { id: 'apply-elsewhere' })
+  }, [applyElsewhere])
   const closeApply = () => {
     setApplyOpen(false)
+    setApplyDates(null)
     // The link is done with, so a reload does not open the form again.
-    if (params.get('apply')) setParams((p) => { p.delete('apply'); return p }, { replace: true })
+    if (params.get('apply')) setParams((p) => { p.delete('apply'); p.delete('from'); p.delete('to'); return p }, { replace: true })
   }
 
   // Only the id and the decision. Who decided is whoever is signed in, which
@@ -627,19 +700,22 @@ export default function Leave() {
           onConfirm={() => withdrawLeave.mutateAsync({ id: withdrawing.id }).then(() => toast.success('Leave request withdrawn'))}
           onClose={() => setWithdrawing(null)}>
           <p>
-            <strong>{withdrawing.leave_type_name}</strong>, {formatDay(withdrawing.from_date)} to {formatDay(withdrawing.to_date)} ({plural(withdrawing.days, 'working day')}).
+            <strong>{leaveLabel(withdrawing)}</strong>, {formatDay(withdrawing.from_date)} to {formatDay(withdrawing.to_date)} ({plural(withdrawing.days, 'working day')}).
           </p>
+          {withdrawing.parts?.length > 1 && <p>Both parts of this application are withdrawn together.</p>}
           <p>It has not been decided yet, so nothing has been taken from the balance. The approvers are told it was withdrawn.</p>
         </ConfirmDialog>
       )}
 
       {reversing && (
         <ConfirmDialog title={`Reverse ${reversing.full_name}’s approved leave?`} confirmLabel="Reverse leave" danger
-          onConfirm={() => reverseLeave.mutateAsync({ id: reversing.id, note: reverseNote.trim() || undefined }).then(() => toast.success('Leave reversed; the days are back in the balance'))}
+          onConfirm={() => reverseLeave.mutateAsync({ id: reversing.id, note: reverseNote.trim() || undefined }).then(() => toast.success(
+            (reversing.parts ?? [reversing]).some((p) => p.is_paid !== false) ? 'Leave reversed; the days are back in the balance' : 'Leave reversed; those days are no longer cut from pay'))}
           onClose={() => setReversing(null)}>
           <p>
-            <strong>{reversing.leave_type_name}</strong>, {formatDay(reversing.from_date)} to {formatDay(reversing.to_date)}: {plural(reversing.days, 'working day')} go back into {reversing.full_name}’s balance, and the leave days on their attendance are removed.
+            <strong>{leaveLabel(reversing)}</strong>, {formatDay(reversing.from_date)} to {formatDay(reversing.to_date)}: {reverseWords(reversing)} The leave days on their attendance are removed.
           </p>
+          {reversing.parts?.length > 1 && <p>Both parts of this application are reversed together.</p>}
           <p>A month whose payroll is already approved cannot be changed; if this leave falls in one, it is refused and says so.</p>
           <label className="block text-xs font-semibold text-gray-600 space-y-1 pt-1">
             <span>Why (optional — {reversing.full_name} sees this)</span>
@@ -650,7 +726,8 @@ export default function Leave() {
 
       {/* Mounted only while open, so its balance lookup runs when somebody applies, not on every visit. */}
       {applyOpen && (
-        <ApplyLeaveModal open onClose={closeApply} onSave={handleApply} saving={applyLeave.isPending} />
+        // Keyed by the link: a second absent day's link while the form is open starts it afresh on that day.
+        <ApplyLeaveModal key={followedApply ?? 'open'} open onClose={closeApply} onSave={handleApply} saving={applyLeave.isPending} initialDates={applyDates} />
       )}
     </>
   )

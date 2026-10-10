@@ -612,13 +612,14 @@ try {
     await waitToast(hr, 'Leave granted:')
     await hr.getByText('Everybody here has their 2026–27 leave.').waitFor({ timeout: 20_000 })
     check('After the grant, everybody has the year’s leave', true)
-    // Columns by code: CL, CO, EL, SL, WFH.
+    // Columns by code: CL, CO, EL, LOP, SL. Loss of Pay is unpaid with no
+    // limit (client, 9 Oct 2026): its cell is the days taken, not a balance.
     // Each type's cell: the days left first, then any "applied for" under it.
     const cells = (name) => table.locator('tr', { hasText: name }).locator('td.tabular-nums > span:first-child').allInnerTexts()
     const [neha, priya, kiran] = [await cells(E.neha.name), await cells(E.priya.name), await cells(E.kiran.name)]
-    check('The joiner has the months that are left (7 of 12, 9 of 15); others the full year', JSON.stringify(neha) === '["7","0","9","7","0"]' && priya[0] === '12' && priya[3] === '12', `${neha} | ${priya}`)
+    check('The joiner has the months that are left (7 of 12, 9 of 15); others the full year', JSON.stringify(neha) === '["7","0","9","0 taken","7"]' && priya[0] === '12' && priya[4] === '12', `${neha} | ${priya}`)
     // The seed gave everybody Casual Leave before today; today's grant (Sick and Earned) must give Kiran none.
-    check('Somebody who has already left is given nothing by the grant', kiran[2] === '0' && kiran[3] === '0', kiran.join(','))
+    check('Somebody who has already left is given nothing by the grant', kiran[2] === '0' && kiran[4] === '0', kiran.join(','))
 
     // A correction.
     await hr.getByRole('button', { name: `Correct ${E.ravi.name}’s balance` }).first().click()

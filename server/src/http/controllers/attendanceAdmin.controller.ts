@@ -247,6 +247,7 @@ export const postImport: RequestHandler = async (req, res) => {
         valid: result.summary.valid,
         invalid: result.summary.invalid,
         would_overwrite: result.summary.wouldOverwrite,
+        on_leave: result.summary.onLeave,
         imported: result.summary.imported,
       },
       rows: result.rows.map((r) => ({

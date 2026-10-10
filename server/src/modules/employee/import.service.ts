@@ -16,6 +16,7 @@ import { EMPLOYEE_ROLE } from '../../platform/authz/defaultRoles'
 import { listDepartments, listDesignations, listShifts } from '../organization/masterData.repository'
 import * as repo from './employee.repository'
 import { audit } from '../audit/audit.service'
+import { grantOnJoining } from '../leave/leaveEntitlement.service'
 
 /**
  * Bulk employee import from CSV.
@@ -439,6 +440,7 @@ export async function importEmployees(
     for (const code of [...codes].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))) {
       await freeEmployeeCode(tx, ctx.organizationId, code)
     }
+    const added: string[] = []
     for (const row of prepared) {
       const data = row.data as Record<string, string | undefined>
 
@@ -460,6 +462,7 @@ export async function importEmployees(
         // Where they start in the lifecycle: confirmed, or a new joiner.
         ...(await lifecycleStart(ctx, { dateOfJoining: data.dateOfJoining ?? null, confirmedOn: data.confirmedOn ?? null })),
       })
+      added.push(employee.id)
 
       if (row.email) {
         const login = await createLoginInTransaction(tx, {
@@ -501,6 +504,9 @@ export async function importEmployees(
       entityType: 'import',
       details: { employees: prepared.length, withLogin },
     }, tx)
+    // Each one's share of this leave year at once, as when added by hand
+    // (client, 9 Oct 2026) — those with a joining date in the file.
+    await grantOnJoining(ctx, tx, added)
   })
 
   summary.imported = prepared.length

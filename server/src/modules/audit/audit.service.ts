@@ -72,6 +72,14 @@ export async function audit(ctx: AppContext, entry: AuditEntry, db: TxDb = ctx.d
 }
 
 /**
+ * An act of the system itself, with nobody signed in — the nightly job's grant
+ * of a new leave year. Written with no actor, in the caller's transaction.
+ */
+export async function auditSystem(db: TxDb, organizationId: string, entry: AuditEntry): Promise<void> {
+  await repo.append(db, row(organizationId, null, undefined, entry))
+}
+
+/**
  * One write and its audit row, committed together — for a change that is a
  * single statement and would otherwise need no transaction at all.
  */

@@ -208,6 +208,10 @@ export const getMySummary: RequestHandler = async (_req, res) => {
         remaining_days: b.available,
         balance: b.balance,
         pending: b.pending,
+        is_paid: b.isPaid,
+        // Unpaid with no days a year (Loss of Pay): no ring — days taken, once there are any.
+        unlimited: b.unlimited,
+        taken: b.taken,
       })),
       // Leave waiting for them to decide (Day 22: people report to them).
       waiting_for_me: summary.waitingForMe,

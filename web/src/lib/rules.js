@@ -11,9 +11,17 @@ export function rulesSummary(s) {
   ].filter(Boolean).join(' · ')
 }
 
+/** A year's days as a month's, for a type earned monthly: 12 → "1 day", 18 → "1.5 days", 15 → "1.25 days". */
+export function perMonth(days) {
+  const n = Math.round((days / 12) * 100) / 100
+  return `${n} day${n === 1 ? '' : 's'}`
+}
+
 /** "Monthly · 3 days’ notice · encashable up to 5 a year" — under the type's name. */
 export function leaveRulesSummary(t) {
   return [
+    t.joiner_grant === 'months_after_joining' ? 'joiners: whole months only' : t.joiner_grant === 'full_year' ? 'joiners: the full year' : null,
+    t.usable_after_confirmation ? 'after confirmation' : null,
     t.accrual === 'monthly' ? 'earned monthly' : null,
     t.min_notice_days ? `${t.min_notice_days} days’ notice` : null,
     t.max_days_per_request != null ? `at most ${t.max_days_per_request} at a time` : null,

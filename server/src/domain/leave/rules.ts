@@ -13,6 +13,8 @@ export interface LeaveTypeRules {
   eligibleAfterDays: number
   eligibleGender: 'male' | 'female' | 'other' | null
   halfDayAllowed: boolean
+  /** Usable only from the day somebody is confirmed (client, 9 Oct 2026). */
+  usableAfterConfirmation?: boolean | undefined
 }
 
 export interface RuleProblem {
@@ -33,6 +35,8 @@ export function ruleProblem(
     joined: CalendarDate | null
     gender: 'male' | 'female' | 'other' | null
     halfDays: number
+    /** The day they were confirmed; null while on probation. */
+    confirmedOn?: CalendarDate | null | undefined
   },
 ): RuleProblem | null {
   if (input.halfDays > 0 && !rules.halfDayAllowed) {
@@ -52,6 +56,15 @@ export function ruleProblem(
     const from = addCalendarDays(input.joined, rules.eligibleAfterDays)
     if (input.fromDate < from) {
       return { reason: 'not_eligible', message: `${rules.name} can be used after ${rules.eligibleAfterDays} days of service — from ${dayLabel(from)}.` }
+    }
+  }
+
+  if (rules.usableAfterConfirmation) {
+    if (!input.confirmedOn) {
+      return { reason: 'not_eligible', message: `${rules.name} can be used once confirmed, at the end of probation — and the confirmation is not recorded yet.` }
+    }
+    if (input.fromDate < input.confirmedOn) {
+      return { reason: 'not_eligible', message: `${rules.name} can be used from the day of confirmation, ${dayLabel(input.confirmedOn)}.` }
     }
   }
 

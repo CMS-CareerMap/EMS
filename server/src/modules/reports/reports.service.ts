@@ -3,7 +3,7 @@ import { BadRequest, Forbidden } from '../../platform/errors/AppError'
 import type { Permission } from '../../platform/authz/permissions'
 import type { ScopedResource } from '../../platform/authz/scope'
 import { employeesInScope } from '../../platform/authz/scopeWhere'
-import type { Weekday } from '../../domain/leave/leaveDays'
+import { isUnlimited, type Weekday } from '../../domain/leave/leaveDays'
 import { attendancePercent, leaveDaysWithin, notMarkedDays, type Calendar } from '../../domain/reports/reportMath'
 import {
   addCalendarDays,
@@ -377,9 +377,15 @@ async function leaveBalances(ctx: AppContext, p: ReportParams): Promise<Omit<Rep
   const balanceOf = new Map(ledger.map((l) => [`${l.employeeId}:${l.leaveTypeId}`, Number(l._sum.days ?? 0)]))
   const pendingOf = new Map(pending.map((q) => [q.employeeId, Number(q._sum.days ?? 0)]))
 
+  // Unpaid with no days a year (Loss of Pay) has no balance — only days taken,
+  // which its ledger holds as a negative sum: shown as the days taken.
+  const noLimit = new Set(types.filter((t) => isUnlimited(t.isPaid, Number(t.annualQuota))).map((t) => t.id))
   const rows: ReportRow[] = employees.map((e) => {
     const row: ReportRow = { employee_code: e.employeeCode, full_name: e.fullName, department: e.department?.name ?? null }
-    for (const t of types) row[`type_${t.code}`] = round2(balanceOf.get(`${e.id}:${t.id}`) ?? 0)
+    for (const t of types) {
+      const sum = balanceOf.get(`${e.id}:${t.id}`) ?? 0
+      row[`type_${t.code}`] = round2(noLimit.has(t.id) ? Math.max(0, -sum) : sum)
+    }
     row.pending = round2(pendingOf.get(e.id) ?? 0)
     return row
   })
@@ -391,7 +397,7 @@ async function leaveBalances(ctx: AppContext, p: ReportParams): Promise<Omit<Rep
       { key: 'employee_code', label: 'Code', type: 'text' },
       { key: 'full_name', label: 'Employee', type: 'text' },
       { key: 'department', label: 'Department', type: 'text' },
-      ...typesShown(types, rows).map((t): ReportColumn => ({ key: `type_${t.code}`, label: t.archivedAt ? `${t.name} (archived)` : t.name, type: 'days' })),
+      ...typesShown(types, rows).map((t): ReportColumn => ({ key: `type_${t.code}`, label: `${t.name}${noLimit.has(t.id) ? ' (taken)' : ''}${t.archivedAt ? ' (archived)' : ''}`, type: 'days' })),
       { key: 'pending', label: 'Waiting for approval', type: 'days' },
     ],
     rows,

@@ -10,7 +10,9 @@
 # 21:00 UTC = 02:30 IST — the nightly database backup to R2, sealed, then old ones pruned
 0 21 * * * npm run --silent backup
 
-# 21:30 UTC = 03:00 IST — orphaned-file sweep and old-notice purge
+# 21:30 UTC = 03:00 IST — orphaned-file sweep, old-notice purge, the leave year's grants
+# (new joiners missed, a new year on its first day) and the year-end lapse reminder.
+# Before it first runs: `docker compose exec jobs npm run maintenance` (a dry run) and read it.
 30 21 * * * npm run --silent maintenance -- --apply
 
 # 22:30 UTC on the 1st = 04:00 IST on the 2nd — the monthly restore drill: the newest

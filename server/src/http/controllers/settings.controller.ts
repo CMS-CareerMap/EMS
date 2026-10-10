@@ -15,6 +15,7 @@ import { parseBody } from '../validators/parse'
 import { setPtTable } from '../../modules/settings/ptSlabs.service'
 import { appContext } from '../context'
 import { fromDateColumn } from '../../domain/shared/dates'
+import { isUnlimited } from '../../domain/leave/leaveDays'
 
 /**
  * Settings. Snake_case out, matching the rest of v1 and the form field names
@@ -246,6 +247,8 @@ function serializeLeaveType(row: {
   countsNonWorkingDays: boolean
   encashable: boolean
   encashMaxDaysPerYear: Prisma.Decimal | null
+  joinerGrant: string
+  usableAfterConfirmation: boolean
 }) {
   return {
     id: row.id,
@@ -264,6 +267,10 @@ function serializeLeaveType(row: {
     counts_non_working_days: row.countsNonWorkingDays,
     encashable: row.encashable,
     encash_max_days_per_year: row.encashMaxDaysPerYear === null ? null : num(row.encashMaxDaysPerYear),
+    joiner_grant: row.joinerGrant,
+    usable_after_confirmation: row.usableAfterConfirmation,
+    // Unpaid with no days a year: no limit — Loss of Pay (client, 9 Oct 2026).
+    unlimited: isUnlimited(row.isPaid, Number(row.annualQuota)),
   }
 }
 
@@ -294,8 +301,16 @@ export const patchLeaveType: RequestHandler = async (req, res) => {
   const { id } = parseBody(settingsIdSchema, req.params)
   const input = parseBody(leaveTypeSchema, req.body)
 
-  const updated = await settings.updateLeaveType(ctx, id, input)
-  ok(res, serializeLeaveType(updated))
+  const { row, balances, thisYear } = await settings.updateLeaveType(ctx, id, input)
+  // What a change of days did to balances already granted: this year's when
+  // asked, and next year's when granted in advance.
+  res.status(200).json({
+    data: serializeLeaveType(row),
+    meta: {
+      requestId: res.locals.requestId,
+      balances: balances ? { this_year: thisYear, people: balances.people, days: balances.days, not_taken_back: balances.short } : null,
+    },
+  })
 }
 
 /** DELETE /api/settings/leave-types/:id — archives, never deletes. */

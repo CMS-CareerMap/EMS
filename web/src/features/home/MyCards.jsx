@@ -82,10 +82,14 @@ export function LeaveBalanceCard({ stats, canApply }) {
     <Card title="Leave balance" subtitle="This leave year" action={canApply ? <CardLink to="/leave?apply=1">Apply</CardLink> : <CardLink to="/leave?tab=balance">Details</CardLink>}>
       <DataState query={stats} compact>
         {(s) => {
-          const shown = s.leaveBalances.filter((b) => b.total_days > 0 || b.remaining_days > 0)
-          const hidden = s.leaveBalances.filter((b) => !shown.includes(b))
+          // Unpaid with no limit (Loss of Pay) has no ring: it is named once days of it are taken.
+          const unlimited = s.leaveBalances.filter((b) => b.unlimited)
+          const counted = s.leaveBalances.filter((b) => !b.unlimited)
+          const shown = counted.filter((b) => b.total_days > 0 || b.remaining_days > 0)
+          const hidden = counted.filter((b) => !shown.includes(b))
+          const taken = unlimited.filter((b) => b.taken > 0)
           const pending = s.leaveBalances.reduce((sum, b) => sum + (b.pending ?? 0), 0)
-          if (shown.length === 0) return <EmptyState icon={CalendarDays} title="No leave to take yet">Your leave for the year has not been given.</EmptyState>
+          if (shown.length === 0 && taken.length === 0 && pending === 0) return <EmptyState icon={CalendarDays} title="No leave to take yet">Your leave for the year has not been given.</EmptyState>
           return (
             <div className="space-y-3">
               <div className="grid grid-cols-3 gap-2 text-center">
@@ -104,6 +108,11 @@ export function LeaveBalanceCard({ stats, canApply }) {
                   </div>
                 ))}
               </div>
+              {taken.map((b) => (
+                <p key={b.id} className="text-xs font-semibold rounded-lg bg-amber-50 text-amber-900 ring-1 ring-inset ring-amber-200 px-3 py-2">
+                  {b.name}: {b.taken} day{b.taken === 1 ? '' : 's'} taken this year — unpaid, cut from pay
+                </p>
+              ))}
               {pending > 0 && <p className="text-xs font-semibold rounded-lg bg-amber-50 text-amber-800 px-3 py-2">{pending} day{pending === 1 ? '' : 's'} waiting for approval</p>}
               {hidden.length > 0 && <p className="text-xs text-gray-500">{hidden.map((b) => b.name).join(', ')} show here once you have days in them.</p>}
             </div>

@@ -1,9 +1,12 @@
 import { btn, field } from '../../components/ui/styles'
-import { useState } from 'react'
-import { X, CalendarDays, AlertCircle, Loader2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { X, CalendarDays, AlertCircle, Loader2, Split, Home } from 'lucide-react'
 import { useLeaveBalances, usePreviewLeave } from '../../hooks/useLeave'
 import { EscapeCloses } from '../../hooks/useEscape'
 import DataState from '../../components/DataState'
+import { formatDay } from '../../lib/dates'
+import { typeColourOf } from '../../lib/leaveTypes'
 
 /**
  * Applying for leave.
@@ -53,14 +56,34 @@ function isComplete(form) {
   return Boolean(form.leave_type_id && form.from_date && form.to_date && form.to_date >= form.from_date)
 }
 
-export default function ApplyLeaveModal({ open, onClose, onSave, saving }) {
+/** What a type offers in the list: what is left of it — or, unpaid with no limit, that it is cut from pay. */
+function optionLabel(b) {
+  if (b.unlimited) return `${b.name} — unpaid, no limit`
+  return `${b.name} — ${b.available} day${b.available !== 1 ? 's' : ''} available${b.is_paid === false ? ' (unpaid)' : ''}`
+}
+
+/** "12 Jan" or "12 – 14 Jan 2027": a part's days. */
+const span = (from, to) => (from === to ? formatDay(from) : `${formatDay(from, { year: false })} – ${formatDay(to)}`)
+
+export default function ApplyLeaveModal({ open, onClose, onSave, saving, initialDates = null }) {
   const balanceQuery = useLeaveBalances()
   // A list that failed offers nothing to choose — not the types it held before.
-  const balances = balanceQuery.isError ? [] : balanceQuery.data ?? []
+  // Paid types first, as before; unpaid ones (Loss of Pay) after them.
+  const balances = balanceQuery.isError ? [] : [...(balanceQuery.data ?? [])].sort((a, b) => Number(a.is_paid === false) - Number(b.is_paid === false))
   const preview = usePreviewLeave()
 
-  const [form, setForm] = useState(EMPTY)
+  // Opened from an absent day (client, 10 Oct 2026): on its dates already.
+  const [form, setForm] = useState(() => (initialDates ? { ...EMPTY, ...initialDates } : EMPTY))
   const [errors, setErrors] = useState({})
+  // …and what they would cost is asked as soon as the types are in, once — as
+  // choosing the dates by hand would ask it.
+  const askedFirst = useRef(false)
+  const firstType = balances[0]?.leave_type_id
+  useEffect(() => {
+    if (askedFirst.current || !initialDates || !firstType) return
+    askedFirst.current = true
+    preview.mutate({ leave_type_id: firstType, from_date: initialDates.from_date, to_date: initialDates.to_date, half_day_dates: [], half_day_sessions: {} })
+  }, [firstType, initialDates, preview])
 
   if (!open) return null
 
@@ -110,7 +133,13 @@ export default function ApplyLeaveModal({ open, onClose, onSave, saving }) {
     return e
   }
 
-  async function handleSubmit(e) {
+  /**
+   * Sent whole — or, with `offer`, as the preview offered (client, 9 Oct 2026):
+   * the days the balance covers, and the rest as unpaid leave. The days it
+   * covered go with it: a balance changed since is refused by the server, and
+   * the offer is asked for again, so what is on screen is what is applied for.
+   */
+  async function handleSubmit(e, offer = null) {
     e.preventDefault()
     const errs = validate()
     if (Object.keys(errs).length) { setErrors(errs); return }
@@ -128,13 +157,16 @@ export default function ApplyLeaveModal({ open, onClose, onSave, saving }) {
       half_day_dates: halves.dates,
       half_day_sessions: halves.sessions,
       reason: current.reason.trim(),
+      ...(offer ? { rest_leave_type_id: offer.rest_leave_type_id, covered_days: offer.parts.find((p) => p.leave_type_id === typeId)?.days ?? 0 } : {}),
     }).then(() => true, () => false)
 
     if (saved) close()
+    else if (offer) preview.mutate({ leave_type_id: typeId, from_date: current.from_date, to_date: current.to_date, half_day_dates: halves.dates, half_day_sessions: halves.sessions })
   }
 
   const result = preview.data
   const problem = result?.problem
+  const offer = result?.offer ?? null
 
   return (
     // Scrolls when taller than a phone's screen, rather than cutting off its buttons.
@@ -168,15 +200,21 @@ export default function ApplyLeaveModal({ open, onClose, onSave, saving }) {
                 </p>
               }>
               <select value={typeId} onChange={(e) => set('leave_type_id', e.target.value)}
-                className={`w-full ${field}`}>
+                aria-label="Leave type" className={`w-full ${field}`}>
                 {balances.map((b) => (
-                  <option key={b.leave_type_id} value={b.leave_type_id}>
-                    {b.name} — {b.available} day{b.available !== 1 ? 's' : ''} available
-                  </option>
+                  <option key={b.leave_type_id} value={b.leave_type_id}>{optionLabel(b)}</option>
                 ))}
               </select>
             </DataState>
             {errors.leave_type_id && <p className="text-xs text-red-500">{errors.leave_type_id}</p>}
+            {/* Working from home is a request, not leave (client, 9 Oct 2026). */}
+            <p className="text-xs text-gray-500 flex items-start gap-1.5">
+              <Home className="w-3.5 h-3.5 mt-px shrink-0 text-gray-400" aria-hidden="true" />
+              <span>
+                Working from home? That is a request, not leave:{' '}
+                <Link to="/requests?new=work_from_home" onClick={close} className="font-semibold text-brand-600 hover:underline">Requests → Work from home</Link>.
+              </span>
+            </p>
           </div>
 
           {/* Dates */}
@@ -238,14 +276,38 @@ export default function ApplyLeaveModal({ open, onClose, onSave, saving }) {
                 <CalendarDays className="w-4 h-4 text-brand-500 shrink-0" />
                 <p className="text-sm text-brand-700 font-medium">
                   {result.days} day{result.days !== 1 ? 's' : ''} of leave · {selected?.name}
-                  <span className="font-normal text-brand-600"> · {result.balance.available} available</span>
+                  <span className="font-normal text-brand-600">
+                    {result.unlimited ? ' · unpaid: these days are cut from pay' : ` · ${result.balance.available} available`}
+                  </span>
                 </p>
               </div>
+              {/* Why it cannot go as it is — "earned a month at a time" — even when the rest is offered as unpaid below. */}
               {problem && (
                 <div className="flex items-start gap-2 px-3 py-2.5 bg-amber-50 border border-amber-200 rounded-lg">
                   <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
                   <p className="text-sm text-amber-800">{problem.message}</p>
                 </div>
+              )}
+              {/* The balance runs out: the rest as unpaid leave, in one application. */}
+              {offer && (
+                <section aria-label="Apply in parts" className="px-3 py-3 bg-amber-50 border border-amber-200 rounded-lg space-y-2.5">
+                  <p className="flex items-start gap-2 text-sm text-amber-900">
+                    <Split className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" aria-hidden="true" />
+                    <span>{offer.message}</span>
+                  </p>
+                  <ul className="space-y-1.5">
+                    {offer.parts.map((p) => (
+                      <li key={p.leave_type_id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm">
+                        <span className={`inline-flex items-center min-h-5.5 py-0.5 px-2.5 rounded-full text-[11.5px] font-semibold ${typeColourOf(p.leave_type, p.is_paid)}`}>{p.leave_type_name}</span>
+                        <span className="text-gray-700 tabular-nums">{span(p.from_date, p.to_date)} · {p.days} day{p.days === 1 ? '' : 's'}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <button type="button" onClick={(e) => handleSubmit(e, offer)} disabled={saving} className={`${btn.primary} w-full sm:w-auto`}>
+                    {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+                    Apply like this
+                  </button>
+                </section>
               )}
             </div>
           )}

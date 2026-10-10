@@ -103,6 +103,12 @@ model Attendance {
   /// Who created or last changed this row, when it was not the employee.
   markedByUserId String?
 
+  /// An absent day with no punch that approved leave took over (client, 10 Oct
+  /// 2026): what it was before, so the calendar says leave once leave is
+  /// approved — and a reversal puts the day back as it was. Null otherwise.
+  statusBeforeLeave AttendanceStatus?
+  sourceBeforeLeave AttendanceSource?
+
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 

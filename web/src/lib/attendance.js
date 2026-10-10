@@ -73,13 +73,34 @@ export function shiftMonth(key, by) {
   return `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, '0')}`
 }
 
+/** A day of unpaid leave (Loss of Pay) in the calendar: amber, the colour unpaid leave has everywhere. */
+export const UNPAID_LEAVE = { label: 'Unpaid leave', tone: 'warn', cell: 'bg-amber-50 text-amber-900 border-amber-200', dot: 'bg-amber-500' }
+
+/**
+ * The pay-days answer by date: each day of approved leave (its type, paid or
+ * not, half or whole), and each absent day (leave applied for it, or whether
+ * it still can be). Empty maps while it loads or if it failed: the days then
+ * read as they always did.
+ */
+export function payDayMaps(data) {
+  return {
+    leaveOn: new Map((data?.leave_days ?? []).map((l) => [l.date, l])),
+    absentOn: new Map((data?.absent_days ?? []).map((a) => [a.date, a])),
+  }
+}
+
+/** A leave day's words: its type, "(half)" for half a day — said only where a type allows halves and one was taken. */
+export const leaveWords = (leave) => `${leave.leave_type_name}${leave.portion === 0.5 ? ' (half)' : ''}`
+
 /**
  * What one of one's own days was, in a word and a tone — from its row, the
- * company's days off, and whether it is today.
+ * company's days off, and whether it is today. `leave` is the day's approved
+ * leave, when known (the pay-days answer): an on-leave day then says which —
+ * "Casual Leave", or "Loss of Pay" in the unpaid colour.
  */
-export function dayState({ date, row, dayOff, today }) {
+export function dayState({ date, row, dayOff, today, leave = null }) {
   const status = row?.status
-  if (status === 'on_leave') return { label: 'On leave', tone: 'leave' }
+  if (status === 'on_leave') return leave ? { label: leaveWords(leave), tone: leave.paid ? 'leave' : 'warn' } : { label: 'On leave', tone: 'leave' }
   if (status === 'absent') return { label: 'Absent', tone: 'bad' }
   if (status === 'holiday') return { label: dayOff?.name ?? 'Holiday', tone: 'warn' }
   if (status === 'weekly_off') return { label: 'Weekly off', tone: 'gray' }

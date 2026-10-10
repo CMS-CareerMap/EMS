@@ -60,7 +60,7 @@ karan, pooja, neha, sunil.
 
 - The last two months of attendance for everybody, punched on the app, with a few absences and
   short days. This morning most people have checked in; Priya has not.
-- Leave balances (CL 12, SL 12, EL 15 a year).
+- Leave balances (CL 12, SL 12, EL 15 a year). Loss of Pay is there too: unpaid, no limit.
 - Leave taken last month and the month before, each approved by the person above.
 - Leave waiting for a decision: Sneha (Rekha decides), Vikram (Manoj), Rekha (Manoj), Manoj (Rahul).
 - One rejected leave: Ravi's, with Rekha's reason.
@@ -76,7 +76,12 @@ karan, pooja, neha, sunil.
 
 ### Employee — `employee@example.com` (Priya)
 1. Home: press **Check In**. (No office location is set, so no GPS is asked for.) Her month in figures sits beside it.
-2. Leave: see the balances; apply for a day next week. It goes to Rekha.
+2. Leave: see the balances; apply for a day next week. It goes to Rekha. Ask for more days of a
+   type than she has left: the form offers the days she has, and the rest as Loss of Pay, in one
+   application. Working from home is not in the leave list: the form points to Requests.
+   Leave Balance → **Statement** on any type: every day given and taken, like a passbook.
+   Attendance: each leave day by its type, and the month's paid and unpaid days; an
+   absent day offers **Apply leave**.
 3. Requests: her correction is waiting for Rekha.
 4. Payslips: the paid month's payslip; download the PDF.
 5. Documents → Company documents: open the Employee Handbook. (My documents is where she
@@ -102,9 +107,13 @@ karan, pooja, neha, sunil.
 2. Requests → **To decide**: approve Sneha's change of phone and address. Her record changes.
 3. Employees → Neha Gupta → Employment: **Complete onboarding**. Kiran Kumar shows as left.
 4. Attendance: mark a day for somebody; export the month.
-5. Leave: everybody's leave and balances (she sees them all, decides none).
-6. Payroll: she can enter an incentive, and sees nobody's full pay there.
-7. Settings: leave types and their rules, holidays, document types, probation and notice.
+5. Leave: everybody's leave and balances (she sees them all, decides none). Loss of Pay shows
+   the days taken; it has nothing to correct.
+6. Employees → anybody → **Leave**: their days a year of each type; **Change** gives them their
+   own (15 days of Casual Leave instead of 12) — this year's balance moves at once.
+7. Payroll: she can enter an incentive, and sees nobody's full pay there.
+8. Settings: leave types and their rules (what a new joiner gets, after confirmation), holidays,
+   document types, probation and notice.
 
 ### Accounts — `accounts@example.com` (Anil)
 1. Payroll → Payroll runs: the paid month, and last month waiting for approval.

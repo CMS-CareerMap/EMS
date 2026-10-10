@@ -1,6 +1,7 @@
 import type { RequestHandler } from 'express'
 import { punchIn, punchOut, myToday, myWorkplace, type PunchResult } from '../../modules/attendance/attendance.service'
-import { punchInSchema } from '../validators/attendance.validator'
+import { payDaysQuerySchema, punchInSchema } from '../validators/attendance.validator'
+import { myPayDays } from '../../modules/payroll/myPayDays.service'
 import { parseBody } from '../validators/parse'
 import { appContext } from '../context'
 import { isoInstant } from '../../domain/shared/dates'
@@ -95,6 +96,38 @@ export const getMyToday: RequestHandler = async (_req, res) => {
     // The server's clock: "Time today" counts the time at work by it, not by a
     // phone that may be minutes out (client, 8 Oct 2026).
     data: result ? { ...payload(result), server_now: isoInstant(new Date()) } : null,
+    meta: { requestId: res.locals.requestId },
+  })
+}
+
+/**
+ * GET /api/attendance/me/pay-days?year=&month= — one's own month in pay terms
+ * (client, 10 Oct 2026): days paid and days of loss of pay so far, as payroll
+ * will count them; each day of approved leave named by its type; each absent
+ * day with whether leave can still be asked for it.
+ */
+export const getMyPayDays: RequestHandler = async (req, res) => {
+  const ctx = appContext(res)
+  const { year, month } = parseBody(payDaysQuerySchema, req.query)
+  const d = await myPayDays(ctx, year, month)
+  res.status(200).json({
+    data: {
+      year: d.year,
+      month: d.month,
+      employed: d.employed,
+      paid_days: d.paidDays,
+      unpaid_days: d.unpaidDays,
+      employment_days: d.employmentDays,
+      not_marked_days: d.notMarkedDays,
+      leave_days: d.leaveDays.map((l) => ({ date: l.date, portion: l.portion, paid: l.paid, leave_type_name: l.leaveTypeName, code: l.code })),
+      absent_days: d.absentDays.map((a) => ({
+        date: a.date,
+        applied: a.applied,
+        leave: a.leave ? { status: a.leave.status, leave_type_name: a.leave.leaveTypeName, half: a.leave.half } : null,
+        can_apply: a.canApply,
+        why: a.why,
+      })),
+    },
     meta: { requestId: res.locals.requestId },
   })
 }

@@ -70,7 +70,7 @@ export async function recordApproval(
   ctx: AppContext,
   tx: TxDb,
   request: ApprovableRequest,
-  how: { note?: string | null | undefined; asBackup?: boolean; direct?: boolean },
+  how: { note?: string | null | undefined; asBackup?: boolean; direct?: boolean; quiet?: boolean },
 ): Promise<void> {
   const from = fromDateColumn(request.fromDate)
   const to = fromDateColumn(request.toDate)
@@ -134,8 +134,16 @@ export async function recordApproval(
 
     const existing = await attendanceRepo.findDay(tx, request.employeeId, toDateColumn(day.date))
 
-    // An existing row is NOT overwritten. Somebody who punched in and then
-    // had leave approved for the same day has a real punch on record, and
+    // An absent day with no punch, now covered by a whole day of leave (client,
+    // 10 Oct 2026: "apply leave for this absent day"): the leave is what the
+    // day was, so it says so — what it was is kept, and a reversal puts it back.
+    if (existing && existing.status === 'absent' && !existing.checkIn && !existing.checkOut && day.counted === 1) {
+      await attendanceRepo.takeOverAbsentDay(tx, existing, ctx.userId)
+      continue
+    }
+
+    // Any other existing row is NOT overwritten. Somebody who punched in and
+    // then had leave approved for the same day has a real punch on record, and
     // replacing it would destroy evidence of work they actually did. The
     // clash is worth a human looking at, not a silent decision.
     if (existing) {
@@ -176,7 +184,28 @@ export async function recordApproval(
       ...(how.asBackup ? { asBackup: true } : {}),
     },
   }, tx)
-  if (!how.direct) await tellApplicant(ctx, tx, request.id, 'approved', how.note)
+  // Quiet for the parts of one application: the caller tells of the whole once.
+  if (!how.direct && !how.quiet) await tellApplicant(ctx, tx, request.id, 'approved', how.note)
+}
+
+/**
+ * The parts of the application a request belongs to that stand at `status` —
+ * just the request, for an application of one type. Every act on a part is an
+ * act on all of them (client, 9 Oct 2026): one application, one decision.
+ */
+async function partsAt(ctx: AppContext, request: repo.LeaveRequestRow, status: 'pending' | 'approved'): Promise<repo.LeaveRequestRow[]> {
+  if (!request.groupId) return [request]
+  const parts = (await repo.groupParts(ctx.db, request.groupId)).filter((p) => p.status === status)
+  // Decided by somebody else between the two reads: said so, not a crash.
+  if (parts.length === 0) throw Conflict('Somebody else has already decided on that request.')
+  return parts
+}
+
+/** The months every part touches, for the payroll check. */
+function monthsOf(parts: readonly repo.LeaveRequestRow[]) {
+  const from = parts.map((p) => fromDateColumn(p.fromDate)!).sort()[0]!
+  const to = parts.map((p) => fromDateColumn(p.toDate)!).sort().at(-1)!
+  return monthsBetween(from, to)
 }
 
 /**
@@ -217,10 +246,12 @@ export async function settleLeaveAfter(ctx: AppContext, tx: TxDb, employeeId: st
         note,
         createdByUserId: ctx.userId,
       })
-      await attendanceRepo.deleteLeaveDays(tx, employeeId, r.fromDate, r.toDate)
+      await attendanceRepo.releaseLeaveDays(tx, employeeId, r.fromDate, r.toDate)
     }
-    // Told, in the same words: a reversal gives the days back, a waiting one is turned down.
-    await tellApplicant(ctx, tx, r.id, wasApproved ? 'reversed' : 'rejected', note)
+    // Told, in the same words: a reversal gives the days back, a waiting one is
+    // turned down. A part of an application is told as itself: the part
+    // before the last day may stand.
+    await tellApplicant(ctx, tx, r.id, wasApproved ? 'reversed' : 'rejected', note, Boolean(r.groupId))
     await audit(ctx, {
       action: 'leave.cancelled_on_leaving',
       entityType: 'leave_request',
@@ -247,20 +278,25 @@ export async function approveLeave(
   if (request.status !== 'pending') {
     throw Conflict(`That request is already ${request.status}.`)
   }
+  const parts = await partsAt(ctx, request, 'pending')
 
   // Approving turns absent days into leave, and unpaid leave into loss of pay:
   // either way it changes what a signed-off month should have paid.
-  const months = monthsBetween(fromDateColumn(request.fromDate), fromDateColumn(request.toDate))
-  await assertMonthsOpen(ctx, months, 'approving this leave')
+  await assertMonthsOpen(ctx, monthsOf(parts), 'approving this leave')
 
-  // recordApproval checks the months again, under their payroll locks.
-  await withTransaction(ctx.db, (tx) => recordApproval(ctx, tx, request, { note, asBackup }))
+  // recordApproval checks the months again, under their payroll locks. Every
+  // part in one transaction: the application is approved whole, or not at all.
+  await withTransaction(ctx.db, async (tx) => {
+    for (const part of parts) await recordApproval(ctx, tx, part, { note, asBackup, quiet: parts.length > 1 })
+    if (parts.length > 1) await tellApplicant(ctx, tx, parts[0]!.id, 'approved', note)
+  })
 
   logger.info('Leave approved', {
     by: ctx.userId,
     requestId: id,
     employeeId: request.employeeId,
-    days: Number(request.days),
+    days: parts.reduce((a, p) => a + Number(p.days), 0),
+    parts: parts.length,
     asBackup,
   })
 
@@ -277,6 +313,7 @@ export async function rejectLeave(
   if (request.status !== 'pending') {
     throw Conflict(`That request is already ${request.status}.`)
   }
+  const parts = await partsAt(ctx, request, 'pending')
 
   // No ledger entry. A rejected request never took any days, so there is
   // nothing to record against the balance — the held days are released simply
@@ -285,23 +322,25 @@ export async function rejectLeave(
   // separately, an approval landing at the same moment was overwritten —
   // leaving a request marked rejected whose days had been taken.
   await withTransaction(ctx.db, async (tx) => {
-    const decided = await repo.changeStatusIf(tx, id, 'pending', {
-      status: 'rejected',
-      reviewedByUserId: ctx.userId,
-      reviewedAt: new Date(),
-      reviewNote: note?.trim() || null,
-    })
-    if (!decided) throw Conflict('Somebody else has already decided on that request.')
-    await audit(ctx, {
-      action: 'leave.rejected',
-      entityType: 'leave_request',
-      entityId: id,
-      details: { employeeId: request.employeeId, days: Number(request.days), ...(asBackup ? { asBackup: true } : {}) },
-    }, tx)
-    await tellApplicant(ctx, tx, id, 'rejected', note)
+    for (const part of parts) {
+      const decided = await repo.changeStatusIf(tx, part.id, 'pending', {
+        status: 'rejected',
+        reviewedByUserId: ctx.userId,
+        reviewedAt: new Date(),
+        reviewNote: note?.trim() || null,
+      })
+      if (!decided) throw Conflict('Somebody else has already decided on that request.')
+      await audit(ctx, {
+        action: 'leave.rejected',
+        entityType: 'leave_request',
+        entityId: part.id,
+        details: { employeeId: request.employeeId, days: Number(part.days), ...(asBackup ? { asBackup: true } : {}) },
+      }, tx)
+    }
+    await tellApplicant(ctx, tx, parts[0]!.id, 'rejected', note)
   })
 
-  logger.info('Leave rejected', { by: ctx.userId, requestId: id, asBackup })
+  logger.info('Leave rejected', { by: ctx.userId, requestId: id, parts: parts.length, asBackup })
 
   return readBack(ctx, id)
 }
@@ -327,49 +366,52 @@ export async function reverseLeave(
   if (request.status !== 'approved') {
     throw Conflict(`Only approved leave can be reversed. That request is ${request.status}.`)
   }
+  const parts = await partsAt(ctx, request, 'approved')
 
-  const months = monthsBetween(fromDateColumn(request.fromDate), fromDateColumn(request.toDate))
+  const months = monthsOf(parts)
   await assertMonthsOpen(ctx, months, 'reversing this leave')
 
   await withTransaction(ctx.db, async (tx) => {
     // Under those months' payroll locks: approved since the check above, refused rather than missed.
     await assertMonthsOpen(ctx, months, 'reversing this leave', tx)
-    // Reversed only if still approved — one statement, so two reversals cannot
-    // both give the days back.
-    const reversed = await repo.changeStatusIf(tx, id, 'approved', {
-      status: 'cancelled',
-      reviewedByUserId: ctx.userId,
-      reviewedAt: new Date(),
-      reviewNote: note?.trim() || 'Reversed after approval',
-    })
-    if (!reversed) throw Conflict('That request has already been changed.')
+    for (const part of parts) {
+      // Reversed only if still approved — one statement, so two reversals cannot
+      // both give the days back.
+      const reversed = await repo.changeStatusIf(tx, part.id, 'approved', {
+        status: 'cancelled',
+        reviewedByUserId: ctx.userId,
+        reviewedAt: new Date(),
+        reviewNote: note?.trim() || 'Reversed after approval',
+      })
+      if (!reversed) throw Conflict('That request has already been changed.')
 
-    await repo.addLedgerEntry(tx, {
-      organizationId: ctx.organizationId,
-      employeeId: request.employeeId,
-      leaveTypeId: request.leaveTypeId,
-      leaveYear: request.leaveYear,
-      days: Number(request.days),
-      reason: 'reversal',
-      leaveRequestId: id,
-      note: 'Approved leave reversed',
-      createdByUserId: ctx.userId,
-    })
+      await repo.addLedgerEntry(tx, {
+        organizationId: ctx.organizationId,
+        employeeId: request.employeeId,
+        leaveTypeId: part.leaveTypeId,
+        leaveYear: part.leaveYear,
+        days: Number(part.days),
+        reason: 'reversal',
+        leaveRequestId: part.id,
+        note: 'Approved leave reversed',
+        createdByUserId: ctx.userId,
+      })
 
-    // Only the rows this approval created. A punch on one of those days was
-    // never ours to remove.
-    await attendanceRepo.deleteLeaveDays(tx, request.employeeId, request.fromDate, request.toDate)
+      // Only the rows this approval created. A punch on one of those days was
+      // never ours to remove.
+      await attendanceRepo.releaseLeaveDays(tx, request.employeeId, part.fromDate, part.toDate)
 
-    await audit(ctx, {
-      action: 'leave.reversed',
-      entityType: 'leave_request',
-      entityId: id,
-      details: { employeeId: request.employeeId, daysReturned: Number(request.days) },
-    }, tx)
-    await tellApplicant(ctx, tx, id, 'reversed', note)
+      await audit(ctx, {
+        action: 'leave.reversed',
+        entityType: 'leave_request',
+        entityId: part.id,
+        details: { employeeId: request.employeeId, daysReturned: Number(part.days) },
+      }, tx)
+    }
+    await tellApplicant(ctx, tx, parts[0]!.id, 'reversed', note)
   })
 
-  logger.info('Leave reversed', { by: ctx.userId, requestId: id })
+  logger.info('Leave reversed', { by: ctx.userId, requestId: id, parts: parts.length })
 
   return readBack(ctx, id)
 }

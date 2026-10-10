@@ -8,7 +8,7 @@ model LeaveType {
   organizationId String
 
   name String
-  /// Short form used in tables and exports: CL, SL, EL, WFH, CO.
+  /// Short form used in tables and exports: CL, SL, EL, CO, LOP.
   code String
 
   /// Days granted per leave year. Decimal because half-days are real.
@@ -48,13 +48,23 @@ model LeaveType {
   encashable           Boolean      @default(false)
   encashMaxDaysPerYear Decimal?     @db.Decimal(5, 2)
 
+  /// Who gets how much, and from when (client, 9 Oct 2026). Each defaults to
+  /// what applied before it existed.
+  ///
+  /// What somebody who joins partway through a leave year is granted of it.
+  joinerGrant             LeaveJoinerGrant @default(months_left)
+  /// Usable only from the day somebody is confirmed — the end of probation
+  /// (Employee.confirmedOn). Checked beside `eligibleAfterDays`: both hold.
+  usableAfterConfirmation Boolean          @default(false)
+
   createdAt  DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt  DateTime  @updatedAt @db.Timestamptz(3)
   archivedAt DateTime? @db.Timestamptz(3)
 
-  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization  Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   ledgerEntries LeaveLedgerEntry[]
   requests      LeaveRequest[]
+  entitlements  EmployeeLeaveEntitlement[]
 
   @@unique([organizationId, code])
   @@unique([organizationId, name])
@@ -129,6 +139,63 @@ enum LeaveLedgerReason {
   encashed
 }
 
+/// What a leave type grants somebody who joins partway through a leave year.
+enum LeaveJoinerGrant {
+  /// The months left in the year, the joining month counted.
+  months_left
+  /// The whole months left: nothing for a month joined partway — joined on its
+  /// first day, it counts.
+  months_after_joining
+  /// The whole year's days, whenever in it they join.
+  full_year
+}
+
+/// One person's own days a year of a leave type, in place of the type's
+/// (client, 9 Oct 2026): fifteen days of casual leave for one person where the
+/// company gives twelve. Their grant is reckoned from this, by the type's other
+/// rules; changing it during a year adds or takes away the difference at once,
+/// as a ledger entry. No row: the type's days apply.
+model EmployeeLeaveEntitlement {
+  id             String @id @default(uuid())
+  organizationId String
+  employeeId     String
+  leaveTypeId    String
+
+  annualQuota Decimal @db.Decimal(5, 2)
+  /// Why, as given by whoever set it.
+  note        String?
+
+  updatedByUserId String?
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveType    LeaveType    @relation(fields: [leaveTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, employeeId, leaveTypeId])
+  @@index([organizationId, leaveTypeId])
+}
+
+/// That one person was told, for a leave year, of the days that would lapse at
+/// its end (client, 10 Oct 2026) — so they are told once. Kept apart from the
+/// notice itself: that one they may clear from the bell.
+model LeaveYearEndNotice {
+  id             String @id @default(uuid())
+  organizationId String
+  employeeId     String
+  leaveYear      Int
+
+  /// The days they were told would lapse.
+  days      Decimal  @db.Decimal(5, 2)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, employeeId, leaveYear])
+}
+
 /// How a leave type's yearly grant becomes usable.
 enum LeaveAccrual {
   /// All of it from the start of the year.
@@ -180,6 +247,13 @@ model LeaveRequest {
 
   status LeaveStatus @default(pending)
 
+  /// One application in parts (client, 9 Oct 2026): the days a paid type's
+  /// balance covers, and the rest as unpaid leave. Each part is a request of
+  /// its own type — so the ledger, payroll and reports read it as they read any
+  /// — and the parts share this id: they are applied for, decided, withdrawn
+  /// and reversed together. Null for an application of one type.
+  groupId String?
+
   appliedAt        DateTime  @default(now()) @db.Timestamptz(3)
   reviewedByUserId String?
   reviewedAt       DateTime? @db.Timestamptz(3)
@@ -197,6 +271,7 @@ model LeaveRequest {
   @@index([organizationId, employeeId, leaveYear])
   @@index([organizationId, status])
   @@index([organizationId, fromDate])
+  @@index([groupId])
 }
 
 enum LeaveStatus {

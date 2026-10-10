@@ -33,6 +33,12 @@ export async function usersOfEmployee(db: Db, employeeId: string): Promise<strin
   return rows.map((r) => r.userId)
 }
 
+/** A person's logins whose role may do this — for a notice whose link is the way to do it. */
+export async function usersOfEmployeeHolding(db: Db, employeeId: string, permission: string): Promise<string[]> {
+  const rows = await db.membership.findMany({ where: { employeeId, ...REACHABLE, roleDef: { permissions: { has: permission } } }, select: { userId: true } })
+  return rows.map((r) => r.userId)
+}
+
 /**
  * The logins a person DECIDES from — for "a request is waiting for you": all
  * not switched off, less their employee login while they have a live role

@@ -4,6 +4,7 @@ import { Forbidden } from '../../platform/errors/AppError'
 import { zonedToday, toDateColumn, fromDateColumn, isoInstant, addCalendarDays, type CalendarDate } from '../../domain/shared/dates'
 import { shiftRulesOf, stillAtWork } from '../../domain/attendance/shiftRules'
 import * as leaveRepo from '../leave/leave.repository'
+import { asApplications } from '../../domain/leave/applications'
 import * as attendanceRepo from '../attendance/attendance.repository'
 import * as employeeRepo from '../employee/employee.repository'
 import * as repo from './dashboard.repository'
@@ -406,9 +407,11 @@ export interface MySummary {
     /** Checked into and still theirs now, by the rule their own card counts by (stillAtWork; client, 9 Oct 2026). */
     atWork: boolean
   }[]
-  leaveBalances: { code: string; name: string; annualQuota: number; balance: number; pending: number; available: number }[]
+  /** `unlimited`: unpaid with no days a year (Loss of Pay) — shown only once some is `taken`. */
+  leaveBalances: { code: string; name: string; annualQuota: number; balance: number; pending: number; available: number; isPaid: boolean; unlimited: boolean; taken: number }[]
   /** Leave requests waiting for this person to decide (Day 22: they have people under them). */
   waitingForMe: number
+  /** Their latest applications — one in parts (client, 9 Oct 2026) as one, its types joined. */
   recentLeaves: {
     id: string
     leaveType: string
@@ -532,17 +535,20 @@ export async function mySummary(ctx: AppContext): Promise<MySummary> {
       balance: b.balance,
       pending: b.pending,
       available: b.available,
+      isPaid: b.isPaid,
+      unlimited: b.unlimited,
+      taken: b.taken,
     })),
     waitingForMe,
-    recentLeaves: leaves.slice(0, 5).map((request) => ({
-      id: request.id,
-      leaveType: request.leaveType.code,
-      leaveTypeName: request.leaveType.name,
-      fromDate: fromDateColumn(request.fromDate),
-      toDate: fromDateColumn(request.toDate),
-      days: Number(request.days),
-      status: request.status,
-      appliedAt: isoInstant(request.appliedAt),
+    recentLeaves: asApplications(leaves, (r) => fromDateColumn(r.fromDate)!).slice(0, 5).map(({ lead, parts }) => ({
+      id: lead.id,
+      leaveType: lead.leaveType.code,
+      leaveTypeName: parts.map((p) => p.leaveType.name).join(' + '),
+      fromDate: fromDateColumn(lead.fromDate),
+      toDate: fromDateColumn(parts[parts.length - 1]!.toDate),
+      days: Math.round(parts.reduce((a, p) => a + Number(p.days), 0) * 2) / 2,
+      status: lead.status,
+      appliedAt: isoInstant(lead.appliedAt),
     })),
   }
 }

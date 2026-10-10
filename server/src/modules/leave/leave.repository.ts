@@ -4,6 +4,8 @@ import type { TxDb } from '../../platform/db/transaction'
 import type { ScopeContext } from '../../platform/authz/scope'
 import { employeesInScope, ownedRowsInScope } from '../../platform/authz/scopeWhere'
 import { toDateColumn, type CalendarDate } from '../../domain/shared/dates'
+import { applicationCount } from '../../domain/leave/applications'
+import { isUnlimited } from '../../domain/leave/leaveDays'
 
 /**
  * Leave requests and balances.
@@ -96,10 +98,20 @@ export async function requestsOf(
   }) as Promise<LeaveRequestRow[]>
 }
 
-/** How many of these people's requests are waiting — a count, not a capped list. */
+/**
+ * How many of these people's applications are waiting — a count, not a capped
+ * list. The parts of one application (the days a paid balance covers and the
+ * rest unpaid) count once.
+ */
 export async function countPendingOf(db: ScopedDb, employeeIds: readonly string[]): Promise<number> {
   if (employeeIds.length === 0) return 0
-  return db.leaveRequest.count({ where: { status: 'pending', employeeId: { in: [...employeeIds] } } })
+  const rows = await db.leaveRequest.findMany({ where: { status: 'pending', employeeId: { in: [...employeeIds] } }, select: { id: true, groupId: true } })
+  return applicationCount(rows)
+}
+
+/** Every part of one application, earliest first, whatever each now stands at. */
+export async function groupParts(db: ScopedDb | TxDb, groupId: string): Promise<LeaveRequestRow[]> {
+  return db.leaveRequest.findMany({ where: { groupId }, include: requestInclude, orderBy: [{ fromDate: 'asc' }] }) as Promise<LeaveRequestRow[]>
 }
 
 /**
@@ -148,12 +160,20 @@ export interface BalanceRow {
   leaveTypeId: string
   code: string
   name: string
+  /** This person's days a year: their own where they have them, else the type's. */
   annualQuota: number
   balance: number
   pending: number
   available: number
+  isPaid: boolean
+  /** Unpaid with no days a year: no balance to run out of — every day is loss of pay (client, 9 Oct 2026). */
+  unlimited: boolean
+  /** Days of it taken this leave year: approved, less any reversed. */
+  taken: number
   /** Earned a twelfth a month (client §36), or all at once. */
   accrual: 'yearly' | 'monthly'
+  /** What a joiner partway through the year is granted — and so, for a monthly type, earns from. */
+  joinerGrant: 'months_left' | 'months_after_joining' | 'full_year'
   /** Of the balance, what a monthly type has not earned yet — not available until it is. */
   unearned: number
   /** Whether unused days may be asked to be turned into pay (client §36). */
@@ -168,7 +188,7 @@ export async function balancesFor(
   employeeId: string,
   leaveYear: number,
 ): Promise<BalanceRow[]> {
-  const [types, ledger, pending] = await Promise.all([
+  const [types, ledger, pending, taken, own] = await Promise.all([
     db.leaveType.findMany({ where: { archivedAt: null }, orderBy: { code: 'asc' } }),
     db.leaveLedgerEntry.groupBy({
       by: ['leaveTypeId'],
@@ -180,27 +200,39 @@ export async function balancesFor(
       where: { employeeId, leaveYear, status: 'pending' },
       _sum: { days: true },
     }),
+    db.leaveLedgerEntry.groupBy({
+      by: ['leaveTypeId'],
+      where: { employeeId, leaveYear, reason: { in: ['consumed', 'reversal'] } },
+      _sum: { days: true },
+    }),
+    ownQuotasOf(db, [employeeId]),
   ])
 
   const balanceBy = new Map(ledger.map((l) => [l.leaveTypeId, Number(l._sum.days ?? 0)]))
   const pendingBy = new Map(pending.map((p) => [p.leaveTypeId, Number(p._sum.days ?? 0)]))
+  const takenBy = new Map(taken.map((t) => [t.leaveTypeId, -Number(t._sum.days ?? 0)]))
 
   return types.map((type) => {
     const balance = balanceBy.get(type.id) ?? 0
     const held = pendingBy.get(type.id) ?? 0
+    const quota = own.get(`${employeeId}|${type.id}`) ?? Number(type.annualQuota)
 
     return {
       leaveTypeId: type.id,
       code: type.code,
       name: type.name,
-      annualQuota: Number(type.annualQuota),
+      annualQuota: quota,
       balance,
       pending: held,
       // What they can actually apply for right now. Showing the raw balance
       // and letting somebody apply for days already spoken for is how two
       // approvals overdraw the same entitlement.
       available: Math.round((balance - held) * 2) / 2,
+      isPaid: type.isPaid,
+      unlimited: isUnlimited(type.isPaid, quota),
+      taken: Math.round((takenBy.get(type.id) ?? 0) * 2) / 2,
       accrual: type.accrual,
+      joinerGrant: type.joinerGrant,
       unearned: 0,
       encashable: type.encashable,
       halfDayAllowed: type.halfDayAllowed,
@@ -208,11 +240,156 @@ export async function balancesFor(
   })
 }
 
+// ── A person's own days a year (client, 9 Oct 2026) ────────────────────────
+
+/** These people's own days a year, keyed `employeeId|leaveTypeId` — only where they have their own. */
+export async function ownQuotasOf(db: ScopedDb | TxDb, employeeIds: readonly string[]): Promise<Map<string, number>> {
+  if (employeeIds.length === 0) return new Map()
+  const rows = await db.employeeLeaveEntitlement.findMany({
+    where: { employeeId: { in: [...employeeIds] } },
+    select: { employeeId: true, leaveTypeId: true, annualQuota: true },
+  })
+  return new Map(rows.map((r) => [`${r.employeeId}|${r.leaveTypeId}`, Number(r.annualQuota)]))
+}
+
+/** Everybody with their own days a year of one type. */
+export async function ownQuotasOfType(db: TxDb, leaveTypeId: string): Promise<Set<string>> {
+  const rows = await db.employeeLeaveEntitlement.findMany({ where: { leaveTypeId }, select: { employeeId: true } })
+  return new Set(rows.map((r) => r.employeeId))
+}
+
+/** One person's own days a year of every type they have them for, with why and when. */
+export async function entitlementsOf(db: ScopedDb | TxDb, employeeId: string) {
+  return db.employeeLeaveEntitlement.findMany({
+    where: { employeeId },
+    select: { leaveTypeId: true, annualQuota: true, note: true, updatedAt: true },
+  })
+}
+
+export async function saveEntitlement(
+  db: TxDb,
+  data: { organizationId: string; employeeId: string; leaveTypeId: string; annualQuota: number; note: string | null; updatedByUserId: string },
+) {
+  return db.employeeLeaveEntitlement.upsert({
+    where: { organizationId_employeeId_leaveTypeId: { organizationId: data.organizationId, employeeId: data.employeeId, leaveTypeId: data.leaveTypeId } },
+    create: data,
+    update: { annualQuota: data.annualQuota, note: data.note, updatedByUserId: data.updatedByUserId },
+  })
+}
+
+export async function removeEntitlement(db: TxDb, employeeId: string, leaveTypeId: string): Promise<boolean> {
+  return (await db.employeeLeaveEntitlement.deleteMany({ where: { employeeId, leaveTypeId } })).count > 0
+}
+
+/**
+ * One person's ledger of one type for a leave year, oldest first — every
+ * movement in the balance, with the leave it came from where it came from one.
+ */
+export async function ledgerOf(db: ScopedDb, employeeId: string, leaveTypeId: string, leaveYear: number) {
+  return db.leaveLedgerEntry.findMany({
+    where: { employeeId, leaveTypeId, leaveYear },
+    select: {
+      id: true,
+      days: true,
+      reason: true,
+      note: true,
+      createdAt: true,
+      leaveRequest: { select: { fromDate: true, toDate: true } },
+    },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+  })
+}
+
+/** A leave type, archived or not — a statement of an old year still names it. */
+export async function leaveTypeById(db: ScopedDb, id: string) {
+  return db.leaveType.findFirst({ where: { id }, select: { id: true, code: true, name: true, isPaid: true, annualQuota: true } })
+}
+
+/** How many days before the leave year ends people are told of days that will lapse (Settings → Leave Config). */
+export async function reminderDaysOf(db: ScopedDb | TxDb, organizationId: string): Promise<number> {
+  const org = await db.organization.findUnique({ where: { id: organizationId }, select: { leaveYearEndReminderDays: true } })
+  return org?.leaveYearEndReminderDays ?? 30
+}
+
+export async function saveReminderDays(tx: TxDb, organizationId: string, days: number) {
+  await tx.organization.update({ where: { id: organizationId }, data: { leaveYearEndReminderDays: days } })
+}
+
+/** Of these people, who has been told of this leave year's lapsing days already. */
+export async function toldOfYearEnd(db: TxDb, employeeIds: readonly string[], leaveYear: number): Promise<Set<string>> {
+  if (employeeIds.length === 0) return new Set()
+  const rows = await db.leaveYearEndNotice.findMany({ where: { employeeId: { in: [...employeeIds] }, leaveYear }, select: { employeeId: true } })
+  return new Set(rows.map((r) => r.employeeId))
+}
+
+export async function markToldOfYearEnd(tx: TxDb, row: { organizationId: string; employeeId: string; leaveYear: number; days: number }) {
+  await tx.leaveYearEndNotice.create({ data: row })
+}
+
+/** Everybody still here who reports to one of these managers — their teams, by manager. */
+export async function teamsOf(db: ScopedDb, managerIds: readonly string[]) {
+  if (managerIds.length === 0) return []
+  return db.employee.findMany({
+    where: { reportingManagerId: { in: [...managerIds] }, archivedAt: null },
+    select: { id: true, fullName: true, reportingManagerId: true },
+  })
+}
+
+/**
+ * These people's leave waiting or approved that touches from..to — with each
+ * part's type, to say who is away — and every other part of an application
+ * that does, so an application in parts reads whole.
+ */
+export async function leaveAround(db: ScopedDb, employeeIds: readonly string[], from: Date, to: Date) {
+  if (employeeIds.length === 0) return []
+  const select = { id: true, employeeId: true, groupId: true, status: true, fromDate: true, toDate: true, leaveType: { select: { name: true } } } as const
+  const live = { employeeId: { in: [...employeeIds] }, status: { in: ['pending' as const, 'approved' as const] } }
+  const touching = await db.leaveRequest.findMany({ where: { ...live, fromDate: { lte: to }, toDate: { gte: from } }, select, orderBy: [{ fromDate: 'asc' }] })
+  const groups = [...new Set(touching.map((r) => r.groupId).filter((g): g is string => Boolean(g)))]
+  if (groups.length === 0) return touching
+  const seen = new Set(touching.map((r) => r.id))
+  const rest = await db.leaveRequest.findMany({ where: { ...live, groupId: { in: groups } }, select })
+  return [...touching, ...rest.filter((r) => !seen.has(r.id))]
+}
+
+/** Who of these people has anything at all in a year's ledger — any type, any reason. */
+export async function peopleWithEntries(db: ScopedDb | TxDb, employeeIds: readonly string[], leaveYear: number): Promise<Set<string>> {
+  if (employeeIds.length === 0) return new Set()
+  const rows = await db.leaveLedgerEntry.groupBy({ by: ['employeeId'], where: { employeeId: { in: [...employeeIds] }, leaveYear } })
+  return new Set(rows.map((r) => r.employeeId))
+}
+
+/** Who has been given a year at all: an opening grant of any type in it. */
+export async function peopleGrantedIn(db: TxDb, leaveYear: number): Promise<Set<string>> {
+  const rows = await db.leaveLedgerEntry.groupBy({ by: ['employeeId'], where: { leaveYear, reason: 'opening_grant' } })
+  return new Set(rows.map((r) => r.employeeId))
+}
+
+/** Each person's grant of a year, per type, as granted — the opening grant and every change to it since. */
+export async function grantTotals(db: TxDb, employeeIds: readonly string[], leaveYear: number, leaveTypeId?: string) {
+  if (employeeIds.length === 0) return []
+  return db.leaveLedgerEntry.groupBy({
+    by: ['employeeId', 'leaveTypeId'],
+    where: { employeeId: { in: [...employeeIds] }, leaveYear, reason: 'opening_grant', ...(leaveTypeId ? { leaveTypeId } : {}) },
+    _sum: { days: true },
+  })
+}
+
+/** Each person's days taken of a year, per type: approved, less any reversed — a positive number. */
+export async function takenTotals(db: ScopedDb | TxDb, employeeIds: readonly string[], leaveYear: number) {
+  if (employeeIds.length === 0) return []
+  return db.leaveLedgerEntry.groupBy({
+    by: ['employeeId', 'leaveTypeId'],
+    where: { employeeId: { in: [...employeeIds] }, leaveYear, reason: { in: ['consumed', 'reversal'] } },
+    _sum: { days: true },
+  })
+}
+
 /** Waiting or approved leave that starts after a day — all of it, when there is no day (never joined). */
 export async function requestsAfter(db: TxDb, employeeId: string, day: CalendarDate | null) {
   return db.leaveRequest.findMany({
     where: { employeeId, status: { in: ['pending', 'approved'] }, ...(day ? { fromDate: { gt: toDateColumn(day) } } : {}) },
-    select: { id: true, status: true, leaveTypeId: true, leaveYear: true, days: true, fromDate: true, toDate: true },
+    select: { id: true, status: true, leaveTypeId: true, leaveYear: true, days: true, fromDate: true, toDate: true, groupId: true },
   })
 }
 
@@ -271,25 +448,29 @@ export async function employeeName(db: TxDb, employeeId: string | null): Promise
   return (await db.employee.findFirst({ where: { id: employeeId }, select: { fullName: true } }))?.fullName ?? null
 }
 
-/** The ids of this person's requests still waiting for a decision. */
-export async function pendingIdsOf(db: TxDb, employeeId: string): Promise<string[]> {
-  const rows = await db.leaveRequest.findMany({ where: { employeeId, status: 'pending' }, select: { id: true } })
-  return rows.map((r) => r.id)
+/** This person's requests still waiting for a decision — the parts of one application with their group. */
+export async function pendingIdsOf(db: TxDb, employeeId: string): Promise<{ id: string; groupId: string | null }[]> {
+  return db.leaveRequest.findMany({ where: { employeeId, status: 'pending' }, select: { id: true, groupId: true }, orderBy: [{ fromDate: 'asc' }] })
 }
 
+const factsSelect = {
+  id: true,
+  employeeId: true,
+  groupId: true,
+  fromDate: true,
+  toDate: true,
+  days: true,
+  employee: { select: { fullName: true } },
+  leaveType: { select: { name: true } },
+} as const
+
 export async function requestFacts(db: TxDb, id: string) {
-  return db.leaveRequest.findFirst({
-    where: { id },
-    select: {
-      id: true,
-      employeeId: true,
-      fromDate: true,
-      toDate: true,
-      days: true,
-      employee: { select: { fullName: true } },
-      leaveType: { select: { name: true } },
-    },
-  })
+  return db.leaveRequest.findFirst({ where: { id }, select: factsSelect })
+}
+
+/** Every part of one application, earliest first — what a notice about the whole of it says. */
+export async function groupFacts(db: TxDb, groupId: string) {
+  return db.leaveRequest.findMany({ where: { groupId }, select: factsSelect, orderBy: [{ fromDate: 'asc' }] })
 }
 
 // ── Balances across people (Leave → Team Balances), and granting a year ──────
@@ -327,7 +508,7 @@ export async function peopleInScope(db: ScopedDb | TxDb, scope: ScopeContext, al
 export async function activeLeaveTypes(db: ScopedDb | TxDb) {
   return db.leaveType.findMany({
     where: { archivedAt: null },
-    select: { id: true, code: true, name: true, annualQuota: true, carryForward: true, carryForwardCap: true },
+    select: { id: true, code: true, name: true, annualQuota: true, isPaid: true, carryForward: true, carryForwardCap: true, joinerGrant: true },
     orderBy: { code: 'asc' },
   })
 }
@@ -378,7 +559,7 @@ export async function activeEmployee(db: ScopedDb, scope: ScopeContext, id: stri
 
 /** The days somebody is employed: from joining to their last working day, either open — and who may take which types. */
 export async function employmentWindow(db: ScopedDb | TxDb, id: string) {
-  return db.employee.findFirst({ where: { id }, select: { dateOfJoining: true, lastWorkingDate: true, gender: true } })
+  return db.employee.findFirst({ where: { id }, select: { dateOfJoining: true, lastWorkingDate: true, gender: true, confirmedOn: true } })
 }
 
 /** The year's grant of each type, as granted — what a monthly-accrual type earns a twelfth of a month. */
@@ -397,6 +578,20 @@ export async function encashedDays(db: ScopedDb | TxDb, employeeId: string, leav
   return -Number(result._sum.days ?? 0)
 }
 
-export async function activeLeaveType(db: ScopedDb, id: string) {
-  return db.leaveType.findFirst({ where: { id, archivedAt: null }, select: { id: true, code: true, name: true } })
+export async function activeLeaveType(db: ScopedDb | TxDb, id: string) {
+  return db.leaveType.findFirst({ where: { id, archivedAt: null }, select: { id: true, code: true, name: true, isPaid: true, annualQuota: true, joinerGrant: true } })
+}
+
+/** The company's unpaid types with no limit, in code order — what the rest of a short application can be taken as. */
+export async function unlimitedUnpaidTypes(db: ScopedDb | TxDb) {
+  return db.leaveType.findMany({ where: { archivedAt: null, isPaid: false, annualQuota: { lte: 0 } }, orderBy: { code: 'asc' } })
+}
+
+/** Everybody still here, for a grant nobody asked for: the company's, not a caller's scope. */
+export async function everybodyHere(db: ScopedDb | TxDb, ids?: readonly string[]) {
+  return db.employee.findMany({
+    where: { archivedAt: null, ...(ids ? { id: { in: [...ids] } } : {}) },
+    select: { id: true, employeeCode: true, fullName: true, dateOfJoining: true, lastWorkingDate: true, status: true },
+    orderBy: { fullName: 'asc' },
+  })
 }

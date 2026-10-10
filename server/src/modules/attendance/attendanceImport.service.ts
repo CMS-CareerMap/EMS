@@ -10,6 +10,7 @@ import * as repo from './attendance.repository'
 import { companyTimezone } from '../organization/organization.service'
 import { assertDaysOpen, closedMonthKeys } from '../payroll/payrollLock.service'
 import { audit } from '../audit/audit.service'
+import { tellAbsent } from './attendanceNotices'
 import { checkWork, loadWork } from '../organization/workRules.service'
 
 /**
@@ -50,6 +51,8 @@ export interface AttendanceImportResult {
     valid: number
     invalid: number
     wouldOverwrite: number
+    /** Lines with no times on a day of whole-day approved leave: left as the leave, not imported. */
+    onLeave: number
     imported: number
   }
   rows: ImportRow[]
@@ -189,6 +192,7 @@ export async function importAttendance(
   const candidates: { row: ImportRow; employee: (typeof employees)[number]; date: CalendarDate; start: number | null; end: number | null }[] = []
 
   let wouldOverwrite = 0
+  let onLeave = 0
 
   for (const [index, raw] of parsed.data.entries()) {
     const line = index + 2
@@ -293,6 +297,13 @@ export async function importAttendance(
     // the balance for a day worked. Half of one leaves the other half to grade.
     const leave = leaveOn.get(key) ?? null
     if (leave?.kind === 'full' && existing?.status === 'on_leave') {
+      // No times on it: the machine agrees nobody came — the leave stands, and
+      // the line is left out (client, 10 Oct 2026: a day imported absent, then
+      // applied for as leave, is in the next file of the month too).
+      if (start === null && end === null) {
+        onLeave += 1
+        continue
+      }
       row.issues.push({ field: 'date', message: `${employee.employeeCode} has approved leave on ${dayLabel(date)}. Reverse the leave first if they worked, or leave this line out.` })
       continue
     }
@@ -344,6 +355,7 @@ export async function importAttendance(
     valid: prepared.length,
     invalid,
     wouldOverwrite,
+    onLeave,
     imported: 0,
   }
 
@@ -387,6 +399,15 @@ export async function importAttendance(
       entityType: 'import',
       details: { rows: prepared.length, replacedExisting: wouldOverwrite },
     }, tx)
+
+    // Each person absent on a day that was not absent before is told — once,
+    // with every such day of the file (client, 10 Oct 2026).
+    const absentOf = new Map<string, CalendarDate[]>()
+    for (const row of prepared) {
+      if (row.status !== 'absent' || recordedOn.get(`${row.employee.id}|${row.date}`)?.status === 'absent') continue
+      absentOf.set(row.employee.id, [...(absentOf.get(row.employee.id) ?? []), row.date])
+    }
+    for (const [employeeId, days] of absentOf) await tellAbsent(ctx, tx, employeeId, days)
   })
 
   summary.imported = prepared.length

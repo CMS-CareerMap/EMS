@@ -29,6 +29,7 @@ import {
 import * as repo from './attendance.repository'
 import { withTransaction, type TxDb } from '../../platform/db/transaction'
 import { audit } from '../audit/audit.service'
+import { tellAbsent } from './attendanceNotices'
 import { companyTimezone } from '../organization/organization.service'
 import { assertDaysOpen } from '../payroll/payrollLock.service'
 import { assertWorkGoesUp, checkWork, loadWork } from '../organization/workRules.service'
@@ -340,6 +341,7 @@ export async function markAttendance(ctx: AppContext, input: MarkInput) {
     if (!ctx.can('attendance:update') && (await repo.dayRecorded(tx, input.employeeId, input.date))) {
       throw Forbidden('This day is already recorded. Changing it needs “Correct attendance”, which your role does not have.')
     }
+    const before = await repo.findDay(tx, input.employeeId, toDateColumn(input.date))
     const saved = await repo.upsertDay(tx, ctx.organizationId, {
       employeeId: input.employeeId,
       date: input.date,
@@ -362,6 +364,8 @@ export async function markAttendance(ctx: AppContext, input: MarkInput) {
       entityId: saved.id,
       details: { employeeId: input.employeeId, date: input.date, status, hoursWorked },
     }, tx)
+    // Marked absent now, and not before: they are told, with the way to apply leave for it.
+    if (status === 'absent' && before?.status !== 'absent') await tellAbsent(ctx, tx, input.employeeId, [input.date])
     return saved
   })
 
@@ -452,6 +456,8 @@ export async function writeCorrectedDay(
     entityId: saved.id,
     details: { employeeId: input.employeeId, date: input.date, status, hoursWorked, via: 'correction_request' },
   }, tx)
+  // Corrected to short of a half day: absent now, and told so — with the way to apply leave for it.
+  if (status === 'absent' && existing?.status !== 'absent') await tellAbsent(ctx, tx, input.employeeId, [input.date], { includeActor: true })
   return { id: saved.id, status, hoursWorked }
 }
 

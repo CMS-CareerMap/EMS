@@ -108,6 +108,21 @@ export function useMonthCalendar(year, month, { enabled = true } = {}) {
   })
 }
 
+/**
+ * One's own month in pay terms (client, 10 Oct 2026): days paid and days of
+ * loss of pay so far — as payroll will count them — each day of approved
+ * leave by its type, and each absent day with whether leave can still be
+ * asked for it. Read again whenever leave or attendance changes (both
+ * invalidate ['attendance']).
+ */
+export function useMyPayDays(year, month, { enabled = true } = {}) {
+  return useQuery({
+    queryKey: ['attendance', 'me', 'pay-days', year, month],
+    queryFn: async () => (await api.get(`/attendance/me/pay-days?year=${year}&month=${month}`)).data,
+    enabled: enabled && Boolean(year && month),
+  })
+}
+
 export function useMonthlyHours(year, month, employeeId) {
   const query = employeeId ? `&employeeId=${employeeId}` : ''
   return useQuery({

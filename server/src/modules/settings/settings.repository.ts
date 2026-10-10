@@ -126,6 +126,8 @@ export interface LeaveTypeValues {
   countsNonWorkingDays: boolean
   encashable: boolean
   encashMaxDaysPerYear: number | null
+  joinerGrant: 'months_left' | 'months_after_joining' | 'full_year'
+  usableAfterConfirmation: boolean
 }
 
 export async function createLeaveType(db: TxDb, organizationId: string, values: LeaveTypeValues) {

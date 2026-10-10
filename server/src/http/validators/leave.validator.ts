@@ -28,8 +28,20 @@ export const leaveApplySchema = z
   .object({
     ...dateRange,
     reason: z.string().trim().min(3, 'Give a reason, even a short one').max(500),
+    /// Apply as the preview offered: what the balance covers, and the rest as
+    /// this unpaid type (client, 9 Oct 2026). The service takes it only as
+    /// the preview offers it at that moment.
+    restLeaveTypeId: z.uuid().optional(),
+    /// …and the days the offer shown covered with the type asked for (0 when
+    /// none): a balance changed since splits elsewhere, and is refused rather
+    /// than applied as something the person never saw.
+    coveredDays: z.number().min(0).max(365).refine((d) => Number.isInteger(d * 2), 'Use whole or half days').optional(),
   })
   .strict()
+  .refine((body) => (body.restLeaveTypeId === undefined) === (body.coveredDays === undefined), {
+    path: ['coveredDays'],
+    message: 'Applying in parts needs the days the offer covered',
+  })
 
 export const leaveQuerySchema = z.object({
   status: z.enum(['pending', 'approved', 'rejected', 'cancelled']).optional(),
@@ -44,6 +56,13 @@ export const teamLeaveQuerySchema = z.object({
 })
 
 export const balanceQuerySchema = z.object({
+  employeeId: z.uuid().optional(),
+})
+
+/** One type's statement for a leave year — this one when left out (client, 10 Oct 2026). */
+export const statementQuerySchema = z.object({
+  leaveTypeId: z.uuid('Choose a leave type'),
+  leaveYear: z.coerce.number().int().min(2000).max(2100).optional(),
   employeeId: z.uuid().optional(),
 })
 

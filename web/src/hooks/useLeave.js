@@ -116,7 +116,12 @@ export function useApplyLeave() {
     // No `days` field. The server counts it from the dates, the weekly-off
     // pattern and the holiday calendar — a number sent from here would be a
     // claim, and the balance would believe it.
-    mutationFn: async ({ leave_type_id, from_date, to_date, reason, half_day_dates, half_day_sessions, employee_id }) =>
+    //
+    // `rest_leave_type_id` and `covered_days` apply as the preview offered
+    // (client, 9 Oct 2026): what the balance covers, the rest as unpaid leave.
+    // The covered days are what the person was shown — a balance changed
+    // since is refused, not applied as something they never saw.
+    mutationFn: async ({ leave_type_id, from_date, to_date, reason, half_day_dates, half_day_sessions, employee_id, rest_leave_type_id, covered_days }) =>
       (
         await api.post('/leave-requests', {
           leaveTypeId: leave_type_id,
@@ -126,6 +131,7 @@ export function useApplyLeave() {
           ...(half_day_dates?.length ? { halfDayDates: half_day_dates } : {}),
           ...(half_day_sessions && Object.keys(half_day_sessions).length ? { halfDaySessions: half_day_sessions } : {}),
           ...(employee_id ? { employeeId: employee_id } : {}),
+          ...(rest_leave_type_id ? { restLeaveTypeId: rest_leave_type_id, coveredDays: covered_days } : {}),
         })
       ).data,
     onSuccess: () => invalidateAll(queryClient),
@@ -219,6 +225,62 @@ export function useGrantLeave() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async ({ leaveYear }) => (await api.post('/leave-balances/grant', { leaveYear })).data,
+    onSuccess: () => invalidateAll(queryClient),
+  })
+}
+
+// ── The year-end reminder's lead (client, 10 Oct 2026) ──────────────────────
+
+/** How many days before the leave year ends people are told of days that will lapse. */
+export function useLeaveReminder({ enabled = true } = {}) {
+  return useQuery({ queryKey: ['leave', 'reminder'], queryFn: async () => (await api.get('/leave-balances/reminder')).data, enabled })
+}
+
+export function useSaveLeaveReminder() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ days }) => (await api.put('/leave-balances/reminder', { days })).data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['leave', 'reminder'] }),
+  })
+}
+
+// ── A leave statement: the passbook of one type (client, 10 Oct 2026) ────────
+
+/**
+ * One type's statement for a leave year — every movement in the balance, the
+ * balance after each. One's own; or, given `employeeId`, a person's for HR on
+ * their profile.
+ */
+export function useLeaveStatement({ leaveTypeId, leaveYear = null, employeeId = null }, { enabled = true } = {}) {
+  const query = new URLSearchParams({ leaveTypeId })
+  if (leaveYear) query.set('leaveYear', String(leaveYear))
+  return useQuery({
+    queryKey: ['leave', 'statement', employeeId ?? 'me', leaveTypeId, leaveYear ?? 'current'],
+    queryFn: async () => (await api.get(employeeId ? `/leave-balances/people/${employeeId}/statement?${query}` : `/leave-requests/statement?${query}`)).data,
+    enabled: enabled && Boolean(leaveTypeId),
+  })
+}
+
+// ── One person's days a year (client, 9 Oct 2026) ──────────────────────────
+
+/** One person's leave for the profile: each type's days a year — the company's and theirs — and this year's balance. */
+export function usePersonLeave(employeeId, { enabled = true } = {}) {
+  return useQuery({
+    queryKey: ['leave', 'person', employeeId],
+    queryFn: async () => (await api.get(`/leave-balances/people/${employeeId}`)).data,
+    enabled: enabled && Boolean(employeeId),
+  })
+}
+
+/**
+ * Their own days a year of one type — `days: null` puts them back on the
+ * company's. The years already granted change at once by the difference.
+ */
+export function useSetEntitlement() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ employeeId, leaveTypeId, days, note }) =>
+      (await api.put(`/leave-balances/people/${employeeId}/entitlement`, { leaveTypeId, days, note })).data,
     onSuccess: () => invalidateAll(queryClient),
   })
 }

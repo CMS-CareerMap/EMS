@@ -836,7 +836,9 @@ describe('the home page, section by section, and the numbers it used to invent',
 
   it('lists who is away in the next seven days, within the reach only', async () => {
     const today = zonedToday(new Date(), 'Asia/Kolkata')
-    const tomorrow = fromDateColumn(new Date(new Date(`${today}T00:00:00Z`).getTime() + 86_400_000))
+    // The next working day: run on a Saturday, tomorrow is the weekly off and no leave at all.
+    const next = new Date(new Date(`${today}T00:00:00Z`).getTime() + 86_400_000)
+    const tomorrow = fromDateColumn(next.getUTCDay() === 0 ? new Date(next.getTime() + 86_400_000) : next)
     await grant(aliceId, 12)
     await grant(strangerId, 12)
     await applyAs('alice', tomorrow, tomorrow)

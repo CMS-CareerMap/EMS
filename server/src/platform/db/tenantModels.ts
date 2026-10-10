@@ -24,6 +24,8 @@ export const TENANT_MODELS = [
   'EmployeeStatutoryIdentity',
   'LeaveType',
   'LeaveLedgerEntry',
+  'EmployeeLeaveEntitlement',
+  'LeaveYearEndNotice',
   'OrganizationPolicy',
   'PtSlab',
   'Holiday',

@@ -58,13 +58,20 @@ export const DOCUMENT_TYPES = [
   { code: 'other', label: 'Other Document', required: false },
 ]
 
-/** The five the existing UI already offers, with their short codes. */
+/**
+ * The types a company starts with, with their short codes — each one the
+ * company's to change, rename or archive (Settings → Leave Config).
+ *
+ * Loss of Pay is unpaid with no days a year, which means no limit: it needs no
+ * balance, and every day of it is cut from pay (client, 9 Oct 2026). Work From
+ * Home is not here: it is a request (Requests → Work from home), not leave.
+ */
 const LEAVE_TYPES = [
   { code: 'CL', name: 'Casual Leave', annualQuota: 12, isPaid: true, carryForward: false },
   { code: 'SL', name: 'Sick Leave', annualQuota: 12, isPaid: true, carryForward: false },
   { code: 'EL', name: 'Earned Leave', annualQuota: 15, isPaid: true, carryForward: true, carryForwardCap: 30 },
-  { code: 'WFH', name: 'Work From Home', annualQuota: 0, isPaid: true, carryForward: false },
   { code: 'CO', name: 'Comp Off', annualQuota: 0, isPaid: true, carryForward: false },
+  { code: 'LOP', name: 'Loss of Pay', annualQuota: 0, isPaid: false, carryForward: false },
 ]
 
 /**

@@ -4,7 +4,8 @@ import { lockFor } from '../../platform/db/locks'
 import { BusinessRule, Conflict, NotFound } from '../../platform/errors/AppError'
 import { logger } from '../../platform/logger'
 import { dayLabel, fromDateColumn, zonedToday } from '../../domain/shared/dates'
-import { leaveYearBounds, leaveYearLabel, planGrant, toHalfDays, type GrantEntry } from '../../domain/leave/grant'
+import { leaveYearBounds, leaveYearLabel, toHalfDays, type GrantEntry } from '../../domain/leave/grant'
+import { isUnlimited } from '../../domain/leave/leaveDays'
 import { getCurrentPolicy } from '../settings/settings.repository'
 import { companyTimezone } from '../organization/organization.service'
 import { audit } from '../audit/audit.service'
@@ -13,7 +14,8 @@ import { leaveYearOf } from './leave.service'
 import * as repo from './leave.repository'
 import { assertWorkGoesUp, checkWork, loadWork } from '../organization/workRules.service'
 import { approvalWorld, deciderOf, peopleDecidedBy } from './leaveApprover.service'
-import { pendingEncashDays, pendingEncashments } from '../requests/requests.repository'
+import { pendingEncashDays } from '../requests/requests.repository'
+import { grantLock, grantSummary, planYearFor } from './leaveEntitlement.service'
 
 /**
  * Leave → Team Balances: everybody's balances, the year's grant, and
@@ -56,51 +58,16 @@ const sumOf = (value: { _sum: { days: unknown } }) => Number(value._sum.days ?? 
  * What a grant of this year would add now, for everybody the caller's leave
  * scope reaches — the whole company for HR. A role given grants over its team
  * (Day 21) grants its team's; the rest wait for somebody wider, and nothing is
- * granted twice either way.
+ * granted twice either way. The plan itself is the one every grant uses
+ * (leaveEntitlement.service): own days a year, the joiner rule, carry forward.
  */
 async function planFor(db: AppContext['db'] | TxDb, ctx: AppContext, year: YearContext) {
   const people = await repo.peopleInScope(db, ctx.scopeFor('leave'))
-  const ids = people.map((p) => p.id)
-  const [types, already, lastYear, lastYearPending, lastYearEncashing] = await Promise.all([
-    repo.activeLeaveTypes(db),
-    repo.grantsMade(db, year.leaveYear),
-    repo.ledgerTotals(db, ids, year.leaveYear - 1),
-    repo.pendingTotals(db, ids, year.leaveYear - 1),
-    pendingEncashments(db, year.leaveYear - 1),
-  ])
-  // What is left of last year is its balance less what is still applied for
-  // in it: those days are spoken for there, and are not carried.
-  const left = new Map(lastYear.map((t) => [`${t.employeeId}|${t.leaveTypeId}`, sumOf(t)]))
-  for (const p of lastYearPending) {
-    const key = `${p.employeeId}|${p.leaveTypeId}`
-    left.set(key, (left.get(key) ?? 0) - sumOf(p))
-  }
-  // Days waiting to be encashed (client §36) are spoken for there too.
-  for (const e of lastYearEncashing) {
-    const key = `${e.employeeId}|${e.leaveTypeId}`
-    if (left.has(key)) left.set(key, (left.get(key) ?? 0) - Number(e.days ?? 0))
-  }
-  const entries = planGrant({
-    leaveYear: year.leaveYear,
-    startMonth: year.startMonth,
-    today: year.today,
-    employees: people.map((p) => ({ id: p.id, dateOfJoining: fromDateColumn(p.dateOfJoining), lastWorkingDate: fromDateColumn(p.lastWorkingDate), active: p.status === 'active' })),
-    leaveTypes: types.map((t) => ({ id: t.id, annualQuota: Number(t.annualQuota), carryForward: t.carryForward, carryForwardCap: Number(t.carryForwardCap) })),
-    already: already.map((a) => ({ employeeId: a.employeeId, leaveTypeId: a.leaveTypeId, reason: a.reason as GrantEntry['reason'] })),
-    lastYearLeft: (employeeId, leaveTypeId) => left.get(`${employeeId}|${leaveTypeId}`) ?? 0,
-  })
+  const { entries, types } = await planYearFor(db, people, year)
   return { entries, people, types }
 }
 
-/** What the grant gives INTO the year — not the days carried out of last year to match. */
-function summaryOf(entries: GrantEntry[], leaveYear: number) {
-  const into = entries.filter((e) => e.leaveYear === leaveYear)
-  return {
-    entries: into.length,
-    people: new Set(into.map((e) => e.employeeId)).size,
-    days: toHalfDays(into.reduce((a, e) => a + e.days, 0)),
-  }
-}
+const summaryOf = grantSummary
 
 /** Said to somebody told of a grant or a correction: when they will see it. */
 function whenItShows(year: YearContext): string {
@@ -117,13 +84,16 @@ export async function teamBalances(ctx: AppContext, requestedYear?: number) {
   const world = await approvalWorld(ctx.db, ctx.organizationId)
   const people = await repo.peopleInScope(ctx.db, ctx.scopeFor('leave'), peopleDecidedBy(world, deciderOf(ctx)))
   const ids = people.map((p) => p.id)
-  const [types, ledger, pending] = await Promise.all([
+  const [types, ledger, pending, takenRows, own] = await Promise.all([
     repo.activeLeaveTypes(ctx.db),
     repo.ledgerTotals(ctx.db, ids, year.leaveYear),
     repo.pendingTotals(ctx.db, ids, year.leaveYear),
+    repo.takenTotals(ctx.db, ids, year.leaveYear),
+    repo.ownQuotasOf(ctx.db, ids),
   ])
   const balance = new Map(ledger.map((l) => [`${l.employeeId}|${l.leaveTypeId}`, sumOf(l)]))
   const held = new Map(pending.map((p) => [`${p.employeeId}|${p.leaveTypeId}`, sumOf(p)]))
+  const taken = new Map(takenRows.map((t) => [`${t.employeeId}|${t.leaveTypeId}`, -sumOf(t)]))
 
   const canManage = ctx.can('leave:balance:manage')
   const waiting = canManage ? summaryOf((await planFor(ctx.db, ctx, year)).entries, year.leaveYear) : null
@@ -136,7 +106,9 @@ export async function teamBalances(ctx: AppContext, requestedYear?: number) {
     leaveYear: year.leaveYear,
     label: leaveYearLabel(year.leaveYear, year.startMonth),
     years: [year.current, year.current + 1].map((y) => ({ leaveYear: y, label: leaveYearLabel(y, year.startMonth) })),
-    types: types.map((t) => ({ id: t.id, code: t.code, name: t.name, annualQuota: Number(t.annualQuota) })),
+    // An unpaid type with no days a year has no limit: its column is what was
+    // taken, and it has no balance to correct (client, 9 Oct 2026).
+    types: types.map((t) => ({ id: t.id, code: t.code, name: t.name, annualQuota: Number(t.annualQuota), isPaid: t.isPaid, unlimited: isUnlimited(t.isPaid, Number(t.annualQuota)) })),
     people: people.map((p) => ({
       employeeId: p.id,
       employeeCode: p.employeeCode,
@@ -155,7 +127,9 @@ export async function teamBalances(ctx: AppContext, requestedYear?: number) {
         const key = `${p.id}|${t.id}`
         const b = balance.get(key) ?? 0
         const h = held.get(key) ?? 0
-        return { leaveTypeId: t.id, balance: b, pending: h, available: toHalfDays(b - h) }
+        // Somebody with their own days a year of an unpaid type has a cap, not "no limit".
+        const unlimited = isUnlimited(t.isPaid, own.get(key) ?? Number(t.annualQuota))
+        return { leaveTypeId: t.id, balance: b, pending: h, available: toHalfDays(b - h), taken: toHalfDays(taken.get(key) ?? 0), unlimited }
       }),
     })),
     // Null for somebody who may not grant: they are not told what they cannot do.
@@ -205,7 +179,7 @@ export async function grantLeaveYear(ctx: AppContext, requestedYear?: number) {
   const year = await yearFor(ctx, requestedYear)
 
   const result = await withTransaction(ctx.db, async (tx) => {
-    await lockFor(tx, `leave-grant:${ctx.organizationId}:${year.leaveYear}`)
+    await lockFor(tx, grantLock(ctx.organizationId, year.leaveYear))
     const { entries } = await planFor(tx, ctx, year)
     if (entries.length === 0) {
       throw Conflict(`Everybody already has their ${leaveYearLabel(year.leaveYear, year.startMonth)} leave. Nothing was granted.`)
@@ -261,6 +235,12 @@ export async function adjustBalance(ctx: AppContext, input: AdjustInput) {
   ])
   if (!employee) throw NotFound('No such employee')
   if (!type) throw NotFound('No such leave type')
+  // Unpaid with no limit (Loss of Pay): there is no balance to correct — its
+  // days are taken by applying for them, and every one is cut from pay.
+  const own = (await repo.ownQuotasOf(ctx.db, [employee.id])).get(`${employee.id}|${type.id}`)
+  if (isUnlimited(type.isPaid, own ?? Number(type.annualQuota))) {
+    throw BusinessRule(`${type.name} has no limit, so there is no balance to correct. Its days are applied for and approved like any leave.`)
+  }
   // Your own balance — or that of somebody who corrects balances too — is
   // corrected by the people above them in the company tree (Day 22).
   await assertWorkGoesUp(ctx, ctx.db, 'leave_balance', input.employeeId)

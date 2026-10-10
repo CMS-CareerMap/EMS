@@ -120,6 +120,48 @@ export { runLock }
 
 // ── 1. Plan ─────────────────────────────────────────────────────────────────
 
+/** The period in force on a day — the same rule calculate() applies. */
+export function inForceOn<T extends { effectiveFrom: Date; effectiveTo: Date | null }>(rows: readonly T[], day: CalendarDate): T | null {
+  return rows.find((row) => fromDateColumn(row.effectiveFrom) <= day && (row.effectiveTo === null || fromDateColumn(row.effectiveTo) >= day)) ?? null
+}
+
+/**
+ * One person's loss of pay for a month, as the payroll run reckons it: the
+ * company's days off, their attendance and their approved leave — paid or
+ * unpaid by its type. One function for the run and for the person's own
+ * Attendance page (client, 10 Oct 2026), so the two can never disagree.
+ */
+export function lossOfPayOf(input: {
+  year: number
+  month: number
+  window: EmploymentWindow
+  policy: { weeklyOffDays: unknown; sandwichRule: boolean }
+  holidays: readonly CalendarDate[]
+  attendance: readonly { date: Date; status: Parameters<typeof lossOfPay>[0]['attendance'][number]['status'] }[]
+  leave: readonly { status: string; fromDate: Date; toDate: Date; halfDayDates: string[]; leaveType: { isPaid: boolean } }[]
+  today: CalendarDate
+}) {
+  const weeklyOffDays = input.policy.weeklyOffDays as Weekday[]
+  const calendar = monthCalendar({ year: input.year, month: input.month, weeklyOffDays, holidays: input.holidays })
+  const approved = input.leave
+    .filter((row) => row.status === 'approved')
+    .map((row) => ({
+      from: fromDateColumn(row.fromDate)!,
+      to: fromDateColumn(row.toDate)!,
+      halfDays: row.halfDayDates,
+      paid: row.leaveType.isPaid,
+    }))
+  const lop = lossOfPay({
+    calendar,
+    window: input.window,
+    attendance: input.attendance.map((row) => ({ date: fromDateColumn(row.date)!, status: row.status })),
+    leave: leaveDaysIn(approved, calendar, weeklyOffDays),
+    sandwichRule: input.policy.sandwichRule,
+    today: input.today,
+  })
+  return { calendar, weeklyOffDays, lop }
+}
+
 export async function planMonth(ctx: AppContext, year: number, month: number): Promise<MonthPlan> {
   const key = monthKey(year, month)
   const monthStart = `${key}-01`
@@ -166,11 +208,6 @@ export async function planMonth(ctx: AppContext, year: number, month: number): P
   const entriesOf = groupBy(entries, (row) => row.employeeId)
   const salariesOf = groupBy(salaries, (row) => row.employeeId)
 
-  /** The period in force on a day — the same rule calculate() applies. */
-  const inForceOn = <T extends { effectiveFrom: Date; effectiveTo: Date | null }>(rows: readonly T[], day: CalendarDate) =>
-    rows.find((row) => fromDateColumn(row.effectiveFrom) <= day && (row.effectiveTo === null || fromDateColumn(row.effectiveTo) >= day)) ??
-    null
-
   const people: Person[] = []
   const blockers: Blocker[] = []
   let rules: MonthPlan['rules'] = null
@@ -204,30 +241,18 @@ export async function planMonth(ctx: AppContext, year: number, month: number): P
         rules = { lopBasis: policy.lopBasis, sandwichRule: policy.sandwichRule, tdsEnabled: policy.tdsEnabled }
       }
 
-      const weeklyOffDays = policy.weeklyOffDays as Weekday[]
-      const calendar = monthCalendar({ year, month, weeklyOffDays, holidays })
       const theirLeave = leaveOf.get(employee.id) ?? []
 
-      const approved = theirLeave
-        .filter((row) => row.status === 'approved')
-        .map((row) => ({
-          from: fromDateColumn(row.fromDate),
-          to: fromDateColumn(row.toDate),
-          halfDays: row.halfDayDates,
-          paid: row.leaveType.isPaid,
-        }))
-
-      lop = lossOfPay({
-        calendar,
+      lop = lossOfPayOf({
+        year,
+        month,
         window,
-        attendance: (attendanceOf.get(employee.id) ?? []).map((row) => ({
-          date: fromDateColumn(row.date),
-          status: row.status,
-        })),
-        leave: leaveDaysIn(approved, calendar, weeklyOffDays),
-        sandwichRule: policy.sandwichRule,
+        policy,
+        holidays,
+        attendance: attendanceOf.get(employee.id) ?? [],
+        leave: theirLeave,
         today,
-      })
+      }).lop
 
       if (lop.unmarked.length > 0) {
         warnings.push(

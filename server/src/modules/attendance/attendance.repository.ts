@@ -286,6 +286,9 @@ export async function upsertDay(
     lateMinutes: input.lateMinutes ?? null,
     earlyLeavingMinutes: input.earlyLeavingMinutes ?? null,
     overtimeMinutes: input.overtimeMinutes ?? null,
+    // Written by hand now: whatever an approved leave took over is no longer there to give back.
+    statusBeforeLeave: null,
+    sourceBeforeLeave: null,
   }
 
   const row = existing
@@ -396,9 +399,32 @@ export async function createDay(db: TxDb, data: Prisma.AttendanceUncheckedCreate
   return db.attendance.create({ data })
 }
 
-/** The rows approved leave wrote between two dates — never a punch. */
-export async function deleteLeaveDays(db: TxDb, employeeId: string, from: Date, to: Date) {
-  return db.attendance.deleteMany({ where: { employeeId, source: 'leave', date: { gte: from, lte: to } } })
+/**
+ * The days approved leave wrote between two dates, given back when the leave
+ * is: a day it created is removed (never a punch); an absent day it took over
+ * (client, 10 Oct 2026) is put back as it was.
+ */
+export async function releaseLeaveDays(db: TxDb, employeeId: string, from: Date, to: Date) {
+  const where = { employeeId, source: 'leave' as const, date: { gte: from, lte: to } }
+  await db.attendance.deleteMany({ where: { ...where, statusBeforeLeave: null } })
+  const takenOver = await db.attendance.findMany({ where: { ...where, statusBeforeLeave: { not: null } }, select: { id: true, statusBeforeLeave: true, sourceBeforeLeave: true } })
+  for (const day of takenOver) {
+    await db.attendance.update({
+      where: { id: day.id },
+      data: { status: day.statusBeforeLeave!, source: day.sourceBeforeLeave ?? 'manual', statusBeforeLeave: null, sourceBeforeLeave: null },
+    })
+  }
+}
+
+/**
+ * An absent day with no punch, taken over by approved leave (client, 10 Oct
+ * 2026): it now says leave — what it was is kept, for a reversal to put back.
+ */
+export async function takeOverAbsentDay(db: TxDb, day: { id: string; status: AttendanceStatus; source: AttendanceSource }, markedByUserId: string) {
+  return db.attendance.update({
+    where: { id: day.id },
+    data: { status: 'on_leave', source: 'leave', statusBeforeLeave: day.status, sourceBeforeLeave: day.source, markedByUserId },
+  })
 }
 
 /** The values of one day's row, apart from whose and which day it is. */
@@ -408,11 +434,18 @@ export async function updateDay(db: TxDb, id: string, data: Prisma.AttendanceUnc
   return db.attendance.update({ where: { id }, data })
 }
 
+/** Closes a day still open, in one statement — null when it was closed a moment ago (two taps at once). */
+export async function closeDayIf(db: TxDb, id: string, data: Prisma.AttendanceUncheckedUpdateManyInput) {
+  const result = await db.attendance.updateMany({ where: { id, checkOut: null }, data })
+  return result.count === 1 ? db.attendance.findUniqueOrThrow({ where: { id } }) : null
+}
+
 /** Writes one person's day: the row there is, changed — or a new one. */
 export async function replaceDay(db: TxDb, organizationId: string, employeeId: string, date: Date, data: DayValues) {
   const existing = await findDay(db, employeeId, date)
+  // Replaced now: whatever an approved leave took over is no longer there to give back.
   return existing
-    ? db.attendance.update({ where: { id: existing.id }, data })
+    ? db.attendance.update({ where: { id: existing.id }, data: { ...data, statusBeforeLeave: null, sourceBeforeLeave: null } })
     : db.attendance.create({ data: { ...data, organizationId, employeeId, date } })
 }
 
