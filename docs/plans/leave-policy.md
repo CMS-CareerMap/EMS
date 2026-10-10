@@ -141,7 +141,7 @@ has an unpaid type with no limit.
   - LeaveType gets "new joiner" and "usable from"; a new `EmployeeLeaveEntitlement`
     table holds overrides (employee, type, days); LeaveRequest gets `groupId`.
   - Data: LOP is added where no unpaid type exists, and WFH is archived.
-  - **Neon must migrate** after merge.
+  - Neon migrated 10 Oct 2026, after the merge (PR #42).
 - **Tests:**
   - **Domain:** the entitlement rules (new joiner / usable from / override /
     mid-year change); unpaid with no limit vs with a limit; splitting a range
@@ -220,8 +220,8 @@ cannot be applied for; the person takes a half day or leave instead.**
 
 ## Part 1 as built (10 Oct 2026)
 
-Migration `20261010051204_leave_policy_loss_of_pay` — **Neon must migrate after
-the merge.**
+Migration `20261010051204_leave_policy_loss_of_pay` — merged as PR #42, migrated
+on Neon 10 Oct 2026.
 
 - **Settings per type:** `LeaveType.joinerGrant` (`months_left` — the rule
   before, the joining month counted; `months_after_joining` — whole months
@@ -307,7 +307,7 @@ the merge.**
   none, the report); E2E `leavepolicy`; `day20` columns now CL, CO, EL, LOP, SL.
 - **Leave day to day (A–E, Devesh 10 Oct 2026, same branch).** Migrations
   `20261010104705_leave_extras_absent_and_reminder` and
-  `20261010143006_leave_year_end_notice` (Neon must migrate both):
+  `20261010143006_leave_year_end_notice` (both migrated on Neon 10 Oct 2026):
   - **A — Attendance in pay terms:** `GET /api/attendance/me/pay-days`
     (`attendance:read`, one's own): days paid and unpaid so far by the payroll
     run's own reckoning (`lossOfPayOf`, shared with `planMonth`; `proration`),
