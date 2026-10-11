@@ -26,7 +26,7 @@ const HEMA_SELF = `d20-${fx.stamp}-hema.self@example.com`
 const PAGES = ['/dashboard', '/employees', '/attendance', '/leave', '/requests', '/payroll', '/payslips', '/documents', '/reports', '/settings']
 const TABS = {
   '/requests': [/^My requests/, /^To decide/, /^All requests/],
-  '/settings': ['Company', 'Users & Roles', 'Roles & Permissions', 'Company Tree', 'Approvals', 'Organisation', 'Leave Config', 'Payroll Config', 'Documents', 'Employee Lifecycle', 'Notifications', 'Audit Log'],
+  '/settings': ['Company', 'Users & Roles', 'Roles & Permissions', 'Company Tree', 'Approvals', 'Organisation', 'Attendance Security', 'Leave Config', 'Payroll Config', 'Documents', 'Employee Lifecycle', 'Notifications', 'Audit Log'],
   '/payroll': ['Payroll runs', 'Salary structure', 'Incentives', 'Income tax (TDS)', 'Loans & advances', 'Components', 'Bank accounts', 'Bank file format'],
   '/leave': [/^Leave Requests/, /^Team Requests/, /^Team Balances/, /^Leave Balance/, /^Holiday Calendar/],
   '/documents': ['Company documents', 'My documents', 'Employee documents'],

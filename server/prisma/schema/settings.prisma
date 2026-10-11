@@ -240,12 +240,10 @@ model GeofenceLocation {
   latitude  Decimal @db.Decimal(10, 7)
   longitude Decimal @db.Decimal(10, 7)
 
-  /// Metres, not kilometres. The UI asks for km and converts — storing the
-  /// smaller unit means no fractions and no rounding argument later.
-  ///
-  /// The client wants 15–30 m: an employee must be practically at the desk,
-  /// not merely in the neighbourhood.
-  radiusMeters Int @default(30)
+  /// Metres. The client wants 15–20 m, "not a metre more" (11 Oct 2026): an
+  /// employee must be in the office hall, not merely in the neighbourhood. The
+  /// check never applies more than 20 (domain/attendance/geofence.ts).
+  radiusMeters Int @default(20)
 
   /// How imprecise a GPS reading may be before it is refused outright.
   ///
@@ -262,7 +260,8 @@ model GeofenceLocation {
   /// REJECTED, and the employee is asked to try again near a window. The system
   /// says "I cannot tell" instead of pretending to know, which is the only
   /// honest answer when the measurement is wider than the thing being measured.
-  maxAccuracyMeters Int @default(50)
+  /// 10–20 m (11 Oct 2026); never more than 20 is applied.
+  maxAccuracyMeters Int @default(20)
 
   isActive Boolean @default(true)
 

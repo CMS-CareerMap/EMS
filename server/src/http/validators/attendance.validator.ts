@@ -1,25 +1,66 @@
 import { z } from 'zod'
 
-/**
- * A punch-in reading.
- *
- * All three coordinates are optional here and REQUIRED by the service when the
- * employee is in `app` mode. That split is deliberate: whether a reading is
- * needed depends on the employee, which the validator does not know — and
- * making it required for everybody would break biometric staff, who have no
- * reason to send one.
- */
-export const punchInSchema = z
+const latitude = z.number().min(-90).max(90)
+const longitude = z.number().min(-180).max(180)
+/// The browser's own error estimate. Rejected above 10 km, which is not a
+/// location at all — it is the phone saying it has no idea.
+const accuracyMeters = z.number().min(0).max(10_000)
+const touchPoints = z.number().int().min(0).max(64)
+/// The random key the phone's browser keeps (lib/deviceKey.js): only its hash is stored.
+const deviceKey = z.string().min(16).max(128).regex(/^[A-Za-z0-9_-]+$/)
+/// The selfie, as the browser made it small: a JPEG, PNG or WebP data URL (~50 KB).
+const photo = z.string().max(900_000).regex(/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/, 'The photo could not be read. Take it again.')
+
+/** One reading of the burst the phone took (client, 11 Oct 2026). */
+const reading = z
   .object({
-    latitude: z.number().min(-90).max(90).optional(),
-    longitude: z.number().min(-180).max(180).optional(),
-    /// The browser's own error estimate. Rejected above 10 km, which is not a
-    /// location at all — it is the phone saying it has no idea.
-    accuracyMeters: z.number().min(0).max(10_000).optional(),
+    latitude,
+    longitude,
+    accuracyMeters,
+    /// The phone's clock, ms since 1970 — every reading the page takes has one.
+    at: z.number().int().positive(),
   })
   .strict()
 
-export type PunchInBody = z.infer<typeof punchInSchema>
+/**
+ * A punch — in or out.
+ *
+ * The readings are optional here and REQUIRED by the service when the day
+ * needs a location. That split is deliberate: whether a reading is needed
+ * depends on the employee and the day, which the validator does not know.
+ * Only the burst, as the page sends it — each reading with its time — so the
+ * signs that are read from it (Layer 4) cannot be left out by sending less.
+ */
+export const punchSchema = z
+  .object({
+    /// From POST /attendance/punch-start.
+    token: z.string().min(1).max(1024).optional(),
+    readings: z.array(reading).max(10).optional(),
+    /// The page's count of touch points: an iPad describes itself as a Mac.
+    touchPoints: touchPoints.optional(),
+    deviceKey: deviceKey.optional(),
+    photo: photo.optional(),
+  })
+  .strict()
+
+export type PunchBody = z.infer<typeof punchSchema>
+
+/** A day's punches for the roster's "Evidence" (client, 11 Oct 2026). */
+export const dayEvidenceQuerySchema = z.object({ employeeId: z.uuid(), date: z.iso.date() }).strict()
+
+/** Phones for HR: the ones waiting, or all of them. */
+export const devicesQuerySchema = z.object({ status: z.enum(['waiting', 'all']).optional() }).strict()
+
+/** Suspicious punches between two days (client, 11 Oct 2026); the last week when left out. */
+export const suspiciousQuerySchema = z
+  .object({
+    from: z.iso.date().optional(),
+    to: z.iso.date().optional(),
+  })
+  .strict()
+
+/** Pressing Check In or Check Out: which way. */
+export const punchStartSchema = z.object({ action: z.enum(['in', 'out']), touchPoints: touchPoints.optional(), deviceKey: deviceKey.optional() }).strict()
 
 /** Query for the attendance list. Either a single date, or a month. */
 export const attendanceQuerySchema = z.object({

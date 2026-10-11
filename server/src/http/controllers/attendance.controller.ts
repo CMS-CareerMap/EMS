@@ -1,6 +1,6 @@
-import type { RequestHandler } from 'express'
-import { punchIn, punchOut, myToday, myWorkplace, type PunchResult } from '../../modules/attendance/attendance.service'
-import { payDaysQuerySchema, punchInSchema } from '../validators/attendance.validator'
+import type { Request, RequestHandler } from 'express'
+import { punchIn, punchOut, myToday, myWorkplace, startPunch, type PunchInput, type PunchResult } from '../../modules/attendance/attendance.service'
+import { payDaysQuerySchema, punchSchema, punchStartSchema } from '../validators/attendance.validator'
 import { myPayDays } from '../../modules/payroll/myPayDays.service'
 import { parseBody } from '../validators/parse'
 import { appContext } from '../context'
@@ -40,26 +40,67 @@ function payload(result: PunchResult) {
  * somebody else cannot be pointed at the wrong person.
  */
 export const postPunchIn: RequestHandler = async (req, res) => {
-  const ctx = appContext(res)
-  const input = parseBody(punchInSchema, req.body ?? {})
-
-  // The device that checked in (client §31): what the browser says it is.
-  const result = await punchIn(ctx, {
-    latitude: input.latitude,
-    longitude: input.longitude,
-    accuracyMeters: input.accuracyMeters,
-    device: req.get('user-agent') ?? undefined,
-  })
-
+  const result = await punchIn(appContext(res), punchInputOf(req))
   res.status(201).json({ data: payload(result), meta: { requestId: res.locals.requestId } })
 }
 
-/** POST /api/attendance/punch-out */
-export const postPunchOut: RequestHandler = async (_req, res) => {
-  const ctx = appContext(res)
-  const result = await punchOut(ctx)
-
+/** POST /api/attendance/punch-out — a location too, on an office day when the company checks check-outs. */
+export const postPunchOut: RequestHandler = async (req, res) => {
+  const result = await punchOut(appContext(res), punchInputOf(req))
   res.status(200).json({ data: payload(result), meta: { requestId: res.locals.requestId } })
+}
+
+/**
+ * A punch's body, as the service takes it: the start token, the burst of
+ * readings, the device that punched (client §31: what the browser says it is)
+ * and the address it came from.
+ */
+function punchInputOf(req: Request): PunchInput {
+  const input = parseBody(punchSchema, req.body ?? {})
+  return {
+    token: input.token,
+    readings: input.readings,
+    ...deviceOf(req, input.touchPoints, input.deviceKey),
+    ...(input.photo ? { photo: photoOf(input.photo) } : {}),
+  }
+}
+
+/** What the browser says it is: its description, its mobile hint, its touch points, its key — and where it came from. */
+function deviceOf(req: Request, touchPoints: number | undefined, deviceKey: string | undefined): PunchInput {
+  return {
+    device: req.get('user-agent') ?? undefined,
+    mobileHint: req.get('sec-ch-ua-mobile') ?? undefined,
+    touchPoints,
+    deviceKey,
+    ip: req.ip,
+  }
+}
+
+/** The selfie's data URL as bytes, with the type the browser said — checked against the bytes when stored. */
+function photoOf(dataUrl: string) {
+  const [, declaredType = '', data = ''] = /^data:([^;]+);base64,(.*)$/.exec(dataUrl) ?? []
+  return { declaredType, bytes: Buffer.from(data, 'base64') }
+}
+
+/**
+ * POST /api/attendance/punch-start — pressing Check In or Check Out (client,
+ * 11 Oct 2026): anything that would refuse the punch is said now; otherwise
+ * the start token, and whether the location is needed and how precisely.
+ */
+export const postPunchStart: RequestHandler = async (req, res) => {
+  const { action, touchPoints, deviceKey } = parseBody(punchStartSchema, req.body ?? {})
+  const start = await startPunch(appContext(res), action, deviceOf(req, touchPoints, deviceKey))
+  res.status(200).json({
+    data: {
+      token: start.token,
+      expires_in_seconds: start.expiresInSeconds,
+      location_needed: start.locationNeeded,
+      radius_meters: start.radiusMeters,
+      accuracy_meters: start.accuracyMeters,
+      photo_needed: start.photoNeeded,
+    },
+    meta: { requestId: res.locals.requestId },
+  })
 }
 
 /** GET /api/attendance/me/workplace — office, home, on duty or remote today, and whether check-in needs a location. */
@@ -69,6 +110,7 @@ export const getMyWorkplace: RequestHandler = async (_req, res) => {
     data: {
       work_mode: where.workMode,
       location_needed: where.locationNeeded,
+      check_out_location_needed: where.checkOutLocationNeeded,
       overtime_enabled: where.overtimeEnabled,
       shift: where.shift
         ? {

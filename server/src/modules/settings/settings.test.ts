@@ -285,7 +285,7 @@ describe('geofence, which used to live in one admin browser', () => {
       name: 'Head Office',
       latitude: 18.5204303,
       longitude: 73.8567437,
-      radiusMeters: 250,
+      radiusMeters: 20,
     })
     expect(saved.status).toBe(200)
 
@@ -293,9 +293,9 @@ describe('geofence, which used to live in one admin browser', () => {
     const office = reread.body.data.find((g: { name: string }) => g.name === 'Head Office')
 
     expect(office.latitude).toBeCloseTo(18.5204303, 6)
-    expect(office.radius_meters).toBe(250)
+    expect(office.radius_meters).toBe(20)
     // The page works in kilometres; the column stores metres.
-    expect(office.radius_km).toBe(0.25)
+    expect(office.radius_km).toBe(0.02)
   })
 
   it('updates the same location rather than adding a second one', async () => {
@@ -303,13 +303,13 @@ describe('geofence, which used to live in one admin browser', () => {
       name: 'Head Office',
       latitude: 18.52,
       longitude: 73.85,
-      radiusMeters: 500,
+      radiusMeters: 15,
     })
 
     const reread = await get('/geofence')
     const offices = reread.body.data.filter((g: { name: string }) => g.name === 'Head Office')
     expect(offices).toHaveLength(1)
-    expect(offices[0].radius_meters).toBe(500)
+    expect(offices[0].radius_meters).toBe(15)
   })
 
   it('refuses coordinates that are not on Earth', async () => {
@@ -317,19 +317,69 @@ describe('geofence, which used to live in one admin browser', () => {
       name: 'Nowhere',
       latitude: 200,
       longitude: 73.85,
-      radiusMeters: 250,
+      radiusMeters: 20,
     })
     expect(res.status).toBe(422)
   })
 
-  it('refuses a radius that would cover the state', async () => {
-    const res = await put('/geofence', {
-      name: 'Too Big',
-      latitude: 18.52,
-      longitude: 73.85,
-      radiusMeters: 500_000,
+  it('refuses a radius outside the client’s 15–20 m — not a metre more (11 Oct 2026)', async () => {
+    for (const radiusMeters of [500_000, 25, 21, 14]) {
+      const res = await put('/geofence', { name: 'Head Office', latitude: 18.52, longitude: 73.85, radiusMeters })
+      expect(res.status, String(radiusMeters)).toBe(422)
+      expect(JSON.stringify(res.body.error.details)).toMatch(/15 to 20 m/)
+    }
+  })
+
+  it('keeps one office: saving another name switches the old one off', async () => {
+    const res = await put('/geofence', { name: 'New Office', latitude: 18.53, longitude: 73.86, radiusMeters: 20 })
+    expect(res.status).toBe(200)
+    const active = res.body.data.filter((g: { is_active: boolean }) => g.is_active)
+    expect(active.map((g: { name: string }) => g.name)).toEqual(['New Office'])
+    // Back as it was, for what follows.
+    await put('/geofence', { name: 'Head Office', latitude: 18.52, longitude: 73.85, radiusMeters: 15 })
+  })
+})
+
+describe('attendance security (client, 11 Oct 2026)', () => {
+  it('reads the layers, and saves a change with who changed what', async () => {
+    // The client's defaults (11 Oct 2026).
+    expect((await get('/attendance-security')).body.data).toEqual({
+      check_out_location: true, machine_match: true, machine_minutes: 30, machine_missing: 'flag', machine_fills: true,
+      phone_only: true, selfie: false, selfie_keep_days: 60, one_device: false,
     })
-    expect(res.status).toBe(422)
+    const saved = await put('/attendance-security', { punchCheckOutLocation: false })
+    expect(saved.status).toBe(200)
+    expect(saved.body.data).toMatchObject({ check_out_location: false, machine_match: true })
+    const logged = await prisma.auditLog.findFirstOrThrow({ where: { organizationId: orgId, action: 'attendance_security.updated' } })
+    expect(logged.details).toMatchObject({ changes: { punchCheckOutLocation: { from: true, to: false } } })
+    // The same again changes nothing and writes nothing.
+    await put('/attendance-security', { punchCheckOutLocation: false })
+    expect(await prisma.auditLog.count({ where: { organizationId: orgId, action: 'attendance_security.updated' } })).toBe(1)
+    await put('/attendance-security', { punchCheckOutLocation: true })
+
+    // The machine's layer: minutes 5–240, and what to do with a day not on it.
+    expect((await put('/attendance-security', { punchMachineMinutes: 4 })).status).toBe(422)
+    expect((await put('/attendance-security', { punchMachineMissing: 'delete' })).status).toBe(422)
+    const machine = await put('/attendance-security', { punchMachineMinutes: 45, punchMachineMissing: 'absent' })
+    expect(machine.body.data).toMatchObject({ machine_minutes: 45, machine_missing: 'absent' })
+    await put('/attendance-security', { punchMachineMinutes: 30, punchMachineMissing: 'flag' })
+  })
+
+  it('is the Super Admin’s — HR, without the settings permissions, neither reads nor changes it', async () => {
+    expect((await get('/attendance-security', 'hr')).status).toBe(403)
+    expect((await put('/attendance-security', { punchCheckOutLocation: false }, 'hr')).status).toBe(403)
+    expect((await put('/attendance-security', { somethingElse: true })).status).toBe(422)
+  })
+
+  it('tests a spot as a punch would be judged', async () => {
+    await put('/geofence', { name: 'Head Office', latitude: 18.52, longitude: 73.85, radiusMeters: 20, maxAccuracyMeters: 20 })
+    const post = (readings: object[]) => request(app).post('/api/settings/geofence/test').set('Authorization', as('boss')).send({ readings })
+    const here = await post([{ latitude: 18.52 + 12 / 111_194.93, longitude: 73.85, accuracyMeters: 8 }, { latitude: 18.53, longitude: 73.85, accuracyMeters: 40 }])
+    expect(here.body.data).toMatchObject({ result: 'inside', distance_meters: 12, accuracy_meters: 8, radius_meters: 20, accuracy_needed_meters: 20, message: 'Location confirmed' })
+    const outside = await post([{ latitude: 18.52 + 30 / 111_194.93, longitude: 73.85, accuracyMeters: 6 }])
+    expect(outside.body.data).toMatchObject({ result: 'outside', distance_meters: 30 })
+    expect((await post([])).status).toBe(422)
+    expect((await request(app).post('/api/settings/geofence/test').set('Authorization', as('hr')).send({ readings: [{ latitude: 18.52, longitude: 73.85, accuracyMeters: 5 }] })).status).toBe(403)
   })
 })
 
@@ -401,7 +451,7 @@ describe('leave types', () => {
 })
 
 describe('the client requirements added on Day 9', () => {
-  it('accepts the 15–30 m geofence the client asked for', async () => {
+  it('accepts the 15–20 m geofence the client asked for', async () => {
     // The first validator had a floor of 50 m, which would have refused the
     // client's actual requirement.
     const res = await put('/geofence', {
@@ -422,13 +472,17 @@ describe('the client requirements added on Day 9', () => {
       latitude: 18.52,
       longitude: 73.85,
       radiusMeters: 20,
-      maxAccuracyMeters: 25,
+      maxAccuracyMeters: 15,
     })
 
     const fence = res.body.data.find((g: { name: string }) => g.name === 'Tight Fence')
     // A phone that reports "give or take 40 m" cannot decide a 20 m fence, so
     // Day 11 refuses that reading rather than guessing either way.
-    expect(fence.max_accuracy_meters).toBe(25)
+    expect(fence.max_accuracy_meters).toBe(15)
+    // Vaguer than the fence decides nothing (11 Oct 2026): at most 20 m.
+    const vague = await put('/geofence', { name: 'Tight Fence', latitude: 18.52, longitude: 73.85, radiusMeters: 20, maxAccuracyMeters: 25 })
+    expect(vague.status).toBe(422)
+    expect(JSON.stringify(vague.body.error.details)).toMatch(/10 to 20 m/)
   })
 
   it('refuses an accuracy gate no phone could ever satisfy', async () => {

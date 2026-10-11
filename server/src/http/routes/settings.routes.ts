@@ -10,6 +10,9 @@ import {
   getGeofences,
   putGeofence,
   deleteGeofence,
+  postGeofenceTest,
+  getAttendanceSecurity,
+  putAttendanceSecurity,
   getLeaveTypes,
   postLeaveType,
   patchLeaveType,
@@ -49,6 +52,11 @@ settingsRouter.patch('/pf-components/:id', authorize('settings:update'), patchPf
 settingsRouter.get('/geofence', authorize('settings:read'), getGeofences)
 settingsRouter.put('/geofence', authorize('settings:update'), putGeofence)
 settingsRouter.delete('/geofence/:id', authorize('settings:update'), deleteGeofence)
+// The office fence tried where the Super Admin stands, and the layers of
+// check-in security the company has on (client, 11 Oct 2026).
+settingsRouter.post('/geofence/test', authorize('settings:update'), postGeofenceTest)
+settingsRouter.get('/attendance-security', authorize('settings:read'), getAttendanceSecurity)
+settingsRouter.put('/attendance-security', authorize('settings:update'), putAttendanceSecurity)
 
 // Leave configuration is gated on its own permission, so HR can manage leave
 // without also being handed statutory rates and user management.

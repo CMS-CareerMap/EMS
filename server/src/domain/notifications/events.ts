@@ -60,6 +60,17 @@ export const NOTIFICATION_EVENTS = {
     label: 'A day is recorded as absent',
     tells: 'The employee, with a link to apply for leave for that day',
   },
+  // One phone per employee (client, 11 Oct 2026).
+  'attendance.device_waiting': {
+    kind: 'system', group: 'Attendance', optional: true,
+    label: 'A punch came from a phone that is not approved',
+    tells: 'Whoever corrects that person’s attendance, to approve the phone',
+  },
+  'attendance.device_approved': {
+    kind: 'system', group: 'Attendance', optional: true,
+    label: 'A new phone is approved for punching',
+    tells: 'The employee, who can check in from it now',
+  },
   'payroll.awaiting_approval': {
     kind: 'payroll', group: 'Payroll', optional: true,
     label: 'A payroll run is ready to approve',

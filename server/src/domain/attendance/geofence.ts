@@ -8,6 +8,17 @@
 
 const EARTH_RADIUS_METRES = 6_371_008.8
 
+/**
+ * The client's fence (11 Oct 2026): check-in and check-out within 15–20 m of
+ * the office — "not a metre more". These bound the settings, and the check
+ * itself never uses a wider radius or a vaguer reading than the maximum,
+ * whatever a stored office says.
+ */
+export const FENCE_LIMITS = {
+  radius: { min: 15, max: 20 },
+  accuracy: { min: 10, max: 20 },
+} as const
+
 export interface Coordinates {
   latitude: number
   longitude: number
@@ -22,6 +33,8 @@ export interface Reading extends Coordinates {
    * not located anybody.
    */
   accuracyMeters: number
+  /** When the phone took it, as the phone's clock says (ms since 1970). */
+  at?: number | undefined
 }
 
 export interface Fence extends Coordinates {
@@ -62,52 +75,75 @@ export type GeofenceVerdict =
   /** The reading is too vague to decide either way. */
   | { result: 'unreliable'; distanceMeters: number; accuracyMeters: number }
 
+/** The fence as it is applied: never wider, and never more forgiving of a vague reading, than the limits. */
+export function effectiveFence(fence: Fence): Fence {
+  return {
+    latitude: fence.latitude,
+    longitude: fence.longitude,
+    radiusMeters: Math.min(fence.radiusMeters, FENCE_LIMITS.radius.max),
+    maxAccuracyMeters: Math.min(fence.maxAccuracyMeters, FENCE_LIMITS.accuracy.max),
+  }
+}
+
 /**
  * THREE ANSWERS, NOT TWO.
  *
- * The client wants a 15–30 m fence, which is tighter than a phone can always
- * resolve. Against a 20 m radius, a reading of "25 m away, give or take 40"
- * tells you nothing: the person could be at their desk or across the road.
+ * A reading vaguer than `maxAccuracyMeters` is `unreliable` — neither accepted
+ * nor refused; the person is asked to try again near a window. Saying "I
+ * cannot tell" is the only honest answer when the error bar is wider than the
+ * thing being measured.
  *
- * Both of the usual ways to collapse that into a yes/no are wrong:
- *
- *   treat it as inside   anyone can punch in from the car park on a cloudy day
- *   treat it as outside  staff at their own desks are locked out
- *
- * So a reading vaguer than `maxAccuracyMeters` is `unreliable` — neither
- * accepted nor refused. The caller asks the person to move near a window and
- * try again. Saying "I cannot tell" is the only honest answer when the error
- * bar is wider than the thing being measured.
+ * A precise enough reading is inside only if ITS POINT is within the radius.
+ * Nothing is added for the reading's own uncertainty: the client wants the
+ * fence to mean what it says — 20 m is 20 m, not 20 m plus whatever the phone
+ * was unsure of (11 Oct 2026). Until then the accuracy was given to the person
+ * (`distance − accuracy`), which let a 30 m fence accept a reading 74 m out.
  */
 export function checkGeofence(reading: Reading, fence: Fence): GeofenceVerdict {
-  const distance = distanceMeters(reading, fence)
+  const applied = effectiveFence(fence)
+  const distance = distanceMeters(reading, applied)
   const accuracy = Math.max(0, Math.round(reading.accuracyMeters))
 
   // Checked BEFORE the distance comparison. A reading that cannot be trusted
   // must not be allowed through just because its centre happens to land inside.
-  if (accuracy > fence.maxAccuracyMeters) {
+  if (accuracy > applied.maxAccuracyMeters) {
     return { result: 'unreliable', distanceMeters: distance, accuracyMeters: accuracy }
   }
 
-  // The accuracy radius is given to the employee, not taken from them: a
-  // reading 25 m out with ±10 m accuracy could genuinely be 15 m out, and a
-  // system that refuses people who are probably inside will be switched off.
-  // Precision is enforced by the gate above, so this generosity is bounded.
-  const effective = Math.max(0, distance - accuracy)
-
-  return effective <= fence.radiusMeters
+  return distance <= applied.radiusMeters
     ? { result: 'inside', distanceMeters: distance, accuracyMeters: accuracy }
     : { result: 'outside', distanceMeters: distance, accuracyMeters: accuracy }
 }
 
+/**
+ * The reading a punch is judged by, of the several the phone took: the most
+ * precise one, and of equally precise ones the latest. Chosen here — never by
+ * the browser — so the page cannot pick a convenient one. Null with none.
+ */
+export function bestReading<T extends Reading>(readings: readonly T[]): T | null {
+  let best: T | null = null
+  for (const reading of readings) {
+    if (
+      !best ||
+      reading.accuracyMeters < best.accuracyMeters ||
+      (reading.accuracyMeters === best.accuracyMeters && (reading.at ?? 0) >= (best.at ?? 0))
+    ) {
+      best = reading
+    }
+  }
+  return best
+}
+
 /** What to tell the person, in words they can act on. */
-export function geofenceMessage(verdict: GeofenceVerdict, fence: Fence): string {
+export function geofenceMessage(verdict: GeofenceVerdict, fence: Fence, action: 'in' | 'out' = 'in'): string {
+  const applied = effectiveFence(fence)
+  const what = action === 'in' ? 'Check in' : 'Check out'
   switch (verdict.result) {
     case 'inside':
       return 'Location confirmed'
     case 'outside':
-      return `You appear to be ${verdict.distanceMeters} m from the office. Check in is allowed within ${fence.radiusMeters} m.`
+      return `You appear to be ${verdict.distanceMeters} m from the office. ${what} is allowed within ${applied.radiusMeters} m.`
     case 'unreliable':
-      return `Your location could not be confirmed precisely enough (accurate to about ${verdict.accuracyMeters} m). Move near a window or step outside, then try again.`
+      return `Your location could not be confirmed precisely enough (accurate to about ${verdict.accuracyMeters} m; ${applied.maxAccuracyMeters} m is needed). Move near a window, wait a few seconds, then try again.`
   }
 }

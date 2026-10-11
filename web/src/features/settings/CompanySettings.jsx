@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { MapPin, LocateFixed, Loader2, AlertCircle } from 'lucide-react'
-import { useCompanySettings, useSaveCompany, useGeofences, useSaveGeofence } from '../../hooks/useSettings'
+import { Link } from 'react-router-dom'
+import { MapPin } from 'lucide-react'
+import { useCompanySettings, useSaveCompany } from '../../hooks/useSettings'
 import DataState from '../../components/DataState'
-import { Section, Field, SaveBar, inp, inpSm } from './ui'
+import { Section, Field, SaveBar, inp } from './ui'
 
 /**
  * The Company tab.
@@ -13,11 +14,9 @@ import { Section, Field, SaveBar, inp, inpSm } from './ui'
  *     zone decides which day "today" is for attendance and leave.
  *   · "Financial Year" was a dropdown nobody read. It is a payroll rule, and
  *     lives on the Payroll tab now, where it is saved.
- *   · The geofence radius was in KILOMETRES in steps of 100 m. The client asked
- *     for 15–30 m, which that box could not express. And the accuracy gate the
- *     client's fence depends on was not on the page at all.
- *   · Clearing the latitude saved 0 — a real point in the Atlantic.
- *   · The map promised a "manager override" that does not exist.
+ *
+ * The office location was here; it is on Settings → Attendance Security now,
+ * with every other layer of check-in security (client, 11 Oct 2026).
  */
 
 /** IANA names as values; the label says the offset people know them by. */
@@ -40,98 +39,36 @@ const EMPTY_COMPANY = {
   timezone: 'Asia/Kolkata', country: 'IN', currency: 'INR',
 }
 
-/** The client's fence is 15–30 m; 25 m is a starting point inside it. */
-const EMPTY_GEOFENCE = { name: 'Head Office', latitude: '', longitude: '', radiusMeters: '25', maxAccuracyMeters: '50' }
-
 const blank = (value) => (value === '' || value == null ? null : value)
 
 export default function CompanySettings() {
   const company = useCompanySettings()
-  const geofences = useGeofences()
 
-  // The form only over what is stored. Drawn over a failed load, its blanks —
-  // and an empty office location — would be what Save writes back.
+  // The form only over what is stored. Drawn over a failed load, its blanks
+  // would be what Save writes back.
   return (
-    <DataState queries={[company, geofences]} loading="Loading company settings…">
-      {([companyData, geofenceData]) => <CompanyForm company={companyData} geofences={geofenceData} />}
+    <DataState query={company} loading="Loading company settings…">
+      {(companyData) => <CompanyForm company={companyData} />}
     </DataState>
   )
 }
 
-function CompanyForm({ company, geofences }) {
+function CompanyForm({ company }) {
   const saveCompany = useSaveCompany()
-  const saveGeofence = useSaveGeofence()
 
   const [saved, setSaved] = useState(false)
-  const [problem, setProblem] = useState('')
 
   // Server values until somebody types; their edits after. Derived during
   // render, so a refetch never overwrites a half-typed field.
   const [companyDraft, setCompanyDraft] = useState(null)
   const form = companyDraft ?? { ...EMPTY_COMPANY, ...(company ?? {}) }
 
-  const office = geofences?.[0]
-  const [geoDraft, setGeoDraft] = useState(null)
-  const geo = geoDraft ?? (office
-    ? {
-        name: office.name,
-        latitude: String(office.latitude),
-        longitude: String(office.longitude),
-        radiusMeters: String(office.radius_meters),
-        maxAccuracyMeters: String(office.max_accuracy_meters),
-      }
-    : EMPTY_GEOFENCE)
-
-  const [locating, setLocating] = useState(false)
-  const [geoMsg, setGeoMsg] = useState('')
-
   function set(key, value) {
     setCompanyDraft({ ...form, [key]: value })
     setSaved(false)
   }
-  function setGeo(key, value) {
-    setGeoDraft({ ...geo, [key]: value })
-    setSaved(false)
-  }
-
-  function captureLocation() {
-    if (!navigator.geolocation) {
-      setGeoMsg('This browser cannot read a location.')
-      return
-    }
-    setLocating(true)
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setGeoDraft({
-          ...geo,
-          latitude: pos.coords.latitude.toFixed(6),
-          longitude: pos.coords.longitude.toFixed(6),
-        })
-        // Said, because it matters: a desk reading can be tens of metres out,
-        // and the fence is drawn around whatever was captured.
-        setGeoMsg(`Captured, accurate to about ${Math.round(pos.coords.accuracy)} m. Capture it standing at the office entrance for the best result.`)
-        setLocating(false)
-      },
-      (err) => {
-        setGeoMsg(`Could not read your location: ${err.message}`)
-        setLocating(false)
-      },
-      { enableHighAccuracy: true, timeout: 15 * 1000 },
-    )
-  }
-
-  const geoTouched = geo.latitude !== '' || geo.longitude !== ''
-  const lat = Number(geo.latitude)
-  const lng = Number(geo.longitude)
-  const geoValid = geo.latitude !== '' && geo.longitude !== '' && Number.isFinite(lat) && Number.isFinite(lng)
 
   async function handleSave() {
-    setProblem('')
-    if (geoTouched && !geoValid) {
-      setProblem('Enter both the latitude and the longitude of the office, or leave both empty.')
-      return
-    }
-
     try {
       await saveCompany.mutateAsync({
         name: form.name,
@@ -149,16 +86,6 @@ function CompanyForm({ company, geofences }) {
         country: form.country,
         currency: form.currency,
       })
-
-      if (geoValid) {
-        await saveGeofence.mutateAsync({
-          name: geo.name.trim() || 'Head Office',
-          latitude: lat,
-          longitude: lng,
-          radiusMeters: Math.round(Number(geo.radiusMeters)),
-          maxAccuracyMeters: Math.round(Number(geo.maxAccuracyMeters)),
-        })
-      }
     } catch {
       // The app-wide toast has said what was refused; the drafts stay so
       // nothing typed is lost.
@@ -167,11 +94,8 @@ function CompanyForm({ company, geofences }) {
 
     // Back to the server's values, so what shows is what was stored.
     setCompanyDraft(null)
-    setGeoDraft(null)
     setSaved(true)
   }
-
-  const radius = Number(geo.radiusMeters) || 0
 
   return (
     <div className="space-y-6">
@@ -212,68 +136,10 @@ function CompanyForm({ company, geofences }) {
         </Field>
       </Section>
 
-      <Section title="Attendance Geofence" desc="Where the office is, and how close an app punch-in must be. Applies to employees on app attendance only.">
-        <Field label="Office Name" hint="e.g. Head Office, BKC">
-          <input className={inp} value={geo.name} onChange={(e) => setGeo('name', e.target.value)} />
-        </Field>
-
-        <Field label="Office Location" hint="Latitude and longitude of the entrance">
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <input type="number" step="0.000001" className={inp} value={geo.latitude} placeholder="Latitude, e.g. 19.065700"
-                onChange={(e) => setGeo('latitude', e.target.value)} />
-              <input type="number" step="0.000001" className={inp} value={geo.longitude} placeholder="Longitude, e.g. 72.868600"
-                onChange={(e) => setGeo('longitude', e.target.value)} />
-            </div>
-            <button type="button" onClick={captureLocation} disabled={locating}
-              className="px-3.5 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold flex items-center gap-1.5">
-              {locating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LocateFixed className="w-3.5 h-3.5 text-brand-400" />}
-              {locating ? 'Reading location…' : 'Use my current location'}
-            </button>
-            {geoMsg && <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5">{geoMsg}</p>}
-          </div>
-        </Field>
-
-        <Field label="Fence Radius" hint="How far from the office a punch-in is accepted. The client asked for 15–30 m.">
-          <div className="flex items-center gap-2">
-            <input type="number" min="10" max="50000" step="1" className={`${inpSm} w-28`} value={geo.radiusMeters}
-              onChange={(e) => setGeo('radiusMeters', e.target.value)} />
-            <span className="text-sm text-gray-600">metres</span>
-          </div>
-        </Field>
-
-        <Field label="Location Accuracy Needed" hint="A reading vaguer than this is refused rather than guessed at — the person is asked to move near a window.">
-          <div className="flex items-center gap-2">
-            <input type="number" min="20" max="500" step="1" className={`${inpSm} w-28`} value={geo.maxAccuracyMeters}
-              onChange={(e) => setGeo('maxAccuracyMeters', e.target.value)} />
-            <span className="text-sm text-gray-600">metres</span>
-          </div>
-          {radius > 0 && radius < 50 && (
-            <p className="text-xs text-amber-700 mt-2">
-              A {radius} m fence is tighter than a phone can always measure indoors, so some people at their desks will be asked to try again.
-              If that happens daily, widen the fence rather than loosening the accuracy.
-            </p>
-          )}
-        </Field>
-
-        {geoValid && (
-          <div className="py-3">
-            <div className="p-4 bg-slate-900 rounded-2xl text-white">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-red-400" />
-                  <span className="font-semibold text-sm">{geo.name || 'Office'}</span>
-                </div>
-                <span className="text-xs font-mono text-brand-300">{lat.toFixed(6)}, {lng.toFixed(6)}</span>
-              </div>
-              <p className="text-xs text-slate-300 mt-2">
-                App punch-ins are accepted within <strong className="text-white">{radius} m</strong> of this point, from a reading accurate to{' '}
-                <strong className="text-white">{Number(geo.maxAccuracyMeters) || 0} m</strong> or better. Outside it, the punch-in is refused.
-              </p>
-            </div>
-          </div>
-        )}
-      </Section>
+      <p className="flex items-center gap-2 text-sm text-gray-600 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+        <MapPin className="w-4 h-4 text-gray-400 shrink-0" aria-hidden="true" />
+        <span>The office location is on <Link to="/settings?tab=attendance-security" className="font-semibold text-brand-700 underline">Attendance Security</Link>, with the other check-in rules.</span>
+      </p>
 
       {/* No date format: it was saved and never used. Every screen shows dates one way, as "5 Oct 2026". */}
       <Section title="Regional Settings" desc="Time zone, and the country and currency payslips are shown in.">
@@ -295,13 +161,7 @@ function CompanyForm({ company, geofences }) {
         </Field>
       </Section>
 
-      {problem && (
-        <p className="flex items-start gap-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" /> {problem}
-        </p>
-      )}
-
-      <SaveBar onSave={handleSave} saving={saveCompany.isPending || saveGeofence.isPending} saved={saved} />
+      <SaveBar onSave={handleSave} saving={saveCompany.isPending} saved={saved} />
     </div>
   )
 }

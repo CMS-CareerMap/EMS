@@ -741,7 +741,12 @@ export async function freeEmployeeCode(db: TxDb, organizationId: string, code: s
   const wanted = code.trim()
   await lockFor(db, employeeCodeLock(organizationId, wanted))
   const clash = await employeeRepo.employeeWithCodeLike(db, wanted, exceptEmployeeId)
-  if (!clash) return wanted
+  if (!clash) {
+    // Nor somebody's Machine ID: the fingerprint machine's file is matched by it first (client, 11 Oct 2026).
+    const machine = await employeeRepo.employeeWithMachineIdOnly(db, wanted, exceptEmployeeId)
+    if (machine) throw Conflict(`Employee ID ${wanted} is ${machine.fullName}’s Machine ID: the fingerprint machine’s file would send this person’s lines there.`)
+    return wanted
+  }
   throw Conflict(
     clash.employeeCode === wanted
       ? `Employee ID ${wanted} is already in use.`

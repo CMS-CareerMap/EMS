@@ -77,12 +77,17 @@ export async function findGeofence(db: ScopedDb, id: string) {
   return db.geofenceLocation.findFirst({ where: { id } })
 }
 
-/** The fence a punch-in is checked against. */
-export async function findActiveGeofence(db: ScopedDb) {
-  return db.geofenceLocation.findFirst({ where: { isActive: true } })
+/** The fence a punch is checked against: the one office — the last saved, should two ever be on. */
+export async function findActiveGeofence(db: ScopedDb | TxDb) {
+  return db.geofenceLocation.findFirst({ where: { isActive: true }, orderBy: { updatedAt: 'desc' } })
 }
 
-export async function findGeofenceByName(db: ScopedDb, name: string) {
+/** One office: every other location switched off once this one is saved on. */
+export async function retireOtherGeofences(tx: TxDb, keepId: string) {
+  await tx.geofenceLocation.updateMany({ where: { id: { not: keepId }, isActive: true }, data: { isActive: false } })
+}
+
+export async function findGeofenceByName(db: ScopedDb | TxDb, name: string) {
   return db.geofenceLocation.findFirst({ where: { name } })
 }
 
@@ -96,6 +101,39 @@ export async function updateGeofence(db: TxDb, id: string, values: GeofenceValue
 
 export async function deleteGeofence(db: TxDb, id: string) {
   return db.geofenceLocation.delete({ where: { id } })
+}
+
+/** Settings → Attendance Security (client, 11 Oct 2026): which layers the company has on. */
+export const ATTENDANCE_SECURITY_FIELDS = {
+  punchCheckOutLocation: true,
+  punchMachineMatch: true,
+  punchMachineMinutes: true,
+  punchMachineMissing: true,
+  punchMachineFills: true,
+  punchPhoneOnly: true,
+  punchSelfie: true,
+  punchSelfieKeepDays: true,
+  punchOneDevice: true,
+} as const
+
+export type AttendanceSecurity = {
+  punchCheckOutLocation: boolean
+  punchMachineMatch: boolean
+  punchMachineMinutes: number
+  punchMachineMissing: 'flag' | 'absent'
+  punchMachineFills: boolean
+  punchPhoneOnly: boolean
+  punchSelfie: boolean
+  punchSelfieKeepDays: number
+  punchOneDevice: boolean
+}
+
+export async function attendanceSecurityOf(db: ScopedDb | TxDb, organizationId: string): Promise<AttendanceSecurity | null> {
+  return db.organization.findUnique({ where: { id: organizationId }, select: ATTENDANCE_SECURITY_FIELDS })
+}
+
+export async function saveAttendanceSecurity(tx: TxDb, organizationId: string, data: Partial<AttendanceSecurity>): Promise<AttendanceSecurity> {
+  return tx.organization.update({ where: { id: organizationId }, data, select: ATTENDANCE_SECURITY_FIELDS })
 }
 
 export async function listLeaveTypes(db: ScopedDb) {

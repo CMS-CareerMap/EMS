@@ -41,7 +41,14 @@ function Field({ label, hint, children }) {
  * `initialType` is a kind to start on, or "choose" — then the dialog opens on
  * the kinds, each with what it is for, and the form follows the one picked.
  */
-export default function NewRequestDialog({ initialType = 'choose', initialDate = null, onClose }) {
+/** A time from a link — "18:42" — kept only when it is one. */
+const asTime = (value) => (typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : '')
+
+/**
+ * `initialCheckOut`: a check-out the fence refused (client, 11 Oct 2026) — the
+ * card links here with the day and the time it was tried, for HR to record it.
+ */
+export default function NewRequestDialog({ initialType = 'choose', initialDate = null, initialCheckOut = null, onClose }) {
   const timezone = useAuthStore((state) => state.organization?.timezone)
   const today = calendarDayIn(timezone)
   const submit = useSubmitRequest()
@@ -51,7 +58,7 @@ export default function NewRequestDialog({ initialType = 'choose', initialDate =
   const [type, setType] = useState(known ? initialType : 'attendance_correction')
   const [date, setDate] = useState(initialDate ?? addDays(today, -1))
   const [checkIn, setCheckIn] = useState('')
-  const [checkOut, setCheckOut] = useState('')
+  const [checkOut, setCheckOut] = useState(asTime(initialCheckOut))
   const [fromDate, setFromDate] = useState(today)
   const [toDate, setToDate] = useState(today)
   const [changes, setChanges] = useState({})

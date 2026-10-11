@@ -86,6 +86,8 @@ function fromEmployee(employee) {
     reportingManagerId: employee?.reporting_manager_id ?? '',
     attendanceMode: employee?.attendance_mode ?? 'app',
     workArrangement: employee?.work_arrangement ?? 'office',
+    // The number the fingerprint machine knows them by (client, 11 Oct 2026).
+    machineId: employee?.machine_id ?? '',
 
     // Personal details (client §42): read only by whoever sees statutory details.
     dateOfBirth: employee?.date_of_birth ?? '',
@@ -245,6 +247,8 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
       reportingManagerId: orNull(form.reportingManagerId),
       attendanceMode: form.attendanceMode,
       workArrangement: form.workArrangement,
+      // Blank is none.
+      machineId: form.machineId.trim() || null,
     }
 
     if (isEdit) body.lastWorkingDate = orNull(form.lastWorkingDate)
@@ -427,6 +431,9 @@ export default function AddEmployeeModal({ open, onClose, initial = null, onSave
                   <select value={form.workArrangement} onChange={(e) => set('workArrangement', e.target.value)} className={inp()} aria-label="Work arrangement">
                     {WORK_ARRANGEMENTS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                   </select>
+                </Field>
+                <Field label="Machine ID" hint="The number the fingerprint machine knows them by, if it is not their Employee ID. Its file is matched by it.">
+                  <input value={form.machineId} onChange={(e) => set('machineId', e.target.value)} className={inp()} maxLength={32} placeholder="e.g. 17" aria-label="Machine ID" />
                 </Field>
                 <div className="sm:col-span-2">
                   {/* For somebody already here, who they report to is the Super

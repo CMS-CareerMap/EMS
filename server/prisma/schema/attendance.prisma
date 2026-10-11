@@ -109,6 +109,18 @@ model Attendance {
   statusBeforeLeave AttendanceStatus?
   sourceBeforeLeave AttendanceSource?
 
+  /// The fingerprint machine's word on an app day (client, 11 Oct 2026): its
+  /// first and last scan that day (the last null with one scan), what the
+  /// match came to, and when the file was imported. The app's times stay the
+  /// record; these confirm them. Null: not matched yet.
+  machineFirstScan DateTime?     @db.Timestamptz(3)
+  machineLastScan  DateTime?     @db.Timestamptz(3)
+  machineMatch     MachineMatch?
+  machineCheckedAt DateTime?     @db.Timestamptz(3)
+  /// A day the company's rule made absent for not being on the machine: what
+  /// it was before, so a later file that has it puts it back.
+  statusBeforeMachine AttendanceStatus?
+
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
@@ -116,9 +128,173 @@ model Attendance {
   employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   shift        Shift?       @relation(fields: [shiftId], references: [id], onDelete: SetNull)
 
+  punchEvidence PunchEvidence[]
+
   /// One row per person per day — the client was explicit about one punch pair.
   /// Enforced by the database, so a double-submitted form cannot create two.
   @@unique([organizationId, employeeId, date])
   @@index([organizationId, date])
   @@index([organizationId, employeeId, date])
+}
+
+/// An app day matched against the fingerprint machine's file (client, 11 Oct 2026).
+enum MachineMatch {
+  /// A scan that day, within the minutes allowed of the app's times.
+  confirmed
+  /// A scan that day, further from the app's times than allowed — a note for HR.
+  time_differs
+  /// No scan that day at all.
+  not_on_machine
+  /// No app punch that day: the day is the machine's, filled from its file.
+  from_machine
+}
+
+/// What a company does with an app day the machine has no scan for.
+enum MachineMissing {
+  /// Flag it for HR; the day stands.
+  flag
+  /// Mark the day absent (cut from pay, the absent alert sent).
+  absent
+}
+
+/// Which way a punch went.
+enum PunchAction {
+  in
+  out
+}
+
+/// Why an app punch was refused — kept, because "he tried from 2 km away at
+/// 09:58" is exactly what HR needs to see (client, 11 Oct 2026).
+enum PunchRefusal {
+  /// The reading's point was outside the office radius.
+  outside
+  /// The reading was too vague to decide.
+  unreliable
+  /// From a computer, with "phones only" on.
+  not_phone
+  /// From a phone HR has not approved, with "one phone per employee" on.
+  device_waiting
+  /// With no photo, with "selfie" on.
+  no_photo
+}
+
+/// A sign a punch may not be what it seems — for HR to look at, never a
+/// verdict (domain/attendance/punchSignals.ts).
+enum PunchFlag {
+  frozen_readings
+  repeated_spot
+  too_precise
+  stale_reading
+  not_a_phone
+  /// A phone not seen in the person's punches of the last two months — or no phone key at all.
+  new_device
+  /// The very same photo, to the byte, as an earlier accepted punch of theirs.
+  repeated_photo
+  /// A Mac's browser claiming a touch screen: how an iPad describes itself, and what a laptop can be made to say.
+  mac_with_touch
+}
+
+/// Where one person's phone stands, with "one phone per employee" on.
+enum PunchDeviceStatus {
+  /// Their phone: punches from it are taken.
+  approved
+  /// Another phone, refused until HR approves it.
+  waiting
+  /// A phone HR took off, or the old one when a new one was approved.
+  retired
+}
+
+/// One person's phone (client, 11 Oct 2026: one phone per employee, a setting).
+/// Known by a random key the phone's browser keeps — stored only as its hash.
+/// Rows exist only with the setting on: the first phone is approved by itself,
+/// another waits for HR, and approving it retires the old one.
+model PunchDevice {
+  id             String @id @default(uuid())
+  organizationId String
+  employeeId     String
+
+  /// sha256 of the key the browser keeps — never the key itself.
+  keyHash String
+  /// "Android · Chrome", from the browser's description when first seen.
+  label   String?
+  status  PunchDeviceStatus @default(waiting)
+
+  firstSeenAt     DateTime  @default(now()) @db.Timestamptz(3)
+  lastSeenAt      DateTime  @default(now()) @db.Timestamptz(3)
+  /// Who approved or retired it, and when. Null: the first phone, approved by itself.
+  decidedByUserId String?
+  decidedAt       DateTime? @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, employeeId, keyHash])
+  @@index([organizationId, status])
+}
+
+/// One app punch, in or out — accepted or refused — with everything that
+/// decided it (client, 11 Oct 2026: check-in security). The day's own row keeps
+/// the check-in summary it always had; this keeps the whole story, check-out
+/// included, so a punch can be explained or disputed afterwards.
+model PunchEvidence {
+  id             String @id @default(uuid())
+  organizationId String
+  employeeId     String
+
+  /// The day it was for, in the company's time zone. With the day's row once
+  /// there is one: a refused check-in has none.
+  date         DateTime @db.Date
+  attendanceId String?
+
+  action PunchAction
+  /// Null when it was accepted.
+  refusedFor PunchRefusal?
+
+  /// When the button was pressed (the start token) and when the punch reached
+  /// the server — both by the server's clock.
+  startedAt DateTime @db.Timestamptz(3)
+  at        DateTime @default(now()) @db.Timestamptz(3)
+
+  /// Where the day was worked from: an office day is checked against the fence.
+  workMode WorkMode?
+
+  /// The reading the punch was judged by (the most precise of the burst) and
+  /// how it measured against the office. Null with no reading.
+  latitude       Decimal? @db.Decimal(10, 7)
+  longitude      Decimal? @db.Decimal(10, 7)
+  accuracyMeters Int?
+  distanceMeters Int?
+  /// Whether the office fence was applied to it. False: an away day, read but not checked.
+  fenceApplied   Boolean @default(false)
+
+  /// Every reading of the burst, as the phone gave them: [{ latitude,
+  /// longitude, accuracyMeters, at }]. Evidence, never a decision on its own.
+  readings Json?
+
+  /// The address it came from, and the browser's description of itself, cut short.
+  ip        String?
+  userAgent String?
+
+  /// The signs it may not be what it seems (Layer 4): for HR's list of
+  /// suspicious punches. Empty: nothing to say.
+  flags PunchFlag[] @default([])
+
+  /// The phone, by the hash of the key its browser keeps (Layer 6). Null: a
+  /// page that sent none.
+  deviceKeyHash String?
+
+  /// The selfie taken with it (Layer 5): where it is stored, its hash, its
+  /// size. Null: none was asked for, or the nightly job removed it once the
+  /// company's days for keeping it were up.
+  photoKey   String?
+  photoSha   String?
+  photoBytes Int?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  attendance   Attendance?  @relation(fields: [attendanceId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, employeeId, date])
+  @@index([organizationId, date])
+  @@index([organizationId, attendanceId])
 }

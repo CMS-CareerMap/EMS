@@ -137,7 +137,10 @@ export async function recordApproval(
     // An absent day with no punch, now covered by a whole day of leave (client,
     // 10 Oct 2026: "apply leave for this absent day"): the leave is what the
     // day was, so it says so — what it was is kept, and a reversal puts it back.
-    if (existing && existing.status === 'absent' && !existing.checkIn && !existing.checkOut && day.counted === 1) {
+    // So is a day punched on the app that the fingerprint machine's rule made
+    // absent (client, 11 Oct 2026): the person was told, and asked for leave.
+    const absentByMachine = existing?.statusBeforeMachine != null
+    if (existing && existing.status === 'absent' && ((!existing.checkIn && !existing.checkOut) || absentByMachine) && day.counted === 1) {
       await attendanceRepo.takeOverAbsentDay(tx, existing, ctx.userId)
       continue
     }

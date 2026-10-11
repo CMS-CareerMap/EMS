@@ -1,6 +1,7 @@
 import { Router, json } from 'express'
 import { getAttendanceExport } from '../controllers/exports.controller'
-import { postPunchIn, postPunchOut, getMyToday, getMyWorkplace, getMyPayDays } from '../controllers/attendance.controller'
+import { postPunchIn, postPunchOut, postPunchStart, getMyToday, getMyWorkplace, getMyPayDays } from '../controllers/attendance.controller'
+import { punchLimiter } from '../middleware/rateLimit'
 import {
   getAttendance,
   getMonthCalendar,
@@ -10,6 +11,12 @@ import {
   postMark,
   patchAttendance,
   postImport,
+  getSuspicious,
+  getDayEvidence,
+  getPunchPhoto,
+  getDevices,
+  postApproveDevice,
+  postRetireDevice,
 } from '../controllers/attendanceAdmin.controller'
 import { authenticate } from '../middleware/authenticate'
 import { authorize } from '../middleware/authorize'
@@ -27,8 +34,10 @@ export const attendanceRouter = Router()
 
 attendanceRouter.use(authenticate)
 
-attendanceRouter.post('/punch-in', authorize('attendance:punch'), postPunchIn)
-attendanceRouter.post('/punch-out', authorize('attendance:punch'), postPunchOut)
+// Pressing the button starts a punch; the punch carries its token back (client, 11 Oct 2026).
+attendanceRouter.post('/punch-start', authorize('attendance:punch'), punchLimiter, postPunchStart)
+attendanceRouter.post('/punch-in', authorize('attendance:punch'), punchLimiter, postPunchIn)
+attendanceRouter.post('/punch-out', authorize('attendance:punch'), punchLimiter, postPunchOut)
 attendanceRouter.get('/me/today', authorize('attendance:punch'), getMyToday)
 attendanceRouter.get('/me/workplace', authorize('attendance:punch'), getMyWorkplace)
 // One's own month in pay terms — days paid and unpaid, leave by type, absent days (client, 10 Oct 2026).
@@ -44,6 +53,15 @@ attendanceRouter.get('/monthly-summary', authorize('attendance:read'), getMonthl
 attendanceRouter.get('/calendar', authorize('attendance:read'), getMonthCalendar)
 attendanceRouter.get('/summary', authorize('attendance:read'), getDaySummary)
 attendanceRouter.get('/day', authorize('attendance:read'), getDayRoster)
+// Punches worth a second look (client, 11 Oct 2026): beyond one's own reach only.
+attendanceRouter.get('/suspicious', authorize('attendance:read'), getSuspicious)
+// A day's punches with their evidence, and a punch's selfie: whoever's reach covers the person.
+attendanceRouter.get('/evidence', authorize('attendance:read'), getDayEvidence)
+attendanceRouter.get('/evidence/:id/photo', authorize('attendance:read'), getPunchPhoto)
+// One phone per employee: whoever corrects attendance approves a new phone or takes one off.
+attendanceRouter.get('/devices', authorize('attendance:update'), getDevices)
+attendanceRouter.post('/devices/:id/approve', authorize('attendance:update'), postApproveDevice)
+attendanceRouter.post('/devices/:id/retire', authorize('attendance:update'), postRetireDevice)
 attendanceRouter.get('/export', authorize('attendance:read'), getAttendanceExport)
 
 // Recording somebody else's day, and correcting one. Separate permissions

@@ -14,6 +14,7 @@ const keys = {
   company: ['settings', 'company'],
   payroll: ['settings', 'payroll'],
   geofence: ['settings', 'geofence'],
+  attendanceSecurity: ['settings', 'attendance-security'],
   leaveTypes: ['settings', 'leave-types'],
   ptSlabs: ['settings', 'pt-slabs'],
   pfComponents: ['settings', 'pf-components'],
@@ -93,6 +94,25 @@ export function useGeofences() {
 
 export function useSaveGeofence() {
   return useSettingMutation(keys.geofence, async (body) => (await api.put('/settings/geofence', body)).data)
+}
+
+/** "Test this spot": the readings taken where the Super Admin stands, judged as a punch would be. Writes nothing. */
+export function useTestGeofenceSpot() {
+  return useMutation({
+    mutationFn: async (readings) => (await api.post('/settings/geofence/test', { readings })).data,
+    // Said beside the button, where the Super Admin is looking — not twice.
+    meta: { quietCodes: ['VALIDATION_FAILED', 'BAD_REQUEST', 'NOT_FOUND', 'FORBIDDEN'] },
+  })
+}
+
+/** Settings → Attendance Security (client, 11 Oct 2026): the layers the company has on. */
+export function useAttendanceSecurity() {
+  return useSetting(keys.attendanceSecurity, '/settings/attendance-security')
+}
+
+export function useSaveAttendanceSecurity() {
+  // The employee's own card reads whether check-out is checked, from their workplace.
+  return useSettingMutation(keys.attendanceSecurity, async (body) => (await api.put('/settings/attendance-security', body)).data, [['attendance', 'me']])
 }
 
 export function useLeaveTypes() {

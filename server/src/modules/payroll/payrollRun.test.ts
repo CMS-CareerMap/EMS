@@ -349,6 +349,37 @@ describe('a month of payroll', () => {
     expect(await prisma.esiCoverage.count({ where: { organizationId: org.id } })).toBe(0)
   })
 
+  it('names the app’s office days the fingerprint machine has not confirmed (client, 11 Oct 2026)', async () => {
+    const id = who.standard!
+    const dates = ['2026-08-11', '2026-08-12', '2026-08-13', '2026-08-14']
+    const matches = [null, 'not_on_machine', 'time_differs', 'confirmed'] as const
+    for (const [i, date] of dates.entries()) {
+      await prisma.attendance.create({
+        data: { organizationId: org.id, employeeId: id, date: day(date), status: 'present', source: 'punch', checkIn: new Date(`${date}T03:30:00Z`), checkOut: new Date(`${date}T12:30:00Z`), workMode: 'office', machineMatch: matches[i] },
+      })
+    }
+    const warningsOf = async () => (await api(org).get('/api/payroll-runs/readiness?year=2026&month=8')).body.data.employees.find((e: { employee_id: string }) => e.employee_id === id).warnings as string[]
+    try {
+      const said = (await warningsOf()).join('\n')
+      expect(said).toMatch(/Not yet checked against the fingerprint machine: 11 August.*Import the machine’s file/)
+      expect(said).toMatch(/Checked in on the app but not on the fingerprint machine: 12 August/)
+      expect(said).toMatch(/The machine and the app differ by more than 30 minutes: 13 August/)
+      expect(said).not.toMatch(/14 August/)
+      // The rule switched to "absent" after the day was flagged: still present, so still warned.
+      await prisma.organization.update({ where: { id: org.id }, data: { punchMachineMissing: 'absent' } })
+      expect((await warningsOf()).join('\n')).toMatch(/not on the fingerprint machine: 12 August/)
+      // Made absent by the company's rule, a day not on the machine already says so: not warned again.
+      await prisma.attendance.updateMany({ where: { employeeId: id, date: day('2026-08-12') }, data: { status: 'absent', statusBeforeMachine: 'present' } })
+      expect((await warningsOf()).join('\n')).not.toMatch(/not on the fingerprint machine/)
+      // The layer off: nothing said of the machine at all.
+      await prisma.organization.update({ where: { id: org.id }, data: { punchMachineMatch: false } })
+      expect((await warningsOf()).some((w) => /fingerprint machine|machine and the app/.test(w))).toBe(false)
+    } finally {
+      await prisma.organization.update({ where: { id: org.id }, data: { punchMachineMatch: true, punchMachineMissing: 'flag' } })
+      await prisma.attendance.deleteMany({ where: { employeeId: id, date: { in: dates.map(day) } } })
+    }
+  })
+
   it('refuses to run until everybody has a TDS directive — and names every one of them', async () => {
     const res = await api(org).post('/api/payroll-runs', AUGUST)
     expect(res.status).toBe(422)

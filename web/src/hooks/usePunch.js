@@ -1,5 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/http'
+import { LOCATION_UNREAD, readLocationBurst } from '../lib/location'
+import { deviceKey } from '../lib/deviceKey'
 
 /**
  * The employee's own punch in and punch out.
@@ -32,63 +34,39 @@ export function useMyToday() {
 }
 
 /**
- * Asks the browser where we are, INCLUDING how sure it is.
- *
- * `coords.accuracy` is the number everybody drops, and dropping it is what
- * makes a 30 m geofence unusable — the server cannot tell a reading taken at
- * the desk from one taken in the car park without it.
- *
- * `enableHighAccuracy` asks for GPS rather than the wifi/cell estimate, which
- * is the difference between ±15 m and ±2 km indoors. It costs battery and a few
- * seconds, which is the right trade for something done twice a day.
+ * One punch, as the server wants it (client, 11 Oct 2026): started first — the
+ * server says now if anything would refuse it, and whether and how precisely
+ * the location is needed — then the location read as a burst, then the punch
+ * with its start token and every reading. The server decides; this app has no
+ * say in whether a location passes, which is the entire point of the check
+ * being on the server.
  */
-export function getPosition() {
-  return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error('This browser cannot report your location. Ask HR to mark your attendance.'))
-      return
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) =>
-        resolve({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          accuracyMeters: Math.round(position.coords.accuracy),
-        }),
-      (error) => {
-        // The refusal case is worth its own wording. "Position unavailable"
-        // tells somebody nothing about what to do next.
-        reject(
-          new Error(
-            error.code === error.PERMISSION_DENIED
-              ? 'Location access was blocked. Allow it for this site and try again.'
-              : 'Your location could not be read. Move near a window and try again.',
-          ),
-        )
-      },
-      { enableHighAccuracy: true, timeout: 15 * 1000, maximumAge: 0 },
-    )
-  })
+async function punch(action, takePhoto) {
+  // The touch points tell an iPad, which describes itself as a Mac, from a computer ("phones only");
+  // the key tells this phone from another ("one phone per employee").
+  const touchPoints = Math.min(64, Math.max(0, Math.round(navigator.maxTouchPoints ?? 0)))
+  const device = { touchPoints, deviceKey: deviceKey() }
+  const begin = async () => ({ at: Date.now(), ...(await api.post('/attendance/punch-start', { action, ...device })).data })
+  let start = await begin()
+  // The selfie first, while the person is looking at the phone; then the location.
+  const photo = start.photo_needed ? await takePhoto() : null
+  const readings = start.location_needed ? await readLocationBurst({ target: start.accuracy_meters ?? 20 }) : []
+  // A slow camera, or a long look at the browser's questions, can outlast the start:
+  // begun again, so the punch is not refused for the time it took — the photo and readings kept.
+  if (Date.now() - start.at > (start.expires_in_seconds - 15) * 1000) start = await begin()
+  return (await api.post(`/attendance/punch-${action}`, { token: start.token, ...device, ...(readings.length ? { readings } : {}), ...(photo ? { photo } : {}) })).data
 }
+
+/** No camera in this page: a punch the company wants a photo with cannot be made here. */
+const noCamera = () => Promise.reject(new Error('A photo is needed to punch. Open the Check In card to take it.'))
 
 export function usePunchIn() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async () => {
-      // The reading is taken HERE and sent. The server decides — this app has
-      // no say in whether the location passes, which is the entire point of
-      // moving the check off the client.
-      // Asked fresh: a request approved since the page opened counts.
-      const where = await queryClient.fetchQuery({
-        queryKey: [...KEY, 'workplace'],
-        queryFn: async () => (await api.get('/attendance/me/workplace')).data,
-        staleTime: 0,
-      })
-      const position = where.location_needed ? await getPosition() : {}
-      return (await api.post('/attendance/punch-in', position)).data
-    },
+    // Started fresh each time: a request approved since the page opened counts.
+    // `takePhoto`: the card's camera dialog, when the company asks for a selfie with every punch.
+    mutationFn: ({ takePhoto = noCamera } = {}) => punch('in', takePhoto),
     // Returned: the button stays busy until today's row shows the punch, so
     // it cannot be pressed a second time in between.
     onSuccess: () => Promise.all([
@@ -106,10 +84,13 @@ export function usePunchOut() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    // No location on the way out. Somebody who has finished and walked to the
-    // bus stop must still be able to close their day — refusing them leaves a
-    // row with no check-out, which looks like they never left.
-    mutationFn: async () => (await api.post('/attendance/punch-out', {})).data,
+    // On an office day the way out is checked too, when the company says so
+    // (client, 11 Oct 2026); refused outside, the card offers to ask HR to
+    // record the check-out instead.
+    mutationFn: ({ takePhoto = noCamera } = {}) => punch('out', takePhoto),
+    // Said on the card, with the way to ask HR — not as a toast that goes away:
+    // refused at the office fence, or the location not read at all.
+    meta: { quietCodes: ['LOCATION_REFUSED', LOCATION_UNREAD] },
     onSuccess: () => Promise.all([
       queryClient.invalidateQueries({ queryKey: KEY }),
       queryClient.invalidateQueries({ queryKey: ['dashboard'] }),

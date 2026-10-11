@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { FENCE_LIMITS } from '../../domain/attendance/geofence'
 
 /**
  * Settings input.
@@ -132,14 +133,59 @@ export const geofenceSchema = z
     name: z.string().trim().min(1, 'The location needs a name').max(80),
     latitude: z.number().min(-90).max(90),
     longitude: z.number().min(-180).max(180),
-    /// 10 m floor because the client wants 15–30 m, and a floor of 50 would
-    /// have refused their actual requirement. 50 km ceiling so a typo in the
-    /// kilometres box cannot cover the state.
-    radiusMeters: z.number().int().min(10).max(50_000),
-    /// Below 20 m no consumer phone can confirm anything, so the gate would
-    /// reject every reading and nobody could punch in at all.
-    maxAccuracyMeters: z.number().int().min(20).max(500).optional(),
+    /// The client's fence (11 Oct 2026): 15–20 m, not a metre more.
+    radiusMeters: z
+      .number()
+      .int()
+      .min(FENCE_LIMITS.radius.min, `The office radius is ${FENCE_LIMITS.radius.min} to ${FENCE_LIMITS.radius.max} m.`)
+      .max(FENCE_LIMITS.radius.max, `The office radius is ${FENCE_LIMITS.radius.min} to ${FENCE_LIMITS.radius.max} m.`),
+    /// How precise a reading must be: 10–20 m. Tighter than a phone can manage
+    /// indoors locks people out; vaguer than the fence decides nothing.
+    maxAccuracyMeters: z
+      .number()
+      .int()
+      .min(FENCE_LIMITS.accuracy.min, `The accuracy needed is ${FENCE_LIMITS.accuracy.min} to ${FENCE_LIMITS.accuracy.max} m.`)
+      .max(FENCE_LIMITS.accuracy.max, `The accuracy needed is ${FENCE_LIMITS.accuracy.min} to ${FENCE_LIMITS.accuracy.max} m.`)
+      .optional(),
     isActive: z.boolean().optional(),
+  })
+  .strict()
+
+/** Settings → Attendance Security (client, 11 Oct 2026): the layers the company has on. */
+export const attendanceSecuritySchema = z
+  .object({
+    punchCheckOutLocation: z.boolean().optional(),
+    /// Layer 2: the fingerprint machine's file confirms app days.
+    punchMachineMatch: z.boolean().optional(),
+    punchMachineMinutes: z.number().int().min(5, 'Between 5 and 240 minutes.').max(240, 'Between 5 and 240 minutes.').optional(),
+    punchMachineMissing: z.enum(['flag', 'absent']).optional(),
+    punchMachineFills: z.boolean().optional(),
+    /// Layer 3: a punch that needs the location, from a phone only.
+    punchPhoneOnly: z.boolean().optional(),
+    /// Layer 5: a live selfie with every app punch, kept 7 to 365 days.
+    punchSelfie: z.boolean().optional(),
+    punchSelfieKeepDays: z.number().int().min(7, 'Between 7 and 365 days.').max(365, 'Between 7 and 365 days.').optional(),
+    /// Layer 6: one phone per employee.
+    punchOneDevice: z.boolean().optional(),
+  })
+  .strict()
+
+/** "Test this spot": the readings the Super Admin's phone took where they stand. */
+export const geofenceTestSchema = z
+  .object({
+    readings: z
+      .array(
+        z
+          .object({
+            latitude: z.number().min(-90).max(90),
+            longitude: z.number().min(-180).max(180),
+            accuracyMeters: z.number().min(0).max(10_000),
+            at: z.number().int().positive().optional(),
+          })
+          .strict(),
+      )
+      .min(1, 'No location was read.')
+      .max(10),
   })
   .strict()
 

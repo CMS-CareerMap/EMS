@@ -208,6 +208,8 @@ function About({ employee }) {
           ['Shift', employee.shift ? `${employee.shift.name} · ${employee.shift.start_time} – ${employee.shift.end_time}` : null],
           ['Attendance', ATTENDANCE_MODE[employee.attendance_mode]],
           ['Work arrangement', WORK_ARRANGEMENT[employee.work_arrangement]],
+          // The fingerprint machine's number for them, when it is not their code (client, 11 Oct 2026).
+          ['Machine ID', employee.machine_id ?? 'None — the machine’s file is matched by the employee code', Boolean(employee.machine_id)],
           // Who their leave goes to (Day 22: the company tree). One who has left decides nothing.
           ['Reports to', manager],
           ['Gender', GENDER[employee.gender]],

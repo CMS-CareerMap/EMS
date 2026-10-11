@@ -83,7 +83,11 @@ export async function policiesForMonth(db: ScopedDb, monthStart: Date, monthEnd:
 export async function attendanceForMonth(db: ScopedDb, employeeIds: string[], monthStart: Date, monthEnd: Date) {
   return db.attendance.findMany({
     where: { employeeId: { in: employeeIds }, date: { gte: monthStart, lte: monthEnd } },
-    select: { employeeId: true, date: true, status: true },
+    // How the day came — checked in on the app or not — and the fingerprint machine's word on it (client, 11 Oct 2026).
+    select: {
+      employeeId: true, date: true, status: true, source: true, checkIn: true, workMode: true, machineMatch: true, statusBeforeMachine: true,
+      punchEvidence: { where: { action: 'in', refusedFor: null }, select: { id: true }, take: 1 },
+    },
   })
 }
 

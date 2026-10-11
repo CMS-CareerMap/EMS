@@ -5,6 +5,8 @@ import {
   companySchema,
   policySchema,
   geofenceSchema,
+  geofenceTestSchema,
+  attendanceSecuritySchema,
   leaveTypeSchema,
   settingsIdSchema,
   ptSlabQuerySchema,
@@ -220,6 +222,45 @@ export const putGeofence: RequestHandler = async (req, res) => {
 
   const rows = await settings.listGeofences(ctx)
   ok(res, rows.map(geofencePayload))
+}
+
+/** POST /api/settings/geofence/test — the spot the Super Admin stands on, judged as a punch would be. */
+export const postGeofenceTest: RequestHandler = async (req, res) => {
+  const { readings } = parseBody(geofenceTestSchema, req.body)
+  const result = await settings.testGeofenceSpot(appContext(res), readings)
+  ok(res, {
+    result: result.verdict.result,
+    distance_meters: result.verdict.distanceMeters,
+    accuracy_meters: result.verdict.accuracyMeters,
+    radius_meters: result.radiusMeters,
+    accuracy_needed_meters: result.accuracyNeeded,
+    message: result.message,
+  })
+}
+
+/** GET /api/settings/attendance-security — the layers the company has on (client, 11 Oct 2026). */
+export const getAttendanceSecurity: RequestHandler = async (_req, res) => {
+  ok(res, attendanceSecurityPayload(await settings.getAttendanceSecurity(appContext(res))))
+}
+
+/** PUT /api/settings/attendance-security */
+export const putAttendanceSecurity: RequestHandler = async (req, res) => {
+  const input = parseBody(attendanceSecuritySchema, req.body)
+  ok(res, attendanceSecurityPayload(await settings.updateAttendanceSecurity(appContext(res), input)))
+}
+
+function attendanceSecurityPayload(s: settings.AttendanceSecurityView) {
+  return {
+    check_out_location: s.punchCheckOutLocation,
+    machine_match: s.punchMachineMatch,
+    machine_minutes: s.punchMachineMinutes,
+    machine_missing: s.punchMachineMissing,
+    machine_fills: s.punchMachineFills,
+    phone_only: s.punchPhoneOnly,
+    selfie: s.punchSelfie,
+    selfie_keep_days: s.punchSelfieKeepDays,
+    one_device: s.punchOneDevice,
+  }
 }
 
 /** DELETE /api/settings/geofence/:id */

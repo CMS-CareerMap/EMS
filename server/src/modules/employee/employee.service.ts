@@ -8,6 +8,7 @@ import { logger } from '../../platform/logger'
 import {
   assertLoginEmail,
   createLoginInTransaction,
+  employeeCodeLock,
   freeEmployeeCode,
   loginStartFor,
   preparedPassword,
@@ -152,6 +153,8 @@ export interface CreateEmployeeInput {
   reportingManagerId?: string | null | undefined
   attendanceMode?: 'app' | 'biometric' | 'manual' | undefined
   workArrangement?: 'office' | 'hybrid' | 'remote' | undefined
+  /** The number the fingerprint machine knows them by; blank is none (client, 11 Oct 2026). */
+  machineId?: string | null | undefined
   /** Personal details (client §42), written only by somebody who can read them. */
   personal?:
     | {
@@ -240,6 +243,25 @@ function personalData(personal: CreateEmployeeInput['personal']): Record<string,
     data[key] = key === 'dateOfBirth' ? (value ? toDateColumn(value) : null) : value
   }
   return data
+}
+
+/**
+ * A Machine ID that is free (client, 11 Oct 2026): nobody else's Machine ID or
+ * employee code, in any letters — under the very lock an Employee ID is taken
+ * under, so a Machine ID and an Employee ID of the same letters, saved at
+ * once, wait for each other and the second sees the first. Blank is none.
+ */
+async function freeMachineId(tx: TxDb, organizationId: string, value: string | null | undefined, exceptEmployeeId: string | null): Promise<string | null> {
+  const wanted = value?.trim() ?? ''
+  if (!wanted) return null
+  await lockFor(tx, employeeCodeLock(organizationId, wanted))
+  const clash = await repo.employeeWithMachineIdLike(tx, wanted, exceptEmployeeId)
+  if (clash) {
+    throw Conflict(clash.machineId !== null && clash.machineId.toLowerCase() === wanted.toLowerCase()
+      ? `Machine ID ${wanted} is already ${clash.fullName}’s.`
+      : `Machine ID ${wanted} is ${clash.fullName}’s employee code: the machine’s file would send their lines here.`)
+  }
+  return wanted
 }
 
 function asConflict(err: unknown): never {
@@ -431,6 +453,7 @@ export async function createEmployee(
       reportingManagerId: input.reportingManagerId ?? null,
       ...(input.attendanceMode ? { attendanceMode: input.attendanceMode } : {}),
       ...(input.workArrangement ? { workArrangement: input.workArrangement } : {}),
+      machineId: await freeMachineId(tx, ctx.organizationId, input.machineId, null),
       ...personalData(input.personal),
       ...(input.country ? { country: input.country.toUpperCase() } : {}),
       ...(input.currency ? { currency: input.currency.toUpperCase() } : {}),
@@ -667,6 +690,7 @@ export async function updateEmployee(
     if (managerChanged) data.reportingManagerId = after.reportingManagerId
     if (input.attendanceMode !== undefined) data.attendanceMode = input.attendanceMode
     if (input.workArrangement !== undefined) data.workArrangement = input.workArrangement
+    if (input.machineId !== undefined) data.machineId = await freeMachineId(tx, ctx.organizationId, input.machineId, existing.id)
     Object.assign(data, personalData(input.personal))
     if (input.country !== undefined) data.country = input.country?.toUpperCase()
     if (input.currency !== undefined) data.currency = input.currency?.toUpperCase()
@@ -686,7 +710,7 @@ export async function updateEmployee(
     // has no business in a log more people will one day read than hold the
     // permission to see it.
     const was = existing as unknown as Record<string, unknown>
-    for (const key of ['employeeCode', 'fullName', 'employmentType', 'attendanceMode', 'workArrangement', 'country', 'currency'] as const) {
+    for (const key of ['employeeCode', 'fullName', 'employmentType', 'attendanceMode', 'workArrangement', 'machineId', 'country', 'currency'] as const) {
       if (key in data && data[key] !== was[key]) changes[key] = { from: was[key] ?? null, to: data[key] ?? null }
     }
     if (joiningChanged) changes.dateOfJoining = { from: joinedBefore, to: input.dateOfJoining ?? null }

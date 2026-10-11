@@ -1,5 +1,7 @@
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { LogIn, LogOut, Loader2, MapPin, CheckCircle2, Clock, Flag } from 'lucide-react'
+import SelfieDialog from './SelfieDialog'
+import { LogIn, LogOut, Loader2, MapPin, CheckCircle2, Clock, Flag, AlertCircle } from 'lucide-react'
 import { useMyToday, useMyWorkplace, usePunchIn, usePunchOut } from '../../hooks/usePunch'
 import { useNow } from '../../hooks/useNow'
 import { WORK_MODES, minutesLabel } from '../../lib/requests'
@@ -9,6 +11,7 @@ import { btn } from '../../components/ui/styles'
 import { useAuthStore } from '../../stores/authStore'
 import { calendarDayIn, formatDay, isoInstant, wallClockIn } from '../../lib/dates'
 import { formatHours } from '../../lib/attendance'
+import { LOCATION_UNREAD } from '../../lib/location'
 
 /**
  * "Time today": Check In / Check Out, for the employee themselves — on the home
@@ -18,10 +21,12 @@ import { formatHours } from '../../lib/attendance'
  * means check out, a closed one means the day is done. Showing both and
  * disabling one invites somebody to wonder which they need.
  *
- * Punch errors are not handled here. Every failure — outside the fence, a vague
- * GPS reading, blocked permission — arrives as a toast from the global handler
- * in main.jsx, carrying the sentence the server wrote. Repeating that logic in
- * the component is how the two versions drift apart.
+ * Punch errors are mostly not handled here. Every failure — outside the fence,
+ * a vague GPS reading, blocked permission — arrives as a toast from the global
+ * handler in main.jsx, carrying the sentence the server wrote. The one
+ * exception is a check-out the office fence refused, or whose location could
+ * not be read (client, 11 Oct 2026): the card says it, with the way out —
+ * asking HR to record the check-out.
  */
 
 /** A punch on the company's clock, as the Attendance page shows it — not the device's. */
@@ -82,6 +87,15 @@ function Today({ today, workplace, skewMs }) {
   const timezone = useAuthStore((state) => state.organization?.timezone)
   const punchIn = usePunchIn()
   const punchOut = usePunchOut()
+  // The selfie dialog, open while a punch waits for its photo (client, 11 Oct 2026).
+  const [selfie, setSelfie] = useState(null)
+  const waiting = useRef(null)
+  const takePhoto = () => new Promise((resolve, reject) => {
+    waiting.current = reject
+    setSelfie({ resolve, reject })
+  })
+  // Leaving the card with the camera open: the punch waiting for the photo ends, not hangs.
+  useEffect(() => () => waiting.current?.(new Error('No photo was taken, so nothing was punched.')), [])
   const mode = today?.work_mode ?? workplace.data?.work_mode ?? 'office'
   const busy = punchIn.isPending || punchOut.isPending
   const checkedIn = Boolean(today?.check_in)
@@ -109,6 +123,8 @@ function Today({ today, workplace, skewMs }) {
   // The unpaid break the day's own shift takes off the time at work when it
   // closes — the server's figure for this day, not today's shift (domain/attendance/hours.ts).
   const breakMinutes = today?.break_minutes ?? 0
+  // A check-out the fence refused — or whose location could not be read — while the day is still open (client, 11 Oct 2026).
+  const refusedOut = atWork && ['LOCATION_REFUSED', LOCATION_UNREAD].includes(punchOut.error?.code) ? punchOut.error : null
   const dayLine = lastNight ? `Shift of ${formatDay(today.date, { year: false })}` : formatDay(calendarDayIn(timezone), { weekday: true })
 
   // How far to a full day, in words — the one thing the person wants to know
@@ -158,7 +174,7 @@ function Today({ today, workplace, skewMs }) {
         </div>
 
         {!checkedIn && (
-          <button onClick={() => punchIn.mutate()} disabled={busy} className={btn.gradient}>
+          <button onClick={() => punchIn.mutate({ takePhoto })} disabled={busy} className={btn.gradient}>
             {punchIn.isPending ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -171,9 +187,10 @@ function Today({ today, workplace, skewMs }) {
           </button>
         )}
         {checkedIn && !checkedOut && (
-          <button onClick={() => punchOut.mutate()} disabled={busy} className={btn.primary}>
+          <button onClick={() => punchOut.mutate({ takePhoto })} disabled={busy} className={btn.primary}>
             {punchOut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />}
-            Check Out
+            {/* An office day's check-out reads the location too: a few seconds, said so nobody taps again. */}
+            {punchOut.isPending && mode === 'office' && workplace.data?.check_out_location_needed ? 'Checking your location…' : 'Check Out'}
           </button>
         )}
       </div>
@@ -184,6 +201,22 @@ function Today({ today, workplace, skewMs }) {
         {checkedOut && <Chip tone="brand">Checked out at {time(today.check_out, timezone)}</Chip>}
         {today?.status && today.status !== 'present' && <Chip tone="info" dot={false}><span className="capitalize">{today.status.replace('_', ' ')}</span></Chip>}
       </div>
+
+      {refusedOut && (
+        <div role="alert" className="flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-200">
+          <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" aria-hidden="true" />
+          <div className="text-sm text-red-800 space-y-1">
+            <p>{refusedOut.message}</p>
+            <p>
+              Already left the office?{' '}
+              <Link to={`/requests?new=attendance_correction&date=${today.date}&checkOut=${clock}`} className="font-semibold underline">
+                Ask HR to record your check-out
+              </Link>{' '}
+              — it is added once approved.
+            </p>
+          </div>
+        </div>
+      )}
 
       {toGo != null && (toGo > 0 ? (
         <div className="flex items-center gap-2 p-2.5 rounded-lg bg-brand-50 border border-brand-100">
@@ -248,15 +281,23 @@ function Today({ today, workplace, skewMs }) {
         <p className="text-sm text-gray-500 text-center">Your day is recorded. See you tomorrow.</p>
       )}
 
-      {!checkedIn && mode === 'office' && (
+      {selfie && (
+        <SelfieDialog
+          onTaken={(photo) => { waiting.current = null; selfie.resolve(photo); setSelfie(null) }}
+          onCancel={() => { waiting.current = null; selfie.reject(new Error('No photo was taken, so nothing was punched.')); setSelfie(null) }}
+        />
+      )}
+
+      {mode === 'office' && (!checkedIn || (atWork && workplace.data?.check_out_location_needed)) && (
         <details className="group text-xs text-gray-500">
           <summary className="flex items-center gap-1.5 cursor-pointer list-none select-none hover:text-gray-700">
             <MapPin className="w-3.5 h-3.5 shrink-0" />
-            Your location is checked when you check in
+            {checkedIn ? 'Your location is checked when you check out too' : 'Your location is checked when you check in'}
             <span className="text-brand-600 font-semibold group-open:hidden">· more</span>
           </summary>
           <p className="mt-1.5 pl-5">
-            Allow location access, and stay near your desk — a reading from outside the office, or one your phone is unsure about, will be refused.
+            Allow location access and stay inside the office — your phone reads its location for a few seconds. A reading from outside the
+            office, or one your phone is unsure about, is refused.
           </p>
         </details>
       )}

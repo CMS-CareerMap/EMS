@@ -21,8 +21,10 @@ header {
 	# Addresses inside the app (they carry ids) are not sent to other sites.
 	Referrer-Policy "strict-origin-when-cross-origin"
 
-	# Location is for punching in from the office; nothing else is ever asked for.
-	Permissions-Policy "geolocation=(self), camera=(), microphone=(), payment=(), usb=()"
+	# Location is for punching in from the office, and the camera for a punch's
+	# selfie when the company asks for one (client, 11 Oct 2026) — this site
+	# only; nothing else is ever asked for.
+	Permissions-Policy "geolocation=(self), camera=(self), microphone=(), payment=(), usb=()"
 
 	Cross-Origin-Opener-Policy "same-origin"
 

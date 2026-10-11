@@ -90,6 +90,19 @@ export const refreshLimiter = createLimiter({
 })
 
 /**
+ * App punches (client, 11 Oct 2026), per login: a script trying one location
+ * after another stops here, while pressing the button a few times a day never
+ * comes near it. After `authenticate`, so the login is known.
+ */
+export const punchLimiter = createLimiter({
+  limit: 60,
+  keyGenerator: (req: Request, res: Response) => {
+    const userId = (res.locals.auth as { userId?: string } | undefined)?.userId
+    return userId ? `punch:${userId}` : ipKeyGenerator(req.ip ?? '')
+  },
+})
+
+/**
  * Password links. A token is 256 bits, so guessing one is not the threat —
  * this keeps a script from hammering the endpoint regardless.
  */

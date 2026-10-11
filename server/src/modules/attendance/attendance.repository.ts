@@ -3,7 +3,7 @@ import type { ScopedDb } from '../../platform/db/scoped'
 import type { TxDb } from '../../platform/db/transaction'
 import type { ScopeContext } from '../../platform/authz/scope'
 import { employeesInScope, ownedRowsInScope } from '../../platform/authz/scopeWhere'
-import { toDateColumn, type CalendarDate } from '../../domain/shared/dates'
+import { addCalendarDays, toDateColumn, type CalendarDate } from '../../domain/shared/dates'
 
 /**
  * Reading attendance.
@@ -289,6 +289,12 @@ export async function upsertDay(
     // Written by hand now: whatever an approved leave took over is no longer there to give back.
     statusBeforeLeave: null,
     sourceBeforeLeave: null,
+    // …nor what the fingerprint machine made of the day as it was: the next file judges it again.
+    machineFirstScan: null,
+    machineLastScan: null,
+    machineMatch: null,
+    machineCheckedAt: null,
+    statusBeforeMachine: null,
   }
 
   const row = existing
@@ -434,6 +440,168 @@ export async function updateDay(db: TxDb, id: string, data: Prisma.AttendanceUnc
   return db.attendance.update({ where: { id }, data })
 }
 
+/** One app punch's evidence, accepted or refused (client, 11 Oct 2026). */
+export async function recordPunch(db: ScopedDb | TxDb, data: Prisma.PunchEvidenceUncheckedCreateInput) {
+  return db.punchEvidence.create({ data, select: { id: true } })
+}
+
+/**
+ * Punches with something to look at, between two days, of the people the
+ * caller's attendance reach covers (client, 11 Oct 2026): refused, or with a
+ * flag. Newest first, the most recent 500.
+ */
+export async function questionablePunches(db: ScopedDb, scope: ScopeContext, from: CalendarDate, to: CalendarDate, notOwn: string | null) {
+  return db.punchEvidence.findMany({
+    where: {
+      employee: employeesInScope(scope),
+      ...(notOwn ? { employeeId: { not: notOwn } } : {}),
+      date: { gte: toDateColumn(from), lte: toDateColumn(to) },
+      OR: [{ refusedFor: { not: null } }, { flags: { isEmpty: false } }],
+    },
+    select: {
+      id: true, employeeId: true, date: true, action: true, at: true, refusedFor: true, flags: true,
+      distanceMeters: true, accuracyMeters: true, fenceApplied: true, readings: true, ip: true, userAgent: true, workMode: true,
+      employee: { select: { fullName: true, employeeCode: true } },
+    },
+    orderBy: { at: 'desc' },
+    take: 500,
+  })
+}
+
+/** App days the fingerprint machine did not bear out, between two days, of the people in reach: not on it, or at other times. */
+export async function machineQuestionedDays(db: ScopedDb, scope: ScopeContext, from: CalendarDate, to: CalendarDate, notOwn: string | null) {
+  return db.attendance.findMany({
+    where: {
+      employee: employeesInScope(scope),
+      ...(notOwn ? { employeeId: { not: notOwn } } : {}),
+      date: { gte: toDateColumn(from), lte: toDateColumn(to) },
+      machineMatch: { in: ['not_on_machine', 'time_differs'] },
+    },
+    select: {
+      employeeId: true, date: true, status: true, checkIn: true, checkOut: true, machineMatch: true, machineFirstScan: true, machineLastScan: true,
+      employee: { select: { fullName: true, employeeCode: true } },
+    },
+    orderBy: { date: 'desc' },
+    take: 500,
+  })
+}
+
+// ── Phones (client, 11 Oct 2026: one phone per employee) ─────────────────
+
+/** One person's phones, as HR left them. */
+export async function devicesOf(db: ScopedDb | TxDb, employeeId: string) {
+  return db.punchDevice.findMany({ where: { employeeId }, orderBy: { firstSeenAt: 'asc' } })
+}
+
+export async function createDevice(tx: TxDb, data: Prisma.PunchDeviceUncheckedCreateInput) {
+  return tx.punchDevice.create({ data })
+}
+
+export async function updateDevice(tx: TxDb, id: string, data: Prisma.PunchDeviceUncheckedUpdateInput) {
+  return tx.punchDevice.update({ where: { id }, data })
+}
+
+/** One phone approved: the person's others taken off. How many were. */
+export async function retireOtherDevices(tx: TxDb, employeeId: string, keepId: string, decidedByUserId: string, at: Date): Promise<number> {
+  const result = await tx.punchDevice.updateMany({
+    where: { employeeId, id: { not: keepId }, status: { not: 'retired' } },
+    data: { status: 'retired', decidedByUserId, decidedAt: at },
+  })
+  return result.count
+}
+
+/** Phones of the people in reach, but for `notOwn`'s — the most recently used first — for HR to approve or take off. */
+export async function devicesInScope(db: ScopedDb, scope: ScopeContext, status: 'waiting' | 'all', notOwn: string | null) {
+  return db.punchDevice.findMany({
+    where: {
+      employee: employeesInScope(scope),
+      ...(notOwn ? { employeeId: { not: notOwn } } : {}),
+      ...(status === 'waiting' ? { status: 'waiting' as const } : {}),
+    },
+    include: { employee: { select: { fullName: true, employeeCode: true } } },
+    orderBy: { lastSeenAt: 'desc' },
+    take: 500,
+  })
+}
+
+/** One phone, if its person is in the caller's reach. */
+export async function deviceInScope(db: ScopedDb, scope: ScopeContext, id: string) {
+  return db.punchDevice.findFirst({ where: { id, employee: employeesInScope(scope) }, include: { employee: { select: { fullName: true } } } })
+}
+
+/** One phone, as it stands — read again under its person's lock. */
+export async function deviceById(tx: TxDb, id: string) {
+  return tx.punchDevice.findUnique({ where: { id } })
+}
+
+/** The phones somebody punched from on other days, the last two months — what "another phone" is told by. */
+export async function earlierDeviceHashes(db: ScopedDb | TxDb, employeeId: string, date: CalendarDate): Promise<Set<string>> {
+  const rows = await db.punchEvidence.findMany({
+    where: { employeeId, date: { gte: toDateColumn(addCalendarDays(date, -60)), lt: toDateColumn(date) }, deviceKeyHash: { not: null } },
+    select: { deviceKeyHash: true },
+    distinct: ['deviceKeyHash'],
+  })
+  return new Set(rows.flatMap((r) => (r.deviceKeyHash ? [r.deviceKeyHash] : [])))
+}
+
+/** A day's punches of somebody in reach — every one, accepted or refused — for the roster's "Evidence". */
+export async function punchesOfDay(db: ScopedDb, scope: ScopeContext, employeeId: string, date: CalendarDate) {
+  return db.punchEvidence.findMany({
+    where: { employeeId, date: toDateColumn(date), employee: employeesInScope(scope) },
+    orderBy: { at: 'asc' },
+  })
+}
+
+/** A punch's selfie, if its person is in reach — not `notOwn` — and it is still kept. */
+export async function punchPhoto(db: ScopedDb, scope: ScopeContext, id: string, notOwn: string | null) {
+  return db.punchEvidence.findFirst({
+    where: { id, employee: employeesInScope(scope), ...(notOwn ? { employeeId: { not: notOwn } } : {}), photoKey: { not: null } },
+    select: { photoKey: true, photoSha: true },
+  })
+}
+
+/** Selfies taken before a moment, still stored — the nightly job's to delete. */
+export async function photosBefore(db: ScopedDb, before: Date) {
+  return db.punchEvidence.findMany({ where: { photoKey: { not: null }, at: { lt: before } }, select: { id: true, photoKey: true }, take: 5_000 })
+}
+
+export async function forgetPhoto(db: ScopedDb | TxDb, id: string) {
+  await db.punchEvidence.update({ where: { id }, data: { photoKey: null, photoSha: null, photoBytes: null } })
+}
+
+/** How many of somebody's refused punches that day kept a photo — so a refusal cannot be repeated to fill the storage. */
+export async function refusedPhotosOn(db: ScopedDb, employeeId: string, date: CalendarDate): Promise<number> {
+  return db.punchEvidence.count({ where: { employeeId, date: toDateColumn(date), refusedFor: { not: null }, photoKey: { not: null } } })
+}
+
+/** Whether this very photo, to the byte, came with an earlier accepted punch of theirs — a live camera never gives the same file twice. */
+export async function photoSeenBefore(db: ScopedDb | TxDb, employeeId: string, sha256: string): Promise<boolean> {
+  return (await db.punchEvidence.count({ where: { employeeId, photoSha: sha256, refusedFor: null } })) > 0
+}
+
+/** Writes a check-in on a day that has a row with none yet — null when a check-in landed a moment ago (two taps at once). */
+export async function checkInIf(db: TxDb, id: string, data: Prisma.AttendanceUncheckedUpdateManyInput) {
+  const result = await db.attendance.updateMany({ where: { id, checkIn: null }, data })
+  return result.count === 1 ? db.attendance.findUniqueOrThrow({ where: { id } }) : null
+}
+
+/** The points of somebody's punches on other days, the last two months — what "the very same point" is checked against. */
+export async function earlierPunchPoints(db: ScopedDb | TxDb, employeeId: string, date: CalendarDate) {
+  const rows = await db.punchEvidence.findMany({
+    where: {
+      employeeId,
+      date: { gte: toDateColumn(addCalendarDays(date, -60)), lt: toDateColumn(date) },
+      latitude: { not: null },
+      longitude: { not: null },
+    },
+    select: { latitude: true, longitude: true },
+    orderBy: { at: 'desc' },
+    // Two months of punches, twice a day, and the refused ones.
+    take: 250,
+  })
+  return rows.map((r) => ({ latitude: Number(r.latitude), longitude: Number(r.longitude) }))
+}
+
 /** Closes a day still open, in one statement — null when it was closed a moment ago (two taps at once). */
 export async function closeDayIf(db: TxDb, id: string, data: Prisma.AttendanceUncheckedUpdateManyInput) {
   const result = await db.attendance.updateMany({ where: { id, checkOut: null }, data })
@@ -487,6 +655,9 @@ export async function importableEmployees(db: ScopedDb, scope: ScopeContext) {
       dateOfJoining: true,
       lastWorkingDate: true,
       attendanceMode: true,
+      workArrangement: true,
+      // The number the fingerprint machine knows them by (client, 11 Oct 2026).
+      machineId: true,
       shiftId: true,
       shift: { select: SHIFT_RULES_SELECT },
     },
@@ -497,7 +668,46 @@ export async function importableEmployees(db: ScopedDb, scope: ScopeContext) {
 export async function recordedDays(db: ScopedDb, employeeIds: string[], from: CalendarDate, to: CalendarDate) {
   return db.attendance.findMany({
     where: { employeeId: { in: employeeIds }, date: { gte: toDateColumn(from), lte: toDateColumn(to) } },
-    select: { employeeId: true, date: true, status: true, shiftId: true, expectedHours: true, shift: { select: SHIFT_RULES_SELECT } },
+    select: {
+      id: true, employeeId: true, date: true, status: true, source: true, shiftId: true, expectedHours: true, shift: { select: SHIFT_RULES_SELECT },
+      // An app punch is matched against the machine, not overwritten (client, 11 Oct 2026).
+      checkIn: true, checkOut: true, workMode: true, machineMatch: true, machineFirstScan: true, machineLastScan: true, statusBeforeMachine: true,
+      punchEvidence: { where: APP_CHECK_IN, select: { id: true }, take: 1 },
+    },
+  })
+}
+
+/** An accepted check-in on the app: what makes a day the app's, whoever touched it since. */
+const APP_CHECK_IN = { action: 'in' as const, refusedFor: null }
+
+/**
+ * Whether a day is the app's — checked in on the app — even after HR recorded
+ * its check-out or corrected it: the fingerprint machine is asked about it
+ * all the same (client, 11 Oct 2026). A day from before the evidence was kept
+ * is known by its source.
+ */
+export const isAppDay = (day: { source: AttendanceSource; checkIn: Date | null; punchEvidence: { id: string }[] }) =>
+  day.checkIn !== null && (day.source === 'punch' || day.punchEvidence.length > 0)
+
+/**
+ * The app's office days of some people between two dates (client, 11 Oct
+ * 2026): what the fingerprint machine's file is expected to have. A day worked
+ * away — home, on duty, remote — is not, nor one on leave.
+ */
+export async function appOfficeDays(db: ScopedDb | TxDb, employeeIds: string[], from: CalendarDate, to: CalendarDate) {
+  if (employeeIds.length === 0) return []
+  return db.attendance.findMany({
+    where: {
+      employeeId: { in: employeeIds },
+      date: { gte: toDateColumn(from), lte: toDateColumn(to) },
+      checkIn: { not: null },
+      status: { in: ['present', 'half_day', 'absent'] },
+      AND: [
+        { OR: [{ source: 'punch' }, { punchEvidence: { some: APP_CHECK_IN } }] },
+        { OR: [{ workMode: 'office' }, { workMode: null }] },
+      ],
+    },
+    select: { id: true, employeeId: true, date: true, status: true, checkOut: true, statusBeforeMachine: true },
   })
 }
 

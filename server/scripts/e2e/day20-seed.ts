@@ -16,6 +16,8 @@ if (!/^(localhost|127\.0\.0\.1)$/.test(url.hostname) || !url.pathname.endsWith('
 
 const FIXTURE = fixturePath('day20-fixture.json')
 const PASSWORD = 'Day20E2ePassword1'
+/** Baner, Pune — the office the suites' phones stand at. */
+const OFFICE = { latitude: 18.559, longitude: 73.7868 }
 const day = (d: string) => new Date(`${d}T00:00:00Z`)
 
 async function seed() {
@@ -30,6 +32,8 @@ async function seed() {
   // The company a bootstrap makes: departments, leave types, the eight
   // document types, salary components, Maharashtra PT, fixed holidays, policy.
   await prisma.$transaction((tx) => seedForOrganization(tx, { id: organizationId, timezone: 'Asia/Kolkata' }), { timeout: 60_000 })
+  // The office (client, 11 Oct 2026): with none set, nobody checks in at the office.
+  await prisma.geofenceLocation.create({ data: { organizationId, name: 'Head Office', ...OFFICE, radiusMeters: 20, maxAccuracyMeters: 20 } })
 
   const dept = Object.fromEntries((await prisma.department.findMany({ where: { organizationId } })).map((d) => [d.name, d.id]))
   const component = Object.fromEntries((await prisma.salaryComponent.findMany({ where: { organizationId } })).map((c) => [c.code, c.id]))
@@ -145,6 +149,8 @@ async function seed() {
     employees,
     departments: dept,
     leaveTypeId: cl.id,
+    // Where a suite's phone stands to check in and out.
+    office: OFFICE,
   }
   writeFileSync(FIXTURE, JSON.stringify(fixture, null, 2))
   console.log(JSON.stringify(fixture, null, 2))

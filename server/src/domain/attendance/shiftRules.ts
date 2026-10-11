@@ -260,6 +260,17 @@ function overnightWindowEnds(rules: ShiftRules | null): number | null {
   return Math.min(end + FAR_MINUTES, start + 1440 - EARLY_ARRIVAL_MINUTES)
 }
 
+/**
+ * A fingerprint scan `minutes` past midnight belongs to the night shift that
+ * began the evening before (client, 11 Oct 2026: the machine's file, one line a
+ * scan) — by the same window a night's check-out keeps: until 12 hours past the
+ * shift's end, or 2 hours before the next start. Never for any other shift.
+ */
+export function scanBelongsToNightBefore(rules: ShiftRules | null, minutes: number): boolean {
+  const ends = overnightWindowEnds(rules)
+  return ends !== null && minutes + 1440 < ends
+}
+
 /** When a night shift's day stops being "today" — and the next check-in opens — as "18:00". Null for any other shift. */
 export function nextCheckInOpens(rules: ShiftRules | null): string | null {
   const ends = overnightWindowEnds(rules)

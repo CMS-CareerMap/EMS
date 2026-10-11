@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach, vi } from 'vitest'
 import request from 'supertest'
 import { createApp } from '../../app'
 import { prisma } from '../../platform/db/prisma'
 import { hashPassword } from '../../platform/auth/password'
 import { monthRange } from './attendance.repository'
-import { toDateColumn, zonedToday, fromDateColumn } from '../../domain/shared/dates'
+import { toDateColumn, zonedToday, fromDateColumn, isoInstant } from '../../domain/shared/dates'
 
 /**
  * Attendance as HR and managers see it: lists, monthly hours, corrections and
@@ -410,12 +410,13 @@ describe('biometric CSV import', () => {
 
   it('says how many days it would overwrite, before it does', async () => {
     await day(aliceId, '2026-04-01', 8)
+    await prisma.attendance.updateMany({ where: { employeeId: aliceId }, data: { source: 'manual' } })
 
     const csv = [HEADER, `${PREFIX}-alice,01/04/2026,09:30,18:30`].join('\n')
     const res = await upload(csv)
 
     // Replacing a day HR already corrected by hand is worth knowing BEFORE
-    // pressing import.
+    // pressing import. (A day the app punched is matched, never overwritten — below.)
     expect(res.body.data.summary.would_overwrite).toBe(1)
   })
 
@@ -426,15 +427,18 @@ describe('biometric CSV import', () => {
     expect(JSON.stringify(res.body.data.rows[0].issues)).toMatch(/No employee with code/)
   })
 
-  it('catches the same person twice on the same day', async () => {
+  it('reads the same person twice on the same day as one day: the first scan in, the last out (client, 11 Oct 2026)', async () => {
     const csv = [
       HEADER,
-      `${PREFIX}-alice,01/04/2026,09:30,18:30`,
-      `${PREFIX}-alice,01/04/2026,10:00,19:00`,
+      `${PREFIX}-alice,01/04/2026,09:30,13:00`,
+      `${PREFIX}-alice,01/04/2026,14:00,19:00`,
     ].join('\n')
 
-    const res = await upload(csv)
-    expect(JSON.stringify(res.body.data.rows[1].issues)).toMatch(/already appears/)
+    const res = await upload(csv, false)
+    expect(res.body.data.summary).toMatchObject({ invalid: 0, valid: 1, imported: 1 })
+    const row = await prisma.attendance.findFirstOrThrow({ where: { employeeId: aliceId } })
+    // 09:30 to 19:00, less the hour's break.
+    expect([isoInstant(row.checkIn), isoInstant(row.checkOut), Number(row.hoursWorked)]).toEqual(['2026-04-01T04:00:00.000Z', '2026-04-01T13:30:00.000Z', 8.5])
   })
 
   it('refuses the whole file when any row is bad', async () => {
@@ -453,6 +457,210 @@ describe('biometric CSV import', () => {
   it('refuses a manager', async () => {
     const csv = [HEADER, `${PREFIX}-alice,01/04/2026,09:30,18:30`].join('\n')
     expect((await upload(csv, false, 'mgr')).status).toBe(403)
+  })
+})
+
+describe('the fingerprint machine confirms the app’s days (client, 11 Oct 2026)', () => {
+  /** A machine that writes a line a scan, the date and time together. */
+  const SCANS = 'AC-No.,Name,Time'
+  const scan = (code: string, date: string, time: string) => `${code},Somebody,${date} ${time}`
+  const upload = (csv: string, dryRun = true) => request(app).post('/api/attendance/import').set('Authorization', as('hr')).send({ csv, dryRun })
+  const security = (data: object) => prisma.organization.update({ where: { id: orgId }, data })
+  const dayOf = (employeeId: string, date: string) => prisma.attendance.findFirstOrThrow({ where: { employeeId, date: toDateColumn(date) } })
+  const alice = `${PREFIX}-alice`
+  const bob = `${PREFIX}-bob`
+
+  afterEach(async () => {
+    await security({ punchMachineMatch: true, punchMachineMinutes: 30, punchMachineMissing: 'flag', punchMachineFills: true })
+    await prisma.employee.updateMany({ where: { organizationId: orgId }, data: { machineId: null, workArrangement: 'office' } })
+  })
+
+  it('keeps an app-punched day and confirms it: a finger at 09:02 and the phone at 09:00 are the same morning', async () => {
+    // The app day: in 09:00, out 18:00 (IST).
+    await day(aliceId, '2026-04-01', 8)
+    const csv = [SCANS, scan(alice, '01/04/2026', '09:02'), scan(alice, '01/04/2026', '13:10'), scan(alice, '01/04/2026', '17:58')].join('\n')
+    const preview = await upload(csv)
+    expect(preview.body.data.summary).toMatchObject({ valid: 1, would_overwrite: 0, machine: { from: '2026-04-01', to: '2026-04-01', confirmed: 1, time_differs: 0, not_on_machine: 0 } })
+    expect((await upload(csv, false)).status).toBe(201)
+    const row = await dayOf(aliceId, '2026-04-01')
+    // The app's day stands; the machine's first and last scan sit beside it.
+    expect([row.source, Number(row.hoursWorked), row.status, row.machineMatch]).toEqual(['punch', 8, 'present', 'confirmed'])
+    expect([isoInstant(row.machineFirstScan), isoInstant(row.machineLastScan)]).toEqual(['2026-04-01T03:32:00.000Z', '2026-04-01T12:28:00.000Z'])
+  })
+
+  it('more than the minutes allowed apart is a note — never absent', async () => {
+    await day(aliceId, '2026-04-01', 8)
+    await upload([SCANS, scan(alice, '01/04/2026', '10:30')].join('\n'), false)
+    const row = await dayOf(aliceId, '2026-04-01')
+    expect([row.machineMatch, row.status, row.machineLastScan]).toEqual(['time_differs', 'present', null])
+    // The company allows two hours: the same file confirms it.
+    await security({ punchMachineMinutes: 120 })
+    await upload([SCANS, scan(alice, '01/04/2026', '10:30')].join('\n'), false)
+    expect((await dayOf(aliceId, '2026-04-01')).machineMatch).toBe('confirmed')
+  })
+
+  it('an app day with no scan in the file’s dates is not on the machine — flagged, then absent by the company’s rule, then given back', async () => {
+    await day(aliceId, '2026-04-01', 8)
+    await day(aliceId, '2026-04-02', 8)
+    await day(bobId, '2026-04-02', 8)
+    // Bob's scans on the 1st and 3rd: the file covers the 1st to the 3rd; nothing of Alice.
+    const csv = [SCANS, scan(bob, '01/04/2026', '09:30'), scan(bob, '01/04/2026', '18:30'), scan(bob, '03/04/2026', '09:30')].join('\n')
+    const preview = (await upload(csv)).body.data.summary.machine
+    expect(preview).toMatchObject({ not_on_machine: 3, made_absent: 0, from_machine: 2 })
+    expect(preview.missing.map((m: { full_name: string; date: string }) => `${m.full_name} ${m.date}`).sort()).toEqual(['alice person 2026-04-01', 'alice person 2026-04-02', 'bob person 2026-04-02'])
+    expect(preview.not_in_file).toEqual([{ employee_code: alice, full_name: 'alice person', days: 2 }])
+    await upload(csv, false)
+    expect([(await dayOf(aliceId, '2026-04-01')).machineMatch, (await dayOf(aliceId, '2026-04-01')).status]).toEqual(['not_on_machine', 'present'])
+
+    // The company's rule: not on the machine is absent — cut from pay, and told.
+    await security({ punchMachineMissing: 'absent' })
+    expect((await upload(csv)).body.data.summary.machine.made_absent).toBe(3)
+    await upload(csv, false)
+    const absent = await dayOf(aliceId, '2026-04-02')
+    expect([absent.status, absent.statusBeforeMachine, absent.machineMatch]).toEqual(['absent', 'present', 'not_on_machine'])
+    const aliceLogin = await prisma.membership.findFirstOrThrow({ where: { employeeId: aliceId } })
+    expect(await prisma.notification.count({ where: { userId: aliceLogin.userId, event: 'attendance.absent' } })).toBe(1)
+
+    // A corrected file has her: the day is hers again.
+    await upload([SCANS, scan(alice, '02/04/2026', '09:01'), scan(alice, '02/04/2026', '18:02')].join('\n'), false)
+    const back = await dayOf(aliceId, '2026-04-02')
+    expect([back.status, back.statusBeforeMachine, back.machineMatch]).toEqual(['present', null, 'confirmed'])
+  })
+
+  it('fills a day with scans and no app punch — the phone forgotten — or leaves it, as the company says', async () => {
+    const csv = [SCANS, scan(bob, '05/04/2026', '09:30'), scan(bob, '05/04/2026', '18:30')].join('\n')
+    await security({ punchMachineFills: false })
+    expect((await upload(csv)).body.data.summary).toMatchObject({ valid: 0, machine: { not_filled: 1, from_machine: 0 } })
+    await security({ punchMachineFills: true })
+    expect((await upload(csv, false)).status).toBe(201)
+    const filled = await dayOf(bobId, '2026-04-05')
+    expect([filled.source, filled.machineMatch, Number(filled.hoursWorked), filled.status]).toEqual(['biometric', 'from_machine', 8, 'present'])
+  })
+
+  it('matches a line by the person’s Machine ID first, then the employee code', async () => {
+    await prisma.employee.update({ where: { id: aliceId }, data: { machineId: '17' } })
+    await day(aliceId, '2026-04-01', 8)
+    const res = await upload([SCANS, scan('17', '01/04/2026', '09:05')].join('\n'))
+    expect(res.body.data.summary).toMatchObject({ invalid: 0, machine: { confirmed: 1 } })
+    const unknown = await upload([SCANS, scan('99', '01/04/2026', '09:05')].join('\n'))
+    expect(JSON.stringify(unknown.body.data.rows[0].issues)).toMatch(/No employee with code or Machine ID 99/)
+  })
+
+  it('a Machine ID is set on the person, and is nobody else’s — not their Machine ID, not their code', async () => {
+    const patch = (id: string, body: object) => request(app).patch(`/api/employees/${id}`).set('Authorization', as('hr')).send(body)
+    const set = await patch(aliceId, { machineId: ' 17 ' })
+    expect(set.status, JSON.stringify(set.body)).toBe(200)
+    expect(set.body.data.machine_id).toBe('17')
+    expect((await patch(bobId, { machineId: '17' })).body.error.message).toBe('Machine ID 17 is already alice person’s.')
+    expect((await patch(bobId, { machineId: alice.toUpperCase() })).body.error.message).toMatch(/is alice person’s employee code/)
+    // Nor may an employee code become somebody's Machine ID.
+    expect((await patch(bobId, { employeeCode: '17' })).body.error.message).toMatch(/is alice person’s Machine ID/)
+    expect((await patch(bobId, { machineId: 'not ok!' })).status).toBe(422)
+    expect((await patch(aliceId, { machineId: '' })).body.data.machine_id).toBeNull()
+  })
+
+  it('does not expect somebody who works remotely on the machine', async () => {
+    await prisma.employee.update({ where: { id: bobId }, data: { workArrangement: 'remote' } })
+    await day(bobId, '2026-04-01', 8)
+    const res = await upload([SCANS, scan(alice, '01/04/2026', '09:30')].join('\n'))
+    expect(res.body.data.summary.machine.missing).toEqual([])
+  })
+
+  it('with confirmation off, the import works as it always did: an app day is overwritten', async () => {
+    await security({ punchMachineMatch: false })
+    await day(aliceId, '2026-04-01', 8)
+    const res = await upload([SCANS, scan(alice, '01/04/2026', '09:30'), scan(alice, '01/04/2026', '18:30')].join('\n'))
+    expect(res.body.data.summary).toMatchObject({ would_overwrite: 1, machine: null })
+  })
+
+  // ── What the independent review found (11 Oct 2026) ──────────────────────
+
+  it('a night cut by the file’s first day is made whole with the evening already recorded — and the day before is not judged', async () => {
+    const night = await prisma.shift.create({ data: { organizationId: orgId, name: `${PREFIX}-night-edge`, startTime: '22:00', endTime: '06:00', breakMinutes: 0, expectedHours: 8 } })
+    await prisma.employee.update({ where: { id: bobId }, data: { shiftId: night.id } })
+    try {
+      // Bob's night on the app: 22:00 on the 1st to 06:00 on the 2nd. Alice's days on the 1st and the 2nd.
+      await prisma.attendance.create({ data: { organizationId: orgId, employeeId: bobId, date: toDateColumn('2026-04-01'), checkIn: new Date('2026-04-01T22:00:00+05:30'), checkOut: new Date('2026-04-02T06:00:00+05:30'), status: 'present', source: 'punch', shiftId: night.id } })
+      await day(aliceId, '2026-04-01', 8)
+      await day(aliceId, '2026-04-02', 8)
+      // The first file ends on the 1st: Bob's evening scan.
+      await upload([SCANS, scan(bob, '01/04/2026', '22:00'), scan(alice, '01/04/2026', '09:00')].join('\n'), false)
+      // The next file starts on the 2nd, with the morning of Bob's night.
+      const next = [SCANS, scan(bob, '02/04/2026', '05:55'), scan(alice, '02/04/2026', '09:00'), scan(alice, '02/04/2026', '18:00')].join('\n')
+      const preview = (await upload(next)).body.data.summary
+      // Judged between the file's own dates: Alice's 1st is not "not on the machine".
+      expect(preview.machine).toMatchObject({ from: '2026-04-02', to: '2026-04-02', not_on_machine: 0, confirmed: 2 })
+      expect((await upload(next, false)).status).toBe(201)
+      const bobs = await dayOf(bobId, '2026-04-01')
+      expect([bobs.machineMatch, isoInstant(bobs.machineFirstScan), isoInstant(bobs.machineLastScan)]).toEqual(['confirmed', '2026-04-01T16:30:00.000Z', '2026-04-02T00:25:00.000Z'])
+      expect((await dayOf(aliceId, '2026-04-01')).machineMatch).toBe('confirmed')
+      // A morning whose night has nothing recorded: left out, said — never a check-in at 05:50.
+      const lone = (await upload([SCANS, scan(bob, '04/04/2026', '05:50'), scan(alice, '04/04/2026', '09:00')].join('\n'))).body.data.summary
+      expect([lone.edge_nights_left_out, lone.valid]).toEqual([1, 1])
+    } finally {
+      await prisma.employee.update({ where: { id: bobId }, data: { shiftId } })
+      await prisma.attendance.deleteMany({ where: { shiftId: night.id } })
+      await prisma.shift.delete({ where: { id: night.id } })
+    }
+  })
+
+  it('a day checked in on the app is asked about even after HR recorded its check-out', async () => {
+    await day(aliceId, '2026-04-03', 8)
+    const row = await dayOf(aliceId, '2026-04-03')
+    await prisma.attendance.update({ where: { id: row.id }, data: { source: 'correction' } })
+    await prisma.punchEvidence.create({ data: { organizationId: orgId, employeeId: aliceId, date: toDateColumn('2026-04-03'), attendanceId: row.id, action: 'in', startedAt: row.checkIn!, at: row.checkIn! } })
+    try {
+      const missing = (await upload([SCANS, scan(bob, '03/04/2026', '09:30')].join('\n'))).body.data.summary.machine
+      expect(missing.missing.map((m: { full_name: string }) => m.full_name)).toContain('alice person')
+      // With her scans: confirmed beside it, never overwritten.
+      const scanned = (await upload([SCANS, scan(alice, '03/04/2026', '09:01')].join('\n'))).body.data.summary
+      expect(scanned).toMatchObject({ would_overwrite: 0, machine: { confirmed: 1 } })
+    } finally {
+      await prisma.punchEvidence.deleteMany({ where: { employeeId: aliceId } })
+    }
+  })
+
+  it('today is not over, and a day not checked out is graded at its check-out: neither made absent', async () => {
+    await security({ punchMachineMissing: 'absent' })
+    const today = zonedToday(new Date(), 'Asia/Kolkata')
+    await prisma.attendance.create({ data: { organizationId: orgId, employeeId: aliceId, date: toDateColumn(today), checkIn: new Date(), status: 'present', source: 'punch', shiftId } })
+    const todays = (await upload([SCANS, `${bob},Somebody,${today} 09:00`].join('\n'))).body.data.summary.machine
+    expect(todays.missing).toEqual([])
+    // A past day never checked out: flagged, still present.
+    await prisma.attendance.create({ data: { organizationId: orgId, employeeId: aliceId, date: toDateColumn('2026-04-04'), checkIn: new Date('2026-04-04T03:30:00Z'), status: 'present', source: 'punch', shiftId } })
+    const open = [SCANS, scan(bob, '04/04/2026', '09:30')].join('\n')
+    expect((await upload(open)).body.data.summary.machine).toMatchObject({ not_on_machine: 1, made_absent: 0 })
+    await upload(open, false)
+    expect([(await dayOf(aliceId, '2026-04-04')).status, (await dayOf(aliceId, '2026-04-04')).machineMatch]).toEqual(['present', 'not_on_machine'])
+  })
+
+  it('gives back only the absent it made: a day graded since stays as graded', async () => {
+    await day(aliceId, '2026-04-05', 5, 'half_day')
+    await prisma.attendance.updateMany({ where: { employeeId: aliceId, date: toDateColumn('2026-04-05') }, data: { statusBeforeMachine: 'present', machineMatch: 'not_on_machine' } })
+    await upload([SCANS, scan(alice, '05/04/2026', '09:00')].join('\n'), false)
+    expect([(await dayOf(aliceId, '2026-04-05')).status, (await dayOf(aliceId, '2026-04-05')).machineMatch]).toEqual(['half_day', 'confirmed'])
+  })
+
+  it('a line a day with only a check-out is a check-out, as it always was', async () => {
+    const res = await upload(['Employee Code,Date,In Time,Out Time', `${bob},06/04/2026,,18:30`].join('\n'), false)
+    expect(res.status).toBe(201)
+    const filled = await dayOf(bobId, '2026-04-06')
+    expect([filled.checkIn, isoInstant(filled.checkOut), filled.note, filled.status]).toEqual([null, '2026-04-06T13:00:00.000Z', 'No check-in on the machine', 'present'])
+  })
+
+  it('a line with no times for somebody not filled from the machine is not counted with the days that had scans', async () => {
+    await security({ punchMachineFills: false })
+    const res = await upload(['Employee Code,Date,In Time,Out Time', `${bob},08/04/2026,,`].join('\n'))
+    expect(res.body.data.summary.machine).toMatchObject({ not_filled: 0 })
+  })
+
+  it('HR’s own correction of a day clears what the machine made of it: the next file judges it again', async () => {
+    await day(aliceId, '2026-04-09', 8)
+    await prisma.attendance.updateMany({ where: { employeeId: aliceId, date: toDateColumn('2026-04-09') }, data: { machineMatch: 'not_on_machine', status: 'absent', statusBeforeMachine: 'present' } })
+    const fixed = await request(app).post('/api/attendance/mark').set('Authorization', as('hr')).send({ employeeId: aliceId, date: '2026-04-09', status: 'present', checkIn: '09:00', checkOut: '18:00' })
+    expect(fixed.status, JSON.stringify(fixed.body)).toBe(201)
+    const row = await dayOf(aliceId, '2026-04-09')
+    expect([row.status, row.machineMatch, row.statusBeforeMachine]).toEqual(['present', null, null])
   })
 })
 

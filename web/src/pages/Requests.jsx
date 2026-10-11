@@ -59,7 +59,7 @@ export default function Requests() {
 
   const closeNew = () => {
     setCreating(false)
-    if (newType) setParams((p) => { p.delete('new'); p.delete('date'); return p }, { replace: true })
+    if (newType) setParams((p) => { p.delete('new'); p.delete('date'); p.delete('checkOut'); return p }, { replace: true })
   }
 
   return (
@@ -84,7 +84,7 @@ export default function Requests() {
         {tab === 'all' && <All />}
       </TabPanel>
 
-      {creating && <NewRequestDialog initialType={newType ?? 'choose'} initialDate={params.get('date')} onClose={closeNew} />}
+      {creating && <NewRequestDialog initialType={newType ?? 'choose'} initialDate={params.get('date')} initialCheckOut={params.get('checkOut')} onClose={closeNew} />}
     </>
   )
 }

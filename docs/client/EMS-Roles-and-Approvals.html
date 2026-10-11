@@ -280,6 +280,16 @@
 </table>
 <ul>
 <li><strong>The Super Admin chooses</strong> who decides each kind (the reporting manager or HR) in Settings → Approvals, and whether working from home still needs a location reading.</li>
+<li><strong>Checking in and out happens inside the office.</strong> A phone must be within the office radius (15 to 20 metres, 20 to start), and its reading must be precise enough. A reading from outside, or one the phone is unsure about, is refused, with words that say what to do. Check-out is checked too. Somebody who has already left asks HR to record their check-out. No app check-in is possible until the office location is set.</li>
+<li><strong>A website cannot tell a fake location from a real one,</strong> so EMS uses several settings together (Settings → Attendance Security, set by the Super Admin):
+  <ul>
+    <li><strong>The fingerprint machine confirms each day.</strong> The app's attendance counts at once. When HR imports the machine's file, each office day is confirmed, or noted as at a different time, or marked "not on the machine" when the person never touched it that day. The company chooses whether such a day is only flagged or is made absent. A later file that has the day puts it back. Before payroll is run, it warns of days not yet confirmed.</li>
+    <li><strong>Phones only.</strong> A computer cannot be used to check in at the office. Somebody who knows how can make a computer look like a phone, which is why the fingerprint machine confirms each day.</li>
+    <li><strong>Selfie</strong> (off to start). A live photo with every punch, kept for a set number of days and then deleted. The same photo sent twice is flagged.</li>
+    <li><strong>One phone per employee</strong> (off to start). A punch from another phone waits until HR approves it. After HR takes a phone off, every new phone waits for HR too.</li>
+  </ul>
+</li>
+<li><strong>Suspicious punches.</strong> HR and managers see punches worth a second look under Attendance → Suspicious: refused punches, punches from a computer, readings that look too perfect or never move, and days not on the fingerprint machine. Each day's punches, with where, which phone and the photo, are under <strong>Evidence</strong> on the attendance list and on Suspicious. Nobody sees these signs on their own punches; the Super Admin sees everyone's. These are signs to look into, not proof.</li>
 <li><strong>How a day is marked.</strong> On the nine-hour shift, 8 hours worked or more is a full day (Present), from 4½ hours a Half day, and less than 4½ hours Absent. No lunch break is taken off the hours, because lunch can be taken at any time: a day runs from check-in to check-out. The Super Admin can change these hours for each shift in Settings → Organisation → Shifts.</li>
 <li><strong>Shifts have rules.</strong> For each shift: a grace period, when coming late or leaving early makes it a half day, and when overtime starts (after 30 minutes past the shift, to start). Late arrivals and overtime show on the attendance screen and in the reports.</li>
 <li><strong>Overtime pay</strong> is off until you turn it on in Settings → Payroll Config, so nobody is paid overtime by surprise. Once on, it is twice an hour's pay to start; the rate, and whether it is worked out on the full salary or on Basic and DA, are set there too.</li>

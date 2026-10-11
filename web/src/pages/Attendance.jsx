@@ -1,6 +1,8 @@
 import { useState, useMemo } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { Download, Calendar, CalendarDays, Loader2, Upload } from 'lucide-react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import PunchEvidenceDialog from '../features/attendance/PunchEvidence'
+import { Download, Calendar, CalendarDays, Loader2, Upload, ShieldAlert } from 'lucide-react'
+import SuspiciousPunches from '../features/attendance/SuspiciousPunches'
 import MarkAttendanceModal from '../features/attendance/MarkAttendanceModal'
 import ImportAttendanceModal from '../features/attendance/ImportAttendanceModal'
 import SelfAttendance from '../features/attendance/SelfAttendance'
@@ -29,6 +31,9 @@ import { btn, card, field } from '../components/ui/styles'
  * reaches others — a team, or the company — gets the day's roster, and the
  * month: their own calendar and everybody's hours.
  */
+/** The views of somebody who sees others' attendance. */
+const VIEWS = ['daily', 'monthly', 'suspicious']
+
 export default function Attendance() {
   const timezone = useAuthStore((state) => state.organization?.timezone)
   // The caller's EMPLOYEE id — attendance rows belong to employees. The old
@@ -43,7 +48,18 @@ export default function Attendance() {
   // The company's today. From UTC it was yesterday until 05:30 in India.
   const today = calendarDayIn(timezone)
 
-  const [viewChoice, setViewChoice] = useState(null)
+  // A link may open a view: a phone waiting for approval links to Suspicious (client, 11 Oct 2026) —
+  // once per link, followed while this page is already open too.
+  const [params] = useSearchParams()
+  const viewLink = params.get('view')
+  const [viewChoice, setViewChoice] = useState(() => (VIEWS.includes(viewLink) ? viewLink : null))
+  const [followedView, setFollowedView] = useState(viewLink)
+  if (viewLink !== followedView) {
+    setFollowedView(viewLink)
+    if (VIEWS.includes(viewLink)) setViewChoice(viewLink)
+  }
+  // One person's punches that day, with their evidence (client, 11 Oct 2026).
+  const [evidenceFor, setEvidenceFor] = useState(null)
   const [date, setDate]             = useState(today)
   const [monthKey, setMonthKey]     = useState(today.slice(0, 7))
   const [tab, setTab]               = useState('all')
@@ -85,6 +101,8 @@ export default function Attendance() {
     // Where they worked from (client §33) and what they checked in on — office days say nothing.
     work_mode: emp.attendance?.work_mode ?? null,
     check_in_device: emp.attendance?.check_in_device ?? null,
+    // The fingerprint machine's word on an app day (client, 11 Oct 2026); null until its file is imported.
+    machine_match: emp.attendance?.machine_match ?? null,
     // Against the shift (client §34–35): late past the grace, overtime past its threshold.
     late_minutes: emp.attendance?.late_minutes ?? null,
     early_leaving_minutes: emp.attendance?.early_leaving_minutes ?? null,
@@ -160,7 +178,7 @@ export default function Attendance() {
   const ready = roster.data !== undefined
   const self = ready && !seesOthers
   const [year, month] = monthKey.split('-').map(Number)
-  const subtitle = self ? formatCalendarDay(today) : view === 'monthly' ? monthLabel(year, month) : formatCalendarDay(date)
+  const subtitle = self ? formatCalendarDay(today) : view === 'monthly' ? monthLabel(year, month) : view === 'suspicious' ? 'Punches worth a second look' : formatCalendarDay(date)
 
   return (
     <>
@@ -170,7 +188,12 @@ export default function Attendance() {
         actions={<>
           {seesOthers && (
             <Segmented label="View" value={view} onChange={setViewChoice}
-              items={[{ key: 'daily', label: 'Daily', icon: CalendarDays }, { key: 'monthly', label: 'Monthly', icon: Calendar }]} />
+              items={[
+                { key: 'daily', label: 'Daily', icon: CalendarDays },
+                { key: 'monthly', label: 'Monthly', icon: Calendar },
+                // Punches worth a second look (client, 11 Oct 2026).
+                { key: 'suspicious', label: 'Suspicious', icon: ShieldAlert },
+              ]} />
           )}
           {/* The biometric machine's file (Day 12): whoever may mark other people's days. */}
           {canMark && (
@@ -205,6 +228,8 @@ export default function Attendance() {
           <SelfAttendance monthKey={monthKey} onMonth={setMonthKey} today={today} />
         ) : view === 'monthly' ? (
           <TeamMonth monthKey={monthKey} onMonth={setMonthKey} today={today} myEmployeeId={myEmployeeId} />
+        ) : view === 'suspicious' ? (
+          <SuspiciousPunches today={today} />
         ) : (
           // inert while the next day loads: the rows on screen are the last day's, and
           // editing one would save the old day's entry onto the new date.
@@ -217,6 +242,7 @@ export default function Attendance() {
               search={search} onSearch={setSearch}
               canMark={canMark} onMark={setModalEmp}
               nowMs={serverNow.getTime()}
+              onEvidence={setEvidenceFor}
             />
           </div>
         )}
@@ -229,6 +255,7 @@ export default function Attendance() {
         onSave={handleSave}
       />
       {importing && <ImportAttendanceModal onClose={() => setImporting(false)} />}
+      {evidenceFor && <PunchEvidenceDialog person={evidenceFor} date={date} onClose={() => setEvidenceFor(null)} />}
     </>
   )
 }

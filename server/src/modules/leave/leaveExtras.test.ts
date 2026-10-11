@@ -179,6 +179,18 @@ describe('D — an absent day: told, offered leave, and leave once approved', ()
     const day = await prisma.attendance.findFirstOrThrow({ where: { employeeId: emp.sunil, date: toDateColumn(WED) } })
     expect([day.id, day.status, day.statusBeforeLeave]).toEqual([marked.id, marked.status, null])
   })
+
+  it('takes over a punched day the fingerprint machine’s rule made absent — the person was told, and asked for leave (client, 11 Oct 2026)', async () => {
+    await prisma.attendance.create({
+      data: { organizationId: orgId, employeeId: emp.ravi!, date: toDateColumn(WED), checkIn: new Date(`${WED}T04:00:00Z`), checkOut: new Date(`${WED}T12:30:00Z`), status: 'absent', source: 'punch', statusBeforeMachine: 'present', machineMatch: 'not_on_machine' },
+    })
+    const res = await apply('ravi', { leaveTypeId: type.CL, fromDate: WED, toDate: WED })
+    expect(res.status, JSON.stringify(res.body)).toBe(201)
+    expect((await send('manoj', 'post', `/leave-requests/${res.body.data.id}/approve`)).status).toBe(200)
+    const day = await prisma.attendance.findFirstOrThrow({ where: { employeeId: emp.ravi, date: toDateColumn(WED) } })
+    // The leave is the day now; reversed, it is the machine's absent again — still able to be given back by a later file.
+    expect([day.status, day.statusBeforeLeave, day.sourceBeforeLeave, day.statusBeforeMachine]).toEqual(['on_leave', 'absent', 'punch', 'present'])
+  })
 })
 
 describe('A — one’s own month in pay terms', () => {

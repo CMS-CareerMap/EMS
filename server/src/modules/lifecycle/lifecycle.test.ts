@@ -60,6 +60,13 @@ const email = (who: string) => `${PREFIX}-${who.toLowerCase()}@example.com`
 const as = (who: Who) => `Bearer ${tokens[who]}`
 const get = (who: Who, url: string) => request(app).get(url).set('Authorization', as(who))
 const post = (who: Who, url: string, body: object = {}) => request(app).post(url).set('Authorization', as(who)).send(body)
+/** A check-in as the app makes it (client, 11 Oct 2026): started, then sent with its token; a refused start is the answer. */
+const checkIn = async (who: Who, body: object = {}) => {
+  // From a phone: an office punch is from phones only (client, 11 Oct 2026).
+  const asPhone = { Authorization: as(who), 'User-Agent': 'Mozilla/5.0 (Linux; Android 14) Mobile' }
+  const start = await request(app).post('/api/attendance/punch-start').set(asPhone).send({ action: 'in' })
+  return start.status === 200 ? request(app).post('/api/attendance/punch-in').set(asPhone).send({ token: start.body.data.token, ...body }) : start
+}
 const put = (who: Who, url: string, body: object) => request(app).put(url).set('Authorization', as(who)).send(body)
 const of = (who: Who, url: string) => get(who, `/api/lifecycle/employees/${url}`)
 const step = (who: Who, id: string, what: string, body: object = {}) => post(who, `/api/lifecycle/employees/${id}/${what}`, body)
@@ -710,13 +717,19 @@ describe('removing somebody from Settings → Users', () => {
 
 describe('attendance follows the lifecycle', () => {
   it('opens check-in on the joining day and closes it after the last working day', async () => {
-    const early = await post('soon', '/api/attendance/punch-in', {})
+    const early = await checkIn('soon')
     expect(early.status).toBe(403)
     expect(early.body.error.message).toMatch(/^You join on .+\. Checking in opens on your first day\.$/)
-    const late = await post('gone', '/api/attendance/punch-in', {})
+    const late = await checkIn('gone')
     expect(late.status).toBe(403)
     expect(late.body.error.message).toMatch(/^Your last working day was .+, so there is nothing to check in to\.$/)
-    expect((await post('emp1', '/api/attendance/punch-in', {})).status).toBe(201)
+    // At the office: with no office set, nobody checks in there (client, 11 Oct 2026).
+    const office = await prisma.geofenceLocation.create({ data: { organizationId: orgId, name: 'Head Office', latitude: 18.52, longitude: 73.85 } })
+    try {
+      expect((await checkIn('emp1', { readings: [{ latitude: 18.52, longitude: 73.85, accuracyMeters: 8, at: Date.now() }] })).status).toBe(201)
+    } finally {
+      await prisma.geofenceLocation.delete({ where: { id: office.id } })
+    }
   })
 
   it('refuses leave before the joining day', async () => {

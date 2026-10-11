@@ -31,6 +31,8 @@ export const TENANT_MODELS = [
   'Holiday',
   'GeofenceLocation',
   'Attendance',
+  'PunchEvidence',
+  'PunchDevice',
   'LeaveRequest',
   'SalaryComponent',
   'EsiCoverage',
