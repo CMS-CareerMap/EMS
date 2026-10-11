@@ -3,7 +3,8 @@ import { useSearchParams } from 'react-router-dom'
 import PageHeader from '../components/ui/PageHeader'
 import Tabs from '../components/ui/Tabs'
 import { card } from '../components/ui/styles'
-import { Building2, Users, CalendarDays, Bell, IndianRupee, Network, FolderOpen, ScrollText, ShieldCheck, GitBranch, CheckSquare, UserCog } from 'lucide-react'
+import { Building2, Users, CalendarDays, Bell, IndianRupee, Network, FolderOpen, ScrollText, ShieldCheck, GitBranch, CheckSquare, UserCog, MapPinned } from 'lucide-react'
+import AttendanceSecurity from '../features/settings/AttendanceSecurity'
 import CompanyTree from '../features/settings/CompanyTree'
 import ApprovalsSettings from '../features/settings/ApprovalsSettings'
 import CompanySettings from '../features/settings/CompanySettings'
@@ -41,6 +42,8 @@ const TABS = [
   { id: 'tree', label: 'Company Tree', icon: GitBranch, permission: 'role:manage', Component: CompanyTree },
   { id: 'approvals', label: 'Approvals', icon: CheckSquare, permission: 'role:manage', Component: ApprovalsSettings },
   { id: 'organisation', label: 'Organisation', icon: Network, permission: 'settings:read', Component: OrganisationSettings },
+  // The office location and every layer of check-in security (client, 11 Oct 2026).
+  { id: 'attendance-security', label: 'Attendance Security', icon: MapPinned, permission: 'settings:read', Component: AttendanceSecurity },
   {
     id: 'leave',
     label: 'Leave Config',
@@ -61,7 +64,7 @@ const TABS = [
 const GROUPS = [
   ['Organisation', ['company', 'organisation', 'tree']],
   ['People & access', ['users', 'roles', 'approvals', 'lifecycle']],
-  ['Time & pay', ['leave', 'payroll']],
+  ['Time & pay', ['attendance-security', 'leave', 'payroll']],
   ['Records', ['documents', 'notifications', 'audit']],
 ]
 

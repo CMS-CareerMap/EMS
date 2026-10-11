@@ -78,6 +78,8 @@ function base(employee: EmployeeRow) {
     attendance_mode: employee.attendanceMode,
     // Office, hybrid or remote (client §33).
     work_arrangement: employee.workArrangement,
+    // The number the fingerprint machine knows them by (client, 11 Oct 2026); null with none.
+    machine_id: employee.machineId,
     shift_id: employee.shiftId,
     shift: employee.shift
       ? {

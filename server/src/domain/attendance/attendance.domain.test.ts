@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { hoursBetween, hoursBetweenWallClock, classifyDay, totalHours } from './hours'
-import { distanceMeters, checkGeofence, type Fence } from './geofence'
+import { distanceMeters, checkGeofence, bestReading, effectiveFence, geofenceMessage, FENCE_LIMITS, type Fence } from './geofence'
 import { zonedToday, zonedMinutes, parseWallClock, isCalendarDate, fromDateColumn } from '../shared/dates'
 
 /**
@@ -215,31 +215,55 @@ describe('the geofence', () => {
     expect(verdict.result).not.toBe('inside')
   })
 
-  it('gives the benefit of the doubt inside the accuracy radius', () => {
-    // 45 m away with ±20 m accuracy: they could genuinely be 25 m away, which
-    // is inside a 30 m fence. Refusing people who are probably inside is how a
-    // geofence gets switched off within a week.
-    const nearby = { latitude: 18.5208303, longitude: 73.8567437, accuracyMeters: 20 }
-    const verdict = checkGeofence(nearby, FENCE)
+  /** A point this many metres due north of the office. */
+  const north = (metres: number) => ({ latitude: OFFICE.latitude + metres / 111_194.93, longitude: OFFICE.longitude })
 
-    expect(verdict.distanceMeters).toBeGreaterThan(30)
-    expect(verdict.result).toBe('inside')
-  })
-
-  it('does not let generosity cover the car park', () => {
-    // The accuracy gate bounds it: 300 m away needs a ±270 m reading to pass,
-    // and that reading is rejected as unreliable long before it gets here.
-    const carPark = { latitude: 18.5231303, longitude: 73.8567437, accuracyMeters: 45 }
-    const verdict = checkGeofence(carPark, FENCE)
+  it('takes no benefit of the doubt: the point itself must be inside (client, 11 Oct 2026)', () => {
+    // 25 m away with ±10 m: once let in as "could be 15 m"; now outside a 20 m fence.
+    const verdict = checkGeofence({ ...north(25), accuracyMeters: 10 }, { ...OFFICE, radiusMeters: 20, maxAccuracyMeters: 20 })
+    expect(verdict.distanceMeters).toBe(25)
     expect(verdict.result).toBe('outside')
   })
 
+  it('is exact at the edge: 20 m is in, 21 m is out', () => {
+    const fence: Fence = { ...OFFICE, radiusMeters: 20, maxAccuracyMeters: 20 }
+    expect(checkGeofence({ ...north(20), accuracyMeters: 5 }, fence)).toMatchObject({ result: 'inside', distanceMeters: 20 })
+    expect(checkGeofence({ ...north(21), accuracyMeters: 5 }, fence)).toMatchObject({ result: 'outside', distanceMeters: 21 })
+  })
+
+  it('never applies a wider fence or a vaguer reading than the limits, whatever is stored', () => {
+    // FENCE says 30 m and ±50 m; the check is 20 m and ±20 m.
+    expect(checkGeofence({ ...north(25), accuracyMeters: 5 }, FENCE).result).toBe('outside')
+    expect(checkGeofence({ ...OFFICE, accuracyMeters: 25 }, FENCE).result).toBe('unreliable')
+    expect(effectiveFence(FENCE)).toMatchObject({ radiusMeters: FENCE_LIMITS.radius.max, maxAccuracyMeters: FENCE_LIMITS.accuracy.max })
+    // A tighter stored fence is kept as it is.
+    expect(effectiveFence({ ...OFFICE, radiusMeters: 15, maxAccuracyMeters: 10 })).toMatchObject({ radiusMeters: 15, maxAccuracyMeters: 10 })
+  })
+
   it('handles a tight 15 m fence, which is what the client asked for', () => {
-    const tight: Fence = { ...OFFICE, radiusMeters: 15, maxAccuracyMeters: 25 }
+    const tight: Fence = { ...OFFICE, radiusMeters: 15, maxAccuracyMeters: 15 }
 
     expect(checkGeofence({ ...OFFICE, accuracyMeters: 8 }, tight).result).toBe('inside')
+    expect(checkGeofence({ ...north(16), accuracyMeters: 8 }, tight).result).toBe('outside')
     // The same spot with a typical indoor reading cannot be confirmed — which
     // is the cost of 15 m, and why the client was told about it.
     expect(checkGeofence({ ...OFFICE, accuracyMeters: 40 }, tight).result).toBe('unreliable')
+  })
+
+  it('judges a punch by its most precise reading, the latest of equals', () => {
+    const readings = [
+      { ...north(30), accuracyMeters: 25, at: 1 },
+      { ...north(5), accuracyMeters: 8, at: 2 },
+      { ...north(6), accuracyMeters: 8, at: 3 },
+      { ...north(2), accuracyMeters: 12, at: 4 },
+    ]
+    expect(bestReading(readings)).toBe(readings[2])
+    expect(bestReading([])).toBeNull()
+  })
+
+  it('says what to do, for check-in and check-out', () => {
+    const fence: Fence = { ...OFFICE, radiusMeters: 20, maxAccuracyMeters: 20 }
+    expect(geofenceMessage(checkGeofence({ ...north(40), accuracyMeters: 5 }, fence), fence, 'out')).toBe('You appear to be 40 m from the office. Check out is allowed within 20 m.')
+    expect(geofenceMessage(checkGeofence({ ...OFFICE, accuracyMeters: 35 }, fence), fence)).toMatch(/accurate to about 35 m; 20 m is needed/)
   })
 })

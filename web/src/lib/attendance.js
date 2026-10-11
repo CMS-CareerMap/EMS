@@ -17,6 +17,46 @@ export const STATUS = {
 
 export const statusMeta = (status) => STATUS[status] ?? null
 
+/** A punch's signs it may not be what it seems (server: domain/attendance/punchSignals.ts), in words. */
+export const PUNCH_FLAG_WORDS = {
+  frozen_readings: 'Every reading exactly the same — a real phone’s location moves a little',
+  repeated_spot: 'The very same point as an earlier day, to the last digit',
+  too_precise: 'More precise than a phone indoors manages',
+  stale_reading: 'The reading’s time was far from the server’s',
+  not_a_phone: 'From a computer, not a phone',
+  new_device: 'From a phone not used in the last two months',
+}
+
+/** Why a punch was refused, in words — with how far, when it was the fence. */
+export function refusalWords(punch) {
+  if (punch.refused_for === 'outside') return `refused — ${punch.distance_meters} m from the office`
+  if (punch.refused_for === 'unreliable') return `refused — the location was too vague (about ${punch.accuracy_meters} m)`
+  if (punch.refused_for === 'not_phone') return 'refused — from a computer'
+  if (punch.refused_for === 'device_waiting') return 'refused — from a phone not approved for them'
+  if (punch.refused_for === 'no_photo') return 'refused — no photo was taken'
+  return null
+}
+
+/** "Android · Chrome" from a browser's description of itself — enough to tell one phone from another. */
+export function shortDevice(userAgent) {
+  if (!userAgent) return null
+  const os = /iPhone|iPad/.test(userAgent) ? 'iPhone/iPad' : /Android/.test(userAgent) ? 'Android' : /Windows/.test(userAgent) ? 'Windows' : /Mac OS X|Macintosh/.test(userAgent) ? 'Mac' : /Linux/.test(userAgent) ? 'Linux' : 'Unknown'
+  const browser = /Edg\//.test(userAgent) ? 'Edge' : /SamsungBrowser/.test(userAgent) ? 'Samsung Internet' : /Chrome\//.test(userAgent) ? 'Chrome' : /Firefox\//.test(userAgent) ? 'Firefox' : /Safari\//.test(userAgent) ? 'Safari' : 'a browser'
+  return `${os} · ${browser}`
+}
+
+/**
+ * The fingerprint machine's word on an app day (client, 11 Oct 2026), as a
+ * chip: confirmed, its times differ, not on it, or the day filled from it.
+ * Null: not matched yet — no chip.
+ */
+export const MACHINE_MATCH = {
+  confirmed: { label: 'Machine ✓', tone: 'ok', said: 'Confirmed by the fingerprint machine' },
+  time_differs: { label: 'Machine: time differs', tone: 'warn', said: 'On the machine, at a time further from the app’s than allowed' },
+  not_on_machine: { label: 'Not on machine', tone: 'bad', said: 'Checked in on the app, with no scan on the machine that day' },
+  from_machine: { label: 'From machine', tone: 'gray', said: 'No app punch: the day is the machine’s' },
+}
+
 /** The stored figure, from the server — never recomputed here from two clock times. */
 export function formatHours(hours) {
   if (hours == null) return '—'

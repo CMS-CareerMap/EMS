@@ -167,7 +167,8 @@ const SIDEBAR = {
 }
 const SETTINGS_TABS = {
   // In the menu's groups since the new look: Organisation, People & access, Time & pay, Records.
-  sa: ['Company', 'Organisation', 'Company Tree', 'Users & Roles', 'Roles & Permissions', 'Approvals', 'Employee Lifecycle', 'Leave Config', 'Payroll Config', 'Documents', 'Notifications', 'Audit Log'],
+  // Attendance Security since 11 Oct 2026, the Super Admin's.
+  sa: ['Company', 'Organisation', 'Company Tree', 'Users & Roles', 'Roles & Permissions', 'Approvals', 'Employee Lifecycle', 'Attendance Security', 'Leave Config', 'Payroll Config', 'Documents', 'Notifications', 'Audit Log'],
   admin: ['Leave Config', 'Documents'],
   // Users & Roles since HR sets employees' passwords (client, 6 Oct 2026).
   hr: ['Users & Roles', 'Employee Lifecycle', 'Leave Config', 'Documents'],

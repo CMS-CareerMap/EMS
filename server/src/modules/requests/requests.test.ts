@@ -43,6 +43,17 @@ const email = (who: string) => `${PREFIX}-${who.toLowerCase()}@example.com`
 const as = (who: Who) => `Bearer ${tokens[who]}`
 const get = (who: Who, url: string) => request(app).get(url).set('Authorization', as(who))
 const post = (who: Who, url: string, body: object = {}) => request(app).post(url).set('Authorization', as(who)).send(body)
+/** A check-in as the app makes it (client, 11 Oct 2026): started, then sent with its token; a refused start is the answer. */
+const PHONE_UA = 'Mozilla/5.0 (Linux; Android 14) Mobile'
+const checkIn = async (who: Who, body: object = {}, userAgent = PHONE_UA) => {
+  // From a phone: an office punch is from phones only (client, 11 Oct 2026).
+  const start = await request(app).post('/api/attendance/punch-start').set({ Authorization: as(who), 'User-Agent': userAgent }).send({ action: 'in' })
+  if (start.status !== 200) return start
+  // One reading written loose here is sent as the page sends it: a burst, each reading with its time.
+  const { latitude, longitude, accuracyMeters, ...rest } = body as Record<string, unknown>
+  const burst = latitude !== undefined ? { readings: [{ latitude, longitude, accuracyMeters, at: Date.now() }] } : {}
+  return request(app).post('/api/attendance/punch-in').set({ Authorization: as(who), 'User-Agent': userAgent }).send({ token: start.body.data.token, ...rest, ...burst })
+}
 const put = (who: Who, url: string, body: object) => request(app).put(url).set('Authorization', as(who)).send(body)
 const ask = (who: Who, body: object) => post(who, '/api/requests', body)
 async function signIn(who: Who) {
@@ -175,14 +186,14 @@ describe('working from home', () => {
     expect((await ask('emp1', { type: 'work_from_home', fromDate: addCalendarDays(today, 5), toDate: addCalendarDays(today, 40), reason: 'Too long' })).status).toBe(400)
 
     expect(await workplace('emp1')).toMatchObject({ work_mode: 'office', location_needed: true })
-    const office = await post('emp1', '/api/attendance/punch-in', {})
+    const office = await checkIn('emp1')
     expect(office.status).toBe(403)
   })
 
   it('once approved, lets them check in from home — recorded as work from home', async () => {
     expect((await post('mgrM', `/api/requests/${id}/approve`)).status).toBe(200)
     expect(await workplace('emp1')).toMatchObject({ work_mode: 'wfh', location_needed: false })
-    const res = await request(app).post('/api/attendance/punch-in').set('Authorization', as('emp1')).set('User-Agent', 'Mozilla/5.0 (Linux; Android 14) Mobile').send({})
+    const res = await checkIn('emp1', {}, 'Mozilla/5.0 (Linux; Android 14) Mobile')
     expect(res.status, JSON.stringify(res.body)).toBe(201)
     expect(res.body.data.work_mode).toBe('wfh')
     const row = await prisma.attendance.findFirstOrThrow({ where: { employeeId: emp.emp1, date: toDateColumn(today) } })
@@ -198,8 +209,8 @@ describe('working from home', () => {
     expect(later.status, JSON.stringify(later.body)).toBe(201)
     expect((await post('boss', `/api/requests/${later.body.data.id}/approve`)).status).toBe(200)
     expect(await workplace('mgrM')).toMatchObject({ work_mode: 'on_duty', location_needed: true })
-    expect((await post('mgrM', '/api/attendance/punch-in', {})).status).toBe(403)
-    const ok = await post('mgrM', '/api/attendance/punch-in', { latitude: 28.6, longitude: 77.2, accuracyMeters: 20 })
+    expect((await checkIn('mgrM')).status).toBe(403)
+    const ok = await checkIn('mgrM', { latitude: 28.6, longitude: 77.2, accuracyMeters: 20 })
     expect(ok.status, JSON.stringify(ok.body)).toBe(201)
     expect(ok.body.data.work_mode).toBe('on_duty')
     expect((await put('boss', '/api/requests/settings', { correctionApprover: 'manager', wfhApprover: 'manager', overtimeApprover: 'manager', profileApprover: 'hr', encashmentApprover: 'hr', wfhGpsRequired: false })).status).toBe(200)
@@ -217,7 +228,7 @@ describe('working from home', () => {
   it('is not asked of somebody who works remotely: they check in from anywhere', async () => {
     expect((await ask('emp2', { type: 'work_from_home', fromDate: today, toDate: today, reason: 'Home' })).status).toBe(400)
     expect(await workplace('emp2')).toMatchObject({ work_mode: 'remote', location_needed: false })
-    const res = await post('emp2', '/api/attendance/punch-in', {})
+    const res = await checkIn('emp2')
     expect(res.status, JSON.stringify(res.body)).toBe(201)
     expect(res.body.data.work_mode).toBe('remote')
   })

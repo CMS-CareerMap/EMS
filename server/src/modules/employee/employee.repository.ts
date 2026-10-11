@@ -209,6 +209,33 @@ export async function findById(
  * not, as the database's own uniqueness counts them. For keeping IDs that
  * would sign in to two people apart.
  */
+/**
+ * Somebody else whose Machine ID — or employee code — reads as this, in any
+ * letters (client, 11 Oct 2026): the machine's file is matched by Machine ID
+ * first, then code, so either would send another person's line to this one.
+ */
+export async function employeeWithMachineIdLike(db: TxDb | ScopedDb, value: string, exceptEmployeeId: string | null) {
+  const rows = await db.employee.findMany({
+    where: {
+      OR: [{ machineId: equalsInsensitive(value) }, { employeeCode: equalsInsensitive(value) }],
+      ...(exceptEmployeeId ? { id: { not: exceptEmployeeId } } : {}),
+    },
+    select: { id: true, fullName: true, employeeCode: true, machineId: true },
+    take: 4,
+  })
+  return rows.find((row) => (row.machineId !== null && sameInsensitive(row.machineId, value)) || sameInsensitive(row.employeeCode, value)) ?? null
+}
+
+/** Somebody else whose Machine ID reads as this code, in any letters — the machine's file would send this code's lines to them. */
+export async function employeeWithMachineIdOnly(db: TxDb | ScopedDb, code: string, exceptEmployeeId?: string) {
+  const rows = await db.employee.findMany({
+    where: { machineId: equalsInsensitive(code), ...(exceptEmployeeId ? { id: { not: exceptEmployeeId } } : {}) },
+    select: { id: true, fullName: true, machineId: true },
+    take: 2,
+  })
+  return rows.find((row) => row.machineId !== null && sameInsensitive(row.machineId, code)) ?? null
+}
+
 export async function employeeWithCodeLike(db: TxDb | ScopedDb, code: string, exceptEmployeeId?: string) {
   const rows = await db.employee.findMany({
     where: {

@@ -12,6 +12,8 @@ import { calculate, type Calculation } from './payroll.service'
 import { directivesFor, entriesForMonth, type DirectiveRow, type EntryRow } from './payrollInputs.repository'
 import * as repo from './payrollRun.repository'
 import { runLock } from './payrollLock.service'
+import { attendanceSecurityOf } from '../settings/settings.repository'
+import { isAppDay } from '../attendance/attendance.repository'
 import { daysInMonth, employmentWindow, type EmploymentWindow } from '../../domain/payroll/salary'
 import { leaveDaysIn, lossOfPay, monthCalendar, type LossOfPay } from '../../domain/payroll/payDays'
 import { directiveFor, financialYearLabel, financialYearOf } from '../../domain/payroll/tds'
@@ -186,7 +188,7 @@ export async function planMonth(ctx: AppContext, year: number, month: number): P
   const ids = onPayroll.map((e) => e.id)
   const financialYear = financialYearOf(year, month)
 
-  const [policies, dayOffRows, attendance, leave, directives, entries, salaries, waitingRequests] = await Promise.all([
+  const [policies, dayOffRows, attendance, leave, directives, entries, salaries, waitingRequests, security] = await Promise.all([
     repo.policiesForMonth(ctx.db, from, to),
     listDaysOff(ctx.db, from, to),
     repo.attendanceForMonth(ctx.db, ids, from, to),
@@ -195,6 +197,7 @@ export async function planMonth(ctx: AppContext, year: number, month: number): P
     entriesForMonth(ctx.db, year, month),
     repo.salariesForMonth(ctx.db, ids, from, to),
     repo.pendingRequestsForMonth(ctx.db, ids, from, to),
+    attendanceSecurityOf(ctx.db, ctx.organizationId),
   ])
   const waitingOf = groupBy(waitingRequests, (row) => row.employeeId)
 
@@ -263,6 +266,25 @@ export async function planMonth(ctx: AppContext, year: number, month: number): P
         warnings.push(
           `Marked on leave with no approved leave behind it: ${dayList(lop.markedLeave, year, month)}. Counted as paid.`,
         )
+      }
+      // The fingerprint machine's word on the app's office days (client, 11 Oct 2026).
+      if (security?.punchMachineMatch) {
+        // The app's office days — checked in on the app, whoever recorded the rest — that are worked days.
+        const appDays = (attendanceOf.get(employee.id) ?? []).filter((row) => isAppDay(row) && (row.workMode === 'office' || row.workMode === null) && row.status !== 'on_leave')
+        const datesWhere = (match: string | null) => appDays.filter((row) => row.machineMatch === match).map((row) => fromDateColumn(row.date))
+        const unchecked = datesWhere(null)
+        if (unchecked.length > 0) {
+          warnings.push(`Not yet checked against the fingerprint machine: ${dayList(unchecked, year, month)}. Import the machine’s file (Attendance → Import) before paying.`)
+        }
+        // Those the company's rule made absent already are — the rest are paid unless somebody acts.
+        const notOn = appDays.filter((row) => row.machineMatch === 'not_on_machine' && row.statusBeforeMachine === null).map((row) => fromDateColumn(row.date))
+        if (notOn.length > 0) {
+          warnings.push(`Checked in on the app but not on the fingerprint machine: ${dayList(notOn, year, month)}. Confirm with them, or correct the days, before paying.`)
+        }
+        const differs = datesWhere('time_differs')
+        if (differs.length > 0) {
+          warnings.push(`The machine and the app differ by more than ${security.punchMachineMinutes} minutes: ${dayList(differs, year, month)}.`)
+        }
       }
       for (const pending of theirLeave.filter((row) => row.status === 'pending')) {
         warnings.push(

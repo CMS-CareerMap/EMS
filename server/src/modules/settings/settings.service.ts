@@ -7,6 +7,7 @@ import { lockFor } from '../../platform/db/locks'
 import { audit, withAudit } from '../audit/audit.service'
 import { logger } from '../../platform/logger'
 import * as repo from './settings.repository'
+import { bestReading, checkGeofence, effectiveFence, geofenceMessage, type Fence, type Reading } from '../../domain/attendance/geofence'
 
 /**
  * Company settings.
@@ -260,26 +261,81 @@ export async function listGeofences(ctx: AppContext) {
  * one location and has never had an id to send — it kept this in localStorage.
  */
 export async function saveGeofence(ctx: AppContext, input: GeofenceInput) {
-  const existing = await repo.findGeofenceByName(ctx.db, input.name)
-
   const data: repo.GeofenceValues = {
     latitude: input.latitude,
     longitude: input.longitude,
     radiusMeters: input.radiusMeters,
     ...(input.maxAccuracyMeters === undefined ? {} : { maxAccuracyMeters: input.maxAccuracyMeters }),
-    ...(input.isActive === undefined ? {} : { isActive: input.isActive }),
+    // Saving the office is saying "this is the office" — one switched off
+    // before is switched back on, unless it is saved off on purpose.
+    isActive: input.isActive ?? true,
   }
 
   // Where the office is decides whose punch counts. A fence moved to somebody's
   // house is the thing to be able to see.
+  // One office (v1 decision, 4 Oct 2026): saving one under a new name retires
+  // the others, so an old fence elsewhere can never stay switched on beside it.
   const saved = await withAudit(
     ctx,
-    (tx) => (existing ? repo.updateGeofence(tx, existing.id, data) : repo.createGeofence(tx, ctx.organizationId, input.name, data)),
-    (row) => ({ action: 'geofence.saved', entityType: 'geofence', entityId: row.id, details: { name: input.name, ...data, created: !existing } }),
+    async (tx) => {
+      // One save at a time: two at once under different names would each
+      // retire the other's old office and leave both switched on.
+      await lockFor(tx, `geofence:${ctx.organizationId}`)
+      const existing = await repo.findGeofenceByName(tx, input.name)
+      const row = existing ? await repo.updateGeofence(tx, existing.id, data) : await repo.createGeofence(tx, ctx.organizationId, input.name, data)
+      if (row.isActive) await repo.retireOtherGeofences(tx, row.id)
+      return { row, created: !existing }
+    },
+    ({ row, created }) => ({ action: 'geofence.saved', entityType: 'geofence', entityId: row.id, details: { name: input.name, ...data, created } }),
   )
 
   logger.info('Geofence saved', { by: ctx.userId, name: input.name })
-  return saved
+  return saved.row
+}
+
+/** Settings → Attendance Security (client, 11 Oct 2026): which layers the company has on. */
+export async function getAttendanceSecurity(ctx: AppContext): Promise<repo.AttendanceSecurity> {
+  const security = await repo.attendanceSecurityOf(ctx.db, ctx.organizationId)
+  if (!security) throw NotFound('Company not found')
+  return security
+}
+
+export type AttendanceSecurityView = repo.AttendanceSecurity
+export type AttendanceSecurityInput = { [K in keyof repo.AttendanceSecurity]?: repo.AttendanceSecurity[K] | undefined }
+
+/** Saved and audited — what changed, from what to what. Nothing changed: nothing written. */
+export async function updateAttendanceSecurity(ctx: AppContext, input: AttendanceSecurityInput): Promise<repo.AttendanceSecurity> {
+  const before = await getAttendanceSecurity(ctx)
+  const keys = (Object.keys(input) as (keyof repo.AttendanceSecurity)[]).filter((k) => input[k] !== undefined && input[k] !== before[k])
+  if (keys.length === 0) return before
+  const data: Partial<repo.AttendanceSecurity> = Object.fromEntries(keys.map((k) => [k, input[k]]))
+  const changes = Object.fromEntries(keys.map((k) => [k, { from: before[k], to: input[k] }]))
+  return withAudit(
+    ctx,
+    (tx) => repo.saveAttendanceSecurity(tx, ctx.organizationId, data),
+    () => ({ action: 'attendance_security.updated', entityType: 'organization', entityId: ctx.organizationId, details: { changes } }),
+  )
+}
+
+/**
+ * "Test this spot" (client, 11 Oct 2026): where the Super Admin stands, as a
+ * punch would be judged — the same rule, the same choice of reading — so the
+ * fence can be tried at the hall's corners before anybody punches.
+ */
+export async function testGeofenceSpot(ctx: AppContext, readings: Reading[]) {
+  const office = await repo.findActiveGeofence(ctx.db)
+  if (!office) throw BadRequest('Set and save the office location first.')
+  const fence: Fence = {
+    latitude: Number(office.latitude),
+    longitude: Number(office.longitude),
+    radiusMeters: office.radiusMeters,
+    maxAccuracyMeters: office.maxAccuracyMeters,
+  }
+  const best = bestReading(readings)
+  if (!best) throw BadRequest('No location was read.')
+  const verdict = checkGeofence(best, fence)
+  const applied = effectiveFence(fence)
+  return { verdict, radiusMeters: applied.radiusMeters, accuracyNeeded: applied.maxAccuracyMeters, message: geofenceMessage(verdict, fence) }
 }
 
 export async function deleteGeofence(ctx: AppContext, id: string) {

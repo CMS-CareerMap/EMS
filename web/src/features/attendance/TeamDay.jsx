@@ -1,7 +1,31 @@
 import { ChevronLeft, ChevronRight, Search, Edit2, UserCheck, UserX, Clock, CalendarDays, CircleDashed } from 'lucide-react'
 import { Avatar, Chip, StatTile } from '../../components/ui/bits'
 import { btn, card, field, th, td } from '../../components/ui/styles'
-import { STATUS, formatHours, soFarLabel } from '../../lib/attendance'
+import { MACHINE_MATCH, STATUS, formatHours, soFarLabel } from '../../lib/attendance'
+import { useAuthStore } from '../../stores/authStore'
+
+/**
+ * A day checked in on the app — HR may have recorded its check-out since: its
+ * evidence — where, how precisely, which phone, the selfie (client, 11 Oct
+ * 2026). A day only refused is on Suspicious, with its own Evidence.
+ */
+function EvidenceButton({ rec, onEvidence }) {
+  // Never one's own, but for the Super Admin: the signs on one's own punches are for somebody above.
+  const mine = useAuthStore((state) => rec.employee_id === state.profile?.id && !state.can('role:manage'))
+  if (!onEvidence || mine || !(rec.source === 'punch' || (rec.source === 'correction' && rec.check_in))) return null
+  return (
+    <button type="button" onClick={() => onEvidence(rec)} className="mt-0.5 -ml-1 px-1 py-1 text-xs font-semibold text-brand-600 hover:text-brand-800 hover:underline rounded" aria-label={`Evidence of ${rec.full_name}’s punches`}>
+      Evidence
+    </button>
+  )
+}
+
+/** The fingerprint machine's word on the day (client, 11 Oct 2026); nothing until its file is imported. */
+function MachineChip({ match }) {
+  const meta = match ? MACHINE_MATCH[match] : null
+  if (!meta) return null
+  return <span className="block mt-1" title={meta.said}><Chip tone={meta.tone} dot={false}>{meta.label}</Chip></span>
+}
 import { addDays, formatDay } from '../../lib/dates'
 import { WORK_MODES, minutesLabel } from '../../lib/requests'
 
@@ -27,7 +51,7 @@ const TILES = [
 
 export default function TeamDay({
   records, filtered, stats, date, onDate, today, tab, onTab,
-  departments, deptFilter, onDept, search, onSearch, canMark, onMark, nowMs,
+  departments, deptFilter, onDept, search, onSearch, canMark, onMark, nowMs, onEvidence,
 }) {
   // Their time at work so far, while they are in: the stored hours come at check-out.
   const soFar = (rec) => soFarLabel(nowMs - Date.parse(rec.check_in_at))
@@ -124,6 +148,7 @@ export default function TeamDay({
                         <div className="min-w-0">
                           <p className="text-sm font-semibold text-gray-900 truncate">{rec.full_name}</p>
                           <p className="text-xs text-gray-400 font-mono">{rec.employee_code}</p>
+                          <EvidenceButton rec={rec} onEvidence={onEvidence} />
                         </div>
                       </div>
                     </td>
@@ -161,6 +186,7 @@ export default function TeamDay({
                       ) : (
                         <Chip tone="gray" dot={false}>Not marked</Chip>
                       )}
+                      <MachineChip match={rec.machine_match} />
                     </td>
                     {canMark && (
                       <td className={`${td} text-right pr-5`}>
@@ -194,6 +220,8 @@ export default function TeamDay({
                     {rec.check_in ? `In ${rec.check_in}${rec.check_out ? ` · Out ${rec.check_out}` : rec.at_work ? ` · ${soFar(rec)} so far` : noCheckOut(rec) ? ' · no check-out' : ''}${rec.late_minutes > 0 ? ` · late ${minutesLabel(rec.late_minutes)}` : ''}` : (rec.department || rec.employee_code)}
                   </p>
                   {canMark && rec.mark_goes_to && <p className="text-[11px] text-gray-400 italic">Goes to {rec.mark_goes_to}</p>}
+                  <MachineChip match={rec.machine_match} />
+                  <EvidenceButton rec={rec} onEvidence={onEvidence} />
                 </div>
                 {meta ? <Chip tone={meta.tone}>{meta.label}</Chip> : <Chip tone="gray" dot={false}>Not marked</Chip>}
                 {canMark && !rec.mark_goes_to && (

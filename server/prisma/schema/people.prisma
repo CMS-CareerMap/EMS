@@ -103,6 +103,10 @@ model Employee {
   attendanceMode  AttendanceMode  @default(app)
   /// Office, hybrid (home on approved days) or remote (client §33).
   workArrangement WorkArrangement @default(office)
+  /// The number the fingerprint machine knows them by (client, 11 Oct 2026),
+  /// when it is not their employee code: a line of the machine's file is
+  /// matched by it first. Unique in the company; none is fine.
+  machineId       String?
 
   /// Personal details (client §42). Shown to the person and to whoever reads
   /// statutory details; changed by them only through a profile change request.
@@ -151,6 +155,8 @@ model Employee {
   leaveRequests     LeaveRequest[]
   leaveEntitlements EmployeeLeaveEntitlement[]
   leaveYearEndNotices LeaveYearEndNotice[]
+  punchEvidence       PunchEvidence[]
+  punchDevices        PunchDevice[]
   esiCoverage       EsiCoverage[]
   payslips          Payslip[]
   tdsDirectives     EmployeeTdsDirective[]
@@ -162,6 +168,7 @@ model Employee {
   loans             EmployeeLoan[]
 
   @@unique([organizationId, employeeCode])
+  @@unique([organizationId, machineId])
   @@index([organizationId, archivedAt])
   @@index([reportingManagerId])
   @@index([organizationId, departmentId])

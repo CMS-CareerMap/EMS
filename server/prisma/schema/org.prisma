@@ -79,6 +79,33 @@ model Organization {
   /// check-in (client §32). Off: the approved request is enough.
   wfhGpsRequired     Boolean         @default(false)
 
+  /// Settings → Attendance Security (client, 11 Oct 2026). Every layer is the
+  /// Super Admin's choice; the defaults are the client's.
+  ///
+  /// The office fence at check-out too: an app check-out on an office day must
+  /// be inside it, as the check-in was. Off: anywhere, as it used to be.
+  punchCheckOutLocation Boolean @default(true)
+  /// Confirm app days by the fingerprint machine's file: the import matches
+  /// instead of overwriting an app-punched day. Off: the import as before.
+  punchMachineMatch     Boolean        @default(true)
+  /// How many minutes the machine's first (or last) scan may be from the app's
+  /// check-in (or check-out) and still be "confirmed". Beyond: a note, never absent.
+  punchMachineMinutes   Int            @default(30)
+  /// An app office day with no scan at all: flagged, or made absent.
+  punchMachineMissing   MachineMissing @default(flag)
+  /// A day with scans and no app punch (the phone forgotten): filled from the machine.
+  punchMachineFills     Boolean        @default(true)
+  /// App punches from phones only: a computer's browser can be told any
+  /// location with its own developer tools, no app needed. Off: a computer's
+  /// punch is flagged instead.
+  punchPhoneOnly        Boolean        @default(true)
+  /// A live photo from the front camera with every app punch, seen by HR and
+  /// the person's manager, deleted after `punchSelfieKeepDays`.
+  punchSelfie           Boolean        @default(false)
+  punchSelfieKeepDays   Int            @default(60)
+  /// One phone per employee: punches from another phone wait for HR.
+  punchOneDevice        Boolean        @default(false)
+
   /// Settings → Users & Roles → Passwords (client, 6 Oct 2026). Who sets the
   /// password of an employee login: the company — HR, or the Super Admin —
   /// with the employee unable to change it; or the employee, from a link.
@@ -109,6 +136,8 @@ model Organization {
   leaveLedgerEntries LeaveLedgerEntry[]
   leaveEntitlements  EmployeeLeaveEntitlement[]
   leaveYearEndNotices LeaveYearEndNotice[]
+  punchEvidence       PunchEvidence[]
+  punchDevices        PunchDevice[]
 
   policies  OrganizationPolicy[]
   ptSlabs   PtSlab[]

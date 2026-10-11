@@ -1,5 +1,5 @@
 import type { AppContext } from '../../platform/context'
-import { BadRequest, Conflict, Forbidden, NotFound } from '../../platform/errors/AppError'
+import { BadRequest, Conflict, Forbidden, LocationRefused, NotFound } from '../../platform/errors/AppError'
 import { logger } from '../../platform/logger'
 import { isUniqueViolation } from '../../platform/db/errors'
 import { zonedToday, toDateColumn, fromDateColumn, dayLabel, addCalendarDays, type CalendarDate } from '../../domain/shared/dates'
@@ -19,7 +19,9 @@ import {
   type ShiftRow,
 } from '../../domain/attendance/shiftRules'
 import {
+  bestReading,
   checkGeofence,
+  effectiveFence,
   geofenceMessage,
   type Fence,
   type GeofenceVerdict,
@@ -28,9 +30,13 @@ import * as repo from './attendance.repository'
 import { companyTimezone } from '../organization/organization.service'
 import { withTransaction } from '../../platform/db/transaction'
 import { tellAbsent } from './attendanceNotices'
-import { findActiveGeofence, getCurrentPolicy } from '../settings/settings.repository'
+import { issuePunchToken, verifyPunchToken, PUNCH_TOKEN_SECONDS, type PunchAction } from './punchToken'
+import { attendanceSecurityOf, findActiveGeofence, getCurrentPolicy } from '../settings/settings.repository'
 import { awayOn, payPolicyOn, requestRules } from '../requests/requests.repository'
-import type { WorkMode } from '@prisma/client'
+import { deviceKind, deviceLabel, isPhone, punchSignals, type PunchFlag } from '../../domain/attendance/punchSignals'
+import { deviceVerdict, hashDeviceKey } from './punchDevices.service'
+import { dropPunchPhoto, storePunchPhoto, type IncomingPhoto, type StoredPhoto } from './punchPhotos.service'
+import type { Prisma, PunchRefusal, WorkMode } from '@prisma/client'
 
 /**
  * Punching in and out.
@@ -39,15 +45,40 @@ import type { WorkMode } from '@prisma/client'
  * scope — it is identity: the row is keyed off `ctx.employeeId`, so there is no
  * employee id in the request for anyone to change. An endpoint that took one
  * would need a scope check; one that does not take one cannot be wrong.
+ *
+ * Check-in security (client, 11 Oct 2026): a punch is started first
+ * (`startPunch`: a signed token, and whether a location is needed); the phone
+ * then reads its location several times and sends every reading; the server
+ * judges the most precise one against the office fence — at check-in, and at
+ * check-out too when the company says so — and keeps the evidence of every
+ * punch, refused ones included.
  */
 
+/** One location reading, as the phone took it. */
+export interface PunchReading {
+  latitude: number
+  longitude: number
+  accuracyMeters: number
+  /** The phone's clock, ms since 1970. */
+  at?: number | undefined
+}
+
 export interface PunchInput {
-  /** Only sent by an `app`-mode employee. Absent for biometric and manual. */
-  latitude?: number | undefined
-  longitude?: number | undefined
-  accuracyMeters?: number | undefined
-  /** The browser's description of itself (client §31), kept short. Never trusted for anything. */
+  /** From `startPunch`: who is punching, which way, and since when. Required. */
+  token?: string | undefined
+  /** The burst of readings the phone took, at most ten. None where no location is needed. */
+  readings?: PunchReading[] | undefined
+  /** The browser's description of itself (client §31), kept short. Never trusted for anything but a flag and "phones only". */
   device?: string | undefined
+  /** The browser's own mobile hint (`Sec-CH-UA-Mobile`), and the page's count of touch points. */
+  mobileHint?: string | undefined
+  touchPoints?: number | undefined
+  /** The random key the phone's browser keeps (Layer 6); held here only as its hash. */
+  deviceKey?: string | undefined
+  /** The selfie taken with it (Layer 5). */
+  photo?: IncomingPhoto | undefined
+  /** The address the punch came from, for the evidence. */
+  ip?: string | undefined
 }
 
 export interface PunchResult {
@@ -90,52 +121,47 @@ async function loadSelf(ctx: AppContext) {
   return employee
 }
 
+type Self = Awaited<ReturnType<typeof loadSelf>>
+
 /**
- * Runs the geofence, or explains why it did not.
- *
- * Returns null when no check applies — a biometric employee is standing at the
- * machine, and asking their phone where they are would prove nothing.
+ * The app's punches are for people on app attendance. Somebody on the
+ * biometric machine or marked by HR has their day recorded there; an app punch
+ * from them would carry no proof at all, so it is refused rather than taken on
+ * trust — on the way out as on the way in.
  */
-async function verifyLocation(
-  ctx: AppContext,
-  attendanceMode: string,
-  input: PunchInput,
-): Promise<{ verdict: GeofenceVerdict; fence: Fence } | null> {
-  if (attendanceMode !== 'app') return null
+function assertPunchesInApp(employee: Self, action: PunchAction) {
+  if (employee.attendanceMode === 'app') return
+  const verb = action === 'in' ? 'checked in' : 'checked out'
+  throw Forbidden(employee.attendanceMode === 'biometric'
+    ? `Your attendance is recorded by the biometric machine, not ${verb} on the app.`
+    : `Your attendance is marked by HR, not ${verb} on the app.`)
+}
 
-  const location = await findActiveGeofence(ctx.db)
+/** What a punch needs of the phone's location. */
+interface LocationPlan {
+  /** Readings must come with it. */
+  needed: boolean
+  /** And the best of them be inside this fence. Null: read and kept, not checked. */
+  fence: Fence | null
+}
 
-  // No fence configured is not a reason to refuse everybody. It is a reason to
-  // record that no check was made, which `geofenceVerified: null` says exactly.
-  if (!location) return null
-
-  if (
-    input.latitude === undefined ||
-    input.longitude === undefined ||
-    input.accuracyMeters === undefined
-  ) {
-    // FAIL CLOSED. A missing reading is refused, not waved through — otherwise
-    // the geofence is bypassed by declining the browser permission prompt,
-    // which is one click.
-    throw Forbidden(
-      'Location is required to check in. Allow location access in your browser and try again.',
-    )
+/**
+ * The office fence, as the company set it. FAIL CLOSED (client, 11 Oct 2026):
+ * with no office set, a punch at the office cannot be confirmed, so it is
+ * refused. Until then nobody was checked at all, one deleted setting away from
+ * attendance from anywhere.
+ */
+async function officeFence(ctx: AppContext, action: PunchAction): Promise<Fence> {
+  const office = await findActiveGeofence(ctx.db)
+  if (!office) {
+    throw Forbidden(`The office location is not set yet, so ${action === 'in' ? 'checking in' : 'checking out'} at the office cannot be confirmed. Ask your Super Admin to set it in Settings → Attendance Security.`)
   }
-
-  const fence: Fence = {
-    latitude: Number(location.latitude),
-    longitude: Number(location.longitude),
-    radiusMeters: location.radiusMeters,
-    maxAccuracyMeters: location.maxAccuracyMeters,
+  return {
+    latitude: Number(office.latitude),
+    longitude: Number(office.longitude),
+    radiusMeters: office.radiusMeters,
+    maxAccuracyMeters: office.maxAccuracyMeters,
   }
-
-  const reading = {
-    latitude: input.latitude,
-    longitude: input.longitude,
-    accuracyMeters: input.accuracyMeters,
-  }
-
-  return { verdict: checkGeofence(reading, fence), fence }
 }
 
 /**
@@ -165,22 +191,12 @@ async function currentDay(ctx: AppContext, employee: { id: string; shift: ShiftR
   return { row, date: today }
 }
 
-export async function punchIn(ctx: AppContext, input: PunchInput): Promise<PunchResult> {
-  const employee = await loadSelf(ctx)
-  // Never the machine clock's idea of a day. See domain/shared/dates.
-  const timezone = await companyTimezone(ctx)
-
-  // The app's check-in is for people on app attendance. Somebody on the
-  // biometric machine or marked by HR has their day recorded there; an app
-  // punch from them carries no location check at all, so it is refused rather
-  // than taken on trust.
-  if (employee.attendanceMode !== 'app') {
-    throw Forbidden(employee.attendanceMode === 'biometric'
-      ? 'Your attendance is recorded by the biometric machine, not checked in on the app.'
-      : 'Your attendance is marked by HR, not checked in on the app.')
-  }
-
-  const now = new Date()
+/**
+ * Everything a check-in is refused for before its location is looked at, and
+ * what it needs of the location. Shared by `startPunch` and `punchIn`, so the
+ * button and the punch never disagree on whether a location is needed.
+ */
+async function prepareCheckIn(ctx: AppContext, employee: Self, now: Date, timezone: string) {
   const today = zonedToday(now, timezone)
 
   const { row: current, date: onDay } = await currentDay(ctx, employee, today, timezone, now)
@@ -238,31 +254,257 @@ export async function punchIn(ctx: AppContext, input: PunchInput): Promise<Punch
   // wants a location reading even when working from home.
   const away = await awayOn(ctx.db, employee.id, toDateColumn(date))
   const workMode: WorkMode = away === 'work_from_home' ? 'wfh' : away === 'on_duty' ? 'on_duty' : employee.workArrangement === 'remote' ? 'remote' : 'office'
-  if (away && employee.attendanceMode === 'app' && (await requestRules(ctx.db, ctx.organizationId))?.wfhGpsRequired) {
-    if (input.latitude === undefined || input.longitude === undefined) {
-      throw Forbidden('Location is required to check in, even when working from home or on duty. Allow location access in your browser and try again.')
-    }
-  }
-  const location = workMode === 'office' ? await verifyLocation(ctx, employee.attendanceMode, input) : null
+  const plan: LocationPlan = workMode === 'office'
+    ? { needed: true, fence: await officeFence(ctx, 'in') }
+    : { needed: Boolean(away && (await requestRules(ctx.db, ctx.organizationId))?.wfhGpsRequired), fence: null }
 
-  if (location) {
-    const { verdict, fence } = location
+  return { today, date, existing, leave, workMode, plan }
+}
 
-    // Three outcomes, not two. "Unreliable" is refused with different words
-    // from "outside", because the person can act on the difference: one means
-    // go to the office, the other means move near a window.
-    if (verdict.result !== 'inside') {
-      logger.warn('Punch-in refused by geofence', {
-        employeeId: employee.id,
-        result: verdict.result,
-        distanceMeters: verdict.distanceMeters,
-        accuracyMeters: verdict.accuracyMeters,
-      })
-      throw Forbidden(geofenceMessage(verdict, fence))
-    }
+/**
+ * Everything a check-out is refused for before its location is looked at, and
+ * what it needs of the location: on an office day, the fence again when the
+ * company checks check-outs (Settings → Attendance Security, on to start).
+ */
+async function prepareCheckOut(ctx: AppContext, employee: Self, now: Date, timezone: string) {
+  // Today's day — or last night's, on an overnight shift that ends this morning.
+  const { row, date } = await currentDay(ctx, employee, zonedToday(now, timezone), timezone, now)
+
+  if (!row?.checkIn) {
+    throw BadRequest('You have not checked in today, so there is nothing to check out of.')
   }
 
-  const verdict = location?.verdict
+  if (row.checkOut) {
+    throw Conflict('You have already checked out today.')
+  }
+
+  // Where the day was checked into from; a day HR began, which says nothing, is an office day unless they work remotely.
+  const workMode: WorkMode = row.workMode ?? (employee.workArrangement === 'remote' ? 'remote' : 'office')
+  const security = await attendanceSecurityOf(ctx.db, ctx.organizationId)
+  const plan: LocationPlan = workMode === 'office' && security?.punchCheckOutLocation !== false
+    ? { needed: true, fence: await officeFence(ctx, 'out') }
+    : { needed: false, fence: null }
+
+  return { row, date, workMode, plan }
+}
+
+/**
+ * The reading a punch is judged by: the most precise of the burst, chosen
+ * here. Refused when one is needed and none came — FAIL CLOSED, so declining
+ * the browser's location prompt is not a way round the fence.
+ */
+function readingFor(plan: LocationPlan, readings: readonly PunchReading[], action: PunchAction, workMode: WorkMode): PunchReading | null {
+  const best = bestReading(readings)
+  if (plan.needed && !best) {
+    throw Forbidden(workMode === 'office'
+      ? `Location is required to ${action === 'in' ? 'check in' : 'check out'}. Allow location access in your browser and try again.`
+      : 'Location is required to check in, even when working from home or on duty. Allow location access in your browser and try again.')
+  }
+  return best
+}
+
+/** One punch's evidence row. */
+function evidenceOf(ctx: AppContext, e: {
+  employeeId: string
+  date: CalendarDate
+  action: PunchAction
+  startedAt: Date
+  workMode: WorkMode
+  plan: LocationPlan
+  best: PunchReading | null
+  verdict: GeofenceVerdict | null
+  input: PunchInput
+  attendanceId?: string | undefined
+  refusedFor?: PunchRefusal | undefined
+  flags?: PunchFlag[] | undefined
+  deviceKeyHash?: string | null | undefined
+  photo?: StoredPhoto | null | undefined
+}): Prisma.PunchEvidenceUncheckedCreateInput {
+  const readings = e.input.readings ?? []
+  return {
+    organizationId: ctx.organizationId,
+    employeeId: e.employeeId,
+    date: toDateColumn(e.date),
+    attendanceId: e.attendanceId ?? null,
+    action: e.action,
+    refusedFor: e.refusedFor ?? null,
+    startedAt: e.startedAt,
+    workMode: e.workMode,
+    latitude: e.best ? e.best.latitude : null,
+    longitude: e.best ? e.best.longitude : null,
+    accuracyMeters: e.best ? Math.round(e.best.accuracyMeters) : null,
+    distanceMeters: e.verdict ? e.verdict.distanceMeters : null,
+    fenceApplied: Boolean(e.plan.fence),
+    // As the phone gave them, nothing added; left out (null) when none came.
+    ...(readings.length
+      ? { readings: readings.map((r) => ({ latitude: r.latitude, longitude: r.longitude, accuracyMeters: r.accuracyMeters, at: r.at ?? null })) }
+      : {}),
+    ip: e.input.ip ? e.input.ip.slice(0, 64) : null,
+    userAgent: e.input.device ? e.input.device.slice(0, 255) : null,
+    flags: e.flags ?? [],
+    deviceKeyHash: e.deviceKeyHash ?? null,
+    photoKey: e.photo ? e.photo.key : null,
+    photoSha: e.photo ? e.photo.sha256 : null,
+    photoBytes: e.photo ? e.photo.bytes : null,
+  }
+}
+
+const phoneOf = (input: PunchInput) => isPhone({ userAgent: input.device, mobileHint: input.mobileHint, touchPoints: input.touchPoints })
+
+type Security = Awaited<ReturnType<typeof attendanceSecurityOf>>
+
+/**
+ * Everything a punch is refused for before its location is judged (client,
+ * 11 Oct 2026) — each refusal kept as evidence:
+ *   - PHONES ONLY (Layer 3, on to start): a punch that needs the location,
+ *     from a computer — a computer's browser can be told any location with its
+ *     own developer tools, no app needed. A punch needing none is not asked.
+ *   - ONE PHONE (Layer 6, off to start): from a phone HR has not approved.
+ *   - SELFIE (Layer 5, off to start): with no photo — at the punch, not its
+ *     start, which comes before the photo is taken.
+ */
+async function gate(ctx: AppContext, g: {
+  employeeId: string
+  date: CalendarDate
+  action: PunchAction
+  startedAt: Date
+  workMode: WorkMode
+  plan: LocationPlan
+  input: PunchInput
+  security: Security
+  atStart: boolean
+}): Promise<{ keyHash: string | null }> {
+  const keyHash = hashDeviceKey(g.input.deviceKey)
+  const verb = g.action === 'in' ? 'Check in' : 'Check out'
+  const refuse = async (refusedFor: PunchRefusal, flags: PunchFlag[], message: string): Promise<never> => {
+    await repo.recordPunch(ctx.db, evidenceOf(ctx, { employeeId: g.employeeId, date: g.date, action: g.action, startedAt: g.startedAt, workMode: g.workMode, plan: g.plan, best: null, verdict: null, input: g.input, refusedFor, flags, deviceKeyHash: keyHash }))
+    throw Forbidden(message)
+  }
+  if (g.plan.needed && g.security?.punchPhoneOnly !== false && !phoneOf(g.input)) {
+    await refuse('not_phone', ['not_a_phone'], `${verb} from your phone. A computer cannot be used here: its browser can be told any location.`)
+  }
+  if (g.security?.punchOneDevice) {
+    const verdict = await deviceVerdict(ctx, g.employeeId, keyHash, deviceLabel(g.input.device))
+    if (verdict === 'waiting') await refuse('device_waiting', [], 'This phone is not the one registered for you. HR has been asked to approve it — try again once they have.')
+    if (verdict === 'no_key') await refuse('device_waiting', [], 'This browser cannot keep its registration. Use your phone’s usual browser — not a private window — with this site’s data allowed.')
+  }
+  if (!g.atStart && g.security?.punchSelfie && !g.input.photo) {
+    await refuse('no_photo', [], `${verb} with your photo: the company asks for one with every punch.`)
+  }
+  return { keyHash }
+}
+
+/** The signs this punch may not be what it seems (Layer 4): for the evidence, never a refusal. */
+async function signalsOf(ctx: AppContext, employeeId: string, date: CalendarDate, input: PunchInput, best: PunchReading | null, device: { keyHash: string | null; oneDevice: boolean }): Promise<PunchFlag[]> {
+  const kind = deviceKind({ userAgent: input.device, mobileHint: input.mobileHint, touchPoints: input.touchPoints })
+  const flags: PunchFlag[] = best
+    ? punchSignals({ readings: input.readings ?? [], best, now: Date.now(), earlierPoints: await repo.earlierPunchPoints(ctx.db, employeeId, date), kind })
+    : kind === 'computer' ? ['not_a_phone'] : kind === 'mac_with_touch' ? ['mac_with_touch'] : []
+  // Another phone than the person's of the last two months — said when "one phone" is off; on, it waits for HR instead.
+  // A punch with no key at all is not the page's: said the same way, once there are earlier ones to go by.
+  if (!device.oneDevice) {
+    const earlier = await repo.earlierDeviceHashes(ctx.db, employeeId, date)
+    if (earlier.size > 0 && (!device.keyHash || !earlier.has(device.keyHash))) flags.push('new_device')
+  }
+  return flags
+}
+
+/** Refused punches a day that keep their photo: enough to show the room behind them, never a way to fill the storage. */
+const REFUSED_PHOTOS_A_DAY = 3
+
+/**
+ * The selfie to keep with this punch — only when the company asks for one
+ * (Layer 5), and with a refused punch only the first few of the day: the
+ * room behind somebody punching from home is the evidence, the tenth try is
+ * not. Stored before the punch is written; dropped if the punch is not. The
+ * very same photo as an earlier punch of theirs, to the byte, is flagged: a
+ * live camera never gives the same file twice.
+ */
+async function photoToKeep(ctx: AppContext, employeeId: string, date: CalendarDate, input: PunchInput, security: Security, verdict: GeofenceVerdict | null, flags: PunchFlag[]): Promise<StoredPhoto | null> {
+  if (!input.photo || !security?.punchSelfie) return null
+  const refused = verdict !== null && verdict.result !== 'inside'
+  if (refused && (await repo.refusedPhotosOn(ctx.db, employeeId, date)) >= REFUSED_PHOTOS_A_DAY) return null
+  const photo = await storePunchPhoto(ctx, employeeId, input.photo)
+  if (await repo.photoSeenBefore(ctx.db, employeeId, photo.sha256)) flags.push('repeated_photo')
+  return photo
+}
+
+/**
+ * A punch the fence refused: kept as evidence — "tried from 2 km away at
+ * 09:58" is exactly what HR needs to see — then refused, in words the person
+ * can act on. Three outcomes, not two: "unreliable" is said differently from
+ * "outside", because one means go to the office and the other move near a
+ * window.
+ */
+async function refuseAtFence(ctx: AppContext, evidence: Prisma.PunchEvidenceUncheckedCreateInput, verdict: GeofenceVerdict, fence: Fence, action: PunchAction, date: CalendarDate): Promise<never> {
+  await repo.recordPunch(ctx.db, evidence)
+  logger.warn(`Punch-${action} refused by geofence`, {
+    employeeId: evidence.employeeId,
+    result: verdict.result,
+    distanceMeters: verdict.distanceMeters,
+    accuracyMeters: verdict.accuracyMeters,
+  })
+  throw LocationRefused(geofenceMessage(verdict, fence, action), { action, reason: verdict.result, date })
+}
+
+export interface PunchStart {
+  token: string
+  expiresInSeconds: number
+  /** Whether to read the phone's location — and, when the office fence applies, its radius and the accuracy it needs. */
+  locationNeeded: boolean
+  radiusMeters: number | null
+  accuracyMeters: number | null
+  /** Whether to take a selfie with it (Layer 5). */
+  photoNeeded: boolean
+}
+
+/**
+ * Pressing Check In or Check Out (client, 11 Oct 2026): whatever would refuse
+ * the punch is said now, before the phone spends ten seconds reading its
+ * location; otherwise a start token, and whether — and how precisely — the
+ * location is needed.
+ */
+export async function startPunch(ctx: AppContext, action: PunchAction, device: PunchInput = {}): Promise<PunchStart> {
+  const employee = await loadSelf(ctx)
+  assertPunchesInApp(employee, action)
+  const timezone = await companyTimezone(ctx)
+  const now = new Date()
+  const { plan, date, workMode } = action === 'in' ? await prepareCheckIn(ctx, employee, now, timezone) : await prepareCheckOut(ctx, employee, now, timezone)
+  const security = await attendanceSecurityOf(ctx.db, ctx.organizationId)
+  // From a computer, or a phone not theirs: said now, before the location is read — and kept.
+  await gate(ctx, { employeeId: employee.id, date, action, startedAt: now, workMode, plan, input: device, security, atStart: true })
+  const applied = plan.fence ? effectiveFence(plan.fence) : null
+  return {
+    token: issuePunchToken({ userId: ctx.userId, employeeId: employee.id }, action, now.getTime()),
+    expiresInSeconds: PUNCH_TOKEN_SECONDS,
+    locationNeeded: plan.needed,
+    radiusMeters: applied ? applied.radiusMeters : null,
+    accuracyMeters: applied ? applied.maxAccuracyMeters : null,
+    photoNeeded: security?.punchSelfie === true,
+  }
+}
+
+export async function punchIn(ctx: AppContext, input: PunchInput): Promise<PunchResult> {
+  const employee = await loadSelf(ctx)
+  assertPunchesInApp(employee, 'in')
+  const startedAt = verifyPunchToken(input.token, { userId: ctx.userId, employeeId: employee.id }, 'in')
+  // Never the machine clock's idea of a day. See domain/shared/dates.
+  const timezone = await companyTimezone(ctx)
+  const now = new Date()
+
+  const { date, existing, leave, workMode, plan } = await prepareCheckIn(ctx, employee, now, timezone)
+  const security = await attendanceSecurityOf(ctx.db, ctx.organizationId)
+  const { keyHash } = await gate(ctx, { employeeId: employee.id, date, action: 'in', startedAt, workMode, plan, input, security, atStart: false })
+
+  const best = readingFor(plan, input.readings ?? [], 'in', workMode)
+  const verdict = plan.fence && best ? checkGeofence(best, plan.fence) : null
+  const flags = await signalsOf(ctx, employee.id, date, input, best, { keyHash, oneDevice: security?.punchOneDevice === true })
+  const photo = await photoToKeep(ctx, employee.id, date, input, security, verdict, flags)
+  const evidence = { employeeId: employee.id, date, action: 'in' as const, startedAt, workMode, plan, best, verdict, input, flags, deviceKeyHash: keyHash, photo }
+  if (verdict && verdict.result !== 'inside') {
+    await refuseAtFence(ctx, evidenceOf(ctx, { ...evidence, refusedFor: verdict.result }), verdict, plan.fence!, 'in', date)
+  }
+
   const expectedHours = employee.shift ? Number(employee.shift.expectedHours) : null
   // How late, against the shift's start (client §34). The rest waits for the check-out.
   // A morning on leave starts the worked half at the middle of the shift.
@@ -275,8 +517,8 @@ export async function punchIn(ctx: AppContext, input: PunchInput): Promise<Punch
     status: 'present' as const,
     shiftId: employee.shiftId,
     expectedHours,
-    checkInLatitude: input.latitude ?? null,
-    checkInLongitude: input.longitude ?? null,
+    checkInLatitude: best ? best.latitude : null,
+    checkInLongitude: best ? best.longitude : null,
     checkInDistanceMeters: verdict?.distanceMeters ?? null,
     checkInAccuracyMeters: verdict?.accuracyMeters ?? null,
     // Null, not false, when no check applied. "We did not look" and "we looked
@@ -287,16 +529,26 @@ export async function punchIn(ctx: AppContext, input: PunchInput): Promise<Punch
     lateMinutes,
   }
 
-  const row = existing
-    ? await repo.updateDay(ctx.db, existing.id, data)
-    : await repo
-        .createDay(ctx.db, { organizationId: ctx.organizationId, employeeId: employee.id, date: toDateColumn(date), ...data })
-        .catch((err: unknown) => {
-          // Two taps at once: the other one created today's row a moment ago,
-          // and the unique index refused this one. That is a 409, not a 500.
-          if (isUniqueViolation(err)) throw Conflict('You have already checked in today.')
-          throw err
-        })
+  // The day and its evidence together: neither is kept without the other — nor the photo.
+  const row = await withTransaction(ctx.db, async (tx) => {
+    const day = existing
+      ? // Written only if still without a check-in: two taps at once check in once.
+        await repo.checkInIf(tx, existing.id, data)
+      : await repo
+          .createDay(tx, { organizationId: ctx.organizationId, employeeId: employee.id, date: toDateColumn(date), ...data })
+          .catch((err: unknown) => {
+            // Two taps at once: the other one created today's row a moment ago,
+            // and the unique index refused this one. That is a 409, not a 500.
+            if (isUniqueViolation(err)) throw Conflict('You have already checked in today.')
+            throw err
+          })
+    if (!day) throw Conflict('You have already checked in today.')
+    await repo.recordPunch(tx, evidenceOf(ctx, { ...evidence, attendanceId: day.id }))
+    return day
+  }).catch(async (err: unknown) => {
+    await dropPunchPhoto(photo)
+    throw err
+  })
 
   logger.info('Punched in', { employeeId: employee.id, date })
 
@@ -311,7 +563,7 @@ export async function punchIn(ctx: AppContext, input: PunchInput): Promise<Punch
       ? {
           verified: true,
           distanceMeters: verdict.distanceMeters,
-          message: geofenceMessage(verdict, location!.fence),
+          message: geofenceMessage(verdict, plan.fence!),
         }
       : null,
     workMode,
@@ -323,29 +575,32 @@ export async function punchIn(ctx: AppContext, input: PunchInput): Promise<Punch
   }
 }
 
-export async function punchOut(ctx: AppContext): Promise<PunchResult> {
+export async function punchOut(ctx: AppContext, input: PunchInput): Promise<PunchResult> {
   const employee = await loadSelf(ctx)
+  assertPunchesInApp(employee, 'out')
+  const startedAt = verifyPunchToken(input.token, { userId: ctx.userId, employeeId: employee.id }, 'out')
   // Never the machine clock's idea of a day. See domain/shared/dates.
   const timezone = await companyTimezone(ctx)
-
   const now = new Date()
-  // Today's day — or last night's, on an overnight shift that ends this morning.
-  const { row, date: today } = await currentDay(ctx, employee, zonedToday(now, timezone), timezone, now)
 
-  if (!row?.checkIn) {
-    throw BadRequest('You have not checked in today, so there is nothing to check out of.')
+  const { row, date: today, workMode, plan } = await prepareCheckOut(ctx, employee, now, timezone)
+  const security = await attendanceSecurityOf(ctx.db, ctx.organizationId)
+  const { keyHash } = await gate(ctx, { employeeId: employee.id, date: today, action: 'out', startedAt, workMode, plan, input, security, atStart: false })
+
+  // At the office on an office day (client, 11 Oct 2026) — refused outside,
+  // and the page offers to ask HR to record the check-out instead. With the
+  // setting off, a reading that came is still kept, unchecked.
+  const best = readingFor(plan, input.readings ?? [], 'out', workMode)
+  const verdict = plan.fence && best ? checkGeofence(best, plan.fence) : null
+  const flags = await signalsOf(ctx, employee.id, today, input, best, { keyHash, oneDevice: security?.punchOneDevice === true })
+  const photo = await photoToKeep(ctx, employee.id, today, input, security, verdict, flags)
+  const evidence = { employeeId: employee.id, date: today, action: 'out' as const, startedAt, workMode, plan, best, verdict, input, flags, deviceKeyHash: keyHash, photo }
+  if (verdict && verdict.result !== 'inside') {
+    await refuseAtFence(ctx, evidenceOf(ctx, { ...evidence, refusedFor: verdict.result }), verdict, plan.fence!, 'out', today)
   }
 
-  if (row.checkOut) {
-    throw Conflict('You have already checked out today.')
-  }
-
-  // NO GEOFENCE ON THE WAY OUT, deliberately. Somebody who has finished work
-  // and walked to the bus stop before remembering must still be able to close
-  // their day — refusing them produces a row with no check-out, which looks
-  // like they never left and has to be corrected by hand.
   const breakMinutes = row.shift?.breakMinutes ?? 0
-  const { hours, warning } = hoursBetween(row.checkIn, now, breakMinutes)
+  const { hours, warning } = hoursBetween(row.checkIn!, now, breakMinutes)
 
   // Measured against the shift the day began on, with the hours it was
   // expected to be when it began (both kept on the row); its break and rules
@@ -359,7 +614,7 @@ export async function punchOut(ctx: AppContext): Promise<PunchResult> {
     rules: leave?.kind === 'half' ? forWorkedHalf(asBegun, leave.session) : asBegun,
     date: today,
     timezone,
-    checkIn: row.checkIn,
+    checkIn: row.checkIn!,
     checkOut: now,
     hoursWorked: hours,
   })
@@ -381,7 +636,11 @@ export async function punchOut(ctx: AppContext): Promise<PunchResult> {
     // Short of a half day: the day is absent — told, with the way to apply leave for it (client, 10 Oct 2026).
     // With the check-out it came from: neither is kept without the other.
     if (day.status === 'absent' && row.status !== 'absent') await tellAbsent(ctx, tx, employee.id, [today], { includeActor: true })
+    await repo.recordPunch(tx, evidenceOf(ctx, { ...evidence, attendanceId: day.id }))
     return day
+  }).catch(async (err: unknown) => {
+    await dropPunchPhoto(photo)
+    throw err
   })
 
   logger.info('Punched out', { employeeId: employee.id, date: today, hours })
@@ -393,7 +652,9 @@ export async function punchOut(ctx: AppContext): Promise<PunchResult> {
     checkOut: updated.checkOut,
     hoursWorked: hours,
     status: updated.status,
-    geofence: null,
+    geofence: verdict
+      ? { verified: true, distanceMeters: verdict.distanceMeters, message: geofenceMessage(verdict, plan.fence!, 'out') }
+      : null,
     workMode: updated.workMode,
     lateMinutes: updated.lateMinutes,
     earlyLeavingMinutes: updated.earlyLeavingMinutes,
@@ -445,6 +706,8 @@ export interface Workplace {
   workMode: WorkMode
   /** Whether check-in will ask for a location reading — the app asks the browser only then. */
   locationNeeded: boolean
+  /** Whether an office day's check-out is checked against the office too (Settings → Attendance Security). */
+  checkOutLocationNeeded: boolean
   /** Whether the company pays overtime (client §35) — the app offers a claim only then. */
   overtimeEnabled: boolean
   /**
@@ -485,8 +748,12 @@ export async function myWorkplace(ctx: AppContext): Promise<Workplace> {
     weeklyOffDays: policy?.weeklyOffDays ?? [0],
     dateOfJoining: fromDateColumn(employee.dateOfJoining),
   }
-  if (employee.attendanceMode !== 'app') return { workMode, locationNeeded: false, ...about }
-  if (workMode === 'office') return { workMode, locationNeeded: Boolean(await findActiveGeofence(ctx.db)), ...about }
+  if (employee.attendanceMode !== 'app') return { workMode, locationNeeded: false, checkOutLocationNeeded: false, ...about }
+  // An office day always needs the location: with no office set, the punch is refused (client, 11 Oct 2026).
+  if (workMode === 'office') {
+    const security = await attendanceSecurityOf(ctx.db, ctx.organizationId)
+    return { workMode, locationNeeded: true, checkOutLocationNeeded: security?.punchCheckOutLocation !== false, ...about }
+  }
   const gpsWhenAway = Boolean(away && (await requestRules(ctx.db, ctx.organizationId))?.wfhGpsRequired)
-  return { workMode, locationNeeded: gpsWhenAway, ...about }
+  return { workMode, locationNeeded: gpsWhenAway, checkOutLocationNeeded: false, ...about }
 }

@@ -35,7 +35,8 @@ export interface StoredObject {
  */
 export function storageKey(parts: {
   organizationId: string
-  kind: 'employee-document' | 'payslip' | 'bank-proof' | 'company-document' | 'request-attachment'
+  /** `attendance-photo`: a punch's selfie (client, 11 Oct 2026). */
+  kind: 'employee-document' | 'payslip' | 'bank-proof' | 'company-document' | 'request-attachment' | 'attendance-photo'
   ownerId: string
   fileId: string
   extension: string

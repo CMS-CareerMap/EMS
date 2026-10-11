@@ -39,8 +39,11 @@ async function api(method, path, body) {
 const browser = await chromium.launch({ channel: 'msedge', headless: true })
 const pageErrors = []
 const serverErrors = []
+// Every browser here is a phone standing in the office (client, 11 Oct 2026:
+// punches from phones only, inside the office, check-out included).
+const PHONE_UA = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36'
 async function open(email, viewport) {
-  const ctx = await browser.newContext({ viewport })
+  const ctx = await browser.newContext({ viewport, userAgent: PHONE_UA, geolocation: { ...fx.office, accuracy: 8 }, permissions: ['geolocation'] })
   const page = await ctx.newPage()
   page.on('pageerror', (e) => pageErrors.push(`${email}: ${e.message}`))
   page.on('response', (r) => { if (r.url().includes('/api/') && r.status() >= 500) serverErrors.push(`${r.status()} ${r.url().split('/api')[1]}`) })

@@ -121,6 +121,8 @@ export const createEmployeeSchema = z
     attendanceMode: z.enum(['app', 'biometric', 'manual']).optional(),
     /// Office, hybrid (home on approved days) or remote (client §33).
     workArrangement: z.enum(['office', 'hybrid', 'remote']).optional(),
+    /// The number the fingerprint machine knows them by (client, 11 Oct 2026). Blank or null: none.
+    machineId: z.string().trim().max(32, 'A Machine ID is at most 32 characters.').regex(/^[A-Za-z0-9._-]*$/, 'A Machine ID is letters, digits, dots, dashes and underscores.').nullish(),
     country: z.string().trim().length(2).optional(),
     currency: z.string().trim().length(3).optional(),
 

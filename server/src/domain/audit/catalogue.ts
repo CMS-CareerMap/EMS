@@ -119,6 +119,8 @@ export const AUDIT_ACTIONS = {
   'leave.entitlement_changed': { label: 'Own days a year of leave changed', category: 'time' },
   'attendance.marked': { label: 'Attendance marked', category: 'time' },
   'attendance.imported': { label: 'Attendance imported', category: 'time' },
+  'attendance.device_approved': { label: 'Phone approved for punching', category: 'time' },
+  'attendance.device_retired': { label: 'Phone taken off for punching', category: 'time' },
   // Company rules
   'company.updated': { label: 'Company details changed', category: 'settings' },
   'company.owner_marked': { label: 'Owner marked', category: 'people' },
@@ -135,6 +137,7 @@ export const AUDIT_ACTIONS = {
   'pt_table.set': { label: 'Professional tax slabs set', category: 'settings' },
   'geofence.saved': { label: 'Office location saved', category: 'settings' },
   'geofence.deleted': { label: 'Office location removed', category: 'settings' },
+  'attendance_security.updated': { label: 'Attendance security changed', category: 'settings' },
   'leave_type.created': { label: 'Leave type added', category: 'settings' },
   'leave_type.restored': { label: 'Leave type restored', category: 'settings' },
   'leave_type.updated': { label: 'Leave type changed', category: 'settings' },
@@ -273,6 +276,16 @@ const ACCOUNT_STATUS_WORDS: Record<string, string> = {
 
 /** Field names as a person would say them. Unknown ones are split out of camelCase. */
 const FIELD_LABELS: Record<string, string> = {
+  // Settings → Attendance Security (client, 11 Oct 2026).
+  punchCheckOutLocation: 'check location at check-out',
+  punchMachineMatch: 'confirm by the fingerprint machine',
+  punchMachineMinutes: 'minutes the machine and the app may differ',
+  punchMachineMissing: 'not on the machine',
+  punchMachineFills: 'fill a day from the machine',
+  punchPhoneOnly: 'phones only',
+  punchSelfie: 'selfie with every punch',
+  punchSelfieKeepDays: 'days a selfie is kept',
+  punchOneDevice: 'one phone per employee',
   fullName: 'name',
   personalEmail: 'personal email',
   phone: 'phone',
@@ -702,7 +715,11 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
     case 'attendance.marked':
       return `Marked ${who()} ${ATTENDANCE_WORDS[String(d.status)] ?? 'attended'} on ${day(d.date)}${typeof d.hoursWorked === 'number' ? `, ${d.hoursWorked} hours` : ''}`
     case 'attendance.imported':
-      return `Imported ${count(d.rows, 'attendance row')}${d.replacedExisting ? ', replacing rows already there' : ''}`
+      return `Imported ${count(d.rows, 'attendance row')}${d.replacedExisting ? ', replacing rows already there' : ''}${Number(d.notOnMachine) > 0 ? `; ${count(d.notOnMachine, 'app day')} not on the machine${Number(d.madeAbsent) > 0 ? `, ${count(d.madeAbsent, 'day')} made absent` : ''}` : ''}`
+    case 'attendance.device_approved':
+      return `Approved ${text(d.label) ?? 'a phone'} for ${who()}’s punches${Number(d.retired) > 0 ? `, taking off ${count(d.retired, 'other phone')}` : ''}`
+    case 'attendance.device_retired':
+      return `Took ${text(d.label) ?? 'a phone'} off ${who()}’s punches`
 
     case 'company.updated':
       return `Changed the company’s ${fieldsOf(d.changes) || 'details'}`
@@ -742,6 +759,8 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
       return `${d.created ? 'Added' : 'Changed'} the office location “${text(d.name) ?? 'unnamed'}”`
     case 'geofence.deleted':
       return `Removed the office location “${text(d.name) ?? 'unnamed'}”`
+    case 'attendance_security.updated':
+      return `Changed attendance security${changeList(d.changes) || ''}`
     case 'leave_type.created':
       return `Added the leave type “${text(d.name) ?? text(d.code) ?? 'unnamed'}”`
     case 'leave_type.restored':

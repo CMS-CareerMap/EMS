@@ -75,7 +75,10 @@ karan, pooja, neha, sunil.
 ## What to try, role by role
 
 ### Employee — `employee@example.com` (Priya)
-1. Home: press **Check In**. (No office location is set, so no GPS is asked for.) Her month in figures sits beside it.
+1. Home: press **Check In**. It is refused, saying why: a check-in at the office needs the
+   office location (not set in this demo) and a phone standing within 20 m of it — never a
+   laptop. That refusal is the check-in security working; a punch going through is shown by the
+   browser tests (`checkinsecurity`). Her month in figures sits beside it.
 2. Leave: see the balances; apply for a day next week. It goes to Rekha. Ask for more days of a
    type than she has left: the form offers the days she has, and the rest as Loss of Pay, in one
    application. Working from home is not in the leave list: the form points to Requests.
@@ -133,6 +136,9 @@ karan, pooja, neha, sunil.
 2. Leave → **Team Requests**: Manoj's leave is waiting for him.
 3. Settings → Company, Users & Roles, Roles & Permissions, Company Tree, Approvals,
    Payroll Config (overtime is off until you turn it on), Notifications, Audit Log.
+   **Attendance Security**: the office location (radius 15–20 m), check-out checked too, the
+   fingerprint machine's confirmation, phones only, selfie and one phone per employee — each
+   on or off. Attendance → **Suspicious** lists punches worth a second look.
 4. Audit Log: every step above, by whom, with old and new values.
 5. Reports: attendance, leave, payroll, PF/ESI, headcount, joiners and exits.
 

@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '../api/http'
+import { api, fetchBlob } from '../api/http'
 
 /**
  * Attendance, served by our own API.
@@ -75,6 +75,70 @@ export function useDayRoster(date, { live = false } = {}) {
     refetchInterval: live ? 60_000 : false,
     refetchOnWindowFocus: live,
     meta: { quietRefetch: true },
+  })
+}
+
+/**
+ * Punches worth a second look between two days (client, 11 Oct 2026): refused,
+ * flagged, or not borne out by the fingerprint machine. Under ['attendance'],
+ * so an import or a correction refreshes it.
+ */
+export function useSuspiciousPunches(from, to) {
+  return useQuery({
+    queryKey: ['attendance', 'suspicious', from, to],
+    queryFn: async () => (await api.get(`/attendance/suspicious?from=${from}&to=${to}`)).data,
+    enabled: Boolean(from && to),
+    placeholderData: keepPrevious,
+  })
+}
+
+/** One person's punches on a day, with their evidence (client, 11 Oct 2026) — for the roster's "Evidence". */
+export function useDayEvidence(employeeId, date) {
+  return useQuery({
+    queryKey: ['attendance', 'evidence', employeeId, date],
+    queryFn: async () => (await api.get(`/attendance/evidence?employeeId=${employeeId}&date=${date}`)).data,
+    enabled: Boolean(employeeId && date),
+  })
+}
+
+/**
+ * A punch's selfie, as a data address the page can show at once — a small
+ * photo (~50 KB), so nothing to make and let go of, and shown again from the
+ * cache whenever the dialog opens. Said on the photo if it fails, not twice.
+ */
+export function usePunchPhoto(id) {
+  return useQuery({
+    queryKey: ['attendance', 'evidence', 'photo', id],
+    queryFn: async () => asDataUrl(await fetchBlob(`/attendance/evidence/${id}/photo`)),
+    enabled: Boolean(id),
+    staleTime: Infinity,
+    meta: { quietCodes: ['NOT_FOUND', 'FILE_UNAVAILABLE'] },
+  })
+}
+
+function asDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = () => reject(reader.error ?? new Error('The photo could not be read.'))
+    reader.readAsDataURL(blob)
+  })
+}
+
+/** Phones of the people in reach — those waiting for approval, or all (one phone per employee). */
+export function useDevices(status = 'waiting', { enabled = true } = {}) {
+  return useQuery({
+    queryKey: ['attendance', 'devices', status],
+    queryFn: async () => (await api.get(`/attendance/devices?status=${status}`)).data,
+    enabled,
+  })
+}
+
+export function useDecideDevice() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, approve }) => (await api.post(`/attendance/devices/${id}/${approve ? 'approve' : 'retire'}`, {})).data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['attendance', 'devices'] }),
   })
 }
 

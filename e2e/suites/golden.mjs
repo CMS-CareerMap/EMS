@@ -26,6 +26,8 @@ mkdirSync(DL, { recursive: true })
 const PASSWORD = 'GoldenPath2026!'
 const OPERATOR = 'operator@example.com'
 const OFFICE = { latitude: 18.5590, longitude: 73.7868 }
+// A phone, as the server tells one (client, 11 Oct 2026: punches from phones only).
+const PHONE_UA = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36'
 
 // ── Dates: today, and last month — the first payroll ────────────────────────
 const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date())
@@ -162,17 +164,22 @@ try {
   await op.getByPlaceholder('PIN').fill('411045')
   await setting(op, 'Phone').locator('input').fill('02040001000')
   await setting(op, 'HR Email').locator('input').fill('hr@example.com')
-  await setting(op, 'Office Name').locator('input').fill('Head Office')
-  await op.getByPlaceholder('Latitude, e.g. 19.065700').fill(String(OFFICE.latitude))
-  await op.getByPlaceholder('Longitude, e.g. 72.868600').fill(String(OFFICE.longitude))
-  await setting(op, 'Fence Radius').locator('input').fill('50')
-  await setting(op, 'Location Accuracy Needed').locator('input').fill('100')
   await op.getByRole('button', { name: 'Save Changes' }).click()
   await op.getByRole('button', { name: 'Saved' }).waitFor({ timeout: 20_000 })
   await shot(op, '01-company')
   await go(op, '/settings?tab=company')
-  check('the company details and office location are saved', (await setting(op, 'Legal Name').locator('input').inputValue()) === 'CareerMap Solutions Private Limited' && (await op.getByPlaceholder('City').inputValue()) === 'Pune')
-  check('…and the office location is the one punches are checked against', psql('SELECT "radiusMeters" FROM "GeofenceLocation" WHERE "isActive" = true LIMIT 1') === '50')
+  check('the company details are saved', (await setting(op, 'Legal Name').locator('input').inputValue()) === 'CareerMap Solutions Private Limited' && (await op.getByPlaceholder('City').inputValue()) === 'Pune')
+  // The office, on Attendance Security (client, 11 Oct 2026): 15–20 m, never more.
+  await go(op, '/settings?tab=attendance-security')
+  await setting(op, 'Office Name').locator('input').fill('Head Office')
+  await op.getByLabel('Latitude').fill(String(OFFICE.latitude))
+  await op.getByLabel('Longitude').fill(String(OFFICE.longitude))
+  await setting(op, 'Radius').locator('input').fill('20')
+  await setting(op, 'Location Accuracy Needed').locator('input').fill('20')
+  await op.getByRole('button', { name: 'Save Changes' }).click()
+  await op.getByRole('button', { name: 'Saved' }).waitFor({ timeout: 20_000 })
+  await shot(op, '01b-office')
+  check('…and the office location is the one punches are checked against', psql(`SELECT "radiusMeters" || ',' || "maxAccuracyMeters" FROM "GeofenceLocation" WHERE "isActive" = true LIMIT 1`) === '20,20')
 
   section('Staff are added, one at a time, with their role logins')
   for (const key of ['rahul', 'hema', 'anil', 'manoj']) {
@@ -420,12 +427,12 @@ try {
   await shot(hema, '05b-month-hours')
 
   section('Today: checking in at the office, with the phone’s location')
-  const priya = await signIn('priya', STAFF.priya.email, { geolocation: { ...OFFICE, accuracy: 15 }, permissions: ['geolocation'] })
+  const priya = await signIn('priya', STAFF.priya.email, { userAgent: PHONE_UA, geolocation: { ...OFFICE, accuracy: 15 }, permissions: ['geolocation'] })
   await go(priya, '/dashboard')
   await priya.getByRole('button', { name: /Check In/ }).click()
   await until(() => psql(`SELECT count(*) FROM "Attendance" WHERE "employeeId" = '${ids.priya}' AND date = '${today}' AND "checkIn" IS NOT NULL`), '1')
   check('Priya checks in from the office: the location is confirmed', psql(`SELECT "geofenceVerified" FROM "Attendance" WHERE "employeeId" = '${ids.priya}' AND date = '${today}'`) === 't')
-  const ravi = await signIn('ravi', STAFF.ravi.email, { geolocation: { latitude: OFFICE.latitude + 0.02, longitude: OFFICE.longitude, accuracy: 15 }, permissions: ['geolocation'] })
+  const ravi = await signIn('ravi', STAFF.ravi.email, { userAgent: PHONE_UA, geolocation: { latitude: OFFICE.latitude + 0.02, longitude: OFFICE.longitude, accuracy: 15 }, permissions: ['geolocation'] })
   await go(ravi, '/dashboard')
   await ravi.getByRole('button', { name: /Check In/ }).click()
   const refused = ravi.locator('[data-sonner-toast][data-type="error"]').first()

@@ -10,6 +10,10 @@ import {
   dayRoster,
 } from '../../modules/attendance/attendanceAdmin.service'
 import { importAttendance } from '../../modules/attendance/attendanceImport.service'
+import { dayEvidence, suspiciousPunches } from '../../modules/attendance/suspicious.service'
+import { readPunchPhoto } from '../../modules/attendance/punchPhotos.service'
+import { approveDevice, listDevices, retireDevice } from '../../modules/attendance/punchDevices.service'
+import { sendFile } from '../download'
 import {
   attendanceQuerySchema,
   monthQuerySchema,
@@ -18,6 +22,9 @@ import {
   amendAttendanceSchema,
   attendanceIdSchema,
   attendanceImportSchema,
+  suspiciousQuerySchema,
+  dayEvidenceQuerySchema,
+  devicesQuerySchema,
 } from '../validators/attendance.validator'
 import { parseBody } from '../validators/parse'
 import { appContext } from '../context'
@@ -51,6 +58,10 @@ function dayFields(record: Omit<AttendanceRow, 'employee'>) {
     late_minutes: record.lateMinutes,
     early_leaving_minutes: record.earlyLeavingMinutes,
     overtime_minutes: record.overtimeMinutes,
+    // The fingerprint machine's word on an app day (client, 11 Oct 2026): null until its file is imported.
+    machine_match: record.machineMatch,
+    machine_first_scan: isoInstant(record.machineFirstScan),
+    machine_last_scan: isoInstant(record.machineLastScan),
 
     note: record.note,
   }
@@ -248,7 +259,23 @@ export const postImport: RequestHandler = async (req, res) => {
         invalid: result.summary.invalid,
         would_overwrite: result.summary.wouldOverwrite,
         on_leave: result.summary.onLeave,
+        edge_nights_left_out: result.summary.edgeNightsLeftOut,
         imported: result.summary.imported,
+        // What the machine's file said of the app's days (client, 11 Oct 2026); null with the layer off.
+        machine: result.summary.machine
+          ? {
+              from: result.summary.machine.from,
+              to: result.summary.machine.to,
+              confirmed: result.summary.machine.confirmed,
+              time_differs: result.summary.machine.timeDiffers,
+              not_on_machine: result.summary.machine.notOnMachine,
+              from_machine: result.summary.machine.fromMachine,
+              not_filled: result.summary.machine.notFilled,
+              made_absent: result.summary.machine.madeAbsent,
+              missing: result.summary.machine.missing.map((m) => ({ employee_code: m.employeeCode, full_name: m.fullName, date: m.date })),
+              not_in_file: result.summary.machine.notInFile.map((m) => ({ employee_code: m.employeeCode, full_name: m.fullName, days: m.days })),
+            }
+          : null,
       },
       rows: result.rows.map((r) => ({
         line: r.line,
@@ -262,4 +289,122 @@ export const postImport: RequestHandler = async (req, res) => {
     },
     meta: { requestId: res.locals.requestId },
   })
+}
+
+/**
+ * GET /api/attendance/suspicious?from=&to= — punches worth a second look
+ * (client, 11 Oct 2026), by person and day, for whoever looks after other
+ * people's attendance; the last week unless the days are given.
+ */
+export const getSuspicious: RequestHandler = async (req, res) => {
+  const { from, to } = parseBody(suspiciousQuerySchema, req.query)
+  const result = await suspiciousPunches(appContext(res), { from, to })
+  res.status(200).json({
+    data: {
+      from: result.from,
+      to: result.to,
+      days: result.days.map((d) => ({
+        employee_id: d.employeeId,
+        full_name: d.fullName,
+        employee_code: d.employeeCode,
+        date: d.date,
+        punches: d.punches.map((p) => ({
+          id: p.id,
+          action: p.action,
+          at: isoInstant(p.at),
+          refused_for: p.refusedFor,
+          flags: p.flags,
+          work_mode: p.workMode,
+          fence_applied: p.fenceApplied,
+          distance_meters: p.distanceMeters,
+          accuracy_meters: p.accuracyMeters,
+          readings: Array.isArray(p.readings) ? p.readings.length : 0,
+          ip: p.ip,
+          device: p.userAgent,
+        })),
+        machine: d.machine
+          ? {
+              match: d.machine.machineMatch,
+              status: d.machine.status,
+              check_in: isoInstant(d.machine.checkIn),
+              check_out: isoInstant(d.machine.checkOut),
+              first_scan: isoInstant(d.machine.machineFirstScan),
+              last_scan: isoInstant(d.machine.machineLastScan),
+            }
+          : null,
+      })),
+    },
+    meta: { requestId: res.locals.requestId },
+  })
+}
+
+/** One punch's evidence, for the roster's "Evidence" and the phones list's context. */
+function punchEvidencePayload(p: Awaited<ReturnType<typeof dayEvidence>>[number]) {
+  return {
+    id: p.id,
+    action: p.action,
+    at: isoInstant(p.at),
+    started_at: isoInstant(p.startedAt),
+    refused_for: p.refusedFor,
+    flags: p.flags,
+    work_mode: p.workMode,
+    fence_applied: p.fenceApplied,
+    latitude: p.latitude == null ? null : Number(p.latitude),
+    longitude: p.longitude == null ? null : Number(p.longitude),
+    distance_meters: p.distanceMeters,
+    accuracy_meters: p.accuracyMeters,
+    readings: Array.isArray(p.readings) ? p.readings.length : 0,
+    ip: p.ip,
+    device: p.userAgent,
+    has_photo: p.photoKey !== null,
+  }
+}
+
+/** GET /api/attendance/evidence?employeeId=&date= — one person's punches that day (client, 11 Oct 2026). */
+export const getDayEvidence: RequestHandler = async (req, res) => {
+  const { employeeId, date } = parseBody(dayEvidenceQuerySchema, req.query)
+  const rows = await dayEvidence(appContext(res), employeeId, date)
+  res.status(200).json({ data: rows.map(punchEvidencePayload), meta: { requestId: res.locals.requestId } })
+}
+
+/** GET /api/attendance/evidence/:id/photo — a punch's selfie, while it is kept. */
+export const getPunchPhoto: RequestHandler = async (req, res) => {
+  const { id } = parseBody(attendanceIdSchema, req.params)
+  const photo = await readPunchPhoto(appContext(res), id)
+  sendFile(res, { filename: `punch-${id}.${photo.type.split('/')[1]}`, bytes: photo.bytes, contentType: photo.type })
+}
+
+/** GET /api/attendance/devices?status=waiting|all — phones of the people in reach (client, 11 Oct 2026). */
+export const getDevices: RequestHandler = async (req, res) => {
+  const { status } = parseBody(devicesQuerySchema, req.query)
+  const rows = await listDevices(appContext(res), status ?? 'waiting')
+  res.status(200).json({ data: rows.map(devicePayload), meta: { requestId: res.locals.requestId } })
+}
+
+/** POST /api/attendance/devices/:id/approve — this phone is theirs; their others are taken off. */
+export const postApproveDevice: RequestHandler = async (req, res) => {
+  const { id } = parseBody(attendanceIdSchema, req.params)
+  const saved = await approveDevice(appContext(res), id)
+  res.status(200).json({ data: { id: saved.id, status: saved.status }, meta: { requestId: res.locals.requestId } })
+}
+
+/** POST /api/attendance/devices/:id/retire — this phone no longer punches for them. */
+export const postRetireDevice: RequestHandler = async (req, res) => {
+  const { id } = parseBody(attendanceIdSchema, req.params)
+  const saved = await retireDevice(appContext(res), id)
+  res.status(200).json({ data: { id: saved.id, status: saved.status }, meta: { requestId: res.locals.requestId } })
+}
+
+function devicePayload(d: Awaited<ReturnType<typeof listDevices>>[number]) {
+  return {
+    id: d.id,
+    employee_id: d.employeeId,
+    full_name: d.employee.fullName,
+    employee_code: d.employee.employeeCode,
+    label: d.label,
+    status: d.status,
+    first_seen_at: isoInstant(d.firstSeenAt),
+    last_seen_at: isoInstant(d.lastSeenAt),
+    decided_at: isoInstant(d.decidedAt),
+  }
 }
