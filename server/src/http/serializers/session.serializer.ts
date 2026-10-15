@@ -40,6 +40,12 @@ export function serializeSessionUser(identity: AuthIdentity) {
     // Whose leave it reaches. Beyond one's own, the home page lists the leave
     // waiting for somebody else's decision — HR keeps an eye on it.
     leaveReach: identity.grant.scopes.leave,
+    // Whose payroll it reaches (15 Oct 2026). Beyond the whole company, Payroll
+    // says its figures are those people's ("in your payroll").
+    payrollReach: identity.grant.scopes.payroll,
+    // Whose payslips it reaches (15 Oct 2026). Beyond one's own, the Payslips
+    // page lists the paid payslips of the people chosen.
+    payslipReach: identity.grant.scopes.payslip,
     organizationId: identity.organizationId,
     organizationName: identity.organizationName,
     // The company's zone, so the browser can tell which calendar day it is

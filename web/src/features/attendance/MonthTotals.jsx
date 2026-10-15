@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { useMonthlyHours } from '../../hooks/useAttendance'
 import DataState from '../../components/DataState'
 import { Avatar, Card } from '../../components/ui/bits'
@@ -41,7 +42,7 @@ export default function MonthTotals({ year, month }) {
                       <div className="flex items-center gap-2.5">
                         <Avatar name={e.full_name} size="sm" />
                         <div className="min-w-0">
-                          <p className="font-semibold text-gray-900 whitespace-nowrap">{e.full_name}</p>
+                          <Link to={`/attendance/people/${e.employee_uuid}?month=${year}-${String(month).padStart(2, '0')}`} state={{ back: `/attendance?view=monthly&month=${year}-${String(month).padStart(2, '0')}` }} className="block font-semibold text-gray-900 whitespace-nowrap hover:text-brand-700 hover:underline" title={`${e.full_name}’s attendance`}>{e.full_name}</Link>
                           <p className="text-xs text-gray-400 font-mono">{e.employee_id}</p>
                         </div>
                       </div>

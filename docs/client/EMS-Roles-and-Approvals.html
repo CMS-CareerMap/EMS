@@ -39,7 +39,7 @@
 <main>
 
 <h1>EMS — Roles and Approvals</h1>
-<p class="sub">How roles, reporting and approvals work in the CareerMap Solutions Employee Management System · 6 October 2026</p>
+<p class="sub">How roles, reporting and approvals work in the CareerMap Solutions Employee Management System · 15 October 2026</p>
 
 <div class="box note">
   This document explains, in simple words, how EMS handles roles, reporting and approvals.<br><br>
@@ -209,7 +209,8 @@
   <tr><td>Whole company, except seniors</td><td>Everybody, except the people above them. Useful for salaries</td></tr>
   <tr><td>Whole company</td><td>Everybody</td></tr>
 </table>
-<p class="muted">Payslips offer “Only their own” or “Whole company”. Payroll and Reports always show the whole company, every salary included, so give them only to roles that should see every salary.</p>
+<p class="muted"><strong>Whose payslips</strong> offers the same choices too. With anything beyond “Only their own”, the Payslips page gets a second tab, <strong>People’s payslips</strong>, listing the paid payslips of the people chosen, month by month, each one ready to download.</p>
+<p class="muted"><strong>Whose payroll</strong> offers the same choices as the other areas and works the same way: whatever you choose decides whose payroll the role is shown. With “Their department”, for example, the role sees and works with only that department's salaries, incentives, income tax, loans, bank accounts, payslips, bank file and payroll reports, and its view of a month's payroll shows those people's figures, not the company's totals. What it can do is what you tick. The month's payroll is one for the whole company, so preparing, approving or marking it paid acts on everybody in it; the screen says so before it is done.</p>
 <ul>
   <li><strong>Give any role to any person</strong>, in Settings → Users &amp; Roles. A second login is added on the person's page (section 5).</li>
   <li><strong>Set who reports to whom</strong> on the Company Tree screen, and the approval choices on the Approvals screen.</li>
@@ -280,13 +281,14 @@
 </table>
 <ul>
 <li><strong>The Super Admin chooses</strong> who decides each kind (the reporting manager or HR) in Settings → Approvals, and whether working from home still needs a location reading.</li>
-<li><strong>Checking in and out happens inside the office.</strong> A phone must be within the office radius (15 to 20 metres, 20 to start), and its reading must be precise enough. A reading from outside, or one the phone is unsure about, is refused, with words that say what to do. Check-out is checked too. Somebody who has already left asks HR to record their check-out. No app check-in is possible until the office location is set.</li>
-<li><strong>A website cannot tell a fake location from a real one,</strong> so EMS uses several settings together (Settings → Attendance Security, set by the Super Admin):
+<li><strong>The Super Admin chooses how check-in and check-out are proved</strong> (Settings → Attendance Security), always exactly one way: <strong>Location</strong> (to start), <strong>Selfie</strong>, or <strong>Location + Selfie</strong>. Check-out is proved the same way as that day's check-in.</li>
+<li><strong>Location.</strong> A phone must be within the office radius (15 to 20 metres, 20 to start), and its reading must be precise enough. A reading from outside, or one the phone is unsure about, is refused, with words that say what to do. Check-out is checked too. Somebody who has already left asks HR to record their check-out. A computer cannot be used, because its browser can be told any location. Location cannot be chosen until the office location is saved, and the office location cannot be removed while Location uses it.</li>
+<li><strong>Selfie.</strong> A live photo from the front camera with every punch, from anywhere. It is kept for a set number of days (60 to start) and then deleted. The same photo sent twice is flagged.</li>
+<li><strong>Location + Selfie.</strong> For more than one site, such as warehouses. The phone's current location first, wherever the person is, then the photo. Without the location the camera does not open, and nothing is punched. Nothing is checked against an office and no office location is needed: the place and the photo are kept with the punch, and HR sees the place on a map (Open map) in the day's Evidence. A place too rough to read (the phone's precise location off) is flagged for HR.</li>
+<li><strong>A website cannot tell a fake location from a real one,</strong> so EMS uses more settings together:
   <ul>
     <li><strong>The fingerprint machine confirms each day.</strong> The app's attendance counts at once. When HR imports the machine's file, each office day is confirmed, or noted as at a different time, or marked "not on the machine" when the person never touched it that day. The company chooses whether such a day is only flagged or is made absent. A later file that has the day puts it back. Before payroll is run, it warns of days not yet confirmed.</li>
-    <li><strong>Phones only.</strong> A computer cannot be used to check in at the office. Somebody who knows how can make a computer look like a phone, which is why the fingerprint machine confirms each day.</li>
-    <li><strong>Selfie</strong> (off to start). A live photo with every punch, kept for a set number of days and then deleted. The same photo sent twice is flagged.</li>
-    <li><strong>One phone per employee</strong> (off to start). A punch from another phone waits until HR approves it. After HR takes a phone off, every new phone waits for HR too.</li>
+    <li><strong>One phone per employee</strong> (off to start), with any method. The first phone a person checks in from is theirs. A punch from another phone is refused, and the person is told to contact HR. Whoever has the right to replace phones (HR, Admin and the Super Admin to start; the Super Admin can change who in Roles &amp; Permissions) opens the person's page and goes to Punch phone (on the Login tab). <strong>Replace</strong> makes the new phone theirs and stops the old one at the same time. <strong>Reset</strong> stops their phone, and the next new phone they check in from becomes theirs. Nobody replaces their own phone, or the phone of somebody above them.</li>
   </ul>
 </li>
 <li><strong>Suspicious punches.</strong> HR and managers see punches worth a second look under Attendance → Suspicious: refused punches, punches from a computer, readings that look too perfect or never move, and days not on the fingerprint machine. Each day's punches, with where, which phone and the photo, are under <strong>Evidence</strong> on the attendance list and on Suspicious. Nobody sees these signs on their own punches; the Super Admin sees everyone's. These are signs to look into, not proof.</li>
@@ -298,6 +300,7 @@
 <li><strong>Loss of Pay</strong> is an unpaid leave type with no limit: an employee can apply for it with no balance, it is approved like any leave, and each day is cut from pay. If an employee asks for more days than they have, EMS offers to take the days they have as paid leave and the rest as Loss of Pay, in one application. Their manager approves or rejects it as one.</li>
 <li><strong>Working from home is a Request, not leave.</strong> It is not in the leave list; the leave form shows where to ask for it.</li>
 <li><strong>Attendance shows leave and pay.</strong> On their Attendance page each employee sees each day as present, half day, absent, a holiday, a weekly off, or the leave it was (for example Casual Leave, or Loss of Pay in amber), the hours worked each day and in the month, and their <strong>paid days</strong> and <strong>unpaid days (loss of pay)</strong> for the month, counted the way payroll counts them.</li>
+<li><strong>Click a name to see that person's month.</strong> On Attendance, a name opens that person's attendance: the month's calendar, each day, and the month so far counted up to today, with hours worked growing live while they are checked in. It also shows working days, days present, absent and on leave, and paid and unpaid days. The same page is the Attendance tab on an employee's profile. HR and the Super Admin can open anybody's; a manager can open their team's.</li>
 <li><strong>An absent day stays absent, and is cut from pay.</strong> The employee is told when a day is marked absent, and the day offers <strong>Apply leave</strong>. If they still have leave and it is approved, the day shows as leave and is not cut from pay.</li>
 <li><strong>Every leave balance has a statement</strong>, like a passbook: every day given, taken, given back or corrected, with the reason, and the balance after each. HR sees the same on the employee's profile.</li>
 <li><strong>Before the leave year ends</strong>, each employee is told once of the paid leave days they will lose if they do not use them (30 days before, to start; set in Settings → Leave Config).</li>
@@ -336,7 +339,7 @@
 </div>
 </div>
 
-<footer>EMS — CareerMap Solutions Pvt. Ltd. · Roles and approvals · 6 October 2026</footer>
+<footer>EMS — CareerMap Solutions Pvt. Ltd. · Roles and approvals · 15 October 2026</footer>
 </main>
 </body>
 </html>

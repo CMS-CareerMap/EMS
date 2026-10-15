@@ -61,6 +61,7 @@ async function accessFor(ctx: AppContext): Promise<repo.FieldAccess> {
     includeCompensation: ctx.can('employee:compensation:read'),
     compensationScope: ctx.scopeFor('compensation'),
     includeBank: ctx.can('employee:bank:read'),
+    payrollScope: ctx.scopeFor('payroll'),
     includeIdentity: ctx.can('employee:identity:read'),
     includeLogins: (['role:manage', 'user:invite', 'user:status:update', 'user:delete', 'membership:role:assign', 'user:password:set'] as const).some((p) => ctx.can(p)),
     today: await companyToday(ctx),

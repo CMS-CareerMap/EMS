@@ -9,6 +9,7 @@ import { useWaitingRequests } from '../hooks/useRequests'
 import { useWaitingResignations } from '../hooks/useLifecycle'
 import PunchCard from '../features/attendance/PunchCard'
 import HomeBanner from '../features/home/HomeBanner'
+import AttendanceSetupBanner from '../features/home/AttendanceSetupBanner'
 import LifecycleCard from '../features/home/LifecycleCard'
 import { MyMonthCard, LeaveBalanceCard, MyWeekCard, MyRequestsCard, PayslipCard, MyDocumentsCard } from '../features/home/MyCards'
 import { WaitingCard, TodayCard, PendingLeaveCard } from '../features/home/TeamCards'
@@ -175,6 +176,8 @@ function Home() {
   return (
     <div className="space-y-4 sm:space-y-5">
       <HomeBanner name={firstName} line={line} actions={actions} />
+      {/* Whoever changes the company's settings is told when attendance cannot work yet (14 Oct 2026). */}
+      {can('settings:update') && <AttendanceSetupBanner />}
 
       {/*
         Narrow cards on the left on a computer. On a phone the first row keeps

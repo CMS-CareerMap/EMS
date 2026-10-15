@@ -13,7 +13,7 @@ import { findApprovalRules } from './organization.repository'
  * on somebody's record asks here first, and a refusal names the person to ask.
  */
 
-export type WorkKind = 'bank' | 'leave_balance' | 'documents' | 'attendance' | 'incentive' | 'salary' | 'lifecycle' | 'profile'
+export type WorkKind = 'bank' | 'leave_balance' | 'documents' | 'attendance' | 'incentive' | 'salary' | 'lifecycle' | 'profile' | 'phone'
 
 const WORK: Readonly<Record<WorkKind, { permissions: readonly Permission[]; ownVerb: string; noun: string }>> = {
   bank: { permissions: ['employee:bank:manage'], ownVerb: 'enter or check your own bank account', noun: 'bank account' },
@@ -29,6 +29,9 @@ const WORK: Readonly<Record<WorkKind, { permissions: readonly Permission[]; ownV
   lifecycle: { permissions: ['employee:lifecycle:manage'], ownVerb: 'change your own employment record', noun: 'employment record' },
   // Approving a profile change (client §27): never one's own, nor a fellow reviewer's.
   profile: { permissions: ['employee:update'], ownVerb: 'approve a change to your own profile', noun: 'profile' },
+  // The phone somebody punches from (client, 14 Oct 2026): never one's own —
+  // or "one phone" would mean nothing — nor a fellow phone-keeper's.
+  phone: { permissions: ['user:device:manage'], ownVerb: 'replace or reset your own punch phone', noun: 'punch phone' },
 }
 
 export interface WorkCheck {
@@ -88,7 +91,8 @@ export function checkWork(ctx: AppContext, loaded: LoadedWork, targetId: string)
 export function mayDoWork(loaded: LoadedWork, worker: { employeeId: string | null; isSuperAdmin: boolean }, targetId: string): boolean {
   // A senior's employment record is the Super Admin's (assertMayChangeEmployment):
   // the people below them are not told about it either.
-  if (loaded.kind === 'lifecycle' && !worker.isSuperAdmin && worker.employeeId && loaded.world.tree.above(worker.employeeId).includes(targetId)) return false
+  // So is a senior's punch phone (checkPhoneWork).
+  if ((loaded.kind === 'lifecycle' || loaded.kind === 'phone') && !worker.isSuperAdmin && worker.employeeId && loaded.world.tree.above(worker.employeeId).includes(targetId)) return false
   return mayDoWorkOn(loaded.world, worker, targetId).allowed
 }
 
@@ -140,6 +144,26 @@ export async function assertMayChangeRecord(ctx: AppContext, db: TxDb, targetId:
     throw Forbidden(`You cannot change your own record. Ask for the change on My Details (Request an update); it goes to ${check.ask}.`)
   }
   refuseUnlessAllowed(ctx, loaded, 'profile', targetId)
+}
+
+/**
+ * Replacing or resetting the phone somebody punches from (client, 14 Oct
+ * 2026): never one's own, nor a fellow phone-keeper's — those go up — and
+ * never a senior's: a junior does not decide where their senior punches from.
+ * For the buttons a list draws.
+ */
+export function checkPhoneWork(ctx: AppContext, loaded: LoadedWork, targetId: string): WorkCheck {
+  if (aboveCaller(ctx, loaded, targetId)) return { allowed: false, own: false, ask: 'the Super Admin' }
+  return checkWork(ctx, loaded, targetId)
+}
+
+/** The same, refused in words — naming the person to ask instead. */
+export async function assertMayDecidePhone(ctx: AppContext, db: TxDb, targetId: string): Promise<void> {
+  const loaded = await loadWork(db, ctx.organizationId, 'phone')
+  if (aboveCaller(ctx, loaded, targetId)) {
+    throw Forbidden(`${loaded.names.get(targetId) ?? 'This person'} is above you in the company tree, so their punch phone is replaced or reset by the Super Admin.`)
+  }
+  refuseUnlessAllowed(ctx, loaded, 'phone', targetId)
 }
 
 function refuseUnlessAllowed(ctx: AppContext, loaded: LoadedWork, kind: WorkKind, targetId: string): void {

@@ -20,6 +20,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Employees = lazy(() => import('./pages/Employees'))
 const EmployeeProfile = lazy(() => import('./pages/EmployeeProfile'))
 const Attendance = lazy(() => import('./pages/Attendance'))
+const PersonAttendance = lazy(() => import('./pages/PersonAttendance'))
 const Leave = lazy(() => import('./pages/Leave'))
 const Requests = lazy(() => import('./pages/Requests'))
 const Payroll = lazy(() => import('./pages/Payroll'))
@@ -125,6 +126,8 @@ export default function App() {
 
         <Route element={<ProtectedRoute permission={ROUTE_PERMISSIONS['/attendance']} />}>
           <Route path="/attendance" element={<Attendance />} />
+          {/* Somebody's month, by their name on Attendance (client, 15 Oct 2026). */}
+          <Route path="/attendance/people/:id" element={<PersonAttendance />} />
         </Route>
 
         <Route element={<ProtectedRoute permission={ROUTE_PERMISSIONS['/leave']} />}>

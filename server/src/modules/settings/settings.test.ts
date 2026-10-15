@@ -341,21 +341,24 @@ describe('geofence, which used to live in one admin browser', () => {
 })
 
 describe('attendance security (client, 11 Oct 2026)', () => {
-  it('reads the layers, and saves a change with who changed what', async () => {
-    // The client's defaults (11 Oct 2026).
+  it('reads the method and the layers, and saves a change with who changed what', async () => {
+    // The defaults (client, 11 and 14 Oct 2026): the office fence, one phone off — and whether an office is saved.
     expect((await get('/attendance-security')).body.data).toEqual({
-      check_out_location: true, machine_match: true, machine_minutes: 30, machine_missing: 'flag', machine_fills: true,
-      phone_only: true, selfie: false, selfie_keep_days: 60, one_device: false,
+      method: 'location', one_device: false, office_set: expect.any(Boolean),
+      machine_match: true, machine_minutes: 30, machine_missing: 'flag', machine_fills: true, selfie_keep_days: 60,
     })
-    const saved = await put('/attendance-security', { punchCheckOutLocation: false })
+    const saved = await put('/attendance-security', { punchOneDevice: true })
     expect(saved.status).toBe(200)
-    expect(saved.body.data).toMatchObject({ check_out_location: false, machine_match: true })
+    expect(saved.body.data).toMatchObject({ one_device: true, machine_match: true })
     const logged = await prisma.auditLog.findFirstOrThrow({ where: { organizationId: orgId, action: 'attendance_security.updated' } })
-    expect(logged.details).toMatchObject({ changes: { punchCheckOutLocation: { from: true, to: false } } })
+    expect(logged.details).toMatchObject({ changes: { punchOneDevice: { from: false, to: true } } })
     // The same again changes nothing and writes nothing.
-    await put('/attendance-security', { punchCheckOutLocation: false })
+    await put('/attendance-security', { punchOneDevice: true })
     expect(await prisma.auditLog.count({ where: { organizationId: orgId, action: 'attendance_security.updated' } })).toBe(1)
-    await put('/attendance-security', { punchCheckOutLocation: true })
+    await put('/attendance-security', { punchOneDevice: false })
+    // The switches the method replaced are not taken any more: the method says it all.
+    expect((await put('/attendance-security', { punchCheckOutLocation: false })).status).toBe(422)
+    expect((await put('/attendance-security', { punchPhoneOnly: false })).status).toBe(422)
 
     // The machine's layer: minutes 5–240, and what to do with a day not on it.
     expect((await put('/attendance-security', { punchMachineMinutes: 4 })).status).toBe(422)
@@ -367,7 +370,7 @@ describe('attendance security (client, 11 Oct 2026)', () => {
 
   it('is the Super Admin’s — HR, without the settings permissions, neither reads nor changes it', async () => {
     expect((await get('/attendance-security', 'hr')).status).toBe(403)
-    expect((await put('/attendance-security', { punchCheckOutLocation: false }, 'hr')).status).toBe(403)
+    expect((await put('/attendance-security', { punchMethod: 'selfie' }, 'hr')).status).toBe(403)
     expect((await put('/attendance-security', { somethingElse: true })).status).toBe(422)
   })
 

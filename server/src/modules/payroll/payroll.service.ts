@@ -19,6 +19,7 @@ import { toDateColumn, fromDateColumn, dayLabel, addCalendarDays, type CalendarD
 import { listDaysOff } from '../holidays/holidays.repository'
 import { coverageFor, type Coverage } from './esiCoverage.service'
 import * as repo from './payroll.repository'
+import { payrollPeople } from './payrollReach'
 
 /**
  * One employee's salary for one month, calculated from what is on record.
@@ -642,8 +643,7 @@ export async function listComponents(ctx: AppContext) {
   return repo.listSalaryComponents(ctx.db)
 }
 
-/** 404 unless the employee exists inside the caller's organization. */
+/** 404 unless the employee is in the caller's organization — and in their payroll ("Whose payroll", 15 Oct 2026). */
 export async function assertEmployeeVisible(ctx: AppContext, employeeId: string): Promise<void> {
-  const employee = await repo.findEmployee(ctx.db, employeeId)
-  if (!employee) throw NotFound('Employee not found')
+  if (!(await repo.employeeWithin(ctx.db, employeeId, payrollPeople(ctx)))) throw NotFound('Employee not found')
 }

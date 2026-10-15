@@ -1,7 +1,9 @@
 import type { AppContext } from '../../platform/context'
 import type { ScopeContext } from '../../platform/authz/scope'
 import { Forbidden } from '../../platform/errors/AppError'
-import { zonedToday, toDateColumn, fromDateColumn, isoInstant, addCalendarDays, type CalendarDate } from '../../domain/shared/dates'
+import { zonedToday, toDateColumn, fromDateColumn, isoInstant, addCalendarDays, monthOfDay, type CalendarDate } from '../../domain/shared/dates'
+import { monthSoFar } from '../../domain/attendance/monthSoFar'
+import { monthCalendar } from '../attendance/attendanceAdmin.service'
 import { shiftRulesOf, stillAtWork } from '../../domain/attendance/shiftRules'
 import * as leaveRepo from '../leave/leave.repository'
 import { asApplications } from '../../domain/leave/applications'
@@ -263,6 +265,8 @@ interface RunBrief {
   year: number
   month: number
   status: string
+  /** Some people's payroll only ("Whose payroll"): the count and money are theirs. */
+  partial: boolean
   employees: number
   gross: number
   deductions: number
@@ -314,6 +318,7 @@ export async function payrollSummary(ctx: AppContext): Promise<PayrollSummary> {
         year: run.year,
         month: run.month,
         status: run.status,
+        partial: run.partial,
         employees: run.employeeCount,
         gross: Number(run.grossEarnings),
         deductions: Number(run.totalDeductions),
@@ -390,7 +395,7 @@ export interface MySummary {
     absentDays: number
     leaveDays: number
     totalHours: number
-    /** The company's weekly offs from the 1st to today — counted from the rule, not from rows. */
+    /** Their weekly offs from the 1st to today — the company's calendar, and any day marked one for them (monthSoFar). */
     weeklyOffDays: number
   }
   today: { status: string | null; checkIn: string | null; checkOut: string | null; hoursWorked: number | null; lateMinutes: number | null }
@@ -439,7 +444,8 @@ export async function mySummary(ctx: AppContext): Promise<MySummary> {
   const policy = await getCurrentPolicy(ctx.db)
   const leaveYear = leaveYearOf(today, policy?.leaveYearStartMonth ?? 4)
 
-  const [employee, monthRows, balances, leaves, world, lastWeek, daysOff] = await Promise.all([
+  const { year: thisYear, month: thisMonth } = monthOfDay(today)
+  const [employee, monthRows, balances, leaves, world, lastWeek, daysOff, monthOff] = await Promise.all([
     employeeRepo.findCard(ctx.db, ctx.employeeId),
     attendanceRepo.daysFor(ctx.db, ctx.employeeId, toDateColumn(monthStart), toDateColumn(today)),
     leaveRepo.balancesFor(ctx.db, ctx.employeeId, leaveYear),
@@ -447,23 +453,33 @@ export async function mySummary(ctx: AppContext): Promise<MySummary> {
     approvalWorld(ctx.db, ctx.organizationId),
     repo.myDays(ctx.db, ctx.employeeId, toDateColumn(weekFrom), toDateColumn(today)),
     repo.daysOffBetween(ctx.db, toDateColumn(weekFrom), toDateColumn(today)),
+    monthCalendar(ctx, thisYear, thisMonth),
   ])
   const waitingForMe = await leaveRepo.countPendingOf(ctx.db, peopleDecidedBy(world, deciderOf(ctx)))
 
-  const countOf = (status: string) => monthRows.filter((r) => r.status === status).length
   const todayRow = lastWeek.find((r) => fromDateColumn(r.date) === today)
-
-  // Nobody marks a weekly off, so there are no rows to count: the days are
-  // counted from the company's rule, over the same 1st-to-today window.
-  // From the joining day, for somebody who started this month.
-  // Sunday with no policy written yet — as leave is counted, and as the column defaults.
+  // The week's days off by the rule in force — Sunday with no policy written yet, as the column defaults.
   const offs = policy?.weeklyOffDays ?? [0]
-  const joined = fromDateColumn(employee?.dateOfJoining)
-  const countFrom = joined && joined > monthStart ? joined : monthStart
-  let weeklyOffDays = 0
-  for (let day = countFrom; day <= today; day = addCalendarDays(day, 1)) {
-    if (offs.includes(weekdayOf(day))) weeklyOffDays++
-  }
+
+  // "My month" is the month so far as their Attendance page, and the page HR or
+  // their manager opens for them, count it (client, 15 Oct 2026) — one count,
+  // so the three never disagree: the 1st (or the day they joined) to today.
+  const soFar = monthSoFar({
+    year: thisYear,
+    month: thisMonth,
+    today,
+    joined: fromDateColumn(employee?.dateOfJoining),
+    left: fromDateColumn(employee?.lastWorkingDate),
+    daysOff: monthOff.daysOff,
+    rows: monthRows.map((r) => ({
+      date: fromDateColumn(r.date),
+      status: r.status,
+      hoursWorked: r.hoursWorked ? Number(r.hoursWorked) : null,
+      lateMinutes: r.lateMinutes,
+      checkedIn: r.checkIn !== null,
+    })),
+    expectedPerDay: null,
+  })
 
   const holidays = new Map(daysOff.filter((d) => d.type === 'public').map((d) => [fromDateColumn(d.date), d.name]))
   const offRows = new Set(daysOff.filter((d) => d.type === 'weekly_off').map((d) => fromDateColumn(d.date)))
@@ -505,17 +521,14 @@ export async function mySummary(ctx: AppContext): Promise<MySummary> {
       reportingManagerDesignation: employee?.reportingManager?.designation?.name ?? null,
     },
     thisMonth: {
-      presentDays: countOf('present'),
-      halfDays: countOf('half_day'),
-      absentDays: countOf('absent'),
-      leaveDays: countOf('on_leave'),
+      presentDays: soFar.present,
+      halfDays: soFar.halfDays,
+      absentDays: soFar.absent,
+      leaveDays: soFar.onLeave,
       // The figure the client asked to see. Summed from stored hours, so it
       // matches what the attendance page and the payslip will say.
-      totalHours:
-        Math.round(
-          monthRows.reduce((sum, r) => sum + (r.hoursWorked ? Number(r.hoursWorked) : 0), 0) * 100,
-        ) / 100,
-      weeklyOffDays,
+      totalHours: soFar.hoursWorked,
+      weeklyOffDays: soFar.weeklyOffs,
     },
     today: {
       status: todayRow?.status ?? null,

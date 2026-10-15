@@ -18,8 +18,8 @@ import * as repo from './loans.repository'
  *
  * What is left is worked out, never stored: the amount less what payslips
  * recovered. So a draft payroll recalculated twice recovers once, and one
- * discarded recovers nothing. Finance's, within its reach on compensation —
- * and never one's own (own work goes up the company tree, Day 22).
+ * discarded recovers nothing. Finance's, within "Whose payroll" (15 Oct 2026)
+ * — and never one's own (own work goes up the company tree, Day 22).
  */
 
 const paise = (v: number) => Math.round(v * 100) / 100
@@ -42,7 +42,7 @@ function viewOf(row: repo.LoanRow): LoanView {
   return { row, recovered: paise(settled), inDraft: paise(drafted), left, status: row.closedAt ? 'closed' : left <= 0 ? 'repaid' : 'active' }
 }
 
-const reach = (ctx: AppContext) => employeesInScope(ctx.scopeFor('compensation'))
+const reach = (ctx: AppContext) => employeesInScope(ctx.scopeFor('payroll'))
 
 export async function listLoans(ctx: AppContext): Promise<LoanView[]> {
   return (await repo.listLoans(ctx.db, reach(ctx))).map(viewOf)

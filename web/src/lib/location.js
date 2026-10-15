@@ -27,6 +27,20 @@ const PROMPT_MS = 30_000
 /** Vaguer than this is not a location — the server takes none. */
 const VAGUEST_METRES = 10_000
 
+/**
+ * Whether this browser is a phone's (or a tablet's), as the server tells it
+ * (domain/attendance/punchSignals.ts deviceKind): only a phone has GPS. Used
+ * to keep the office's own point from being captured on a laptop, whose
+ * location comes from Wi-Fi and can be tens of metres out — the server judges
+ * every punch for itself.
+ */
+export function isPhoneBrowser() {
+  const ua = navigator.userAgent ?? ''
+  if (/Android|iPhone|iPad|iPod|Mobile|Mobi/i.test(ua)) return true
+  if (navigator.userAgentData?.mobile === true) return true
+  return /Macintosh/i.test(ua) && (navigator.maxTouchPoints ?? 0) > 1
+}
+
 /** The location could not be read at all — said by its code, so a check-out can offer to ask HR instead. */
 export const LOCATION_UNREAD = 'LOCATION_UNREAD'
 const unread = (message) => Object.assign(new Error(message), { code: LOCATION_UNREAD })

@@ -1,8 +1,22 @@
+import { Link } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, Search, Edit2, UserCheck, UserX, Clock, CalendarDays, CircleDashed } from 'lucide-react'
 import { Avatar, Chip, StatTile } from '../../components/ui/bits'
 import { btn, card, field, th, td } from '../../components/ui/styles'
 import { MACHINE_MATCH, STATUS, formatHours, soFarLabel } from '../../lib/attendance'
 import { useAuthStore } from '../../stores/authStore'
+
+/**
+ * A name on the roster opens their month (client, 15 Oct 2026) — the month of
+ * the day shown — as a name on Employees opens their profile.
+ */
+function PersonLink({ rec, date }) {
+  return (
+    <Link to={`/attendance/people/${rec.id}?month=${date.slice(0, 7)}`} state={{ back: `/attendance?view=daily&date=${date}` }} className="block text-sm font-semibold text-gray-900 truncate hover:text-brand-700 hover:underline"
+      title={`${rec.full_name}’s attendance`}>
+      {rec.full_name}
+    </Link>
+  )
+}
 
 /**
  * A day checked in on the app — HR may have recorded its check-out since: its
@@ -11,7 +25,8 @@ import { useAuthStore } from '../../stores/authStore'
  */
 function EvidenceButton({ rec, onEvidence }) {
   // Never one's own, but for the Super Admin: the signs on one's own punches are for somebody above.
-  const mine = useAuthStore((state) => rec.employee_id === state.profile?.id && !state.can('role:manage'))
+  // A roster row carries the person's id as `id` (pages/Attendance.jsx): it was read as `employee_id`, never set — so one's own row offered an Evidence the server refuses.
+  const mine = useAuthStore((state) => rec.id === state.profile?.id && !state.can('role:manage'))
   if (!onEvidence || mine || !(rec.source === 'punch' || (rec.source === 'correction' && rec.check_in))) return null
   return (
     <button type="button" onClick={() => onEvidence(rec)} className="mt-0.5 -ml-1 px-1 py-1 text-xs font-semibold text-brand-600 hover:text-brand-800 hover:underline rounded" aria-label={`Evidence of ${rec.full_name}’s punches`}>
@@ -146,7 +161,7 @@ export default function TeamDay({
                       <div className="flex items-center gap-3">
                         <Avatar name={rec.full_name} size="sm" />
                         <div className="min-w-0">
-                          <p className="text-sm font-semibold text-gray-900 truncate">{rec.full_name}</p>
+                          <PersonLink rec={rec} date={date} />
                           <p className="text-xs text-gray-400 font-mono">{rec.employee_code}</p>
                           <EvidenceButton rec={rec} onEvidence={onEvidence} />
                         </div>
@@ -215,7 +230,7 @@ export default function TeamDay({
               <li key={rec.id} className="px-4 py-3 flex items-center gap-3">
                 <Avatar name={rec.full_name} size="sm" />
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-gray-900 truncate">{rec.full_name}</p>
+                  <PersonLink rec={rec} date={date} />
                   <p className="text-xs text-gray-500 tabular-nums">
                     {rec.check_in ? `In ${rec.check_in}${rec.check_out ? ` · Out ${rec.check_out}` : rec.at_work ? ` · ${soFar(rec)} so far` : noCheckOut(rec) ? ' · no check-out' : ''}${rec.late_minutes > 0 ? ` · late ${minutesLabel(rec.late_minutes)}` : ''}` : (rec.department || rec.employee_code)}
                   </p>

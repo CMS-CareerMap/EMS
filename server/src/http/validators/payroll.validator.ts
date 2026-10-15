@@ -149,6 +149,12 @@ export const payslipIdParamSchema = z.object({
   id: z.uuid('That is not a valid payslip id'),
 })
 
+/** A month of the people's payslips: both, or neither — the latest paid month. */
+export const peoplesPayslipsQuerySchema = z
+  .object({ year: year.optional(), month: month.optional() })
+  .strict()
+  .refine((q) => (q.year === undefined) === (q.month === undefined), { message: 'Give the year and the month together' })
+
 // ── Bank accounts and the bank transfer file ────────────────────────────────
 
 /** A form field that is a yes/no — multipart sends "true", JSON sends true. */

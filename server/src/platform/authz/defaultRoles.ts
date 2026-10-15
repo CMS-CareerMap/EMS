@@ -67,6 +67,8 @@ const ADMIN: readonly Permission[] = [
   // Their own payslips — the data scope keeps it to themselves.
   'payslip:read',
   'notification:read',
+  // Replaces or resets the phone somebody punches from (client, 14 Oct 2026).
+  'user:device:manage',
 ]
 
 /**
@@ -76,7 +78,8 @@ const ADMIN: readonly Permission[] = [
  * none — the person each employee reports to does. And HR sees salaries,
  * because HR agrees them with the employee, on the employee's record only and
  * never a senior's (compensation scope "Whole company, except seniors"). HR
- * still has no Payroll: Payroll shows every salary to whoever opens it.
+ * still has no Payroll pages; the monthly incentive is HR's, for the same
+ * people as their salaries ("Whose payroll", 15 Oct 2026).
  */
 const HR: readonly Permission[] = [
   'dashboard:read',
@@ -113,6 +116,8 @@ const HR: readonly Permission[] = [
   // Sets employees' passwords, and gives an employee a login (client, 6 Oct
   // 2026). Employee logins only: a role login's is the Super Admin's to set.
   'user:password:set',
+  // Replaces or resets the phone somebody punches from (client, 14 Oct 2026).
+  'user:device:manage',
 ]
 
 /**
@@ -224,7 +229,7 @@ export const DEFAULT_ROLES: readonly RoleDefinition[] = [
     parentKey: null,
     locked: true,
     permissions: SUPER_ADMIN,
-    scopes: scopes({ employee: ORG, compensation: ORG, attendance: ORG, leave: ORG, payslip: ORG, document: ORG }),
+    scopes: scopes({ employee: ORG, compensation: ORG, attendance: ORG, leave: ORG, payroll: ORG, payslip: ORG, document: ORG }),
   },
   {
     key: 'admin',
@@ -233,7 +238,7 @@ export const DEFAULT_ROLES: readonly RoleDefinition[] = [
     parentKey: SUPER_ADMIN_ROLE,
     locked: false,
     permissions: ADMIN,
-    scopes: scopes({ employee: ORG, compensation: SELF, attendance: SELF, leave: SELF, payslip: SELF, document: ORG }),
+    scopes: scopes({ employee: ORG, compensation: SELF, attendance: SELF, leave: SELF, payroll: SELF, payslip: SELF, document: ORG }),
   },
   {
     key: 'hr',
@@ -242,7 +247,8 @@ export const DEFAULT_ROLES: readonly RoleDefinition[] = [
     parentKey: SUPER_ADMIN_ROLE,
     locked: false,
     permissions: HR,
-    scopes: scopes({ employee: ORG, compensation: EXCEPT_SENIORS, attendance: ORG, leave: ORG, payslip: SELF, document: ORG }),
+    // Payroll for HR is the monthly incentive alone — entered for the same people whose salaries they see.
+    scopes: scopes({ employee: ORG, compensation: EXCEPT_SENIORS, attendance: ORG, leave: ORG, payroll: EXCEPT_SENIORS, payslip: SELF, document: ORG }),
   },
   {
     key: 'accounts',
@@ -251,7 +257,7 @@ export const DEFAULT_ROLES: readonly RoleDefinition[] = [
     parentKey: SUPER_ADMIN_ROLE,
     locked: false,
     permissions: ACCOUNTS,
-    scopes: scopes({ employee: ORG, compensation: ORG, attendance: SELF, leave: SELF, payslip: ORG, document: SELF }),
+    scopes: scopes({ employee: ORG, compensation: ORG, attendance: SELF, leave: SELF, payroll: ORG, payslip: ORG, document: SELF }),
   },
   {
     key: 'manager',
@@ -260,7 +266,7 @@ export const DEFAULT_ROLES: readonly RoleDefinition[] = [
     parentKey: 'hr',
     locked: false,
     permissions: MANAGER,
-    scopes: scopes({ employee: ORG, compensation: SELF, attendance: TEAM, leave: TEAM, payslip: SELF, document: SELF }),
+    scopes: scopes({ employee: ORG, compensation: SELF, attendance: TEAM, leave: TEAM, payroll: SELF, payslip: SELF, document: SELF }),
   },
   {
     key: 'rm',
@@ -269,7 +275,7 @@ export const DEFAULT_ROLES: readonly RoleDefinition[] = [
     parentKey: 'manager',
     locked: false,
     permissions: RM,
-    scopes: scopes({ employee: ORG, compensation: SELF, attendance: TEAM, leave: TEAM, payslip: SELF, document: SELF }),
+    scopes: scopes({ employee: ORG, compensation: SELF, attendance: TEAM, leave: TEAM, payroll: SELF, payslip: SELF, document: SELF }),
   },
   {
     key: EMPLOYEE_ROLE,
@@ -278,7 +284,7 @@ export const DEFAULT_ROLES: readonly RoleDefinition[] = [
     parentKey: 'rm',
     locked: false,
     permissions: EMPLOYEE,
-    scopes: scopes({ employee: SELF, compensation: SELF, attendance: SELF, leave: SELF, payslip: SELF, document: SELF }),
+    scopes: scopes({ employee: SELF, compensation: SELF, attendance: SELF, leave: SELF, payroll: SELF, payslip: SELF, document: SELF }),
   },
 ]
 

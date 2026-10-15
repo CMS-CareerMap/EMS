@@ -35,7 +35,7 @@ function companyOf(extra: Parameters<typeof policyRole>[0][] = []) {
 }
 
 const SELF_EVERYWHERE: Record<ScopedResource, DataScope> = {
-  employee: 'SELF', compensation: 'SELF', attendance: 'SELF', leave: 'SELF', payslip: 'SELF', document: 'SELF',
+  employee: 'SELF', compensation: 'SELF', attendance: 'SELF', leave: 'SELF', payroll: 'SELF', payslip: 'SELF', document: 'SELF',
 }
 
 const custom = (key: string, parentKey: string, permissions: Permission[], scopes: Partial<Record<ScopedResource, DataScope>> = {}) => ({

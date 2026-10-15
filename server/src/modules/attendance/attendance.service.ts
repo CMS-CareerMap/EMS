@@ -34,6 +34,7 @@ import { issuePunchToken, verifyPunchToken, PUNCH_TOKEN_SECONDS, type PunchActio
 import { attendanceSecurityOf, findActiveGeofence, getCurrentPolicy } from '../settings/settings.repository'
 import { awayOn, payPolicyOn, requestRules } from '../requests/requests.repository'
 import { deviceKind, deviceLabel, isPhone, punchSignals, type PunchFlag } from '../../domain/attendance/punchSignals'
+import { methodNeeds, type PunchMethod } from '../../domain/attendance/punchMethod'
 import { deviceVerdict, hashDeviceKey } from './punchDevices.service'
 import { dropPunchPhoto, storePunchPhoto, type IncomingPhoto, type StoredPhoto } from './punchPhotos.service'
 import type { Prisma, PunchRefusal, WorkMode } from '@prisma/client'
@@ -47,11 +48,15 @@ import type { Prisma, PunchRefusal, WorkMode } from '@prisma/client'
  * would need a scope check; one that does not take one cannot be wrong.
  *
  * Check-in security (client, 11 Oct 2026): a punch is started first
- * (`startPunch`: a signed token, and whether a location is needed); the phone
- * then reads its location several times and sends every reading; the server
- * judges the most precise one against the office fence — at check-in, and at
- * check-out too when the company says so — and keeps the evidence of every
- * punch, refused ones included.
+ * (`startPunch`: a signed token, and what the punch needs); the phone then
+ * reads its location several times and sends every reading; the server judges
+ * the most precise one against the office fence, and keeps the evidence of
+ * every punch, refused ones included.
+ *
+ * The punch method (client, 14 Oct 2026): the Super Admin chooses exactly one
+ * — the office fence, a live selfie, or both — and a punch asks for that and
+ * nothing else. A check-out is proved the way its day was checked in, kept on
+ * the day, so changing the method mid-day never strands anybody.
  */
 
 /** One location reading, as the phone took it. */
@@ -105,6 +110,8 @@ export interface PunchResult {
    * it (fullDayHoursFor) — the card counts down to it. Null with no shift.
    */
   fullDayHours: number | null
+  /** The method the day was checked in with on the app, which its check-out follows; null on a day the app did not begin. */
+  punchMethod: PunchMethod | null
 }
 
 /** The caller's own employee record, plus the shift the day is measured against. */
@@ -137,12 +144,25 @@ function assertPunchesInApp(employee: Self, action: PunchAction) {
     : `Your attendance is marked by HR, not ${verb} on the app.`)
 }
 
-/** What a punch needs of the phone's location. */
+/** What a punch needs of the phone, as the method and the day decide. */
 interface LocationPlan {
   /** Readings must come with it. */
   needed: boolean
   /** And the best of them be inside this fence. Null: read and kept, not checked. */
   fence: Fence | null
+  /** A live selfie must come with it. */
+  photo: boolean
+  /** The method it follows — for a check-in, kept on the day. */
+  method: PunchMethod
+}
+
+type Security = NonNullable<Awaited<ReturnType<typeof attendanceSecurityOf>>>
+
+/** The company's punch settings, read once a punch. */
+async function securityOf(ctx: AppContext): Promise<Security> {
+  const security = await attendanceSecurityOf(ctx.db, ctx.organizationId)
+  if (!security) throw NotFound('Company not found')
+  return security
 }
 
 /**
@@ -193,10 +213,10 @@ async function currentDay(ctx: AppContext, employee: { id: string; shift: ShiftR
 
 /**
  * Everything a check-in is refused for before its location is looked at, and
- * what it needs of the location. Shared by `startPunch` and `punchIn`, so the
- * button and the punch never disagree on whether a location is needed.
+ * what it needs of the phone. Shared by `startPunch` and `punchIn`, so the
+ * button and the punch never disagree on what is needed.
  */
-async function prepareCheckIn(ctx: AppContext, employee: Self, now: Date, timezone: string) {
+async function prepareCheckIn(ctx: AppContext, employee: Self, now: Date, timezone: string, security: Security) {
   const today = zonedToday(now, timezone)
 
   const { row: current, date: onDay } = await currentDay(ctx, employee, today, timezone, now)
@@ -249,24 +269,32 @@ async function prepareCheckIn(ctx: AppContext, employee: Self, now: Date, timezo
     throw Conflict(`${date === today ? 'Today is' : `${dayLabel(date)} is`} a day of approved leave. If you are working, ask for the leave to be reversed first.`)
   }
 
-  // Away from the office on an approved request, or remote by arrangement
-  // (client §32–33): the office location is not asked for — unless the company
-  // wants a location reading even when working from home.
+  // The company's method (client, 14 Oct 2026). On an office day, the fence
+  // when the method checks the location. Away from the office on an approved
+  // request, or remote by arrangement (client §32–33), the office is not asked
+  // for — unless the company wants a location reading even when working from
+  // home. The selfie, when the method takes one, on every day alike.
   const away = await awayOn(ctx.db, employee.id, toDateColumn(date))
   const workMode: WorkMode = away === 'work_from_home' ? 'wfh' : away === 'on_duty' ? 'on_duty' : employee.workArrangement === 'remote' ? 'remote' : 'office'
-  const plan: LocationPlan = workMode === 'office'
-    ? { needed: true, fence: await officeFence(ctx, 'in') }
-    : { needed: Boolean(away && (await requestRules(ctx.db, ctx.organizationId))?.wfhGpsRequired), fence: null }
+  const method = security.punchMethod
+  const needs = methodNeeds(method)
+  // Location + Selfie (14 Oct 2026): wherever they are, any day — read and kept, never fenced, no office needed.
+  const plan: LocationPlan = needs.location && !needs.fence
+    ? { needed: true, fence: null, photo: needs.selfie, method }
+    : workMode === 'office'
+      ? { needed: needs.fence, fence: needs.fence ? await officeFence(ctx, 'in') : null, photo: needs.selfie, method }
+      : { needed: Boolean(away && (await requestRules(ctx.db, ctx.organizationId))?.wfhGpsRequired), fence: null, photo: needs.selfie, method }
 
   return { today, date, existing, leave, workMode, plan }
 }
 
 /**
  * Everything a check-out is refused for before its location is looked at, and
- * what it needs of the location: on an office day, the fence again when the
- * company checks check-outs (Settings → Attendance Security, on to start).
+ * what it needs of the phone: what its day was checked in with (client, 14 Oct
+ * 2026) — the fence again on an office day, the selfie again — whatever the
+ * company has chosen since. A day the app did not begin follows the company's.
  */
-async function prepareCheckOut(ctx: AppContext, employee: Self, now: Date, timezone: string) {
+async function prepareCheckOut(ctx: AppContext, employee: Self, now: Date, timezone: string, security: Security) {
   // Today's day — or last night's, on an overnight shift that ends this morning.
   const { row, date } = await currentDay(ctx, employee, zonedToday(now, timezone), timezone, now)
 
@@ -280,10 +308,20 @@ async function prepareCheckOut(ctx: AppContext, employee: Self, now: Date, timez
 
   // Where the day was checked into from; a day HR began, which says nothing, is an office day unless they work remotely.
   const workMode: WorkMode = row.workMode ?? (employee.workArrangement === 'remote' ? 'remote' : 'office')
-  const security = await attendanceSecurityOf(ctx.db, ctx.organizationId)
-  const plan: LocationPlan = workMode === 'office' && security?.punchCheckOutLocation !== false
-    ? { needed: true, fence: await officeFence(ctx, 'out') }
-    : { needed: false, fence: null }
+  let method = row.punchMethod ?? security.punchMethod
+  // The office the day was checked in against is gone — removed once the company's method no
+  // longer checks it, perhaps while this day was being checked in: the company's method closes
+  // the day, so nobody is left with a day they cannot close.
+  if (row.punchMethod && workMode === 'office' && methodNeeds(row.punchMethod).fence && !(await findActiveGeofence(ctx.db))) {
+    method = security.punchMethod
+  }
+  const needs = methodNeeds(method)
+  // The fence again on an office day checked in by it; wherever they are for Location + Selfie, read and kept.
+  const plan: LocationPlan = needs.location && !needs.fence
+    ? { needed: true, fence: null, photo: needs.selfie, method }
+    : workMode === 'office' && needs.fence
+      ? { needed: true, fence: await officeFence(ctx, 'out'), photo: needs.selfie, method }
+      : { needed: false, fence: null, photo: needs.selfie, method }
 
   return { row, date, workMode, plan }
 }
@@ -296,9 +334,10 @@ async function prepareCheckOut(ctx: AppContext, employee: Self, now: Date, timez
 function readingFor(plan: LocationPlan, readings: readonly PunchReading[], action: PunchAction, workMode: WorkMode): PunchReading | null {
   const best = bestReading(readings)
   if (plan.needed && !best) {
+    const verb = action === 'in' ? 'check in' : 'check out'
     throw Forbidden(workMode === 'office'
-      ? `Location is required to ${action === 'in' ? 'check in' : 'check out'}. Allow location access in your browser and try again.`
-      : 'Location is required to check in, even when working from home or on duty. Allow location access in your browser and try again.')
+      ? `Location is required to ${verb}. Allow location access in your browser and try again.`
+      : `Location is required to ${verb}, even when working from home or on duty. Allow location access in your browser and try again.`)
   }
   return best
 }
@@ -351,16 +390,15 @@ function evidenceOf(ctx: AppContext, e: {
 
 const phoneOf = (input: PunchInput) => isPhone({ userAgent: input.device, mobileHint: input.mobileHint, touchPoints: input.touchPoints })
 
-type Security = Awaited<ReturnType<typeof attendanceSecurityOf>>
-
 /**
  * Everything a punch is refused for before its location is judged (client,
- * 11 Oct 2026) — each refusal kept as evidence:
- *   - PHONES ONLY (Layer 3, on to start): a punch that needs the location,
- *     from a computer — a computer's browser can be told any location with its
- *     own developer tools, no app needed. A punch needing none is not asked.
- *   - ONE PHONE (Layer 6, off to start): from a phone HR has not approved.
- *   - SELFIE (Layer 5, off to start): with no photo — at the punch, not its
+ * 11 and 14 Oct 2026) — each refusal kept as evidence:
+ *   - PHONES ONLY, always: a punch that reads the location, from a computer —
+ *     a computer's browser can be told any location with its own developer
+ *     tools, no app needed. A punch that reads none is not asked.
+ *   - ONE PHONE (the Super Admin's switch, with whichever method): from a
+ *     phone that is not the person's.
+ *   - SELFIE, when the method takes one: with no photo — at the punch, not its
  *     start, which comes before the photo is taken.
  */
 async function gate(ctx: AppContext, g: {
@@ -380,25 +418,30 @@ async function gate(ctx: AppContext, g: {
     await repo.recordPunch(ctx.db, evidenceOf(ctx, { employeeId: g.employeeId, date: g.date, action: g.action, startedAt: g.startedAt, workMode: g.workMode, plan: g.plan, best: null, verdict: null, input: g.input, refusedFor, flags, deviceKeyHash: keyHash }))
     throw Forbidden(message)
   }
-  if (g.plan.needed && g.security?.punchPhoneOnly !== false && !phoneOf(g.input)) {
+  if (g.plan.needed && !phoneOf(g.input)) {
     await refuse('not_phone', ['not_a_phone'], `${verb} from your phone. A computer cannot be used here: its browser can be told any location.`)
   }
-  if (g.security?.punchOneDevice) {
+  // One PHONE per employee: a computer is never registered as somebody's phone — or a laptop's
+  // first selfie would make it theirs, and their real phone wait once the method checks the location.
+  if (g.security.punchOneDevice && !phoneOf(g.input)) {
+    await refuse('not_phone', ['not_a_phone'], `${verb} from your phone: each person checks in and out from their own phone.`)
+  }
+  if (g.security.punchOneDevice) {
     const verdict = await deviceVerdict(ctx, g.employeeId, keyHash, deviceLabel(g.input.device))
-    if (verdict === 'waiting') await refuse('device_waiting', [], 'This phone is not the one registered for you. HR has been asked to approve it — try again once they have.')
+    if (verdict === 'waiting') await refuse('device_waiting', [], 'This phone is not the one registered for you, so it cannot be used to check in or out. Contact HR: they have been told, and can replace your phone with this one.')
     if (verdict === 'no_key') await refuse('device_waiting', [], 'This browser cannot keep its registration. Use your phone’s usual browser — not a private window — with this site’s data allowed.')
   }
-  if (!g.atStart && g.security?.punchSelfie && !g.input.photo) {
+  if (!g.atStart && g.plan.photo && !g.input.photo) {
     await refuse('no_photo', [], `${verb} with your photo: the company asks for one with every punch.`)
   }
   return { keyHash }
 }
 
 /** The signs this punch may not be what it seems (Layer 4): for the evidence, never a refusal. */
-async function signalsOf(ctx: AppContext, employeeId: string, date: CalendarDate, input: PunchInput, best: PunchReading | null, device: { keyHash: string | null; oneDevice: boolean }): Promise<PunchFlag[]> {
+async function signalsOf(ctx: AppContext, employeeId: string, date: CalendarDate, input: PunchInput, best: PunchReading | null, device: { keyHash: string | null; oneDevice: boolean }, keptAnywhere: boolean): Promise<PunchFlag[]> {
   const kind = deviceKind({ userAgent: input.device, mobileHint: input.mobileHint, touchPoints: input.touchPoints })
   const flags: PunchFlag[] = best
-    ? punchSignals({ readings: input.readings ?? [], best, now: Date.now(), earlierPoints: await repo.earlierPunchPoints(ctx.db, employeeId, date), kind })
+    ? punchSignals({ readings: input.readings ?? [], best, now: Date.now(), earlierPoints: await repo.earlierPunchPoints(ctx.db, employeeId, date), kind, keptAnywhere })
     : kind === 'computer' ? ['not_a_phone'] : kind === 'mac_with_touch' ? ['mac_with_touch'] : []
   // Another phone than the person's of the last two months — said when "one phone" is off; on, it waits for HR instead.
   // A punch with no key at all is not the page's: said the same way, once there are earlier ones to go by.
@@ -409,19 +452,23 @@ async function signalsOf(ctx: AppContext, employeeId: string, date: CalendarDate
   return flags
 }
 
-/** Refused punches a day that keep their photo: enough to show the room behind them, never a way to fill the storage. */
+/**
+ * Refused punches a day that keep their photo: enough to show the room behind them, never a way to
+ * fill the storage. Only a fence refuses after the photo is taken, and since the punch method (14 Oct
+ * 2026) no method takes both — kept for one that might.
+ */
 const REFUSED_PHOTOS_A_DAY = 3
 
 /**
- * The selfie to keep with this punch — only when the company asks for one
- * (Layer 5), and with a refused punch only the first few of the day: the
- * room behind somebody punching from home is the evidence, the tenth try is
- * not. Stored before the punch is written; dropped if the punch is not. The
- * very same photo as an earlier punch of theirs, to the byte, is flagged: a
- * live camera never gives the same file twice.
+ * The selfie to keep with this punch — only when the method takes one, and
+ * with a refused punch only the first few of the day: the room behind
+ * somebody punching from home is the evidence, the tenth try is not. Stored
+ * before the punch is written; dropped if the punch is not. The very same
+ * photo as an earlier punch of theirs, to the byte, is flagged: a live camera
+ * never gives the same file twice.
  */
-async function photoToKeep(ctx: AppContext, employeeId: string, date: CalendarDate, input: PunchInput, security: Security, verdict: GeofenceVerdict | null, flags: PunchFlag[]): Promise<StoredPhoto | null> {
-  if (!input.photo || !security?.punchSelfie) return null
+async function photoToKeep(ctx: AppContext, employeeId: string, date: CalendarDate, input: PunchInput, plan: LocationPlan, verdict: GeofenceVerdict | null, flags: PunchFlag[]): Promise<StoredPhoto | null> {
+  if (!input.photo || !plan.photo) return null
   const refused = verdict !== null && verdict.result !== 'inside'
   if (refused && (await repo.refusedPhotosOn(ctx.db, employeeId, date)) >= REFUSED_PHOTOS_A_DAY) return null
   const photo = await storePunchPhoto(ctx, employeeId, input.photo)
@@ -467,10 +514,9 @@ export interface PunchStart {
 export async function startPunch(ctx: AppContext, action: PunchAction, device: PunchInput = {}): Promise<PunchStart> {
   const employee = await loadSelf(ctx)
   assertPunchesInApp(employee, action)
-  const timezone = await companyTimezone(ctx)
+  const [timezone, security] = await Promise.all([companyTimezone(ctx), securityOf(ctx)])
   const now = new Date()
-  const { plan, date, workMode } = action === 'in' ? await prepareCheckIn(ctx, employee, now, timezone) : await prepareCheckOut(ctx, employee, now, timezone)
-  const security = await attendanceSecurityOf(ctx.db, ctx.organizationId)
+  const { plan, date, workMode } = action === 'in' ? await prepareCheckIn(ctx, employee, now, timezone, security) : await prepareCheckOut(ctx, employee, now, timezone, security)
   // From a computer, or a phone not theirs: said now, before the location is read — and kept.
   await gate(ctx, { employeeId: employee.id, date, action, startedAt: now, workMode, plan, input: device, security, atStart: true })
   const applied = plan.fence ? effectiveFence(plan.fence) : null
@@ -480,7 +526,7 @@ export async function startPunch(ctx: AppContext, action: PunchAction, device: P
     locationNeeded: plan.needed,
     radiusMeters: applied ? applied.radiusMeters : null,
     accuracyMeters: applied ? applied.maxAccuracyMeters : null,
-    photoNeeded: security?.punchSelfie === true,
+    photoNeeded: plan.photo,
   }
 }
 
@@ -489,17 +535,16 @@ export async function punchIn(ctx: AppContext, input: PunchInput): Promise<Punch
   assertPunchesInApp(employee, 'in')
   const startedAt = verifyPunchToken(input.token, { userId: ctx.userId, employeeId: employee.id }, 'in')
   // Never the machine clock's idea of a day. See domain/shared/dates.
-  const timezone = await companyTimezone(ctx)
+  const [timezone, security] = await Promise.all([companyTimezone(ctx), securityOf(ctx)])
   const now = new Date()
 
-  const { date, existing, leave, workMode, plan } = await prepareCheckIn(ctx, employee, now, timezone)
-  const security = await attendanceSecurityOf(ctx.db, ctx.organizationId)
+  const { date, existing, leave, workMode, plan } = await prepareCheckIn(ctx, employee, now, timezone, security)
   const { keyHash } = await gate(ctx, { employeeId: employee.id, date, action: 'in', startedAt, workMode, plan, input, security, atStart: false })
 
   const best = readingFor(plan, input.readings ?? [], 'in', workMode)
   const verdict = plan.fence && best ? checkGeofence(best, plan.fence) : null
-  const flags = await signalsOf(ctx, employee.id, date, input, best, { keyHash, oneDevice: security?.punchOneDevice === true })
-  const photo = await photoToKeep(ctx, employee.id, date, input, security, verdict, flags)
+  const flags = await signalsOf(ctx, employee.id, date, input, best, { keyHash, oneDevice: security.punchOneDevice }, plan.method === 'location_selfie')
+  const photo = await photoToKeep(ctx, employee.id, date, input, plan, verdict, flags)
   const evidence = { employeeId: employee.id, date, action: 'in' as const, startedAt, workMode, plan, best, verdict, input, flags, deviceKeyHash: keyHash, photo }
   if (verdict && verdict.result !== 'inside') {
     await refuseAtFence(ctx, evidenceOf(ctx, { ...evidence, refusedFor: verdict.result }), verdict, plan.fence!, 'in', date)
@@ -526,6 +571,8 @@ export async function punchIn(ctx: AppContext, input: PunchInput): Promise<Punch
     geofenceVerified: verdict ? true : null,
     workMode,
     checkInDevice: input.device ? input.device.slice(0, 255) : null,
+    // Its check-out is proved the same way, whatever the company chooses since.
+    punchMethod: plan.method,
     lateMinutes,
   }
 
@@ -572,6 +619,7 @@ export async function punchIn(ctx: AppContext, input: PunchInput): Promise<Punch
     overtimeMinutes: null,
     breakMinutes: employee.shift?.breakMinutes ?? null,
     fullDayHours: fullDayHoursFor(shiftRules, expectedHours, leave?.kind === 'half' ? leave.session : null),
+    punchMethod: plan.method,
   }
 }
 
@@ -580,20 +628,20 @@ export async function punchOut(ctx: AppContext, input: PunchInput): Promise<Punc
   assertPunchesInApp(employee, 'out')
   const startedAt = verifyPunchToken(input.token, { userId: ctx.userId, employeeId: employee.id }, 'out')
   // Never the machine clock's idea of a day. See domain/shared/dates.
-  const timezone = await companyTimezone(ctx)
+  const [timezone, security] = await Promise.all([companyTimezone(ctx), securityOf(ctx)])
   const now = new Date()
 
-  const { row, date: today, workMode, plan } = await prepareCheckOut(ctx, employee, now, timezone)
-  const security = await attendanceSecurityOf(ctx.db, ctx.organizationId)
+  const { row, date: today, workMode, plan } = await prepareCheckOut(ctx, employee, now, timezone, security)
   const { keyHash } = await gate(ctx, { employeeId: employee.id, date: today, action: 'out', startedAt, workMode, plan, input, security, atStart: false })
 
-  // At the office on an office day (client, 11 Oct 2026) — refused outside,
-  // and the page offers to ask HR to record the check-out instead. With the
-  // setting off, a reading that came is still kept, unchecked.
+  // At the office on an office day checked in by the fence (client, 11 and 14
+  // Oct 2026) — refused outside, and the page offers to ask HR to record the
+  // check-out instead. A day not checked by the fence keeps a reading that
+  // came, unchecked.
   const best = readingFor(plan, input.readings ?? [], 'out', workMode)
   const verdict = plan.fence && best ? checkGeofence(best, plan.fence) : null
-  const flags = await signalsOf(ctx, employee.id, today, input, best, { keyHash, oneDevice: security?.punchOneDevice === true })
-  const photo = await photoToKeep(ctx, employee.id, today, input, security, verdict, flags)
+  const flags = await signalsOf(ctx, employee.id, today, input, best, { keyHash, oneDevice: security.punchOneDevice }, plan.method === 'location_selfie')
+  const photo = await photoToKeep(ctx, employee.id, today, input, plan, verdict, flags)
   const evidence = { employeeId: employee.id, date: today, action: 'out' as const, startedAt, workMode, plan, best, verdict, input, flags, deviceKeyHash: keyHash, photo }
   if (verdict && verdict.result !== 'inside') {
     await refuseAtFence(ctx, evidenceOf(ctx, { ...evidence, refusedFor: verdict.result }), verdict, plan.fence!, 'out', today)
@@ -661,6 +709,7 @@ export async function punchOut(ctx: AppContext, input: PunchInput): Promise<Punc
     overtimeMinutes: updated.overtimeMinutes,
     breakMinutes: row.shift?.breakMinutes ?? null,
     fullDayHours: fullDayHoursFor(rules, row.expectedHours ? Number(row.expectedHours) : null, leave?.kind === 'half' ? leave.session : null),
+    punchMethod: updated.punchMethod,
   }
 }
 
@@ -698,16 +747,23 @@ export async function myToday(ctx: AppContext): Promise<PunchResult | null> {
     overtimeMinutes: row.overtimeMinutes,
     breakMinutes: row.shift?.breakMinutes ?? null,
     fullDayHours,
+    punchMethod: row.punchMethod,
   }
 }
 
 export interface Workplace {
   /** Where today is worked from, as check-in will record it (client §33). */
   workMode: WorkMode
+  /** The company's punch method (client, 14 Oct 2026); a day already begun follows its own (myToday). */
+  method: PunchMethod
   /** Whether check-in will ask for a location reading — the app asks the browser only then. */
   locationNeeded: boolean
-  /** Whether an office day's check-out is checked against the office too (Settings → Attendance Security). */
+  /** Whether that reading is judged against the office fence (Location) — or only kept, wherever they are (Location + Selfie). */
+  fenceNeeded: boolean
+  /** Whether a check-out begun today reads the location too. */
   checkOutLocationNeeded: boolean
+  /** Whether check-in will ask for a live selfie. */
+  photoNeeded: boolean
   /** Whether the company pays overtime (client §35) — the app offers a claim only then. */
   overtimeEnabled: boolean
   /**
@@ -726,10 +782,11 @@ export interface Workplace {
 export async function myWorkplace(ctx: AppContext): Promise<Workplace> {
   const employee = await loadSelf(ctx)
   const today = zonedToday(new Date(), await companyTimezone(ctx))
-  const [away, payPolicy, policy] = await Promise.all([
+  const [away, payPolicy, policy, security] = await Promise.all([
     awayOn(ctx.db, employee.id, toDateColumn(today)),
     payPolicyOn(ctx.db, toDateColumn(today)),
     getCurrentPolicy(ctx.db),
+    securityOf(ctx),
   ])
   const workMode: WorkMode = away === 'work_from_home' ? 'wfh' : away === 'on_duty' ? 'on_duty' : employee.workArrangement === 'remote' ? 'remote' : 'office'
   const overtimeEnabled = Boolean(payPolicy?.overtimeEnabled)
@@ -748,12 +805,17 @@ export async function myWorkplace(ctx: AppContext): Promise<Workplace> {
     weeklyOffDays: policy?.weeklyOffDays ?? [0],
     dateOfJoining: fromDateColumn(employee.dateOfJoining),
   }
-  if (employee.attendanceMode !== 'app') return { workMode, locationNeeded: false, checkOutLocationNeeded: false, ...about }
-  // An office day always needs the location: with no office set, the punch is refused (client, 11 Oct 2026).
+  const method = security.punchMethod
+  const needs = methodNeeds(method)
+  if (employee.attendanceMode !== 'app') return { workMode, method, locationNeeded: false, fenceNeeded: false, checkOutLocationNeeded: false, photoNeeded: false, ...about }
+  // Location + Selfie: wherever they are, any day — the location read and kept, never fenced (14 Oct 2026).
+  if (needs.location && !needs.fence) {
+    return { workMode, method, locationNeeded: true, fenceNeeded: false, checkOutLocationNeeded: true, photoNeeded: needs.selfie, ...about }
+  }
+  // An office day needs the location when the method checks it: with no office set, the punch is refused (client, 11 Oct 2026).
   if (workMode === 'office') {
-    const security = await attendanceSecurityOf(ctx.db, ctx.organizationId)
-    return { workMode, locationNeeded: true, checkOutLocationNeeded: security?.punchCheckOutLocation !== false, ...about }
+    return { workMode, method, locationNeeded: needs.fence, fenceNeeded: needs.fence, checkOutLocationNeeded: needs.fence, photoNeeded: needs.selfie, ...about }
   }
   const gpsWhenAway = Boolean(away && (await requestRules(ctx.db, ctx.organizationId))?.wfhGpsRequired)
-  return { workMode, locationNeeded: gpsWhenAway, checkOutLocationNeeded: false, ...about }
+  return { workMode, method, locationNeeded: gpsWhenAway, fenceNeeded: false, checkOutLocationNeeded: false, photoNeeded: needs.selfie, ...about }
 }

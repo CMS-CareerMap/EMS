@@ -455,9 +455,10 @@ async function payrollSummary(ctx: AppContext, p: ReportParams): Promise<Omit<Re
     const d = new Date(Date.UTC(p.year, p.month - 1 - i, 1))
     months.push({ year: d.getUTCFullYear(), month: d.getUTCMonth() + 1 })
   }
-  // Unfiltered, each month is its run's own total. Filtered, it is the same
-  // payslips the table shows — the same filters — summed in Postgres.
-  const filtered = Boolean(p.departmentId || p.employeeId)
+  // Unfiltered, each month is its run's own total. Filtered — by the page, or
+  // by the caller's payroll reaching only some people — it is the same
+  // payslips the table shows, summed in Postgres: never the company's total.
+  const filtered = Boolean(p.departmentId || p.employeeId || p.people)
   const runs = await repo.runsFor(ctx.db, months)
   const netOfRun = filtered
     ? new Map((await repo.netByRun(ctx.db, runs.map((r) => r.id), filters)).map((s) => [s.payrollRunId, Number(s._sum.netPayable ?? 0)]))
@@ -489,7 +490,7 @@ async function payrollSummary(ctx: AppContext, p: ReportParams): Promise<Omit<Re
     notes,
     chart: {
       kind: 'bar',
-      label: filtered ? 'Net pay by month — for these filters' : 'Net pay by month',
+      label: p.departmentId || p.employeeId ? 'Net pay by month — for these filters' : p.people ? 'Net pay by month — the people in your payroll' : 'Net pay by month',
       points: months.map((m) => {
         const r = runOf.get(monthKey(m.year, m.month))
         const short = monthName(m.year, m.month).slice(0, 3)
@@ -760,8 +761,8 @@ const REPORT_ACCESS: Record<ReportId, { permission: Permission; resource: Scoped
   requests: { permission: 'attendance:read', resource: 'attendance', needs: 'see attendance' },
   'leave-taken': { permission: 'leave:read', resource: 'leave', needs: 'see leave' },
   'leave-balances': { permission: 'leave:read', resource: 'leave', needs: 'see leave' },
-  'payroll-summary': { permission: 'payroll:structure:read', resource: 'compensation', needs: 'see payroll' },
-  'pf-esi': { permission: 'payroll:structure:read', resource: 'compensation', needs: 'see payroll' },
+  'payroll-summary': { permission: 'payroll:structure:read', resource: 'payroll', needs: 'see payroll' },
+  'pf-esi': { permission: 'payroll:structure:read', resource: 'payroll', needs: 'see payroll' },
   headcount: { permission: 'employee:read', resource: 'employee', needs: 'see employees' },
   'joiners-exits': { permission: 'employee:read', resource: 'employee', needs: 'see employees' },
 }

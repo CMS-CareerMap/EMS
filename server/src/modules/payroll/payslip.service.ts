@@ -6,6 +6,7 @@ import { payslipView, addressOf, type PayslipViewInput } from '../../domain/payr
 import { templateFor } from '../../domain/payroll/payslipTemplates'
 import { fromDateColumn, type CalendarDate } from '../../domain/shared/dates'
 import * as repo from './payrollRun.repository'
+import { payrollPeople } from './payrollReach'
 
 /**
  * Payslips as documents: the PDF of each, and the list a person sees of their
@@ -108,8 +109,21 @@ export async function listMyPayslips(ctx: AppContext) {
 }
 
 /**
+ * The paid payslips of the people the caller's "Whose payslips" reaches (client,
+ * 15 Oct 2026: every choice, as in the other modules) — a month at a time,
+ * the latest paid month unless one is asked for, with the months there are.
+ */
+export async function listPeoplesPayslips(ctx: AppContext, asked: { year?: number | undefined; month?: number | undefined }) {
+  const scope = ctx.scopeFor('payslip')
+  const months = await repo.paidMonthsIn(ctx.db, scope)
+  const chosen = asked.year && asked.month ? { year: asked.year, month: asked.month } : (months[0] ?? null)
+  const slips = chosen ? await repo.paidPayslipsIn(ctx.db, scope, chosen.year, chosen.month) : []
+  return { months, chosen, slips }
+}
+
+/**
  * A paid payslip's PDF, for anybody whose scope includes it — themselves, or
- * payroll staff for the whole company. Out of scope is 404, like everywhere.
+ * whoever "Whose payslips" reaches them for. Out of scope is 404, like everywhere.
  */
 export async function paidPayslipPdf(ctx: AppContext, id: string): Promise<PdfFile> {
   const slip = await repo.findPaidPayslip(ctx.db, ctx.scopeFor('payslip'), id)
@@ -142,7 +156,8 @@ export async function paidPayslipPdf(ctx: AppContext, id: string): Promise<PdfFi
  */
 export async function runPayslipPdf(ctx: AppContext, runId: string, payslipId: string): Promise<PdfFile> {
   const run = await repo.findRun(ctx.db, runId)
-  const slip = run ? await repo.findPayslip(ctx.db, runId, payslipId) : null
+  // Somebody outside the caller's payroll: no such payslip (15 Oct 2026).
+  const slip = run ? await repo.findPayslip(ctx.db, runId, payslipId, payrollPeople(ctx)) : null
   if (!run || !slip) throw NotFound('Payslip not found')
 
   if (run.status === 'paid') {

@@ -11,6 +11,7 @@ import { notify } from '../notifications/notify.service'
 import { uploadLimitMb } from '../organization/organization.service'
 import * as repo from './bankAccount.repository'
 import { assertWorkGoesUp, checkWork, loadWork } from '../organization/workRules.service'
+import { payrollPeople } from './payrollReach'
 
 /**
  * Bank accounts for salary.
@@ -38,16 +39,19 @@ const lastFour = (accountNumber: string) => accountNumber.slice(-4)
 /** A cheque or passbook page: a photo or a PDF. */
 const PROOF_KINDS = ['pdf', 'jpeg', 'png', 'webp'] as const
 
-/** Everybody's account, each with whether the caller may check it — or whom to ask (Day 22). */
+/** The accounts of the people in the caller's payroll, each with whether the caller may check it — or whom to ask (Day 22). */
 export async function listBankAccounts(ctx: AppContext) {
-  const [rows, work] = await Promise.all([repo.bankRoster(ctx.db), loadWork(ctx.db, ctx.organizationId, 'bank')])
+  const [rows, work] = await Promise.all([repo.bankRoster(ctx.db, payrollPeople(ctx)), loadWork(ctx.db, ctx.organizationId, 'bank')])
   return rows.map((row) => ({ row, check: checkWork(ctx, work, row.id) }))
 }
+
+/** One's own account: no reach needed. */
+const OWN = null
 
 /** Where the signed-in person's own salary goes; null with no account, or no employee record. */
 export async function myBankAccount(ctx: AppContext) {
   if (!ctx.employeeId) return null
-  const employee = await repo.findEmployeeWithAccount(ctx.db, ctx.employeeId)
+  const employee = await repo.findEmployeeWithAccount(ctx.db, ctx.employeeId, OWN)
   return employee?.bankAccount ?? null
 }
 
@@ -106,7 +110,7 @@ async function storeProof(ctx: AppContext, employeeId: string, proof: IncomingFi
 }
 
 export async function saveBankAccount(ctx: AppContext, employeeId: string, input: BankAccountInput, proof: IncomingFile | null = null) {
-  const employee = await repo.findEmployeeWithAccount(ctx.db, employeeId)
+  const employee = await repo.findEmployeeWithAccount(ctx.db, employeeId, payrollPeople(ctx))
   if (!employee) throw NotFound('Employee not found')
 
   // Where somebody's salary goes is never set by themselves through Payroll,
@@ -189,7 +193,7 @@ export async function saveBankAccount(ctx: AppContext, employeeId: string, input
   }
 
   logger.info('Bank account saved', { by: ctx.userId, employeeId, status: values.verificationStatus })
-  return repo.findEmployeeWithAccount(ctx.db, employeeId)
+  return repo.findEmployeeWithAccount(ctx.db, employeeId, payrollPeople(ctx))
 }
 
 /**
@@ -203,7 +207,7 @@ export async function submitOwnBankAccount(ctx: AppContext, input: Omit<BankAcco
   const employeeId = ctx.employeeId
   if (!employeeId) throw BadRequest('This login has no employee record, so it has no salary account.')
 
-  const employee = await repo.findEmployeeWithAccount(ctx.db, employeeId)
+  const employee = await repo.findEmployeeWithAccount(ctx.db, employeeId, OWN)
   if (!employee) throw NotFound('Employee not found')
 
   const accountNumber = input.accountNumber.trim()
@@ -252,8 +256,9 @@ export async function submitOwnBankAccount(ctx: AppContext, input: Omit<BankAcco
       }, tx)
       await notify(ctx, tx, {
         event: 'bank.submitted',
-        // Whoever may check this person's: an accountant's own goes up the tree (Day 22).
-        to: { doing: { permission: 'employee:bank:manage', work: 'bank', employeeId } },
+        // Whoever may check this person's: whose payroll reaches them (15 Oct
+        // 2026), and an accountant's own goes up the tree (Day 22).
+        to: { reaching: { permission: 'employee:bank:manage', resource: 'payroll', employeeId, work: 'bank' } },
         title: 'Bank details to check',
         message: `${employee.fullName} sent in bank details (account ending ${lastFour(accountNumber)}). Check them against the proof attached.`,
         link: '/payroll?tab=bank',
@@ -268,12 +273,12 @@ export async function submitOwnBankAccount(ctx: AppContext, input: Omit<BankAcco
   }
 
   logger.info('Bank account submitted by its owner', { by: ctx.userId, employeeId })
-  return repo.findEmployeeWithAccount(ctx.db, employeeId)
+  return repo.findEmployeeWithAccount(ctx.db, employeeId, OWN)
 }
 
 /** The cheque or passbook page on file, for whoever checks accounts. */
 export async function proofFile(ctx: AppContext, employeeId: string) {
-  const employee = await repo.findEmployeeWithAccount(ctx.db, employeeId)
+  const employee = await repo.findEmployeeWithAccount(ctx.db, employeeId, payrollPeople(ctx))
   const account = employee?.bankAccount
   if (!employee || !account?.proofKey || !account.proofSha256 || !account.proofContentType) throw NotFound('No proof is on file for this account')
 
@@ -304,7 +309,7 @@ export interface VerifyInput {
 }
 
 export async function verifyBankAccount(ctx: AppContext, employeeId: string, input: VerifyInput) {
-  const employee = await repo.findEmployeeWithAccount(ctx.db, employeeId)
+  const employee = await repo.findEmployeeWithAccount(ctx.db, employeeId, payrollPeople(ctx))
   if (!employee) throw NotFound('Employee not found')
   if (!employee.bankAccount) throw Conflict(`${employee.fullName} has no bank account recorded yet.`)
 
@@ -352,5 +357,5 @@ export async function verifyBankAccount(ctx: AppContext, employeeId: string, inp
   })
 
   logger.info('Bank account decided', { by: ctx.userId, employeeId, decision: input.decision })
-  return repo.findEmployeeWithAccount(ctx.db, employeeId)
+  return repo.findEmployeeWithAccount(ctx.db, employeeId, payrollPeople(ctx))
 }

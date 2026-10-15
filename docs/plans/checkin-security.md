@@ -1,5 +1,10 @@
 # Plan: check-in / check-out security
 
+> **14 Oct 2026:** the separate "check location at check-out", "phones only" and
+> "selfie" switches were replaced by one **punch method** (Location / Selfie /
+> Location + Selfie), and phones are replaced or reset by whoever holds
+> `user:device:manage` — see [punch-method.md](./punch-method.md).
+
 Status: **built 11 Oct 2026 on `feat/checkin-security`** (Devesh: all five
 phases on this one branch, one after the other). Five migrations; Neon must
 migrate after the merge. "As built" at the end has what changed from the plan

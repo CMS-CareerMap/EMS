@@ -46,10 +46,15 @@ export function isDataScope(value: unknown): value is DataScope {
  * `compensation` is a person's salary, scoped on its own since Day 21: who may
  * see a salary is a narrower question than who may see the person's record,
  * and the client wants HR to see salaries but never those of their seniors.
+ *
+ * `payroll` is the Payroll module's (client, 15 Oct 2026): whose salaries,
+ * incentives, tax, loans, bank accounts, payslips and bank file lines a
+ * payroll role sees and works with — the choice decides it, as in the other
+ * modules.
  */
-export type ScopedResource = 'employee' | 'attendance' | 'leave' | 'payslip' | 'document' | 'compensation'
+export type ScopedResource = 'employee' | 'attendance' | 'leave' | 'payroll' | 'payslip' | 'document' | 'compensation'
 
-export const SCOPED_RESOURCES: readonly ScopedResource[] = ['employee', 'compensation', 'attendance', 'leave', 'payslip', 'document']
+export const SCOPED_RESOURCES: readonly ScopedResource[] = ['employee', 'compensation', 'attendance', 'leave', 'payroll', 'payslip', 'document']
 
 /**
  * What a repository needs in order to filter. Built by the http layer from the

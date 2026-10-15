@@ -460,7 +460,7 @@ export async function questionablePunches(db: ScopedDb, scope: ScopeContext, fro
     },
     select: {
       id: true, employeeId: true, date: true, action: true, at: true, refusedFor: true, flags: true,
-      distanceMeters: true, accuracyMeters: true, fenceApplied: true, readings: true, ip: true, userAgent: true, workMode: true,
+      latitude: true, longitude: true, distanceMeters: true, accuracyMeters: true, fenceApplied: true, readings: true, ip: true, userAgent: true, workMode: true,
       employee: { select: { fullName: true, employeeCode: true } },
     },
     orderBy: { at: 'desc' },
@@ -510,12 +510,16 @@ export async function retireOtherDevices(tx: TxDb, employeeId: string, keepId: s
   return result.count
 }
 
-/** Phones of the people in reach, but for `notOwn`'s — the most recently used first — for HR to approve or take off. */
-export async function devicesInScope(db: ScopedDb, scope: ScopeContext, status: 'waiting' | 'all', notOwn: string | null) {
+/**
+ * Phones of the people in reach, but for `notOwn`'s — the most recently used
+ * first — for whoever may replace them; only one person's when `employeeId`.
+ */
+export async function devicesInScope(db: ScopedDb, scope: ScopeContext, status: 'waiting' | 'all', notOwn: string | null, employeeId?: string) {
+  const person = [...(notOwn ? [{ employeeId: { not: notOwn } }] : []), ...(employeeId ? [{ employeeId }] : [])]
   return db.punchDevice.findMany({
     where: {
       employee: employeesInScope(scope),
-      ...(notOwn ? { employeeId: { not: notOwn } } : {}),
+      ...(person.length ? { AND: person } : {}),
       ...(status === 'waiting' ? { status: 'waiting' as const } : {}),
     },
     include: { employee: { select: { fullName: true, employeeCode: true } } },
@@ -630,6 +634,32 @@ export async function findEmployeeWithShift(db: TxDb, scope: ScopeContext, emplo
   })
 }
 
+/**
+ * One person whose attendance the caller sees (client, 15 Oct 2026), for the
+ * month page HR or a manager opens for them — somebody who has left too, whose
+ * days are still history. Null outside the caller's attendance reach.
+ */
+export async function personForMonth(db: ScopedDb, scope: ScopeContext, employeeId: string) {
+  return db.employee.findFirst({
+    where: { AND: [employeesInScope(scope), { id: employeeId }] },
+    select: {
+      id: true,
+      fullName: true,
+      employeeCode: true,
+      dateOfJoining: true,
+      lastWorkingDate: true,
+      archivedAt: true,
+      attendanceMode: true,
+      // Where they sit — whether the caller's LEAVE reach takes them in too.
+      reportingManagerId: true,
+      departmentId: true,
+      department: { select: { name: true } },
+      designation: { select: { name: true } },
+      shift: { select: { name: true, startTime: true, endTime: true, expectedHours: true } },
+    },
+  })
+}
+
 /** Today's row, with the shift that decides the break. */
 export async function findDayWithShift(db: ScopedDb | TxDb, employeeId: string, date: Date) {
   return db.attendance.findFirst({ where: { employeeId, date }, include: { shift: true } })
@@ -741,6 +771,6 @@ export async function statusesBetween(db: ScopedDb, scope: ScopeContext, from: D
 export async function daysFor(db: ScopedDb, employeeId: string, from: Date, to: Date) {
   return db.attendance.findMany({
     where: { employeeId, date: { gte: from, lte: to } },
-    select: { date: true, status: true, checkIn: true, checkOut: true, hoursWorked: true },
+    select: { date: true, status: true, checkIn: true, checkOut: true, hoursWorked: true, lateMinutes: true },
   })
 }

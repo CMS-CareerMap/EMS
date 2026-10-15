@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { FENCE_LIMITS } from '../../domain/attendance/geofence'
+import { PUNCH_METHODS } from '../../domain/attendance/punchMethod'
 
 /**
  * Settings input.
@@ -151,22 +152,20 @@ export const geofenceSchema = z
   })
   .strict()
 
-/** Settings → Attendance Security (client, 11 Oct 2026): the layers the company has on. */
+/** Settings → Attendance Security (client, 11 and 14 Oct 2026): the punch method and the layers the company has on. */
 export const attendanceSecuritySchema = z
   .object({
-    punchCheckOutLocation: z.boolean().optional(),
-    /// Layer 2: the fingerprint machine's file confirms app days.
+    /// How a punch is proved: exactly one method, never none (client, 14 Oct 2026).
+    punchMethod: z.enum(PUNCH_METHODS, 'Choose location, selfie, or location and selfie.').optional(),
+    /// One phone per employee, with whichever method.
+    punchOneDevice: z.boolean().optional(),
+    /// The fingerprint machine's file confirms app days.
     punchMachineMatch: z.boolean().optional(),
     punchMachineMinutes: z.number().int().min(5, 'Between 5 and 240 minutes.').max(240, 'Between 5 and 240 minutes.').optional(),
     punchMachineMissing: z.enum(['flag', 'absent']).optional(),
     punchMachineFills: z.boolean().optional(),
-    /// Layer 3: a punch that needs the location, from a phone only.
-    punchPhoneOnly: z.boolean().optional(),
-    /// Layer 5: a live selfie with every app punch, kept 7 to 365 days.
-    punchSelfie: z.boolean().optional(),
+    /// A selfie is kept 7 to 365 days.
     punchSelfieKeepDays: z.number().int().min(7, 'Between 7 and 365 days.').max(365, 'Between 7 and 365 days.').optional(),
-    /// Layer 6: one phone per employee.
-    punchOneDevice: z.boolean().optional(),
   })
   .strict()
 

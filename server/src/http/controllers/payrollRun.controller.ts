@@ -3,7 +3,8 @@ import type { RequestHandler } from 'express'
 import * as runs from '../../modules/payroll/payrollRun.service'
 import * as approval from '../../modules/payroll/payrollApproval.service'
 import { runPayslipPdf } from '../../modules/payroll/payslip.service'
-import type { RunRow, PayslipRow } from '../../modules/payroll/payrollRun.repository'
+import type { PayslipRow } from '../../modules/payroll/payrollRun.repository'
+import type { RunView } from '../../modules/payroll/payrollRun.service'
 import { fromDateColumn, isoInstant } from '../../domain/shared/dates'
 import {
   approveRunSchema,
@@ -25,12 +26,15 @@ const reply = (res: Parameters<RequestHandler>[1], status: number, data: unknown
 
 const num = (value: Prisma.Decimal) => Number(value)
 
-function runPayload(run: RunRow) {
+function runPayload(run: RunView) {
   return {
     id: run.id,
     year: run.year,
     month: run.month,
     status: run.status,
+    // Some people's payroll only ("Whose payroll", 15 Oct 2026): the count and
+    // the money below are theirs, not the company's, and the run's notes are left out.
+    partial: run.partial,
     lop_basis: run.lopBasis,
     sandwich_rule: run.sandwichRule,
     employee_count: run.employeeCount,
@@ -169,7 +173,9 @@ export const getReadiness: RequestHandler = async (req, res) => {
     month: result.month,
     tds_enabled: result.tdsEnabled,
     run: result.run,
-    blocked: result.blockers.length > 0,
+    // The month is one run: what stops it about anybody stops it.
+    blocked: result.blockers.length + result.othersBlocking > 0,
+    others_blocking: result.othersBlocking,
     blockers: result.blockers.map((b) => ({
       code: b.code,
       message: b.message,

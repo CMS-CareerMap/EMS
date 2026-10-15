@@ -48,9 +48,10 @@ async function punch(action, takePhoto) {
   const device = { touchPoints, deviceKey: deviceKey() }
   const begin = async () => ({ at: Date.now(), ...(await api.post('/attendance/punch-start', { action, ...device })).data })
   let start = await begin()
-  // The selfie first, while the person is looking at the phone; then the location.
-  const photo = start.photo_needed ? await takePhoto() : null
+  // The location first (client, 14 Oct 2026): no location — permission refused, or nothing
+  // read — and the camera never opens, so no photo is taken for a punch that cannot be made.
   const readings = start.location_needed ? await readLocationBurst({ target: start.accuracy_meters ?? 20 }) : []
+  const photo = start.photo_needed ? await takePhoto() : null
   // A slow camera, or a long look at the browser's questions, can outlast the start:
   // begun again, so the punch is not refused for the time it took — the photo and readings kept.
   if (Date.now() - start.at > (start.expires_in_seconds - 15) * 1000) start = await begin()

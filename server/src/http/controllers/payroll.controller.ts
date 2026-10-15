@@ -66,6 +66,8 @@ export const postCalculate: RequestHandler = async (req, res) => {
   const ctx = appContext(res)
   const input = parseBody(calculationSchema, req.body)
 
+  // Somebody outside the caller's payroll is not found, before anything is worked out (or locked).
+  await payroll.assertEmployeeVisible(ctx, input.employeeId)
   const calc = await payroll.calculate(ctx, input.employeeId, input.year, input.month, {
     ...(input.lopDays !== undefined ? { lopDays: input.lopDays } : {}),
     ...(input.tds !== undefined ? { tds: input.tds } : {}),
@@ -146,9 +148,9 @@ export const postEsiRedecide: RequestHandler = async (req, res) => {
   const ctx = appContext(res)
   const input = parseBody(esiRedecideSchema, req.body)
 
-  // 404 for somebody outside the organization, the same as everywhere else.
-  // The calculation would say so too, but redeciding must not write a
-  // coverage row for an id the caller cannot see.
+  // 404 for somebody outside the organization, or the caller's payroll, the
+  // same as everywhere else. Redeciding must not write a coverage row for an
+  // id the caller cannot see.
   await payroll.assertEmployeeVisible(ctx, input.employeeId)
 
   const coverage = await redecide(ctx, input.employeeId, input.year, input.month)

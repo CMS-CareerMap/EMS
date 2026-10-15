@@ -5,7 +5,7 @@ import DataState from '../../components/DataState'
 import { useDayEvidence, usePunchPhoto } from '../../hooks/useAttendance'
 import { useAuthStore } from '../../stores/authStore'
 import { formatDay, wallClockIn } from '../../lib/dates'
-import { PUNCH_FLAG_WORDS, refusalWords, shortDevice } from '../../lib/attendance'
+import { PUNCH_FLAG_WORDS, mapLink, refusalWords, shortDevice } from '../../lib/attendance'
 import { WORK_MODES } from '../../lib/requests'
 
 /**
@@ -50,10 +50,21 @@ function Punch({ punch: p }) {
         </p>
         <p className="flex items-start gap-1.5 text-xs text-gray-600">
           <MapPin className="w-3.5 h-3.5 shrink-0 mt-px" aria-hidden="true" />
-          {p.fence_applied && p.distance_meters != null
-            ? `${p.distance_meters} m from the office, accurate to ${p.accuracy_meters} m`
-            : p.work_mode && p.work_mode !== 'office' ? `${WORK_MODES[p.work_mode] ?? p.work_mode} — the office is not checked` : 'No location'}
-          {p.readings > 0 ? ` · ${p.readings} reading${p.readings === 1 ? '' : 's'}` : ''}
+          <span className="min-w-0">
+            {p.fence_applied && p.distance_meters != null
+              ? `${p.distance_meters} m from the office, accurate to ${p.accuracy_meters} m`
+              // A location kept, not fenced (Location + Selfie, any site): where it was, for the map (14 Oct 2026).
+              : p.latitude != null && p.longitude != null
+                ? `Taken at ${p.latitude.toFixed(5)}, ${p.longitude.toFixed(5)}${p.accuracy_meters != null ? `, accurate to ${p.accuracy_meters} m` : ''}`
+                : p.work_mode && p.work_mode !== 'office' ? `${WORK_MODES[p.work_mode] ?? p.work_mode} — the office is not checked` : 'No location'}
+            {p.readings > 0 ? ` · ${p.readings} reading${p.readings === 1 ? '' : 's'}` : ''}
+            {p.latitude != null && p.longitude != null && (
+              <>
+                {' · '}
+                <a href={mapLink(p.latitude, p.longitude)} target="_blank" rel="noopener noreferrer" className="font-semibold text-brand-700 underline">Open map</a>
+              </>
+            )}
+          </span>
         </p>
         {p.flags.map((f) => (
           <p key={f} className="flex items-start gap-1.5 text-xs text-amber-800">

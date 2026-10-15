@@ -12,7 +12,9 @@ import {
 import { importAttendance } from '../../modules/attendance/attendanceImport.service'
 import { dayEvidence, suspiciousPunches } from '../../modules/attendance/suspicious.service'
 import { readPunchPhoto } from '../../modules/attendance/punchPhotos.service'
-import { approveDevice, listDevices, retireDevice } from '../../modules/attendance/punchDevices.service'
+import { approveDevice, listDevices, retireDevice, type DeviceRow } from '../../modules/attendance/punchDevices.service'
+import { personMonth } from '../../modules/attendance/personMonth.service'
+import { payDaysPayload } from '../serializers/payDays.serializer'
 import { sendFile } from '../download'
 import {
   attendanceQuerySchema,
@@ -25,6 +27,8 @@ import {
   suspiciousQuerySchema,
   dayEvidenceQuerySchema,
   devicesQuerySchema,
+  personMonthParamsSchema,
+  personMonthQuerySchema,
 } from '../validators/attendance.validator'
 import { parseBody } from '../validators/parse'
 import { appContext } from '../context'
@@ -130,6 +134,70 @@ export const getAttendance: RequestHandler = async (req, res) => {
   res.status(200).json({
     data: rows.map(row),
     meta: { requestId: res.locals.requestId, total: rows.length },
+  })
+}
+
+/**
+ * GET /api/attendance/people/:employeeId/month?year=&month= — one person's
+ * month (client, 15 Oct 2026): who they are, their days, the company's days
+ * off, the month in pay terms, and the month so far, counted to today. For
+ * the page a name on Attendance opens, and for the person's own figures.
+ */
+export const getPersonMonth: RequestHandler = async (req, res) => {
+  const ctx = appContext(res)
+  const { employeeId } = parseBody(personMonthParamsSchema, req.params)
+  const { year, month } = parseBody(personMonthQuerySchema, req.query)
+  const m = await personMonth(ctx, employeeId, year, month)
+  const t = m.totals
+  res.status(200).json({
+    data: {
+      person: {
+        id: m.person.id,
+        full_name: m.person.fullName,
+        employee_code: m.person.employeeCode,
+        department: m.person.department?.name ?? null,
+        designation: m.person.designation?.name ?? null,
+        date_of_joining: fromDateColumn(m.person.dateOfJoining),
+        last_working_date: fromDateColumn(m.person.lastWorkingDate),
+        // The last day they are counted: the last working day, or the day they were removed.
+        employed_until: m.employedUntil,
+        left: m.person.archivedAt !== null,
+        attendance_mode: m.person.attendanceMode,
+        shift: m.person.shift
+          ? { name: m.person.shift.name, start_time: m.person.shift.startTime, end_time: m.person.shift.endTime }
+          : null,
+      },
+      year: m.year,
+      month: m.month,
+      today: m.today,
+      totals: {
+        from: t.from,
+        to: t.to,
+        ongoing: t.ongoing,
+        working_days: t.workingDays,
+        present: t.present,
+        half_days: t.halfDays,
+        absent: t.absent,
+        on_leave: t.onLeave,
+        not_marked: t.notMarked,
+        weekly_offs: t.weeklyOffs,
+        holidays: t.holidays,
+        hours_worked: t.hoursWorked,
+        expected_hours: t.expectedHours,
+        days_worked: t.daysWorked,
+        average_hours: t.averageHours,
+        arrivals: t.arrivals,
+        late_days: t.lateDays,
+        // Still at work today: the page counts the time since, by the server's clock (meta.server_now).
+        open_since: isoInstant(m.openSince),
+        open_day: m.openDay,
+      },
+      days: m.days.map(row),
+      weekly_off_days: m.calendar.weeklyOffDays,
+      days_off: m.calendar.daysOff,
+      pay_days: payDaysPayload(m.payDays),
+    },
+    meta: { requestId: res.locals.requestId, server_now: isoInstant(new Date()) },
   })
 }
 
@@ -316,6 +384,9 @@ export const getSuspicious: RequestHandler = async (req, res) => {
           flags: p.flags,
           work_mode: p.workMode,
           fence_applied: p.fenceApplied,
+          // Where it was taken — for a location kept but not fenced, the map is the evidence (14 Oct 2026).
+          latitude: p.latitude == null ? null : Number(p.latitude),
+          longitude: p.longitude == null ? null : Number(p.longitude),
           distance_meters: p.distanceMeters,
           accuracy_meters: p.accuracyMeters,
           readings: Array.isArray(p.readings) ? p.readings.length : 0,
@@ -374,37 +445,40 @@ export const getPunchPhoto: RequestHandler = async (req, res) => {
   sendFile(res, { filename: `punch-${id}.${photo.type.split('/')[1]}`, bytes: photo.bytes, contentType: photo.type })
 }
 
-/** GET /api/attendance/devices?status=waiting|all — phones of the people in reach (client, 11 Oct 2026). */
+/** GET /api/attendance/devices?status=waiting|all&employee=<id> — phones of the people in reach (client, 11 and 14 Oct 2026). */
 export const getDevices: RequestHandler = async (req, res) => {
-  const { status } = parseBody(devicesQuerySchema, req.query)
-  const rows = await listDevices(appContext(res), status ?? 'waiting')
-  res.status(200).json({ data: rows.map(devicePayload), meta: { requestId: res.locals.requestId } })
+  const { status, employee } = parseBody(devicesQuerySchema, req.query)
+  const list = await listDevices(appContext(res), { status, employeeId: employee })
+  // With whether phones are checked at all (one phone per employee): the person's page says so when not.
+  res.status(200).json({ data: { one_device: list.oneDevice, phones: list.phones.map(devicePayload) }, meta: { requestId: res.locals.requestId } })
 }
 
-/** POST /api/attendance/devices/:id/approve — this phone is theirs; their others are taken off. */
+/** POST /api/attendance/devices/:id/approve — Replace: this phone is theirs; their others are taken off. */
 export const postApproveDevice: RequestHandler = async (req, res) => {
   const { id } = parseBody(attendanceIdSchema, req.params)
   const saved = await approveDevice(appContext(res), id)
   res.status(200).json({ data: { id: saved.id, status: saved.status }, meta: { requestId: res.locals.requestId } })
 }
 
-/** POST /api/attendance/devices/:id/retire — this phone no longer punches for them. */
+/** POST /api/attendance/devices/:id/retire — their phone reset, or a waiting one refused. */
 export const postRetireDevice: RequestHandler = async (req, res) => {
   const { id } = parseBody(attendanceIdSchema, req.params)
   const saved = await retireDevice(appContext(res), id)
   res.status(200).json({ data: { id: saved.id, status: saved.status }, meta: { requestId: res.locals.requestId } })
 }
 
-function devicePayload(d: Awaited<ReturnType<typeof listDevices>>[number]) {
+function devicePayload(d: DeviceRow) {
   return {
     id: d.id,
     employee_id: d.employeeId,
-    full_name: d.employee.fullName,
-    employee_code: d.employee.employeeCode,
+    full_name: d.fullName,
+    employee_code: d.employeeCode,
     label: d.label,
     status: d.status,
     first_seen_at: isoInstant(d.firstSeenAt),
     last_seen_at: isoInstant(d.lastSeenAt),
     decided_at: isoInstant(d.decidedAt),
+    may_decide: d.mayDecide,
+    ask: d.ask,
   }
 }

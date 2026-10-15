@@ -5,6 +5,7 @@ import { punchLimiter } from '../middleware/rateLimit'
 import {
   getAttendance,
   getMonthCalendar,
+  getPersonMonth,
   getMonthlySummary,
   getDaySummary,
   getDayRoster,
@@ -51,6 +52,8 @@ attendanceRouter.get('/', authorize('attendance:read'), getAttendance)
 attendanceRouter.get('/monthly-summary', authorize('attendance:read'), getMonthlySummary)
 // The company's days off in a month: the same for everybody who reads attendance.
 attendanceRouter.get('/calendar', authorize('attendance:read'), getMonthCalendar)
+// One person's month (client, 15 Oct 2026): within the caller's attendance reach, or a 404.
+attendanceRouter.get('/people/:employeeId/month', authorize('attendance:read'), getPersonMonth)
 attendanceRouter.get('/summary', authorize('attendance:read'), getDaySummary)
 attendanceRouter.get('/day', authorize('attendance:read'), getDayRoster)
 // Punches worth a second look (client, 11 Oct 2026): beyond one's own reach only.
@@ -58,10 +61,10 @@ attendanceRouter.get('/suspicious', authorize('attendance:read'), getSuspicious)
 // A day's punches with their evidence, and a punch's selfie: whoever's reach covers the person.
 attendanceRouter.get('/evidence', authorize('attendance:read'), getDayEvidence)
 attendanceRouter.get('/evidence/:id/photo', authorize('attendance:read'), getPunchPhoto)
-// One phone per employee: whoever corrects attendance approves a new phone or takes one off.
-attendanceRouter.get('/devices', authorize('attendance:update'), getDevices)
-attendanceRouter.post('/devices/:id/approve', authorize('attendance:update'), postApproveDevice)
-attendanceRouter.post('/devices/:id/retire', authorize('attendance:update'), postRetireDevice)
+// One phone per employee: whoever the Super Admin gives "replace or reset a punch phone" (client, 14 Oct 2026).
+attendanceRouter.get('/devices', authorize('user:device:manage'), getDevices)
+attendanceRouter.post('/devices/:id/approve', authorize('user:device:manage'), postApproveDevice)
+attendanceRouter.post('/devices/:id/retire', authorize('user:device:manage'), postRetireDevice)
 attendanceRouter.get('/export', authorize('attendance:read'), getAttendanceExport)
 
 // Recording somebody else's day, and correcting one. Separate permissions

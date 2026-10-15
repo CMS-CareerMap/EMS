@@ -291,11 +291,13 @@ export function serializeEmployee(employee: EmployeeRow, access: FieldAccess) {
   // A salary outside the caller's salary scope is left OUT, never sent as
   // nulls — nulls would read as "no salary recorded", which is not the truth.
   const seesSalary = access.includeCompensation && isInScope(access.compensationScope, employee)
+  // The same for a bank account outside the caller's payroll: left out, not "none recorded".
+  const seesBank = access.includeBank && isInScope(access.payrollScope, employee)
   return {
     ...base(employee),
     ...lifecycle(employee, access),
     ...(seesSalary ? compensation(employee) : {}),
-    ...(access.includeBank ? bank(employee) : {}),
+    ...(seesBank ? bank(employee) : {}),
     ...(access.includeIdentity ? identity(employee) : {}),
     // Personal details (client §42): to whoever reads statutory details, and to the person.
     ...(access.includeIdentity || employee.id === access.lifecycleOf.employeeId ? personal(employee) : {}),

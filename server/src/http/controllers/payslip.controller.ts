@@ -5,7 +5,7 @@ import { ownBankAccountSchema } from '../validators/payroll.validator'
 import { uploadedFile } from '../upload'
 import { uploadLimitMb } from '../../modules/organization/organization.service'
 import { fromDateColumn, isoInstant } from '../../domain/shared/dates'
-import { payslipIdParamSchema } from '../validators/payroll.validator'
+import { payslipIdParamSchema, peoplesPayslipsQuerySchema } from '../validators/payroll.validator'
 import { parseBody } from '../validators/parse'
 import { appContext } from '../context'
 import { sendPdf } from '../pdf'
@@ -17,6 +17,34 @@ import { sendPdf } from '../pdf'
 
 const reply = (res: Parameters<RequestHandler>[1], status: number, data: unknown) =>
   res.status(status).json({ data, meta: { requestId: res.locals.requestId } })
+
+/**
+ * GET /api/payslips?year=&month= — the paid payslips of the people the
+ * caller's "Whose payslips" reaches (client, 15 Oct 2026), a month at a time:
+ * the latest paid month unless one is asked for, and the months there are.
+ */
+export const getPeoplesPayslips: RequestHandler = async (req, res) => {
+  const ctx = appContext(res)
+  const q = parseBody(peoplesPayslipsQuerySchema, req.query)
+  const { months, chosen, slips } = await payslips.listPeoplesPayslips(ctx, q)
+  reply(res, 200, {
+    months: months.map((m) => ({ year: m.year, month: m.month })),
+    year: chosen?.year ?? null,
+    month: chosen?.month ?? null,
+    payslips: slips.map((slip) => ({
+      id: slip.id,
+      employee_id: slip.employeeId,
+      employee_code: slip.employeeCode,
+      full_name: slip.employeeName,
+      department: slip.department,
+      currency: slip.currency,
+      gross_earnings: Number(slip.grossEarnings),
+      total_deductions: Number(slip.totalDeductions),
+      net_payable: Number(slip.netPayable),
+      paid_on: fromDateColumn(slip.run.paidOn),
+    })),
+  })
+}
 
 /** GET /api/payslips/me */
 export const getMyPayslips: RequestHandler = async (_req, res) => {

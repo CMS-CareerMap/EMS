@@ -26,6 +26,12 @@ export type PunchFlag =
   | 'repeated_photo'
   /** A Mac's browser claiming a touch screen: an iPad says it is a Mac — and so can a laptop told to. Taken as a phone, and said. */
   | 'mac_with_touch'
+  /**
+   * A location kept but not fenced (Location + Selfie, wherever they are) that is too vague to say
+   * where — "precise location" off, the phone guessing by kilometres. Taken, never refused (a
+   * warehouse's metal roof must not stop a punch), and said, so HR knows the record says little.
+   */
+  | 'location_vague'
 
 export interface SignalReading {
   latitude: number
@@ -39,6 +45,8 @@ export interface SignalReading {
 export const TOO_PRECISE_METRES = 2
 /** A reading older (or newer) than this against the server's clock is not this punch's. */
 export const STALE_MS = 2 * 60 * 1000
+/** A location kept but not fenced, vaguer than this, does not say which site somebody stood at. */
+export const VAGUE_METRES = 100
 
 /** Latitude and longitude as stored (seven decimals): what "the same point" means. */
 const point = (r: { latitude: number; longitude: number }) => `${r.latitude.toFixed(7)},${r.longitude.toFixed(7)}`
@@ -75,6 +83,12 @@ export function punchSignals(input: {
   /** This person's earlier punches' points, other days. */
   earlierPoints: readonly { latitude: number; longitude: number }[]
   kind: ReturnType<typeof deviceKind>
+  /**
+   * A Location + Selfie reading — kept wherever they stand, never fenced: the one
+   * whose vagueness is said. A fenced one too vague is refused; a work-from-home
+   * day's is not judged at all, as before Location + Selfie.
+   */
+  keptAnywhere?: boolean | undefined
 }): PunchFlag[] {
   const flags: PunchFlag[] = []
   const { readings, best } = input
@@ -87,6 +101,7 @@ export function punchSignals(input: {
   if (best && best.at !== undefined && Math.abs(input.now - best.at) > STALE_MS) flags.push('stale_reading')
   if (input.kind === 'computer') flags.push('not_a_phone')
   if (input.kind === 'mac_with_touch') flags.push('mac_with_touch')
+  if (best && input.keptAnywhere && best.accuracyMeters > VAGUE_METRES) flags.push('location_vague')
   return flags
 }
 
@@ -108,4 +123,5 @@ export const PUNCH_FLAG_WORDS: Record<PunchFlag, string> = {
   new_device: 'From a phone not used in the last two months',
   repeated_photo: 'The very same photo as an earlier punch — a camera never gives the same one twice',
   mac_with_touch: 'An iPad — or a computer claiming a touch screen',
+  location_vague: 'The location was too vague to say where (over 100 m) — precise location may be off on the phone',
 }

@@ -36,7 +36,7 @@
 <main>
 
 <h1>EMS — Go-Live Guide</h1>
-<p class="sub">How CareerMap Solutions starts using the Employee Management System, step by step · 8 October 2026</p>
+<p class="sub">How CareerMap Solutions starts using the Employee Management System, step by step · 14 October 2026</p>
 
 <div class="box note">
   <strong>EMS is at: https://ems.careermapsolutions.in</strong> — on a computer or a phone.<br><br>
@@ -53,8 +53,9 @@
   <tr><td>A list of all employees: name, Employee ID, joining date, department, designation, and an email for those who have one. For people already working here, also the date each was <strong>confirmed</strong> (after probation)</td><td>HR</td></tr>
   <tr><td>How much leave each person has already taken this year, if you start in the middle of the year</td><td>HR</td></tr>
   <tr><td>This year's holidays (Diwali, Holi, Eid and the state holidays move every year)</td><td>HR</td></tr>
-  <tr><td>The office's location on Google Maps (for checking in from a phone)</td><td>The Super Admin</td></tr>
+  <tr><td>A phone or laptop in the middle of the office hall, to record the office's location (for checking in from a phone)</td><td>The Super Admin</td></tr>
   <tr><td>Everybody's salary, bank account (a cancelled cheque or passbook page), PAN and UAN</td><td>Accounts</td></tr>
+  <tr><td>The <strong>backup passphrase</strong> we give you. Keep it in a password manager. Never share it and never change it: without it, no backup can be opened, by anybody</td><td>The owner</td></tr>
 </table>
 
 <h2>Step 1 — Sign in, and change the first password <span class="who">Super Admin</span></h2>
@@ -62,14 +63,14 @@
   <li>Open <strong>https://ems.careermapsolutions.in</strong> and sign in with the administrator login.</li>
   <li>Top right, your name → <span class="path">My Profile → Password</span>. Choose a new password of at least 10 characters.</li>
 </ol>
-<p class="muted">This administrator login belongs to no employee. Keep it safe, for emergencies. The owner gets a login of their own in step 3.</p>
+<p class="muted">This administrator login belongs to no employee. Keep it safe, for emergencies. The owner gets a login of their own in step 3. A Super Admin's password cannot be reset from the app, so keep each Super Admin password in a password manager.</p>
 
 <h2>Step 2 — The company's settings <span class="who">Super Admin</span></h2>
 <p>Everything is under <span class="path">Settings</span> (left menu). Most settings already have sensible values: change only what is different for you.</p>
 <table>
   <tr><th style="width:28%">Settings tab</th><th>What to fill in or check</th></tr>
   <tr><td class="path">Company</td><td>The company's legal name, address, phone and HR email.</td></tr>
-  <tr><td class="path">Attendance Security</td><td>The <strong>office location</strong>: stand in the middle of the office hall and press <strong>Capture where I stand</strong>, or type it in, and save. The <strong>radius</strong> is 15 to 20 metres (20 to start), and a phone's reading must be accurate to 20 metres or better. Walk to the corners of the hall and press <strong>Test where I stand</strong> to see where a punch is accepted. Then check the other settings: <strong>Check location at check-out</strong> (on), <strong>Confirm by the fingerprint machine</strong> (on, 30 minutes allowed apart; a day not on the machine is flagged, or made absent if you choose), <strong>Phones only</strong> (on), <strong>Selfie</strong> (off; tell your staff before you turn it on), and <strong>One phone per employee</strong> (off).</td></tr>
+  <tr><td class="path">Attendance Security</td><td>The <strong>Attendance Method</strong>: how check-in and check-out are proved, one of three. <strong>Location</strong> (inside the office, from a phone; chosen to start), <strong>Selfie</strong> (a live photo from the front camera, from anywhere), or <strong>Location + Selfie</strong> (for more than one site, such as your warehouses: the phone's current location wherever the person is, then the photo; both are kept, and HR sees the place on a map; no office location is needed). For Location, save the <strong>office location</strong> first: stand in the middle of the office hall with a phone and press <strong>Capture where I stand</strong>, or type it in, and save. The <strong>radius</strong> is 15 to 20 metres (20 to start), and a phone's reading must be accurate to 20 metres or better. Walk to the corners of the hall and press <strong>Test where I stand</strong> to see where a punch is accepted. Then check the other settings: <strong>One phone per employee</strong> (off; when on, each person checks in only from their own phone), <strong>Keep selfies for</strong> (60 days), and <strong>Confirm by the fingerprint machine</strong> (on, 30 minutes allowed apart; a day not on the machine is flagged, or made absent if you choose). Tell your staff before you choose a method with a selfie.</td></tr>
   <tr><td class="path">Organisation</td><td>Your <strong>Departments</strong>, <strong>Designations</strong> and <strong>Shifts</strong>. For each shift: its hours, the hours worked for a full day (8 to start) and a half day (4½ to start; less is absent), any unpaid break (none to start), and behind the sliders button the grace period and lateness rules.</td></tr>
   <tr><td class="path">Leave Config</td><td>The <strong>Working Week</strong>, the <strong>Leave Types</strong> and their rules, and this year's <strong>Holidays</strong>. For each leave type: days a year, paid or unpaid, carry forward, and behind the sliders button what a new joiner gets and when it can be used (from the first day, after some days, or after confirmation). <strong>Loss of Pay</strong> is there to start: unpaid, with no limit. The <strong>Year-end Reminder</strong> sets how many days before the leave year ends people are told of leave they would lose (30 to start). HR can do this part too.</td></tr>
   <tr><td class="path">Payroll Config</td><td>PF, ESI, professional tax, the pay day, loss of pay, overtime and income tax. Leave them as they are unless your accountant says otherwise. Overtime pay starts off.</td></tr>
@@ -117,7 +118,7 @@
   <tr><td><strong>HR</strong></td><td>PAN, UAN, PF and ESIC numbers: each person's page → <span class="path">Edit → Statutory Details</span>.</td></tr>
   <tr><td><strong>Accounts</strong></td><td><span class="path">Payroll → Salary structure → Set salary</span> for each person: the start date, the yearly CTC and the monthly components.</td></tr>
   <tr><td><strong>Accounts</strong></td><td><span class="path">Payroll → Bank accounts</span>: add each salary account from a cancelled cheque or passbook page, then check it. Salary is paid only into checked accounts. Employees can also send in their own from <span class="path">My Profile</span>.</td></tr>
-  <tr><td><strong>Everybody</strong></td><td>Attendance: <strong>Check In</strong> and <strong>Check Out</strong> on Home, from a phone inside the office. The phone reads its location for a few seconds; outside the office the punch is refused. If you use a fingerprint machine, HR imports its file (<span class="path">Attendance → Import</span>): it confirms each day the app recorded. For a night shift, start the file on the day before, so each night is whole. If the machine knows a person by a number that is not their Employee ID, enter that number as their <strong>Machine ID</strong>: their page → <span class="path">Edit</span>.</td></tr>
+  <tr><td><strong>Everybody</strong></td><td>Attendance: <strong>Check In</strong> and <strong>Check Out</strong> on Home, the way the attendance method says: inside the office from a phone, with a live photo, or their current location with a live photo. The first time, the phone asks to allow location and the camera: choose <strong>Allow</strong>. The phone reads its location for a few seconds. With Location, a punch outside the office is refused. With Location + Selfie the location comes first, wherever the person is: without it the camera does not open, and nothing is punched. Keep the phone's <strong>precise location</strong> on, or the place recorded is too rough to read. If you use a fingerprint machine, HR imports its file (<span class="path">Attendance → Import</span>): it confirms each day the app recorded. For a night shift, start the file on the day before, so each night is whole. If the machine knows a person by a number that is not their Employee ID, enter that number as their <strong>Machine ID</strong>: their page → <span class="path">Edit</span>.</td></tr>
 </table>
 
 <h2>Step 7 — The first payroll, at month end <span class="who">Accounts</span> <span class="who">Super Admin</span></h2>
@@ -135,6 +136,7 @@
   <li><strong>Employees</strong> check in and out on Home, apply for leave, and send requests (attendance corrections, work from home, overtime) from <span class="path">Requests</span>.</li>
   <li><strong>Managers</strong> approve or reject from <strong>Waiting for you</strong> on Home.</li>
   <li><strong>HR</strong> sees the whole company's attendance and leave, and sets passwords when somebody forgets theirs.</li>
+  <li><strong>HR</strong> looks at <span class="path">Attendance → Suspicious</span>: punches refused or worth a second look, and days not on the fingerprint machine. When <strong>One phone per employee</strong> is on, a punch from another phone is refused and the person is told to contact HR. HR or Admin opens the person's page and goes to <strong>Punch phone</strong> (on the Login tab): <strong>Replace</strong> makes the new phone theirs and stops the old one at the same time; <strong>Reset</strong> stops their phone, and the next new phone they check in from becomes theirs.</li>
   <li><strong>Backups</strong> are taken by themselves every night, and checked every month. The Super Admin can see them in <span class="path">Settings → Audit Log → System jobs</span>.</li>
 </ul>
 </div>
@@ -143,7 +145,7 @@
   <strong>Need help?</strong> Forgotten passwords: employees ask HR; people with a role ask the Super Admin. For anything else, or anything that looks wrong, contact us. Tell us the page, what you clicked, and what you saw — a screenshot helps.
 </div>
 
-<footer>EMS — CareerMap Solutions Pvt. Ltd. · Go-live guide · 8 October 2026</footer>
+<footer>EMS — CareerMap Solutions Pvt. Ltd. · Go-live guide · 14 October 2026</footer>
 </main>
 </body>
 </html>

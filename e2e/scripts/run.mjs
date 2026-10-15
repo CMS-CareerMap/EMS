@@ -45,6 +45,9 @@ const SUITES = {
   leavepolicy: { seed: ['day20', null, 'day20-fixture.json'] },
   leaveextras: { seed: ['day20', null, 'day20-fixture.json'] },
   checkinsecurity: { seed: ['day20', null, 'day20-fixture.json'] },
+  punchmethod: { seed: ['day20', null, 'day20-fixture.json'] },
+  personmonth: { seed: ['day20', null, 'day20-fixture.json'] },
+  payrollscope: { seed: ['day20', null, 'day20-fixture.json'] },
 }
 
 const flags = new Set(process.argv.slice(2).filter((a) => a.startsWith('--')))

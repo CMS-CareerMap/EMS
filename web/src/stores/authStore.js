@@ -51,6 +51,13 @@ export const useAuthStore = create((set, get) => ({
   attendanceReach: null,
   /** Whose leave the role reaches. Beyond one's own, the home page lists leave waiting for others' decisions. */
   leaveReach: null,
+  /**
+   * Whose payroll the role reaches (15 Oct 2026). Beyond "ORGANIZATION",
+   * Payroll's figures are those people's, and the page says so.
+   */
+  payrollReach: null,
+  /** Whose payslips the role reaches (15 Oct 2026). Beyond its own, Payslips lists the paid payslips of the people chosen. */
+  payslipReach: null,
   organization: null,
   /**
    * Passwords (client, 6 Oct 2026; Settings → Users & Roles → Passwords).
@@ -75,6 +82,8 @@ export const useAuthStore = create((set, get) => ({
       employeeReach: session?.employeeReach ?? null,
       attendanceReach: session?.attendanceReach ?? null,
       leaveReach: session?.leaveReach ?? null,
+      payrollReach: session?.payrollReach ?? null,
+      payslipReach: session?.payslipReach ?? null,
       organization: session
         ? { id: session.organizationId, name: session.organizationName, timezone: session.organizationTimezone }
         : null,
@@ -95,6 +104,8 @@ export const useAuthStore = create((set, get) => ({
       employeeReach: null,
       attendanceReach: null,
       leaveReach: null,
+      payrollReach: null,
+      payslipReach: null,
       organization: null,
       loading: false,
     }),

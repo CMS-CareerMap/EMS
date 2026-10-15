@@ -1,17 +1,22 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { MapPin, LocateFixed, Loader2, AlertCircle, Crosshair, CheckCircle2, XCircle, Info } from 'lucide-react'
+import { MapPin, LocateFixed, Loader2, AlertCircle, Crosshair, CheckCircle2, XCircle, Info, Camera, ArrowRight, Smartphone } from 'lucide-react'
 import { useGeofences, useSaveGeofence, useTestGeofenceSpot, useAttendanceSecurity, useSaveAttendanceSecurity } from '../../hooks/useSettings'
 import { useAuthStore } from '../../stores/authStore'
-import { readLocationBurst, averageReadings } from '../../lib/location'
+import { readLocationBurst, averageReadings, isPhoneBrowser } from '../../lib/location'
+import { PUNCH_METHODS } from '../../lib/attendance'
 import DataState from '../../components/DataState'
+import ConfirmDialog from '../../components/ConfirmDialog'
+import { Chip } from '../../components/ui/bits'
 import { Section, Field, SaveBar, Toggle, inp, inpSm } from './ui'
 
 /**
- * Settings → Attendance Security (client, 11 Oct 2026): nobody marks attendance
- * from home. App check-ins — and check-outs, when the company says so — happen
- * inside the office, within 15–20 m. Every layer is the Super Admin's to turn
- * on or off; the whole flow follows.
+ * Settings → Attendance Security (client, 11 and 14 Oct 2026). The Super
+ * Admin chooses how an app punch is proved — exactly one method, never none —
+ * and whether each person punches from one phone; the whole punch follows,
+ * nothing more and nothing less. Nothing here can be set so that nobody can
+ * punch: a method that checks the office needs the office saved first, and
+ * the office cannot be removed while it is in use (the server refuses both).
  *
  * The office location moved here from the Company tab, with two things it
  * lacked: a capture over several readings (one reading is a guess), and a way
@@ -36,31 +41,152 @@ export default function AttendanceSecurity() {
 
 function SecurityForm({ offices, security }) {
   const canEdit = useAuthStore((state) => state.can('settings:update'))
+  const office = offices?.find((o) => o.is_active) ?? null
+  const needsOffice = PUNCH_METHODS[security.method]?.needs.fence === true
   return (
     <div className="space-y-6">
+      {needsOffice && !security.office_set && (
+        <div role="alert" className="flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-800">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
+          <p>
+            <b>Nobody can check in at the office yet:</b> the method checks the office location, and none is saved. Save it below under
+            Office Location — or choose Selfie, or Location + Selfie, as the method.
+          </p>
+        </div>
+      )}
       <div className="flex items-start gap-2 p-3 rounded-lg bg-sky-50 border border-sky-100 text-sm text-sky-900">
         <Info className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
         <p>
-          A phone’s location is checked on the server, against the office below. A website cannot tell when a phone is using a
-          fake-location app, so the layers here work together — and the fingerprint machine’s file confirms each office day.
+          Every punch is judged on the server. A website cannot tell when a phone is using a fake-location app, so the method, one phone
+          and the fingerprint machine’s file work together.
         </p>
       </div>
-      <OfficeLocation office={offices?.find((o) => o.is_active) ?? null} canEdit={canEdit} />
-      <CheckOutLayer security={security} canEdit={canEdit} />
-      <MachineLayer security={security} canEdit={canEdit} />
-      <PhoneLayer security={security} canEdit={canEdit} />
-      <SelfieLayer security={security} canEdit={canEdit} />
+      <MethodSection security={security} canEdit={canEdit} />
       <OnePhoneLayer security={security} canEdit={canEdit} />
+      <OfficeLocation office={office} canEdit={canEdit} />
+      <SelfieKeep security={security} canEdit={canEdit} />
+      <MachineLayer security={security} canEdit={canEdit} />
     </div>
   )
 }
 
+/** "Inside the office → photo → punched", and from which phone — what a check-in asks for now. */
+function FlowLine({ method, oneDevice }) {
+  const steps = PUNCH_METHODS[method]?.steps ?? []
+  return (
+    <ol className="flex flex-wrap items-center gap-1.5 text-xs text-gray-700" aria-label="How a check-in works now">
+      {steps.map((step, i) => (
+        <li key={step.text} className="inline-flex items-center gap-1.5">
+          {i > 0 && <ArrowRight className="w-3.5 h-3.5 text-gray-400" aria-hidden="true" />}
+          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gray-100">
+            {step.icon === 'location' ? <MapPin className="w-3.5 h-3.5 text-brand-600" aria-hidden="true" /> : <Camera className="w-3.5 h-3.5 text-brand-600" aria-hidden="true" />}
+            {step.text}
+          </span>
+        </li>
+      ))}
+      <li className="inline-flex items-center gap-1.5">
+        <ArrowRight className="w-3.5 h-3.5 text-gray-400" aria-hidden="true" />
+        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-50 text-emerald-800">
+          <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />Checked in{oneDevice ? ', from their registered phone' : ''}
+        </span>
+      </li>
+    </ol>
+  )
+}
+
 /**
- * Layer 5 (client, 11 Oct 2026): a live photo from the front camera with every
- * app punch — so somebody punching from home shows the room behind them, and a
- * friend punching with somebody's password shows their own face.
+ * The punch method (client, 14 Oct 2026): exactly one — a radio, never empty.
+ * A method that checks the office cannot be chosen until the office is saved.
+ * Asked first, saying what a check-in will ask for from then on.
  */
-function SelfieLayer({ security, canEdit }) {
+function MethodSection({ security, canEdit }) {
+  const save = useSaveAttendanceSecurity()
+  const [asking, setAsking] = useState(null)
+  const current = security.method
+  // A radio group as a keyboard expects one: Tab stops on the chosen card only, the arrows move between them
+  // (skipping one that cannot be chosen); Space or Enter asks to choose it.
+  function onArrows(event) {
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key]
+    if (!step) return
+    event.preventDefault()
+    const cards = [...event.currentTarget.querySelectorAll('[role="radio"]:not([disabled])')]
+    const at = cards.indexOf(document.activeElement)
+    cards[(at + step + cards.length) % cards.length]?.focus()
+  }
+  return (
+    <Section title="Attendance Method" desc="How a check-in and check-out on the app is proved. Exactly one is always chosen; a check-out is proved the way its day was checked in.">
+      <div className="py-4 space-y-3">
+        <div role="radiogroup" aria-label="Attendance method" onKeyDown={onArrows} className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {Object.entries(PUNCH_METHODS).map(([key, m]) => {
+            const chosen = key === current
+            const blocked = m.needs.fence && !security.office_set
+            return (
+              <button key={key} type="button" role="radio" aria-checked={chosen} tabIndex={chosen ? 0 : -1} disabled={!canEdit || save.isPending || (blocked && !chosen)}
+                onClick={() => { if (!chosen) setAsking(key) }}
+                className={`text-left rounded-xl border p-3 space-y-1.5 transition-colors disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500
+                  ${chosen ? 'border-brand-500 bg-brand-50 ring-1 ring-brand-500' : 'border-gray-200 bg-white hover:bg-gray-50 disabled:hover:bg-white disabled:opacity-60'}`}>
+                <span className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 text-sm font-bold text-gray-900">
+                    {m.needs.location && <MapPin className="w-4 h-4 text-brand-600" aria-hidden="true" />}
+                    {m.needs.selfie && <Camera className="w-4 h-4 text-brand-600" aria-hidden="true" />}
+                    {m.label}
+                  </span>
+                  <Chip tone={m.strength.tone}>{m.strength.label}</Chip>
+                </span>
+                <span className="block text-xs text-gray-600">{m.said}</span>
+                {blocked && <span className="block text-xs font-medium text-amber-700">Save the office location first (below).</span>}
+                {chosen && <span className="block text-xs font-semibold text-brand-700">Chosen</span>}
+              </button>
+            )
+          })}
+        </div>
+        <FlowLine method={current} oneDevice={security.one_device} />
+      </div>
+      {asking && (
+        <ConfirmDialog
+          title={`Change the method to ${PUNCH_METHODS[asking].label}?`}
+          confirmLabel={`Use ${PUNCH_METHODS[asking].label}`}
+          onConfirm={() => save.mutateAsync({ punchMethod: asking }).then(() => toast.success(`Check-ins now use ${PUNCH_METHODS[asking].label}`))}
+          onClose={() => setAsking(null)}
+        >
+          <p>From now on, a check-in asks for:</p>
+          <ol className="list-decimal pl-5 space-y-0.5">
+            {PUNCH_METHODS[asking].steps.map((s) => <li key={s.text}>{s.text}</li>)}
+            {security.one_device && <li>From the person’s registered phone</li>}
+          </ol>
+          <p>Anybody already checked in today checks out the way their day began.</p>
+          {PUNCH_METHODS[asking].needs.selfie && <p>Tell the staff before it starts: the photos are seen by HR and the person’s manager.</p>}
+        </ConfirmDialog>
+      )}
+    </Section>
+  )
+}
+
+/**
+ * One phone per employee (client, 11 and 14 Oct 2026), with whichever method:
+ * the first phone a person punches from is theirs; another is refused, and
+ * whoever may replace phones is told — on the person's page, Logins: Replace
+ * (the new phone on, the old off, in one step) or Reset (the next new phone
+ * becomes theirs).
+ */
+function OnePhoneLayer({ security, canEdit }) {
+  const save = useSaveAttendanceSecurity()
+  return (
+    <Section title="One Phone per Employee" desc="Works with the method above.">
+      <Field label="One Phone per Employee" hint="On: the first phone a person checks in from is theirs, by itself. A punch from any other phone is refused — they are told to contact HR, and HR is told. On the person’s page, under Punch phone, Replace makes the new phone theirs and takes the old one off in one step; Reset lets the next new phone they use become theirs. Clearing the browser’s data, or a private window, counts as a new phone. Off: another phone is only flagged.">
+        <div className="flex items-center gap-3">
+          <Smartphone className="w-4 h-4 text-gray-500" aria-hidden="true" />
+          <Toggle label="One phone per employee" checked={security.one_device} disabled={!canEdit || save.isPending}
+            onChange={(on) => save.mutate({ punchOneDevice: on }, { onSuccess: () => toast.success(on ? 'Each person punches from one phone' : 'Punches from another phone are only flagged') })} />
+          <span className="text-sm text-gray-700">{security.one_device ? 'On' : 'Off'}</span>
+        </div>
+      </Field>
+    </Section>
+  )
+}
+
+/** How long a punch's selfie is kept — those taken while the method had one, too. */
+function SelfieKeep({ security, canEdit }) {
   const save = useSaveAttendanceSecurity()
   const [days, setDays] = useState(null)
   const shownDays = days ?? String(security.selfie_keep_days)
@@ -75,14 +201,7 @@ function SelfieLayer({ security, canEdit }) {
     save.mutate({ punchSelfieKeepDays: value }, { onSuccess: () => { setDays(null); toast.success(`Selfies are kept for ${value} days`) } })
   }
   return (
-    <Section title="Selfie" desc="A live photo with every punch — never one from the gallery. Seen by HR and the person’s manager; tell the staff before turning it on.">
-      <Field label="Selfie With Every Punch" hint="On: check-in and check-out ask for a photo from the front camera; without it the punch is not made.">
-        <div className="flex items-center gap-3">
-          <Toggle label="Selfie with every punch" checked={security.selfie} disabled={locked}
-            onChange={(on) => save.mutate({ punchSelfie: on }, { onSuccess: () => toast.success(on ? 'Every punch now asks for a photo' : 'Punches no longer ask for a photo') })} />
-          <span className="text-sm text-gray-700">{security.selfie ? 'On' : 'Off'}</span>
-        </div>
-      </Field>
+    <Section title="Selfies" desc="A live photo from the front camera, never one from the gallery — taken when the method has a selfie. Seen by HR and the person’s manager.">
       <Field label="Keep Selfies For" hint="Then the nightly job deletes them. 7 to 365 days.">
         <div className="flex items-center gap-2 flex-wrap">
           <input type="number" min="7" max="365" step="1" className={`${inpSm} w-24`} value={shownDays} aria-label="Days to keep selfies"
@@ -91,47 +210,6 @@ function SelfieLayer({ security, canEdit }) {
           {canEdit && days !== null && (
             <button type="button" onClick={saveDays} disabled={save.isPending} className="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-60">Save</button>
           )}
-        </div>
-      </Field>
-    </Section>
-  )
-}
-
-/**
- * Layer 6 (client, 11 Oct 2026): one phone per employee. The first phone is
- * theirs; another waits for HR (Attendance → Suspicious), so a password lent to
- * a friend does not lend the punch with it.
- */
-function OnePhoneLayer({ security, canEdit }) {
-  const save = useSaveAttendanceSecurity()
-  return (
-    <Section title="One Phone per Employee" desc="Punches only from the phone a person first punched from, or one HR approved since.">
-      <Field label="One Phone per Employee" hint="On: a punch from another phone is refused and HR is asked to approve it (Attendance → Suspicious); approving it takes the old one off. Clearing the browser’s data, or a private window, looks like a new phone. Off: another phone is only flagged.">
-        <div className="flex items-center gap-3">
-          <Toggle label="One phone per employee" checked={security.one_device} disabled={!canEdit || save.isPending}
-            onChange={(on) => save.mutate({ punchOneDevice: on }, { onSuccess: () => toast.success(on ? 'Each person punches from one phone' : 'Punches from another phone are only flagged') })} />
-          <span className="text-sm text-gray-700">{security.one_device ? 'On' : 'Off'}</span>
-        </div>
-      </Field>
-    </Section>
-  )
-}
-
-/**
- * Layer 3 (client, 11 Oct 2026): a punch that needs the location, from a phone
- * only. A computer's browser can be told any location with its own developer
- * tools — no app needed — so that is the trick this stops. Off: a computer's
- * punch is let through and flagged for HR.
- */
-function PhoneLayer({ security, canEdit }) {
-  const save = useSaveAttendanceSecurity()
-  return (
-    <Section title="Phones Only" desc="Where the punch is made from.">
-      <Field label="Phones Only" hint="On: an office-day check-in or check-out from a computer is refused. Off: it is allowed, and flagged for HR. Somebody determined can still make a computer look like a phone; the machine’s file and the flags catch what this does not.">
-        <div className="flex items-center gap-3">
-          <Toggle label="Phones only" checked={security.phone_only} disabled={!canEdit || save.isPending}
-            onChange={(on) => save.mutate({ punchPhoneOnly: on }, { onSuccess: () => toast.success(on ? 'Punches from a computer are refused' : 'Punches from a computer are flagged for HR') })} />
-          <span className="text-sm text-gray-700">{security.phone_only ? 'On' : 'Off'}</span>
         </div>
       </Field>
     </Section>
@@ -227,12 +305,25 @@ function OfficeLocation({ office, canEdit }) {
   const accuracy = Number(geo.maxAccuracyMeters)
   const pointValid = geo.latitude !== '' && geo.longitude !== '' && Number.isFinite(lat) && Number.isFinite(lng)
 
-  // Where the office is, from ~10–20 s of readings averaged — a better centre than any one.
+  // Where the office is, from ~10–20 s of readings averaged — a better centre than any one. On a phone only,
+  // and only from readings as precise as a punch needs: a centre in the wrong place refuses everybody (14 Oct 2026).
   async function captureHere() {
+    if (!isPhoneBrowser()) {
+      setCapture({ busy: false, message: 'Capture the office from a phone, standing in the middle of the hall: a computer has no GPS, and its location can be tens of metres out. Or type the point in.', failed: true })
+      return
+    }
     setCapture({ busy: true, message: '', failed: false })
     try {
       const readings = await readLocationBurst({ target: 0, maxMs: 20_000 })
       const centre = averageReadings(readings)
+      if (centre.accuracyMeters > ACCURACY.max) {
+        setCapture({
+          busy: false,
+          message: `The best reading was accurate to only about ${Math.round(centre.accuracyMeters)} m; ${ACCURACY.max} m or better is needed for the office’s point. Stand in the middle of the hall — near a window if you can — wait a few seconds, and capture again.`,
+          failed: true,
+        })
+        return
+      }
       // Onto the form as it is now: a name or radius typed while it read is kept.
       setDraft((current) => ({ ...(current ?? geo), latitude: centre.latitude.toFixed(7), longitude: centre.longitude.toFixed(7) }))
       setSaved(false)
@@ -273,12 +364,12 @@ function OfficeLocation({ office, canEdit }) {
   }
 
   return (
-    <Section title="Office Location" desc="Where the office is. App check-ins on an office day — and check-outs, when checked below — must be inside it.">
+    <Section title="Office Location" desc="Where the office is. Needed for the Location method: a check-in on an office day — and its check-out — must be inside it. Location + Selfie needs none.">
       <Field label="Office Name" hint="e.g. Head Office">
         <input className={inp} value={geo.name} onChange={(e) => set('name', e.target.value)} disabled={!canEdit} />
       </Field>
 
-      <Field label="Office Location" hint="Latitude and longitude of the middle of the office hall">
+      <Field label="Office Location" hint="Latitude and longitude of the middle of the office hall — captured on a phone standing there, or typed in">
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <input type="number" step="0.0000001" className={inp} value={geo.latitude} placeholder="Latitude, e.g. 18.5590000" aria-label="Latitude"
@@ -366,25 +457,6 @@ function OfficeLocation({ office, canEdit }) {
         </p>
       )}
       {canEdit && <SaveBar onSave={handleSave} saving={save.isPending} saved={saved} />}
-    </Section>
-  )
-}
-
-/** A layer's switch is saved as it is turned, and the toast says so. */
-function CheckOutLayer({ security, canEdit }) {
-  const save = useSaveAttendanceSecurity()
-  function change(body, said) {
-    save.mutate(body, { onSuccess: () => toast.success(said) })
-  }
-  return (
-    <Section title="Check-out" desc="Whether leaving is checked at the office too.">
-      <Field label="Check Location at Check-out" hint="On: an office day’s check-out must be inside the office too. Somebody who has already left asks HR to record it.">
-        <div className="flex items-center gap-3">
-          <Toggle label="Check location at check-out" checked={security.check_out_location} disabled={!canEdit || save.isPending}
-            onChange={(on) => change({ punchCheckOutLocation: on }, on ? 'Check-outs are checked at the office' : 'Check-outs are no longer checked')} />
-          <span className="text-sm text-gray-700">{security.check_out_location ? 'On' : 'Off'}</span>
-        </div>
-      </Field>
     </Section>
   )
 }

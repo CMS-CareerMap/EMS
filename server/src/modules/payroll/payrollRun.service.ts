@@ -1,4 +1,4 @@
-import type { LopBasis } from '@prisma/client'
+import { Prisma, type LopBasis } from '@prisma/client'
 import type { AppContext } from '../../platform/context'
 import { AppError, BadRequest, BusinessRule, Conflict, NotFound } from '../../platform/errors/AppError'
 import { withTransaction } from '../../platform/db/transaction'
@@ -22,6 +22,7 @@ import { transition, type RunAction, type RunStatus } from '../../domain/payroll
 import type { Weekday } from '../../domain/leave/leaveDays'
 import { fromDateColumn, toDateColumn, monthKey, monthName, type CalendarDate } from '../../domain/shared/dates'
 import { REQUEST_LABELS, requestNumber } from '../../domain/requests/requests'
+import { payrollPeople, shownOf } from './payrollReach'
 
 /**
  * The payroll run: a month of calculations turned into payslips, in one
@@ -82,6 +83,10 @@ export interface MonthPlan {
   people: Person[]
   blockers: Blocker[]
   warnings: string[]
+  /** Inactive with no last working day: left out, and named in `warnings`. */
+  unrecorded: { id: string; fullName: string; employeeCode: string }[]
+  /** The company's day the plan was made on. */
+  today: CalendarDate
 }
 
 function groupBy<T>(rows: readonly T[], key: (row: T) => string): Map<string, T[]> {
@@ -332,32 +337,41 @@ export async function planMonth(ctx: AppContext, year: number, month: number): P
     })
   }
 
+  const left = unrecorded.map((e) => ({ id: e.id, fullName: e.fullName, employeeCode: e.employeeCode }))
+  return { year, month, rules, holidays, people, blockers, warnings: monthWarnings(year, month, today, left), unrecorded: left, today }
+}
+
+/** What is said about the month as a whole: who was left out, and whether it is over. */
+function monthWarnings(year: number, month: number, today: CalendarDate, unrecorded: readonly { fullName: string; employeeCode: string }[]): string[] {
   const warnings: string[] = []
   if (unrecorded.length > 0) {
     warnings.push(
       `Left out — inactive, with no last working day recorded: ${unrecorded.map((e) => `${e.fullName} (${e.employeeCode})`).join(', ')}. Record the day they left to pay their final month.`,
     )
   }
+  const monthEnd = `${monthKey(year, month)}-${String(daysInMonth(year, month)).padStart(2, '0')}`
   if (today <= monthEnd) {
     warnings.push(
       `${monthName(year, month)} is not over. Days from ${today} with nothing recorded yet are counted as worked — recalculate once the month has closed.`,
     )
   }
-
-  return { year, month, rules, holidays, people, blockers, warnings }
+  return warnings
 }
 
-function blocked(year: number, month: number, blockers: readonly Blocker[]) {
+/** What stops the month — naming only the people the caller's payroll reaches; the rest are counted (`others`). */
+async function blocked(ctx: AppContext, year: number, month: number, blockers: readonly Blocker[]) {
+  const { shown, others } = await shownOf(ctx, blockers, (b) => b.employee.id)
   return BusinessRule(
     `The payroll run for ${monthName(year, month)} cannot go ahead until ${blockers.length === 1 ? 'one thing is' : `${blockers.length} things are`} fixed.`,
     {
-      blockers: blockers.map((b) => ({
+      blockers: shown.map((b) => ({
         code: b.code,
         message: b.message,
         employee_id: b.employee.id,
         employee_code: b.employee.employeeCode,
         full_name: b.employee.fullName,
       })),
+      others,
     },
   )
 }
@@ -471,7 +485,7 @@ function toPayslip(person: Person, lop: LossOfPay, directive: DatedDirective | n
 }
 
 export async function buildPayslips(ctx: AppContext, plan: MonthPlan): Promise<repo.NewPayslip[]> {
-  if (plan.blockers.length > 0) throw blocked(plan.year, plan.month, plan.blockers)
+  if (plan.blockers.length > 0) throw await blocked(ctx, plan.year, plan.month, plan.blockers)
 
   const results = await inBatches(plan.people, CONCURRENCY, async (person) => {
     const { lop, directive } = person
@@ -500,7 +514,7 @@ export async function buildPayslips(ctx: AppContext, plan: MonthPlan): Promise<r
   })
 
   const failures = results.flatMap((r) => (r.ok ? [] : [r.blocker]))
-  if (failures.length > 0) throw blocked(plan.year, plan.month, failures)
+  if (failures.length > 0) throw await blocked(ctx, plan.year, plan.month, failures)
 
   return results.flatMap((r) => (r.ok ? [r.payslip] : []))
 }
@@ -681,18 +695,53 @@ export async function discardRun(ctx: AppContext, id: string): Promise<void> {
 
 // ── Reading ─────────────────────────────────────────────────────────────────
 
-export async function listRuns(ctx: AppContext) {
-  return repo.listRuns(ctx.db)
+/**
+ * A run as the caller sees it. With the whole company's payroll, as it is.
+ * With some people's ("Whose payroll", 15 Oct 2026), its count and money
+ * are theirs alone — never the company's totals — and the run's own notes,
+ * which can name anybody, and its count of days accepted as paid are left
+ * out (`partial`).
+ */
+export type RunView = repo.RunRow & { partial: boolean }
+
+type Totals = Awaited<ReturnType<typeof repo.totalsAmong>>[number]
+
+function partOf(run: repo.RunRow, totals: Totals | undefined): RunView {
+  const zero = new Prisma.Decimal(0)
+  return {
+    ...run,
+    employeeCount: totals?._count._all ?? 0,
+    grossEarnings: totals?._sum.grossEarnings ?? zero,
+    totalDeductions: totals?._sum.totalDeductions ?? zero,
+    netPayable: totals?._sum.netPayable ?? zero,
+    employerPf: totals?._sum.employerPf ?? zero,
+    employerEsi: totals?._sum.employerEsi ?? zero,
+    warnings: [],
+    // The approver's count of days accepted as paid is the whole run's.
+    assumedDays: null,
+    partial: true,
+  }
+}
+
+export async function listRuns(ctx: AppContext): Promise<RunView[]> {
+  const runs = await repo.listRuns(ctx.db)
+  const people = payrollPeople(ctx)
+  if (!people) return runs.map((run) => ({ ...run, partial: false }))
+  const totals = new Map((await repo.totalsAmong(ctx.db, runs.map((r) => r.id), people)).map((t) => [t.payrollRunId, t]))
+  return runs.map((run) => partOf(run, totals.get(run.id)))
 }
 
 export async function getRun(ctx: AppContext, id: string) {
-  const run = await repo.findRun(ctx.db, id)
-  if (!run) throw NotFound('Payroll run not found')
-  return { run, payslips: await repo.payslipSummaries(ctx.db, id) }
+  const found = await repo.findRun(ctx.db, id)
+  if (!found) throw NotFound('Payroll run not found')
+  const people = payrollPeople(ctx)
+  const run: RunView = people ? partOf(found, (await repo.totalsAmong(ctx.db, [id], people))[0]) : { ...found, partial: false }
+  return { run, payslips: await repo.payslipSummaries(ctx.db, id, people) }
 }
 
 export async function getPayslip(ctx: AppContext, runId: string, payslipId: string) {
-  const payslip = await repo.findPayslip(ctx.db, runId, payslipId)
+  // Somebody outside the caller's payroll: no such payslip.
+  const payslip = await repo.findPayslip(ctx.db, runId, payslipId, payrollPeople(ctx))
   if (!payslip) throw NotFound('Payslip not found')
   return payslip
 }
@@ -704,6 +753,8 @@ export interface Readiness {
   tdsEnabled: boolean | null
   run: { id: string; status: string } | null
   blockers: Blocker[]
+  /** What stops the month about people outside the caller's payroll: counted, never named. The month is one run, so these stop it too. */
+  othersBlocking: number
   warnings: string[]
   employees: {
     employee: { id: string; employeeCode: string; fullName: string }
@@ -723,16 +774,26 @@ export interface Readiness {
  * their loss of pay, and everything that would stop it. Writes nothing.
  */
 export async function readiness(ctx: AppContext, year: number, month: number): Promise<Readiness> {
-  const [plan, run] = await Promise.all([planMonth(ctx, year, month), repo.findRunForMonth(ctx.db, year, month)])
+  const people = payrollPeople(ctx)
+  const [plan, run, among] = await Promise.all([
+    planMonth(ctx, year, month),
+    repo.findRunForMonth(ctx.db, year, month),
+    people ? repo.idsAmong(ctx.db, people) : Promise.resolve(null),
+  ])
+  // With some people's payroll ("Whose payroll", 15 Oct 2026), the month is
+  // told about them alone: their lines, what stops theirs, who of them was left out.
+  const reached = among ? new Set(among) : null
+  const mine = (id: string) => !reached || reached.has(id)
 
   return {
     year,
     month,
     tdsEnabled: plan.rules?.tdsEnabled ?? null,
     run: run ? { id: run.id, status: run.status } : null,
-    blockers: plan.blockers,
-    warnings: plan.warnings,
-    employees: plan.people.map((person) => ({
+    blockers: plan.blockers.filter((b) => mine(b.employee.id)),
+    othersBlocking: plan.blockers.filter((b) => !mine(b.employee.id)).length,
+    warnings: reached ? monthWarnings(year, month, plan.today, plan.unrecorded.filter((e) => mine(e.id))) : plan.warnings,
+    employees: plan.people.filter((person) => mine(person.employee.id)).map((person) => ({
       employee: who(person.employee),
       employmentFrom: person.window.from,
       employmentTo: person.window.to,

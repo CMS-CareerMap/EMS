@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-10-11",
+  "generatedAt": "2026-10-15",
   "note": "Field names the frontend reads, pinned so the API cannot quietly stop sending one. A serializer that stops sending one of these will render an empty cell rather than an error, so check new serializers against this list. Regenerate with: cd server && npm run field-contract",
-  "fieldCount": 321,
+  "fieldCount": 334,
   "allFields": [
     "absent_days",
     "accept_as_backup",
@@ -22,6 +22,7 @@
     "assumed_days",
     "at_work",
     "attendance_mode",
+    "average_hours",
     "balance_change",
     "bank_account",
     "bank_name",
@@ -51,12 +52,11 @@
     "check_in_at",
     "check_in_device",
     "check_out",
-    "check_out_location",
-    "check_out_location_needed",
     "closed_note",
     "company_days",
     "component_code",
     "component_label",
+    "confirm_with",
     "confirmed_on",
     "content_type",
     "correction_approver",
@@ -97,6 +97,7 @@
     "emergency_contact_name",
     "emergency_contact_phone",
     "emergency_contact_relation",
+    "employed_until",
     "employee_code",
     "employee_count",
     "employee_id",
@@ -127,9 +128,11 @@
     "expires_in_seconds",
     "february_amount",
     "fence_applied",
+    "fence_needed",
     "file_name",
     "first_part",
     "first_scan",
+    "first_seen_at",
     "fiscal_year_start_month",
     "from_date",
     "from_machine",
@@ -162,6 +165,7 @@
     "last_seen_at",
     "last_working_date",
     "last_working_day",
+    "late_days",
     "late_minutes",
     "late_threshold_minutes",
     "leave_balances",
@@ -197,6 +201,7 @@
     "may_change",
     "may_check",
     "may_correct",
+    "may_decide",
     "may_enter",
     "min_full_day_hours",
     "min_gross",
@@ -216,11 +221,15 @@
     "not_on_machine",
     "not_taken_back",
     "notice_period_days",
+    "office_set",
     "on_behalf",
     "on_leave",
     "onboarded_on",
     "one_device",
     "only_verified",
+    "open_day",
+    "open_since",
+    "others_blocking",
     "overtime_after_minutes",
     "overtime_approver",
     "overtime_basis",
@@ -237,6 +246,7 @@
     "pay_basis_days",
     "pay_date",
     "pay_day",
+    "pay_days",
     "payable_days",
     "payslip_id",
     "payslip_lock",
@@ -251,7 +261,6 @@
     "pf_restrict_to_ceiling",
     "pf_wage_ceiling",
     "pf_wages",
-    "phone_only",
     "photo_needed",
     "present_days",
     "pro_rated",
@@ -259,7 +268,9 @@
     "probation_months",
     "profile_approver",
     "pt_state",
+    "punch_method",
     "radius_meters",
+    "received_at",
     "recent_days",
     "recent_leaves",
     "recently_left",
@@ -318,11 +329,13 @@
     "waiting_for_password",
     "weekly_off",
     "weekly_off_days",
+    "weekly_offs",
     "wfh_approver",
     "wfh_gps_required",
     "with_login",
     "work_arrangement",
     "work_mode",
+    "working_days",
     "would_overwrite"
   ],
   "byFile": {
@@ -344,6 +357,15 @@
     "web/src/features/attendance/AbsentAction.jsx": [
       "can_apply",
       "leave_type_name"
+    ],
+    "web/src/features/attendance/DayLog.jsx": [
+      "check_in",
+      "check_out",
+      "early_leaving_minutes",
+      "hours_worked",
+      "late_minutes",
+      "overtime_minutes",
+      "work_mode"
     ],
     "web/src/features/attendance/ImportAttendanceModal.jsx": [
       "edge_nights_left_out",
@@ -373,6 +395,26 @@
       "leave_type_name",
       "on_leave"
     ],
+    "web/src/features/attendance/MonthFigures.jsx": [
+      "average_hours",
+      "date_of_joining",
+      "employed_until",
+      "employment_days",
+      "expected_hours",
+      "half_days",
+      "hours_worked",
+      "last_working_date",
+      "late_days",
+      "not_marked",
+      "not_marked_days",
+      "on_leave",
+      "open_since",
+      "paid_days",
+      "pay_days",
+      "unpaid_days",
+      "weekly_offs",
+      "working_days"
+    ],
     "web/src/features/attendance/MonthTotals.jsx": [
       "days_absent",
       "days_half",
@@ -385,19 +427,29 @@
       "grand_total_hours",
       "total_hours"
     ],
+    "web/src/features/attendance/PersonMonth.jsx": [
+      "date_of_joining",
+      "days_off",
+      "employed_until",
+      "full_name",
+      "open_day",
+      "pay_days"
+    ],
     "web/src/features/attendance/PunchCard.jsx": [
       "break_minutes",
       "check_in",
       "check_out",
-      "check_out_location_needed",
       "distance_meters",
       "end_time",
+      "fence_needed",
       "full_day_hours",
       "hours_worked",
       "late_minutes",
       "location_needed",
       "overtime_enabled",
       "overtime_minutes",
+      "photo_needed",
+      "punch_method",
       "server_now",
       "start_time",
       "work_mode"
@@ -413,26 +465,15 @@
     "web/src/features/attendance/SelfAttendance.jsx": [
       "attendance_mode",
       "break_minutes",
-      "check_in",
-      "check_out",
       "date_of_joining",
       "days_off",
-      "early_leaving_minutes",
-      "employee_id",
-      "employee_uuid",
-      "employment_days",
+      "employed_until",
       "end_time",
-      "expected_hours",
       "full_day_hours",
       "half_day_hours",
-      "hours_worked",
-      "late_minutes",
-      "not_marked_days",
-      "overtime_minutes",
-      "paid_days",
+      "open_day",
+      "pay_days",
       "start_time",
-      "total_hours",
-      "unpaid_days",
       "weekly_off_days",
       "work_mode"
     ],
@@ -446,7 +487,8 @@
       "first_scan",
       "full_name",
       "last_scan",
-      "last_seen_at"
+      "last_seen_at",
+      "may_decide"
     ],
     "web/src/features/attendance/TeamDay.jsx": [
       "at_work",
@@ -456,7 +498,6 @@
       "check_out",
       "early_leaving_minutes",
       "employee_code",
-      "employee_id",
       "full_name",
       "half_day",
       "hours_worked",
@@ -606,6 +647,16 @@
       "requested_last_day",
       "submitted_on"
     ],
+    "web/src/features/employees/PunchPhones.jsx": [
+      "decided_at",
+      "first_seen_at",
+      "full_name",
+      "last_seen_at",
+      "may_decide"
+    ],
+    "web/src/features/home/AttendanceSetupBanner.jsx": [
+      "office_set"
+    ],
     "web/src/features/home/CompanyCards.jsx": [
       "by_department",
       "date_of_joining",
@@ -640,6 +691,7 @@
       "employer_esi",
       "employer_pf",
       "full_name",
+      "others_blocking",
       "paid_on",
       "to_check"
     ],
@@ -790,6 +842,7 @@
       "approved_at",
       "assumed_days",
       "calculated_at",
+      "confirm_with",
       "days_not_yet_happened",
       "employee_code",
       "employee_count",
@@ -805,6 +858,7 @@
       "lop_days",
       "marked_on_leave_without_request",
       "net_payable",
+      "others_blocking",
       "paid_days",
       "paid_on",
       "sandwich_rule",
@@ -852,7 +906,6 @@
     ],
     "web/src/features/settings/AttendanceSecurity.jsx": [
       "accuracy_meters",
-      "check_out_location",
       "distance_meters",
       "is_active",
       "machine_fills",
@@ -860,8 +913,8 @@
       "machine_minutes",
       "machine_missing",
       "max_accuracy_meters",
+      "office_set",
       "one_device",
-      "phone_only",
       "radius_meters",
       "selfie_keep_days"
     ],
@@ -994,6 +1047,9 @@
     "web/src/features/settings/WeeklyOffPicker.jsx": [
       "weekly_off_days"
     ],
+    "web/src/hooks/useAttendance.js": [
+      "server_now"
+    ],
     "web/src/hooks/useDashboard.js": [
       "absent_days",
       "half_days",
@@ -1050,7 +1106,11 @@
       "distance_meters",
       "leave_days",
       "leave_type_name",
-      "refused_for"
+      "open_day",
+      "open_since",
+      "received_at",
+      "refused_for",
+      "server_now"
     ],
     "web/src/lib/leaveTypes.js": [
       "leave_type",
@@ -1165,6 +1225,8 @@
       "to_date"
     ],
     "web/src/pages/MyPayslips.jsx": [
+      "employee_code",
+      "full_name",
       "gross_earnings",
       "net_payable",
       "paid_on",
@@ -1176,6 +1238,11 @@
       "full_name",
       "reporting_manager_designation",
       "reporting_manager_name"
+    ],
+    "web/src/pages/PersonAttendance.jsx": [
+      "employee_code",
+      "full_name",
+      "last_working_date"
     ],
     "web/src/pages/Reports.jsx": [
       "employee_id",

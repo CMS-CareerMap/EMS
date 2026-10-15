@@ -103,6 +103,10 @@ export const PERMISSIONS = [
   // (client, 6 Oct 2026). An employee login's — a role login's password is
   // the Super Admin's alone, whatever role holds this.
   'user:password:set',
+  // The phone somebody punches from (client, 14 Oct 2026: one phone per
+  // employee): approving a new one in place of the old, or resetting it so
+  // the next new phone registers itself. Whoever the Super Admin gives it to.
+  'user:device:manage',
 
   // Reading the audit log: who did what, including every salary change and
   // every document opened. Super Admin only.

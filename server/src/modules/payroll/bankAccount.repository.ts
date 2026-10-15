@@ -28,10 +28,10 @@ const accountSelect = {
   submittedByUserId: true,
 } as const
 
-/** Everybody on the books, with their account or none. */
-export async function bankRoster(db: ScopedDb) {
+/** Everybody on the books among `people` (null: everybody), with their account or none. */
+export async function bankRoster(db: ScopedDb, people: Prisma.EmployeeWhereInput | null) {
   return db.employee.findMany({
-    where: { archivedAt: null },
+    where: { AND: [{ archivedAt: null }, people ?? {}] },
     select: {
       id: true,
       employeeCode: true,
@@ -49,9 +49,13 @@ export async function bankRoster(db: ScopedDb) {
 
 export type BankRosterRow = Awaited<ReturnType<typeof bankRoster>>[number]
 
-export async function findEmployeeWithAccount(db: ScopedDb, employeeId: string) {
+/**
+ * Somebody still on the books with their account, among `people` — the
+ * caller's payroll. Null only for one's own account, which needs no reach.
+ */
+export async function findEmployeeWithAccount(db: ScopedDb, employeeId: string, people: Prisma.EmployeeWhereInput | null) {
   return db.employee.findFirst({
-    where: { id: employeeId, archivedAt: null },
+    where: { AND: [{ id: employeeId, archivedAt: null }, people ?? {}] },
     select: {
       id: true,
       employeeCode: true,

@@ -87,6 +87,10 @@ model Attendance {
   /// in (client §31) — the browser's own description, cut short.
   workMode      WorkMode?
   checkInDevice String?
+  /// The method the day was checked in with on the app (client, 14 Oct
+  /// 2026): its check-out is proved the same way, whatever the company has
+  /// chosen since. Null on a day the app did not begin.
+  punchMethod   PunchMethod?
 
   /// Measured against the shift when the day has its times (client §34–35).
   /// Null: no shift, or no time to measure. Late and early are the minutes
@@ -157,6 +161,16 @@ enum MachineMissing {
   absent
 }
 
+/// How an app punch is proved (client, 14 Oct 2026). Exactly one, never none.
+enum PunchMethod {
+  /// Inside the office fence, from a phone.
+  location
+  /// A live photo from the front camera.
+  selfie
+  /// Both: the location first — no location, no camera — then the photo.
+  location_selfie
+}
+
 /// Which way a punch went.
 enum PunchAction {
   in
@@ -192,6 +206,8 @@ enum PunchFlag {
   repeated_photo
   /// A Mac's browser claiming a touch screen: how an iPad describes itself, and what a laptop can be made to say.
   mac_with_touch
+  /// A location kept but not fenced (Location + Selfie) too vague to say where — over 100 m. Taken, and said.
+  location_vague
 }
 
 /// Where one person's phone stands, with "one phone per employee" on.

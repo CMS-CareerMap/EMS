@@ -125,15 +125,39 @@ function asDataUrl(blob) {
   })
 }
 
-/** Phones of the people in reach — those waiting for approval, or all (one phone per employee). */
-export function useDevices(status = 'waiting', { enabled = true } = {}) {
+/**
+ * One person's month (client, 15 Oct 2026): who they are, their days, the
+ * company's days off, the month in pay terms and the month so far — the page
+ * a name on Attendance opens, and one's own figures. With the server's clock
+ * (`server_now`, `received_at`), so today's time at work runs by it.
+ */
+export function usePersonMonth(employeeId, year, month, { enabled = true } = {}) {
   return useQuery({
-    queryKey: ['attendance', 'devices', status],
-    queryFn: async () => (await api.get(`/attendance/devices?status=${status}`)).data,
+    queryKey: ['attendance', 'person', employeeId, year, month],
+    queryFn: async () => {
+      const res = await api.get(`/attendance/people/${employeeId}/month?year=${year}&month=${month}`)
+      return { ...res.data, server_now: res.meta?.server_now ?? null, received_at: Date.now() }
+    },
+    enabled: enabled && Boolean(employeeId && year && month),
+    // Somebody outside the caller's reach is said on the page itself, not as a toast too.
+    meta: { quietCodes: ['NOT_FOUND'] },
+  })
+}
+
+/**
+ * Phones of the people in reach — those waiting, or all (one phone per
+ * employee); `employeeId` asks for one person's, on their page. For whoever
+ * holds "replace or reset a punch phone".
+ */
+export function useDevices(status = 'waiting', { enabled = true, employeeId = null } = {}) {
+  return useQuery({
+    queryKey: ['attendance', 'devices', status, employeeId ?? 'all'],
+    queryFn: async () => (await api.get(`/attendance/devices?status=${status}${employeeId ? `&employee=${employeeId}` : ''}`)).data,
     enabled,
   })
 }
 
+/** Replace (`approve`: this phone is theirs, the old one off) — or take a phone off: their phone reset, or a waiting one refused. */
 export function useDecideDevice() {
   const queryClient = useQueryClient()
   return useMutation({

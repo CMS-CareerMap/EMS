@@ -282,10 +282,30 @@ export async function deletePayslipsOf(tx: TxDb, payrollRunId: string): Promise<
   await tx.payslip.deleteMany({ where: { payrollRunId } })
 }
 
-/** One line per person, for the run's own page. */
-export async function payslipSummaries(db: ScopedDb, payrollRunId: string) {
+/** The ids of `people` — archived ones too, whose last months are still paid and shown. */
+export async function idsAmong(db: ScopedDb, people: Prisma.EmployeeWhereInput): Promise<string[]> {
+  return (await db.employee.findMany({ where: people, select: { id: true } })).map((e) => e.id)
+}
+
+/**
+ * A run's figures over the payslips of `people` only — the caller's payroll
+ * when it is not the whole company's ("Whose payroll", 15 Oct 2026). Each
+ * run's count and sums, in one query for every run asked about.
+ */
+export async function totalsAmong(db: ScopedDb, payrollRunIds: string[], people: Prisma.EmployeeWhereInput) {
+  if (payrollRunIds.length === 0) return []
+  return db.payslip.groupBy({
+    by: ['payrollRunId'],
+    where: { payrollRunId: { in: payrollRunIds }, employee: people },
+    _count: { _all: true },
+    _sum: { grossEarnings: true, totalDeductions: true, netPayable: true, employerPf: true, employerEsi: true },
+  })
+}
+
+/** One line per person, for the run's own page — of `people` only when given (the caller's payroll), else everybody's. */
+export async function payslipSummaries(db: ScopedDb, payrollRunId: string, people: Prisma.EmployeeWhereInput | null) {
   return db.payslip.findMany({
-    where: { payrollRunId },
+    where: { payrollRunId, ...(people ? { employee: people } : {}) },
     select: {
       id: true,
       employeeId: true,
@@ -304,9 +324,10 @@ export async function payslipSummaries(db: ScopedDb, payrollRunId: string) {
   })
 }
 
-export async function findPayslip(db: ScopedDb, payrollRunId: string, payslipId: string) {
+/** One payslip of a run — of somebody among `people` when given (the caller's payroll); outside it, none. */
+export async function findPayslip(db: ScopedDb, payrollRunId: string, payslipId: string, people: Prisma.EmployeeWhereInput | null) {
   return db.payslip.findFirst({
-    where: { id: payslipId, payrollRunId },
+    where: { id: payslipId, payrollRunId, ...(people ? { employee: people } : {}) },
     include: { lines: { orderBy: [{ kind: 'asc' }, { displayOrder: 'asc' }] } },
   })
 }
@@ -413,6 +434,25 @@ export async function paidPayslipsOf(db: ScopedDb, employeeId: string) {
     where: { employeeId, run: { status: 'paid' } },
     select: payslipSummarySelect,
     orderBy: [{ year: 'desc' }, { month: 'desc' }],
+  })
+}
+
+/** The months with a paid payslip of somebody `scope` reaches ("Whose payslips"), newest first. */
+export async function paidMonthsIn(db: ScopedDb, scope: ScopeContext) {
+  return db.payslip.findMany({
+    where: { AND: [ownedRowsInScope(scope), { run: { status: 'paid' } }] },
+    select: { year: true, month: true },
+    distinct: ['year', 'month'],
+    orderBy: [{ year: 'desc' }, { month: 'desc' }],
+  })
+}
+
+/** A month's paid payslips of the people `scope` reaches ("Whose payslips", 15 Oct 2026), by name. */
+export async function paidPayslipsIn(db: ScopedDb, scope: ScopeContext, year: number, month: number) {
+  return db.payslip.findMany({
+    where: { AND: [ownedRowsInScope(scope), { year, month, run: { status: 'paid' } }] },
+    select: { ...payslipSummarySelect, department: true },
+    orderBy: { employeeName: 'asc' },
   })
 }
 

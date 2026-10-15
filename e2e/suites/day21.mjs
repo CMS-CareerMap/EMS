@@ -157,9 +157,12 @@ try {
   await ed.getByRole('checkbox', { name: /^See leave requests and balances/ }).uncheck()
   check('unticking “See leave” unticks “Correct balances”, which needs it', !(await ed.getByRole('checkbox', { name: /^Give the yearly leave and correct balances/ }).isChecked()))
   await ed.getByRole('checkbox', { name: /^Give the yearly leave and correct balances/ }).check()
+  // Since 15 Oct 2026 payslips offer every choice, as leave does.
   const payslipChoices = await ed.getByLabel('Whose payslips').locator('option').allInnerTexts()
-  check('payslips offer only their own or the whole company', payslipChoices.join('|') === 'Only their own|Whole company', payslipChoices.join(', '))
-  check('the Payroll area says it covers the whole company', await ed.getByText('Payroll covers the whole company').isVisible())
+  const leaveChoices = await ed.getByLabel('Whose leave').locator('option').allInnerTexts()
+  check('payslips offer every choice, the same as leave', payslipChoices.length === 6 && payslipChoices.join('|') === leaveChoices.join('|'), payslipChoices.join(', '))
+  // Since 15 Oct 2026 Payroll has a reach of its own, every choice offered.
+  check('the Payroll area asks “Whose payroll”, every reach offered', (await ed.getByLabel('Whose payroll').locator('option').count()) === 6)
   check('a checkbox is named by its permission alone, with what it needs said beside it',
     (await ed.getByRole('checkbox', { name: 'Give the yearly leave and correct balances', exact: true }).count()) === 1)
   await shot(sa, '02-new-role-editor')

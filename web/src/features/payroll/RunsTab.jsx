@@ -90,6 +90,7 @@ export default function RunsTab() {
 
 function Readiness({ year, month }) {
   const can = useAuthStore((s) => s.can)
+  const wholePayroll = useAuthStore((s) => s.payrollReach === 'ORGANIZATION')
   const readiness = useRunReadiness(year, month)
   const isFetching = readiness.isFetching
   const createRun = useCreateRun()
@@ -110,7 +111,8 @@ function Readiness({ year, month }) {
             {isFetching && <span className="ml-2 text-xs font-normal text-gray-400">Checking again…</span>}
           </p>
           <p className="text-sm text-gray-500 mt-1">
-            {data.employees.length} {data.employees.length === 1 ? 'person' : 'people'} in this month
+            {data.employees.length} {data.employees.length === 1 ? 'person' : 'people'} {wholePayroll ? 'in this month' : 'of your payroll in this month'}
+            {data.others_blocking > 0 ? ` · ${data.others_blocking} ${data.others_blocking === 1 ? 'thing' : 'things'} outside your payroll stop this month’s run` : ''}
             {data.tds_enabled === false ? ' · income tax (TDS) is not deducted' : ''}
           </p>
         </div>
@@ -139,7 +141,7 @@ function Readiness({ year, month }) {
             </thead>
             <tbody>
               {data.employees.length === 0 && (
-                <tr><td colSpan={6} className="px-4 py-10 text-center text-gray-400">Nobody was employed in this month.</td></tr>
+                <tr><td colSpan={6} className="px-4 py-10 text-center text-gray-400">{wholePayroll ? 'Nobody was employed in this month.' : 'Nobody in your payroll was employed in this month.'}</td></tr>
               )}
               {data.employees.map((e) => (
                 <tr key={e.employee_id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
@@ -277,8 +279,9 @@ function RunView({ run }) {
             <p className="text-xs font-semibold text-gray-600">Net pay</p>
             <p className="text-2xl sm:text-[28px] font-extrabold tracking-tight text-gray-900 tabular-nums">{money(run.net_payable)}</p>
           </div>
-          <p className="text-xs text-gray-600">{run.employee_count} {run.employee_count === 1 ? 'employee' : 'employees'}</p>
+          <p className="text-xs text-gray-600">{run.employee_count} {run.employee_count === 1 ? 'employee' : 'employees'}{run.partial ? ' in your payroll' : ''}</p>
         </div>
+        {run.partial && <PartialNote />}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <Figure label="Gross" value={money(run.gross_earnings)} />
           <Figure label="Deductions" value={money(run.total_deductions)} />
@@ -314,7 +317,7 @@ function RunView({ run }) {
             </thead>
             <tbody>
               {run.payslips.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-10 text-center text-gray-400">This run has no payslips.</td></tr>
+                <tr><td colSpan={7} className="px-4 py-10 text-center text-gray-400">{run.partial ? 'Nobody in your payroll is in this run.' : 'This run has no payslips.'}</td></tr>
               )}
               {run.payslips.map((slip) => (
                 <tr key={slip.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
@@ -337,7 +340,7 @@ function RunView({ run }) {
 
         {/* A phone: a card a payslip — the net pay and the two buttons. */}
         <ul className="md:hidden divide-y divide-gray-100" aria-label="Payslips">
-          {run.payslips.length === 0 && <li className="px-4 py-10 text-center text-sm text-gray-400">This run has no payslips.</li>}
+          {run.payslips.length === 0 && <li className="px-4 py-10 text-center text-sm text-gray-400">{run.partial ? 'Nobody in your payroll is in this run.' : 'This run has no payslips.'}</li>}
           {run.payslips.map((slip) => (
             <li key={slip.id} className="px-4 py-3.5 space-y-2.5">
               <div className="flex items-start justify-between gap-3">
@@ -360,6 +363,15 @@ function RunView({ run }) {
       {dialog === 'paid' && <MarkPaidDialog run={run} onClose={() => setDialog(null)} />}
       {dialog === 'bank' && <BankFilePanel run={run} onClose={() => setDialog(null)} />}
     </div>
+  )
+}
+
+/** Some people's payroll only ("Whose payroll", 15 Oct 2026): the figures are theirs, never the company's. */
+function PartialNote() {
+  return (
+    <p className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+      These figures are the payslips of the people in your payroll only, not the company’s totals.
+    </p>
   )
 }
 
@@ -477,8 +489,12 @@ function ApproveDialog({ run, onClose }) {
     }
   }
 
-  const assumed = reply?.details?.employees ?? []
-  const changed = reply?.details?.changed ?? []
+  // Named for the people in the caller's payroll; anybody else only counted (`others`).
+  const askedDays = reply?.details?.confirm_with === 'confirmAssumedDays'
+  const assumed = askedDays ? (reply.details.employees ?? []) : []
+  const changedAsked = Array.isArray(reply?.details?.changed)
+  const changed = changedAsked ? reply.details.changed : []
+  const others = reply?.details?.others ?? 0
 
   return (
     <Dialog title={`Approve ${label}`} onClose={onClose}>
@@ -486,7 +502,8 @@ function ApproveDialog({ run, onClose }) {
         <>
           <p className="text-sm text-gray-600">
             Approving signs these figures off: {run.employee_count} payslips, net pay {money(run.net_payable)}.
-            The month is then closed to changes in attendance, leave, salaries and the rest until it is reopened.
+            {run.partial && ' It signs off the month’s whole payroll — everybody in it, not only the people in your payroll shown here.'}
+            {' '}The month is then closed to changes in attendance, leave, salaries and the rest until it is reopened.
           </p>
           <div className="flex flex-wrap justify-end gap-2">
             <button onClick={onClose} className={btn.secondary}>Cancel</button>
@@ -497,7 +514,7 @@ function ApproveDialog({ run, onClose }) {
         </>
       )}
 
-      {reply && assumed.length > 0 && (
+      {reply && askedDays && (
         <>
           <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">{reply.message}</p>
           <div className="max-h-64 overflow-y-auto divide-y divide-gray-100 border border-gray-200 rounded-lg">
@@ -509,6 +526,7 @@ function ApproveDialog({ run, onClose }) {
                 {a.marked_on_leave_without_request.length > 0 && <p className="text-xs text-gray-600">On leave with no request: {a.marked_on_leave_without_request.map(formatDay).join(', ')}</p>}
               </div>
             ))}
+            {others > 0 && <p className="px-3 py-2 text-xs text-gray-500">And {others} {others === 1 ? 'person' : 'people'} outside your payroll.</p>}
           </div>
           <div className="flex flex-wrap justify-end gap-2">
             <button onClick={onClose} className={btn.secondary}>Check them first</button>
@@ -519,7 +537,7 @@ function ApproveDialog({ run, onClose }) {
         </>
       )}
 
-      {reply && changed.length > 0 && (
+      {reply && changedAsked && (
         <>
           <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-lg p-3">{reply.message}</p>
           {/* An earning is named by its component; without the list it would show as a bare code. */}
@@ -531,6 +549,7 @@ function ApproveDialog({ run, onClose }) {
                     {c.full_name}: {c.change === 'changed' ? c.fields.map((f) => fieldLabel(f, list)).join(', ') : CHANGE_LABELS[c.change] ?? c.change}
                   </li>
                 ))}
+                {others > 0 && <li className="text-gray-500">And {others} {others === 1 ? 'person' : 'people'} outside your payroll</li>}
               </ul>
             )}
           </DataState>
@@ -542,7 +561,7 @@ function ApproveDialog({ run, onClose }) {
         </>
       )}
 
-      {reply && assumed.length === 0 && changed.length === 0 && (
+      {reply && !askedDays && !changedAsked && (
         <p className="text-sm text-red-700">{reply.message}</p>
       )}
     </Dialog>
@@ -561,7 +580,7 @@ function DiscardDialog({ run, onClose }) {
   }
   return (
     <Dialog title={`Discard the ${label} draft?`} onClose={onClose}>
-      <p className="text-sm text-gray-600">Its payslips are deleted. Nothing else changes, and the month can be run again.</p>
+      <p className="text-sm text-gray-600">Its payslips are deleted{run.partial ? ' — everybody’s, not only the people in your payroll' : ''}. Nothing else changes, and the month can be run again.</p>
       <div className="flex flex-wrap justify-end gap-2">
         <button onClick={onClose} className={btn.secondary}>Keep it</button>
         <button onClick={handle} disabled={discard.isPending} className={btn.danger}>Discard</button>
@@ -583,7 +602,7 @@ function ReopenDialog({ run, onClose }) {
   return (
     <Dialog title={`Reopen ${label}?`} onClose={onClose}>
       <p className="text-sm text-gray-600">
-        The approval is withdrawn and the month opens for changes again. It has to be approved again before it can be paid.
+        The approval is withdrawn and the month opens for changes again{run.partial ? ' — the whole month, not only the people in your payroll' : ''}. It has to be approved again before it can be paid.
       </p>
       <div className="flex flex-wrap justify-end gap-2">
         <button onClick={onClose} className={btn.secondary}>Cancel</button>
@@ -617,6 +636,12 @@ function MarkPaidDialog({ run, onClose }) {
           Record this once the salaries have been credited. Every payslip is then saved as a PDF that cannot change,
           and each employee can download theirs.
         </p>
+        {/* Some people's payroll only: this marks the month's whole payroll — say so before anybody's pay is called paid. */}
+        {run.partial && (
+          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">
+            This marks the month’s whole payroll paid — everybody in it, not only the people in your payroll. Make sure everybody’s salary has been credited first.
+          </p>
+        )}
         <label className="block space-y-1.5">
           <span className="text-sm font-medium text-gray-600">Credited on</span>
           <input type="date" value={paidOn} min={monthStart} max={today} onChange={(e) => setPaidOn(e.target.value)} required className={field} />

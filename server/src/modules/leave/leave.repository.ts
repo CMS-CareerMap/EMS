@@ -559,7 +559,7 @@ export async function activeEmployee(db: ScopedDb, scope: ScopeContext, id: stri
 
 /** The days somebody is employed: from joining to their last working day, either open — and who may take which types. */
 export async function employmentWindow(db: ScopedDb | TxDb, id: string) {
-  return db.employee.findFirst({ where: { id }, select: { dateOfJoining: true, lastWorkingDate: true, gender: true, confirmedOn: true } })
+  return db.employee.findFirst({ where: { id }, select: { dateOfJoining: true, lastWorkingDate: true, archivedAt: true, gender: true, confirmedOn: true } })
 }
 
 /** The year's grant of each type, as granted — what a monthly-accrual type earns a twelfth of a month. */

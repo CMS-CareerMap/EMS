@@ -1,28 +1,137 @@
+import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Download, Loader2, ReceiptText } from 'lucide-react'
-import { useMyPayslips, downloadMyPayslip } from '../hooks/usePayroll'
+import { useMyPayslips, usePeoplesPayslips, downloadMyPayslip } from '../hooks/usePayroll'
 import { useAuthStore } from '../stores/authStore'
 import { useDownload } from '../hooks/useDownload'
 import { money, formatDay, monthLabel } from '../features/payroll/format'
 import DataState from '../components/DataState'
 import PageHeader from '../components/ui/PageHeader'
+import { TabPanel } from '../components/ui/Tabs'
 import { Card, EmptyState } from '../components/ui/bits'
-import { btn, th } from '../components/ui/styles'
+import { btn, fieldSm, th } from '../components/ui/styles'
+
+/** How "Whose payslips" reads, for the people's tab. */
+const REACH_WORDS = {
+  DIRECT_REPORTS: 'Their team',
+  ALL_REPORTS: 'Everybody under them',
+  DEPARTMENT: 'Their department',
+  ORGANIZATION_EXCEPT_ABOVE: 'Whole company, except seniors',
+  ORGANIZATION: 'Whole company',
+}
 
 /**
  * A person's own payslips — every month that has been paid, as the PDF that
  * was stored when it was paid. A month appears only once its salary is paid:
  * before that its figures can still change.
+ *
+ * Beyond one's own (client, 15 Oct 2026): a role whose "Whose payslips" reaches
+ * others — a team, a department, the company — has a second tab with their paid
+ * payslips, a month at a time, as Leave has Team Requests.
  */
 export default function MyPayslips() {
+  const reach = useAuthStore((s) => s.payslipReach)
   const linked = useAuthStore((s) => Boolean(s.profile))
+  const seesOthers = Boolean(reach) && reach !== 'SELF'
+  const [params, setParams] = useSearchParams()
+  // One's own first, as always — a login with no employee record is told why it has none there.
+  const tab = seesOthers && params.get('tab') === 'people' ? 'people' : 'mine'
+  const tabs = seesOthers ? [{ key: 'mine', label: 'My payslips' }, { key: 'people', label: 'People’s payslips' }] : null
+
+  return (
+    <>
+      <PageHeader title="My Payslips" subtitle="Each month’s payslip, once the salary has been paid"
+        tabs={tabs} tab={tab} onTab={(key) => setParams(key === 'mine' ? {} : { tab: key }, { replace: true })} panelId="payslips-panel" />
+      <TabPanel id="payslips-panel" tab={tabs ? tab : null}>
+        {tab === 'people' ? <PeoplesPayslips reach={reach} /> : <MinePayslips linked={linked} />}
+      </TabPanel>
+    </>
+  )
+}
+
+/** The paid payslips of the people "Whose payslips" reaches, a month at a time. */
+function PeoplesPayslips({ reach }) {
+  const [monthKey, setMonthKey] = useState(null)
+  const query = usePeoplesPayslips(monthKey)
+  const { busy, start } = useDownload()
+  const pdf = (slip) => start(slip.id, () => downloadMyPayslip(slip.id))
+  const months = query.data?.months ?? []
+  const shown = query.data?.year ? `${query.data.year}-${String(query.data.month).padStart(2, '0')}` : ''
+
+  return (
+    <Card title="People’s payslips" subtitle={`Whose payslips: ${REACH_WORDS[reach] ?? reach}`} bodyClassName="pt-3"
+      action={months.length > 0 && (
+        <select value={shown} onChange={(e) => setMonthKey(e.target.value)} aria-label="Month" className={fieldSm}>
+          {months.map((m) => {
+            const key = `${m.year}-${String(m.month).padStart(2, '0')}`
+            return <option key={key} value={key}>{monthLabel(m.year, m.month)}</option>
+          })}
+        </select>
+      )}>
+      <DataState query={query} compact isEmpty={(d) => d.payslips.length === 0}
+        empty={<p className="px-4 pb-6 text-sm text-gray-400">No paid payslips yet for the people you can see.</p>}>
+        {(d) => (
+          <>
+            {/* On a phone, one line a person: the net pay and the download first. */}
+            <ul className="sm:hidden divide-y divide-gray-100 border-t border-gray-100" aria-label={`Payslips for ${monthLabel(d.year, d.month)}`}>
+              {d.payslips.map((slip) => (
+                <li key={slip.id} className="px-4 py-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-gray-900 truncate">{slip.full_name}</p>
+                    <p className="text-base font-bold text-gray-900 tabular-nums">{money(slip.net_payable, slip.currency)}</p>
+                    <p className="text-xs text-gray-500"><span className="font-mono">{slip.employee_code}</span>{slip.department ? ` · ${slip.department}` : ''}</p>
+                  </div>
+                  <PdfButton busy={busy === slip.id} onClick={() => pdf(slip)} label={`${slip.full_name}’s payslip`} />
+                </li>
+              ))}
+            </ul>
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full min-w-160 text-sm" aria-label={`Payslips for ${monthLabel(d.year, d.month)}`}>
+                <thead>
+                  <tr>
+                    <th className={th}>Employee</th>
+                    <th className={th}>Department</th>
+                    <th className={`${th} text-right`}>Gross</th>
+                    <th className={`${th} text-right`}>Deductions</th>
+                    <th className={`${th} text-right`}>Net pay</th>
+                    <th className={th} aria-label="PDF" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {d.payslips.map((slip) => (
+                    <tr key={slip.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                      <td className="px-4 py-3">
+                        <p className="font-semibold text-gray-900">{slip.full_name}</p>
+                        <p className="text-xs text-gray-400 font-mono">{slip.employee_code}</p>
+                      </td>
+                      <td className="px-4 py-3 text-gray-600">{slip.department ?? '—'}</td>
+                      <td className="px-4 py-3 text-right text-gray-700 tabular-nums">{money(slip.gross_earnings, slip.currency)}</td>
+                      <td className="px-4 py-3 text-right text-gray-700 tabular-nums">{money(slip.total_deductions, slip.currency)}</td>
+                      <td className="px-4 py-3 text-right font-bold text-gray-900 tabular-nums">{money(slip.net_payable, slip.currency)}</td>
+                      <td className="px-4 py-3 text-right">
+                        <PdfButton busy={busy === slip.id} onClick={() => pdf(slip)} label={`${slip.full_name}’s payslip`} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="px-4 pt-3 text-xs text-gray-500">Paid on {formatDay(d.payslips[0].paid_on)}. Opening a payslip is recorded.</p>
+          </>
+        )}
+      </DataState>
+    </Card>
+  )
+}
+
+/** One's own paid payslips. */
+function MinePayslips({ linked }) {
   const payslips = useMyPayslips()
   const { busy, start } = useDownload()
   const pdf = (slip) => start(slip.id, () => downloadMyPayslip(slip.id))
 
   return (
     <>
-      <PageHeader title="My Payslips" subtitle="Each month’s payslip, once the salary has been paid" />
-
       <DataState query={payslips} empty={
         <Card>
           <EmptyState icon={ReceiptText} title="No payslips yet">
@@ -114,9 +223,9 @@ export default function MyPayslips() {
   )
 }
 
-function PdfButton({ busy, onClick }) {
+function PdfButton({ busy, onClick, label = null }) {
   return (
-    <button onClick={onClick} disabled={busy} className={`shrink-0 ${btn.softSm}`}>
+    <button onClick={onClick} disabled={busy} className={`shrink-0 ${btn.softSm}`} {...(label ? { 'aria-label': `PDF of ${label}` } : {})}>
       {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" aria-hidden="true" />} PDF
     </button>
   )

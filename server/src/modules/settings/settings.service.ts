@@ -8,6 +8,8 @@ import { audit, withAudit } from '../audit/audit.service'
 import { logger } from '../../platform/logger'
 import * as repo from './settings.repository'
 import { bestReading, checkGeofence, effectiveFence, geofenceMessage, type Fence, type Reading } from '../../domain/attendance/geofence'
+import { methodNeeds, PUNCH_METHOD_WORDS } from '../../domain/attendance/punchMethod'
+import type { TxDb } from '../../platform/db/transaction'
 
 /**
  * Company settings.
@@ -282,6 +284,8 @@ export async function saveGeofence(ctx: AppContext, input: GeofenceInput) {
       // retire the other's old office and leave both switched on.
       await lockFor(tx, `geofence:${ctx.organizationId}`)
       const existing = await repo.findGeofenceByName(tx, input.name)
+      // Switching the office off is removing it, as far as punches go.
+      if (!data.isActive && existing?.isActive) await assertOfficeNotInUse(ctx, tx)
       const row = existing ? await repo.updateGeofence(tx, existing.id, data) : await repo.createGeofence(tx, ctx.organizationId, input.name, data)
       if (row.isActive) await repo.retireOtherGeofences(tx, row.id)
       return { row, created: !existing }
@@ -293,6 +297,19 @@ export async function saveGeofence(ctx: AppContext, input: GeofenceInput) {
   return saved.row
 }
 
+/**
+ * The office is about to stop being the office — removed, or saved switched
+ * off (client, 14 Oct 2026). Refused while the company's method checks punches
+ * against it: otherwise every check-in would be refused. A day already checked
+ * in against it is closed by the company's method instead (prepareCheckOut).
+ */
+async function assertOfficeNotInUse(ctx: AppContext, tx: TxDb): Promise<void> {
+  const security = await repo.attendanceSecurityOf(tx, ctx.organizationId)
+  if (security && methodNeeds(security.punchMethod).fence) {
+    throw Conflict(`Check-ins are checked against this office: the attendance method is ${PUNCH_METHOD_WORDS[security.punchMethod]}. Choose Selfie, or Location + Selfie, as the method first — or, if the office has moved, save its new place instead.`)
+  }
+}
+
 /** Settings → Attendance Security (client, 11 Oct 2026): which layers the company has on. */
 export async function getAttendanceSecurity(ctx: AppContext): Promise<repo.AttendanceSecurity> {
   const security = await repo.attendanceSecurityOf(ctx.db, ctx.organizationId)
@@ -300,8 +317,14 @@ export async function getAttendanceSecurity(ctx: AppContext): Promise<repo.Atten
   return security
 }
 
-export type AttendanceSecurityView = repo.AttendanceSecurity
+/** With whether an office is saved: a method that checks it, with none, is a setup not finished. */
+export type AttendanceSecurityView = repo.AttendanceSecurity & { officeSet: boolean }
 export type AttendanceSecurityInput = { [K in keyof repo.AttendanceSecurity]?: repo.AttendanceSecurity[K] | undefined }
+
+export async function attendanceSecurityView(ctx: AppContext, security?: repo.AttendanceSecurity): Promise<AttendanceSecurityView> {
+  const [settings, office] = await Promise.all([security ?? getAttendanceSecurity(ctx), repo.findActiveGeofence(ctx.db)])
+  return { ...settings, officeSet: office !== null }
+}
 
 /** Saved and audited — what changed, from what to what. Nothing changed: nothing written. */
 export async function updateAttendanceSecurity(ctx: AppContext, input: AttendanceSecurityInput): Promise<repo.AttendanceSecurity> {
@@ -312,7 +335,19 @@ export async function updateAttendanceSecurity(ctx: AppContext, input: Attendanc
   const changes = Object.fromEntries(keys.map((k) => [k, { from: before[k], to: input[k] }]))
   return withAudit(
     ctx,
-    (tx) => repo.saveAttendanceSecurity(tx, ctx.organizationId, data),
+    async (tx) => {
+      // A method that checks the office needs an office to check against
+      // (client, 14 Oct 2026): refused here, so nobody is refused at the door.
+      // Under the office's lock: never beside its removal.
+      if (data.punchMethod && methodNeeds(data.punchMethod).fence) {
+        await lockFor(tx, `geofence:${ctx.organizationId}`)
+        if (!(await repo.findActiveGeofence(tx))) {
+          throw Conflict(`Set and save the office location first (below, under Office Location): ${PUNCH_METHOD_WORDS[data.punchMethod]} checks every check-in against it.`)
+        }
+      }
+      // The version before reads the old selfie switch: kept in step for one release, so a rollback keeps the photo.
+      return repo.saveAttendanceSecurity(tx, ctx.organizationId, data, data.punchMethod ? { punchSelfie: methodNeeds(data.punchMethod).selfie } : {})
+    },
     () => ({ action: 'attendance_security.updated', entityType: 'organization', entityId: ctx.organizationId, details: { changes } }),
   )
 }
@@ -343,7 +378,14 @@ export async function deleteGeofence(ctx: AppContext, id: string) {
   if (!existing) throw NotFound('Location not found')
   await withAudit(
     ctx,
-    (tx) => repo.deleteGeofence(tx, id),
+    async (tx) => {
+      await lockFor(tx, `geofence:${ctx.organizationId}`)
+      // Read again under the lock: an old office switched off is removed freely.
+      const now = await repo.findGeofence(tx, id)
+      if (!now) throw NotFound('Location not found')
+      if (now.isActive) await assertOfficeNotInUse(ctx, tx)
+      await repo.deleteGeofence(tx, id)
+    },
     () => ({ action: 'geofence.deleted', entityType: 'geofence', entityId: id, details: { name: existing.name } }),
   )
 }

@@ -82,8 +82,12 @@ model Organization {
   /// Settings → Attendance Security (client, 11 Oct 2026). Every layer is the
   /// Super Admin's choice; the defaults are the client's.
   ///
-  /// The office fence at check-out too: an app check-out on an office day must
-  /// be inside it, as the check-in was. Off: anywhere, as it used to be.
+  /// How an app punch is proved (client, 14 Oct 2026): exactly one method,
+  /// never none — the office fence, a live selfie, or both. Check-out follows
+  /// the method its day was checked in with (Attendance.punchMethod).
+  punchMethod           PunchMethod    @default(location)
+  /// Not read since the punch method (14 Oct 2026): the fence at check-out
+  /// follows the method. Kept one release, so the version before still runs.
   punchCheckOutLocation Boolean @default(true)
   /// Confirm app days by the fingerprint machine's file: the import matches
   /// instead of overwriting an app-punched day. Off: the import as before.
@@ -95,15 +99,16 @@ model Organization {
   punchMachineMissing   MachineMissing @default(flag)
   /// A day with scans and no app punch (the phone forgotten): filled from the machine.
   punchMachineFills     Boolean        @default(true)
-  /// App punches from phones only: a computer's browser can be told any
-  /// location with its own developer tools, no app needed. Off: a computer's
-  /// punch is flagged instead.
+  /// Not read since the punch method (14 Oct 2026): a punch that reads the
+  /// location is from a phone, always. Kept one release, as above.
   punchPhoneOnly        Boolean        @default(true)
-  /// A live photo from the front camera with every app punch, seen by HR and
-  /// the person's manager, deleted after `punchSelfieKeepDays`.
+  /// Not read since the punch method (14 Oct 2026): the method says whether a
+  /// selfie is taken. Kept one release, as above.
   punchSelfie           Boolean        @default(false)
+  /// How long a punch's selfie is kept before the nightly job deletes it.
   punchSelfieKeepDays   Int            @default(60)
-  /// One phone per employee: punches from another phone wait for HR.
+  /// One phone per employee, with whichever method: punches from another
+  /// phone are refused, and the people who look after phones are told.
   punchOneDevice        Boolean        @default(false)
 
   /// Settings → Users & Roles → Passwords (client, 6 Oct 2026). Who sets the

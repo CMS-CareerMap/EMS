@@ -63,6 +63,12 @@ export default function BankFilePanel({ run, onClose }) {
           <DataState query={preview} loading="Preparing the file…">
             {(data) => (
             <>
+              {/* Some people's payroll only ("Whose payroll", 15 Oct 2026): the file is theirs, and says so. */}
+              {data.partial && (
+                <p className="text-xs text-gray-700 bg-gray-50 border border-gray-200 rounded-lg p-3">
+                  This file pays the people in your payroll only.{data.others > 0 ? ` ${data.others} more ${data.others === 1 ? 'payslip' : 'payslips'} of this month ${data.others === 1 ? 'is' : 'are'} not in it — paid by whoever looks after their payroll.` : ''}
+                </p>
+              )}
               {!data.template_saved && (
                 <p className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-lg p-3">
                   This uses the standard layout. If the bank asks for different columns, set them once under
