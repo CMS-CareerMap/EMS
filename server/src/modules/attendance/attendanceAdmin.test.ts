@@ -903,3 +903,128 @@ describe('leave and employment on the days written (marking, import)', () => {
     await prisma.shift.delete({ where: { id: late.id } })
   })
 })
+
+/**
+ * One person's month (client, 15 Oct 2026): the page a name on Attendance
+ * opens — through the caller's attendance reach, with the month so far.
+ */
+describe('one person’s month, by a name on Attendance (client, 15 Oct 2026)', () => {
+  const today = zonedToday(new Date(), 'Asia/Kolkata')
+  const [ty, tm] = today.split('-').map(Number) as [number, number]
+  // Last month: a month that is over, so counted whole whatever today is.
+  const ly = tm === 1 ? ty - 1 : ty
+  const lm = tm === 1 ? 12 : tm - 1
+  const lk = `${ly}-${String(lm).padStart(2, '0')}`
+  const month = (id: string, key: string, y = ly, m = lm) => get(`/people/${id}/month?year=${y}&month=${m}`, key)
+
+  it('reaches as attendance does: HR anybody, a manager their team, an employee themselves — anyone else a 404', async () => {
+    expect((await month(aliceId, 'hr')).status).toBe(200)
+    expect((await month(aliceId, 'mgr')).status).toBe(200)
+    expect((await month(strangerId, 'mgr')).status).toBe(404)
+    expect((await month(aliceId, 'alice')).status).toBe(200)
+    const other = await month(bobId, 'alice')
+    expect(other.status).toBe(404)
+    expect(other.body.error.message).toMatch(/not one you see/)
+  })
+
+  it('a month that is over is counted whole: each day by what it was, the hours of the days closed, the hours expected', async () => {
+    await day(aliceId, `${lk}-03`, 8.5)
+    await day(aliceId, `${lk}-04`, 9.25)
+    await day(aliceId, `${lk}-05`, 4.75, 'half_day')
+    await day(aliceId, `${lk}-06`, 0, 'absent')
+    const res = await month(aliceId, 'hr')
+    expect(res.status).toBe(200)
+    const d = res.body.data
+    expect(d.person).toMatchObject({ id: aliceId, full_name: 'alice person', employee_code: `${PREFIX}-alice`, left: false, shift: { name: 'General' } })
+    expect(d.totals).toMatchObject({ from: `${lk}-01`, ongoing: false, present: 2, half_days: 1, absent: 1, hours_worked: 22.5, days_worked: 3, average_hours: 7.5, arrivals: 4 })
+    // 2 present + half of 1 half day, at the shift's 9 hours.
+    expect(d.totals.expected_hours).toBe(22.5)
+    expect(d.totals.working_days).toBeGreaterThan(20)
+    expect(d.days.map((r: { date: string }) => r.date).sort()).toEqual([`${lk}-03`, `${lk}-04`, `${lk}-05`, `${lk}-06`])
+    expect(Array.isArray(d.days_off)).toBe(true)
+    expect(d.pay_days).toMatchObject({ year: ly, month: lm, employed: true })
+    // The same hours the monthly report gives — one count.
+    const report = (await get(`/monthly-summary?year=${ly}&month=${lm}&employeeId=${aliceId}`)).body.data.employees[0]
+    expect(report.total_hours).toBe(d.totals.hours_worked)
+  })
+
+  it('today, still at work: the check-in, for the page to count the time since by the server’s clock', async () => {
+    await prisma.attendance.create({
+      data: { organizationId: orgId, employeeId: aliceId, date: toDateColumn(today), checkIn: new Date(Date.now() - 2 * 3_600_000), status: 'present', source: 'punch', shiftId },
+    })
+    const res = await month(aliceId, 'mgr', ty, tm)
+    expect(res.body.data.totals.ongoing).toBe(true)
+    expect(res.body.data.totals.to).toBe(today)
+    expect(Date.parse(res.body.data.totals.open_since)).toBeLessThan(Date.now())
+    expect(res.body.meta.server_now).toEqual(expect.any(String))
+  })
+
+  it('an absent day: leave is offered to the person on their own page only — nothing on somebody else’s', async () => {
+    // Last month's first Monday: a working day (Sunday is the weekly off with no policy), well within 90 days.
+    let monday = `${lk}-01`
+    while (new Date(`${monday}T00:00:00Z`).getUTCDay() !== 1) monday = fromDateColumn(new Date(Date.parse(`${monday}T00:00:00Z`) + 86_400_000))
+    await day(aliceId, monday, 0, 'absent')
+    const absentOn = async (key: string) => (await month(aliceId, key)).body.data.pay_days.absent_days.find((a: { date: string }) => a.date === monday)
+    expect(await absentOn('hr')).toMatchObject({ applied: false, can_apply: false, why: null })
+    expect(await absentOn('alice')).toMatchObject({ applied: false, can_apply: true, why: null })
+  })
+
+  it('which leave a day was is shown only to whoever’s LEAVE reach takes the person in too', async () => {
+    // Last month's first Tuesday: a working day, approved Sick Leave.
+    let tuesday = `${lk}-01`
+    while (new Date(`${tuesday}T00:00:00Z`).getUTCDay() !== 2) tuesday = fromDateColumn(new Date(Date.parse(`${tuesday}T00:00:00Z`) + 86_400_000))
+    const sick = await prisma.leaveType.create({ data: { organizationId: orgId, name: 'Sick Leave', code: 'SLX' } })
+    await prisma.leaveRequest.create({
+      data: { organizationId: orgId, employeeId: aliceId, leaveTypeId: sick.id, fromDate: toDateColumn(tuesday), toDate: toDateColumn(tuesday), days: 1, leaveYear: ly, reason: 'Fever', status: 'approved' },
+    })
+    const leaveOn = async () => (await month(aliceId, 'hr')).body.data.pay_days
+    const seen = await leaveOn()
+    expect(seen.leave_days.find((l: { date: string }) => l.date === tuesday)).toMatchObject({ leave_type_name: 'Sick Leave' })
+
+    // HR made to see the company's attendance but only its own leave: the days and the counts, no leave in them.
+    const hr = await prisma.role.findFirstOrThrow({ where: { organizationId: orgId, key: 'hr' } })
+    await prisma.role.update({ where: { id: hr.id }, data: { scopes: { ...(hr.scopes as object), leave: 'SELF' } } })
+    try {
+      const hidden = await leaveOn()
+      expect(hidden.leave_days).toEqual([])
+      expect(hidden.absent_days.every((a: { leave: unknown }) => a.leave === null)).toBe(true)
+      expect([hidden.paid_days, hidden.unpaid_days]).toEqual([seen.paid_days, seen.unpaid_days])
+    } finally {
+      await prisma.role.update({ where: { id: hr.id }, data: { scopes: hr.scopes as object } })
+    }
+    // Their own page: always their own leave.
+    expect((await month(aliceId, 'alice')).body.data.pay_days.leave_days.some((l: { date: string }) => l.date === tuesday)).toBe(true)
+  })
+
+  it('somebody removed with no last working day: counted to the day they were removed', async () => {
+    await prisma.employee.update({ where: { id: strangerId }, data: { archivedAt: new Date(`${lk}-12T06:00:00Z`) } })
+    try {
+      const res = await month(strangerId, 'hr')
+      expect(res.body.data.person.employed_until).toBe(`${lk}-12`)
+      expect(res.body.data.totals.to).toBe(`${lk}-12`)
+      const later = await month(strangerId, 'hr', ty, tm)
+      expect(later.body.data.totals.from).toBeNull()
+      expect(later.body.data.pay_days.employed).toBe(false)
+    } finally {
+      await prisma.employee.update({ where: { id: strangerId }, data: { archivedAt: null } })
+    }
+  })
+
+  it('somebody who has left: their days are still history, for HR', async () => {
+    await prisma.employee.update({ where: { id: strangerId }, data: { archivedAt: new Date(), lastWorkingDate: toDateColumn(`${lk}-10`) } })
+    try {
+      const res = await month(strangerId, 'hr')
+      expect(res.status).toBe(200)
+      expect(res.body.data.person.left).toBe(true)
+      expect(res.body.data.totals.to).toBe(`${lk}-10`)
+    } finally {
+      await prisma.employee.update({ where: { id: strangerId }, data: { archivedAt: null, lastWorkingDate: null } })
+    }
+  })
+
+  it('refuses a person or a month that is not one', async () => {
+    expect((await get(`/people/not-an-id/month?year=${ly}&month=${lm}`)).status).toBe(422)
+    expect((await get(`/people/${aliceId}/month?year=${ly}&month=13`)).status).toBe(422)
+    expect((await get(`/people/${aliceId}/month?year=${ly}&month=${lm}&employeeId=${bobId}`)).status).toBe(422)
+  })
+})

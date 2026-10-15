@@ -101,6 +101,7 @@ karan, pooja, neha, sunil.
 
 ### Manager — `manager@example.com` (Manoj)
 1. Home → Waiting for you: Amit's resignation. **Accept** it and choose the last working day.
+   On Attendance, a team member's name opens their month; anybody outside the team is "not yours to see".
 2. Leave → **Team Requests**: Vikram's and Rekha's leave.
 3. Requests → **To decide**: Vikram's on-duty day.
 4. His own leave, waiting for Rahul, is under Leave → Leave Requests.
@@ -109,7 +110,9 @@ karan, pooja, neha, sunil.
 1. Home: the company today (who is in, who is not marked), the leave waiting for others' decisions, and who is joining, in onboarding or serving notice.
 2. Requests → **To decide**: approve Sneha's change of phone and address. Her record changes.
 3. Employees → Neha Gupta → Employment: **Complete onboarding**. Kiran Kumar shows as left.
-4. Attendance: mark a day for somebody; export the month.
+4. Attendance: mark a day for somebody; export the month. **Click a name** for that person's
+   month: the calendar, each day, and the month so far counted to today (live while they are in),
+   with paid and unpaid days. The same is the **Attendance** tab on their profile.
 5. Leave: everybody's leave and balances (she sees them all, decides none). Loss of Pay shows
    the days taken; it has nothing to correct.
 6. Employees → anybody → **Leave**: their days a year of each type; **Change** gives them their
@@ -136,11 +139,19 @@ karan, pooja, neha, sunil.
 2. Leave → **Team Requests**: Manoj's leave is waiting for him.
 3. Settings → Company, Users & Roles, Roles & Permissions, Company Tree, Approvals,
    Payroll Config (overtime is off until you turn it on), Notifications, Audit Log.
-   **Attendance Security**: the office location (radius 15–20 m), check-out checked too, the
-   fingerprint machine's confirmation, phones only, selfie and one phone per employee — each
-   on or off. Attendance → **Suspicious** lists punches worth a second look.
+   **Attendance Security**: the **Attendance Method** — Location, Selfie, or Location + Selfie,
+   always exactly one (the demo has no office saved, so Location waits for it; choose **Selfie**
+   to check in from this laptop's camera; Location + Selfie needs no office but reads a phone's
+   location, so it is for a phone on the real site) — one phone per employee, the office location
+   (radius 15–20 m) and the fingerprint machine's confirmation. Attendance → **Suspicious** lists punches
+   worth a second look; a person's punch phone is replaced or reset on their page, Punch phone.
 4. Audit Log: every step above, by whom, with old and new values.
 5. Reports: attendance, leave, payroll, PF/ESI, headcount, joiners and exits.
+6. Roles & Permissions → a payroll role → **Whose payroll**: limit it to, say, one department.
+   It then sees only those people's salaries, bank accounts, payslips, bank file and payroll
+   reports, and a month's payroll as their share — the choice works as it does for leave.
+   **Whose payslips** offers every choice too: give the Manager role "Their team", and Manoj's
+   Payslips page gets a People's payslips tab with his team's paid payslips.
 
 ### On a phone
 In Edge or Chrome press F12, then the phone icon (Ctrl+Shift+M), and pick a phone. The app is

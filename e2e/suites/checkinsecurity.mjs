@@ -95,14 +95,9 @@ try {
   check('…and 30 m away it would be refused, saying how far', await shown(sa.getByRole('status').filter({ hasText: /^30 m from the office.*would be refused/ })))
   await sa.screenshot({ path: `${SHOTS}/sa-office.png`, fullPage: true })
 
-  const toggle = sa.getByRole('switch', { name: 'Check location at check-out' })
-  check('“Check location at check-out” is on, to start', (await toggle.getAttribute('aria-checked')) === 'true')
-  await toggle.click()
-  check('…turned off, it says so', await shown(sa.getByText('Check-outs are no longer checked')))
-  check('…and the audit log has who changed what', await until(() => psql(`SELECT count(*) FROM "AuditLog" WHERE "organizationId" = '${orgId}' AND action = 'attendance_security.updated'`), '1') === true)
-  await toggle.click()
-  await shown(sa.getByText('Check-outs are checked at the office'))
-  check('…and back on', psql(`SELECT "punchCheckOutLocation" FROM "Organization" WHERE id = '${orgId}'`) === 't')
+  // Since the punch method (14 Oct 2026) the check-out is proved as its day was: no switch of its own.
+  check('the method is Location, to start — and the check-out follows it', (await sa.getByRole('radio', { name: /^Location Medium/ }).getAttribute('aria-checked')) === 'true'
+    && (await sa.getByRole('switch', { name: 'Check location at check-out' }).count()) === 0)
 
   section('Priya, on a phone: 21 m out is refused; at the office, in')
   const priya = await open('emp', { at: north(21) })
@@ -234,7 +229,8 @@ try {
 
   // ── Phase 3: phones only, and the signs ───────────────────────────────────
   section('Manoj: a laptop is refused; a phone too precise is taken, and flagged')
-  check('“Phones only” is on, to start', (await sa.getByRole('switch', { name: 'Phones only' }).getAttribute('aria-checked')) === 'true')
+  // Phones only is a rule of the location methods now, not a switch (14 Oct 2026).
+  check('“Phones only” is not a switch any more', (await sa.getByRole('switch', { name: 'Phones only' }).count()) === 0)
   const manojLaptop = await open('mgr', { viewport: DESKTOP, phone: false })
   await manojLaptop.goto(`${BASE}/dashboard`)
   await manojLaptop.getByRole('button', { name: /Check In/ }).click()
@@ -259,13 +255,14 @@ try {
   await hr.screenshot({ path: `${SHOTS}/hr-suspicious.png`, fullPage: true })
 
   // ── Phase 4: the selfie, one phone ────────────────────────────────────────
-  section('Super Admin: a selfie with every punch, one phone per employee')
-  await sa.getByRole('switch', { name: 'Selfie with every punch' }).click()
-  check('the selfie, turned on, says so', await shown(sa.getByText('Every punch now asks for a photo')))
+  section('Super Admin: Location + Selfie as the method, one phone per employee')
+  await sa.getByRole('radio', { name: /^Location \+ Selfie/ }).click()
+  await sa.getByRole('dialog', { name: 'Change the method to Location + Selfie?' }).getByRole('button', { name: 'Use Location + Selfie' }).click()
+  check('Location + Selfie, chosen, says so', await shown(sa.getByText('Check-ins now use Location + Selfie')))
   await sa.getByRole('switch', { name: 'One phone per employee' }).click()
   check('one phone, turned on, says so', await shown(sa.getByText('Each person punches from one phone')))
 
-  section('Hema, on her phone: the photo first, then the punch')
+  section('Hema, on her phone: the location first, then the photo, then the punch')
   const hema = await open('hr')
   await hema.goto(`${BASE}/dashboard`)
   await hema.getByRole('button', { name: /Check In/ }).click()
@@ -285,11 +282,11 @@ try {
   await sa.goto(`${BASE}/attendance?view=suspicious`)
   const phones = sa.getByRole('region', { name: 'Phones waiting for approval' })
   check('the Super Admin sees it waiting', await shown(phones) && (await phones.innerText()).includes(fx.employees.hema.name))
-  await phones.getByRole('button', { name: 'Approve' }).first().click()
-  const confirmApprove = sa.getByRole('dialog').filter({ hasText: 'Their other phone is taken off' })
-  check('…asked first: approving takes her other phone off', await shown(confirmApprove))
-  await confirmApprove.getByRole('button', { name: 'Approve', exact: true }).click()
-  check('…approves it', await shown(sa.getByText(`${fx.employees.hema.name}’s new phone is approved`)) && psql(`SELECT string_agg(status::text, ',' ORDER BY "firstSeenAt") FROM "PunchDevice" WHERE "employeeId" = '${fx.employees.hema.id}'`) === 'retired,approved')
+  await phones.getByRole('button', { name: 'Replace with this phone' }).first().click()
+  const confirmApprove = sa.getByRole('dialog').filter({ hasText: 'their old phone is taken off — both at once' })
+  check('…asked first: replacing takes her old phone off, in the same step', await shown(confirmApprove))
+  await confirmApprove.getByRole('button', { name: 'Replace', exact: true }).click()
+  check('…replaces it', await shown(sa.getByText(`is now ${fx.employees.hema.name}’s phone`)) && psql(`SELECT string_agg(status::text, ',' ORDER BY "firstSeenAt") FROM "PunchDevice" WHERE "employeeId" = '${fx.employees.hema.id}'`) === 'retired,approved')
   await hemaOther.getByRole('button', { name: /Check Out/ }).click()
   await hemaOther.getByRole('dialog', { name: 'Your photo' }).getByRole('button', { name: 'Take photo' }).click()
   check('…and from the new phone she checks out', await until(() => psql(`SELECT count(*) FROM "Attendance" WHERE "employeeId" = '${fx.employees.hema.id}' AND date = '${today}' AND "checkOut" IS NOT NULL`), '1') === true)
@@ -300,7 +297,9 @@ try {
   await sa.getByRole('button', { name: `Evidence of ${fx.employees.hema.name}’s punches` }).first().click()
   const evidence = sa.getByRole('dialog', { name: new RegExp(`^${fx.employees.hema.name}`) })
   check('her punches, with the photos', await shown(evidence.getByRole('img', { name: 'Selfie taken with the punch' })) && (await evidence.getByRole('img', { name: 'Selfie taken with the punch' }).count()) === 2)
-  check('…each accepted, metres from the office', (await evidence.innerText()).includes('— accepted') && /\d+ m from the office/.test(await evidence.innerText()))
+  // Location + Selfie keeps where she stood, never fenced (14 Oct 2026): the coordinates, and the map.
+  check('…each accepted, where she stood kept, with the map', (await evidence.innerText()).includes('— accepted') && /Taken at \d+\.\d+, \d+\.\d+/.test(await evidence.innerText())
+    && (await evidence.getByRole('link', { name: 'Open map' }).count()) === 2)
   await evidence.getByRole('button', { name: 'Larger' }).first().click()
   const selfieWidth = await evidence.getByRole('img', { name: 'Selfie taken with the punch' }).first().evaluate((img) => img.getBoundingClientRect().width)
   check('…a selfie opens larger, to see the room behind', selfieWidth > 200, `${selfieWidth}px`)
@@ -308,8 +307,9 @@ try {
   await sa.keyboard.press('Escape')
   // Back as the company had them.
   await sa.goto(`${BASE}/settings?tab=attendance-security`)
-  await sa.getByRole('switch', { name: 'Selfie with every punch' }).click()
-  await shown(sa.getByText('Punches no longer ask for a photo'))
+  await sa.getByRole('radio', { name: /^Location Medium/ }).click()
+  await sa.getByRole('dialog', { name: 'Change the method to Location?' }).getByRole('button', { name: 'Use Location' }).click()
+  await shown(sa.getByText('Check-ins now use Location'))
   await sa.getByRole('switch', { name: 'One phone per employee' }).click()
   await shown(sa.getByText('Punches from another phone are only flagged'))
 

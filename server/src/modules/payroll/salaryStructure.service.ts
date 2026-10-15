@@ -13,6 +13,7 @@ import * as repo from './salaryStructure.repository'
 import { audit } from '../audit/audit.service'
 import { assertOpenFrom } from './payrollLock.service'
 import { assertWorkGoesUp, checkWork, loadWork } from '../organization/workRules.service'
+import { payrollPeople } from './payrollReach'
 
 /**
  * Setting what somebody is paid.
@@ -77,15 +78,16 @@ export function toRecord(financial: Financial) {
 }
 
 async function visibleEmployee(ctx: AppContext, employeeId: string) {
-  const employee = await repo.findEmployee(ctx.db, employeeId)
-  // 404, not 403: another company's employee does not exist from here.
+  const employee = await repo.findEmployee(ctx.db, employeeId, payrollPeople(ctx))
+  // 404, not 403: another company's employee — or one outside the caller's
+  // payroll — does not exist from here.
   if (!employee) throw NotFound('Employee not found')
   return employee
 }
 
-/** Everybody's salary — and whether the caller may enter each one, or whom to ask (Day 22). */
+/** The salaries of the people in the caller's payroll — and whether the caller may enter each one, or whom to ask (Day 22). */
 export async function roster(ctx: AppContext) {
-  const [rows, work] = await Promise.all([repo.listRoster(ctx.db), loadWork(ctx.db, ctx.organizationId, 'salary')])
+  const [rows, work] = await Promise.all([repo.listRoster(ctx.db, payrollPeople(ctx)), loadWork(ctx.db, ctx.organizationId, 'salary')])
   return rows.map((row) => ({ row, check: checkWork(ctx, work, row.id) }))
 }
 

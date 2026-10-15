@@ -31,6 +31,11 @@ export interface FieldAccess {
    */
   compensationScope: ScopeContext
   includeBank: boolean
+  /**
+   * WHOSE bank accounts, when includeBank: the caller's payroll ("Whose
+   * payroll", 15 Oct 2026) — the same people Payroll → Bank accounts shows.
+   */
+  payrollScope: ScopeContext
   includeIdentity: boolean
   /**
    * Every login of the person — each email, role and status (Day 23). For
@@ -292,6 +297,7 @@ export async function findCard(db: ScopedDb, id: string) {
       fullName: true,
       employeeCode: true,
       dateOfJoining: true,
+      lastWorkingDate: true,
       attendanceMode: true,
       phone: true,
       department: { select: { name: true } },

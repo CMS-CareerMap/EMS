@@ -5,6 +5,7 @@ import { myPayDays } from '../../modules/payroll/myPayDays.service'
 import { parseBody } from '../validators/parse'
 import { appContext } from '../context'
 import { isoInstant } from '../../domain/shared/dates'
+import { payDaysPayload } from '../serializers/payDays.serializer'
 
 function payload(result: PunchResult) {
   return {
@@ -22,6 +23,8 @@ function payload(result: PunchResult) {
     break_minutes: result.breakMinutes,
     // The hours worked a full day needs, as check-out grades it — the card counts down to it (client, 9 Oct 2026).
     full_day_hours: result.fullDayHours,
+    // How the day was checked in on the app; its check-out follows it (client, 14 Oct 2026).
+    punch_method: result.punchMethod,
     geofence: result.geofence
       ? {
           verified: result.geofence.verified,
@@ -109,8 +112,11 @@ export const getMyWorkplace: RequestHandler = async (_req, res) => {
   res.status(200).json({
     data: {
       work_mode: where.workMode,
+      punch_method: where.method,
       location_needed: where.locationNeeded,
+      fence_needed: where.fenceNeeded,
       check_out_location_needed: where.checkOutLocationNeeded,
+      photo_needed: where.photoNeeded,
       overtime_enabled: where.overtimeEnabled,
       shift: where.shift
         ? {
@@ -152,24 +158,5 @@ export const getMyPayDays: RequestHandler = async (req, res) => {
   const ctx = appContext(res)
   const { year, month } = parseBody(payDaysQuerySchema, req.query)
   const d = await myPayDays(ctx, year, month)
-  res.status(200).json({
-    data: {
-      year: d.year,
-      month: d.month,
-      employed: d.employed,
-      paid_days: d.paidDays,
-      unpaid_days: d.unpaidDays,
-      employment_days: d.employmentDays,
-      not_marked_days: d.notMarkedDays,
-      leave_days: d.leaveDays.map((l) => ({ date: l.date, portion: l.portion, paid: l.paid, leave_type_name: l.leaveTypeName, code: l.code })),
-      absent_days: d.absentDays.map((a) => ({
-        date: a.date,
-        applied: a.applied,
-        leave: a.leave ? { status: a.leave.status, leave_type_name: a.leave.leaveTypeName, half: a.leave.half } : null,
-        can_apply: a.canApply,
-        why: a.why,
-      })),
-    },
-    meta: { requestId: res.locals.requestId },
-  })
+  res.status(200).json({ data: payDaysPayload(d), meta: { requestId: res.locals.requestId } })
 }

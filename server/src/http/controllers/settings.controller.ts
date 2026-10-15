@@ -240,26 +240,27 @@ export const postGeofenceTest: RequestHandler = async (req, res) => {
 
 /** GET /api/settings/attendance-security — the layers the company has on (client, 11 Oct 2026). */
 export const getAttendanceSecurity: RequestHandler = async (_req, res) => {
-  ok(res, attendanceSecurityPayload(await settings.getAttendanceSecurity(appContext(res))))
+  const ctx = appContext(res)
+  ok(res, attendanceSecurityPayload(await settings.attendanceSecurityView(ctx)))
 }
 
 /** PUT /api/settings/attendance-security */
 export const putAttendanceSecurity: RequestHandler = async (req, res) => {
+  const ctx = appContext(res)
   const input = parseBody(attendanceSecuritySchema, req.body)
-  ok(res, attendanceSecurityPayload(await settings.updateAttendanceSecurity(appContext(res), input)))
+  ok(res, attendanceSecurityPayload(await settings.attendanceSecurityView(ctx, await settings.updateAttendanceSecurity(ctx, input))))
 }
 
 function attendanceSecurityPayload(s: settings.AttendanceSecurityView) {
   return {
-    check_out_location: s.punchCheckOutLocation,
+    method: s.punchMethod,
+    one_device: s.punchOneDevice,
+    office_set: s.officeSet,
     machine_match: s.punchMachineMatch,
     machine_minutes: s.punchMachineMinutes,
     machine_missing: s.punchMachineMissing,
     machine_fills: s.punchMachineFills,
-    phone_only: s.punchPhoneOnly,
-    selfie: s.punchSelfie,
     selfie_keep_days: s.punchSelfieKeepDays,
-    one_device: s.punchOneDevice,
   }
 }
 

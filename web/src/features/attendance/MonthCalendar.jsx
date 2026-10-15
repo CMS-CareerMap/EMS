@@ -8,7 +8,8 @@ import { formatDay } from '../../lib/dates'
  *
  * Holidays and weekly offs come from the company's calendar, not from rows —
  * nobody marks them, and a calendar drawn only from rows showed them blank,
- * as if the person had not come in. Days before they joined are faded.
+ * as if the person had not come in. Days before they joined, and after their
+ * last day (`leftOn`), are faded.
  *
  * A day of leave says which (client, 10 Oct 2026): "Casual Leave", or "Loss
  * of Pay" in amber — the unpaid colour everywhere — from `leaveOn` (the
@@ -17,13 +18,13 @@ import { formatDay } from '../../lib/dates'
  */
 const SHORT = { present: 'Present', half_day: 'Half day', absent: 'Absent', on_leave: 'Leave', holiday: 'Holiday', weekly_off: 'Off' }
 
-export default function MonthCalendar({ year, month, today, rows, rowsQuery, calendarQuery, joinedOn = null, leaveOn = null, absentOn = null, onApply = null }) {
+export default function MonthCalendar({ year, month, today, rows, rowsQuery, calendarQuery, joinedOn = null, leftOn = null, openDay = null, leaveOn = null, absentOn = null, onApply = null }) {
   const anyUnpaid = leaveOn ? [...leaveOn.values()].some((l) => !l.paid) : false
   return (
     <div>
       {/* A month that failed to load is not a month of blank days. */}
       <DataState queries={[rowsQuery, calendarQuery]} compact loading="Loading the month…">
-        {([, calendar]) => <Grid year={year} month={month} today={today} rows={rows} calendar={calendar} joinedOn={joinedOn} leaveOn={leaveOn} absentOn={absentOn} onApply={onApply} />}
+        {([, calendar]) => <Grid year={year} month={month} today={today} rows={rows} calendar={calendar} joinedOn={joinedOn} leftOn={leftOn} openDay={openDay} leaveOn={leaveOn} absentOn={absentOn} onApply={onApply} />}
       </DataState>
       <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[11.5px] font-medium text-gray-500" aria-label="What the colours mean">
         {Object.entries(STATUS).map(([key, meta]) => (
@@ -35,7 +36,7 @@ export default function MonthCalendar({ year, month, today, rows, rowsQuery, cal
   )
 }
 
-function Grid({ year, month, today, rows, calendar, joinedOn, leaveOn, absentOn, onApply }) {
+function Grid({ year, month, today, rows, calendar, joinedOn, leftOn, openDay, leaveOn, absentOn, onApply }) {
   const days = daysOfMonth(year, month)
   const byDate = new Map(rows.map((r) => [r.date, r]))
   const offOn = new Map((calendar?.days_off ?? []).map((d) => [d.date, d]))
@@ -57,8 +58,10 @@ function Grid({ year, month, today, rows, calendar, joinedOn, leaveOn, absentOn,
         const kind = row?.status ?? (off ? (off.kind === 'holiday' ? 'holiday' : 'weekly_off') : null)
         const meta = leave && !leave.paid ? UNPAID_LEAVE : kind ? STATUS[kind] : null
         const open = row?.check_in && !row.check_out
+        // Still at work on it: today, or a night shift's day past midnight (`openDay`).
+        const running = day === today || day === openDay
         const label = open
-          ? (day === today ? 'In' : 'No out')
+          ? (running ? 'In' : 'No out')
           : row?.status === 'present' && row.hours_worked != null
             ? formatHours(row.hours_worked)
             : leave
@@ -66,7 +69,8 @@ function Grid({ year, month, today, rows, calendar, joinedOn, leaveOn, absentOn,
               : kind === 'holiday'
                 ? (off?.name ?? 'Holiday')
                 : kind ? SHORT[kind] : ''
-        const before = joinedOn && day < joinedOn
+        // Not employed that day: before they joined, or after their last day (15 Oct 2026).
+        const before = (joinedOn && day < joinedOn) || (leftOn && day > leftOn)
         const absent = row?.status === 'absent' ? absentOn?.get(day) : null
         const canApply = Boolean(onApply && absent?.can_apply)
         const asked = absent?.applied
@@ -77,7 +81,7 @@ function Grid({ year, month, today, rows, calendar, joinedOn, leaveOn, absentOn,
           off ? (off.name ?? 'Weekly off') : null,
           leave ? leaveWords(leave) : row ? STATUS[row.status]?.label : null,
           leave && !leave.paid ? 'unpaid' : null,
-          open ? (day === today ? 'checked in' : 'no check-out') : null,
+          open ? (running ? 'checked in' : 'no check-out') : null,
           row?.hours_worked != null ? formatHours(row.hours_worked) : null,
           asked,
           canApply ? 'apply leave for this day' : null,
@@ -86,7 +90,7 @@ function Grid({ year, month, today, rows, calendar, joinedOn, leaveOn, absentOn,
         ].filter(Boolean)
         const className = `relative min-h-11 sm:min-h-16 rounded-lg border p-1 sm:p-1.5 flex flex-col justify-between overflow-hidden text-left
           ${meta ? meta.cell : 'bg-white border-gray-100 text-gray-700'}
-          ${open && day !== today ? 'border-red-200' : ''}
+          ${open && !running ? 'border-red-200' : ''}
           ${day === today ? 'ring-2 ring-brand-500 ring-offset-1' : ''}
           ${before ? 'opacity-40' : ''}`
         const inside = (

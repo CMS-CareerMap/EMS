@@ -1,9 +1,9 @@
 import type { AppContext } from '../../platform/context'
 import { Forbidden } from '../../platform/errors/AppError'
-import { addCalendarDays, fromDateColumn, monthKey, toDateColumn, type CalendarDate } from '../../domain/shared/dates'
+import { addCalendarDays, fromDateColumn, monthKey, toDateColumn, zonedToday, type CalendarDate } from '../../domain/shared/dates'
 import { daysInMonth, employmentWindow } from '../../domain/payroll/salary'
 import { leaveDaysIn, proration } from '../../domain/payroll/payDays'
-import { companyToday } from '../organization/organization.service'
+import { companyTimezone, companyToday } from '../organization/organization.service'
 import { listDaysOff } from '../holidays/holidays.repository'
 import { employmentWindow as employmentDates } from '../leave/leave.repository'
 import * as repo from './payrollRun.repository'
@@ -48,14 +48,26 @@ export interface MyPayDays {
 export async function myPayDays(ctx: AppContext, year: number, month: number): Promise<MyPayDays> {
   const employeeId = ctx.employeeId
   if (!employeeId) throw Forbidden('Your account has no employee record, so there is no attendance of yours.')
+  return payDaysFor(ctx, employeeId, year, month, { own: true })
+}
+
+/**
+ * The same month in pay terms for somebody — the caller themselves, or a
+ * person whose attendance the caller sees (client, 15 Oct 2026: the page HR
+ * or a manager opens for them). THE CALLER CHECKS THE REACH: this takes an
+ * employee id and asks nothing of it. Leave can be asked for an absent day
+ * only by the person themselves (`own`).
+ */
+export async function payDaysFor(ctx: AppContext, employeeId: string, year: number, month: number, { own }: { own: boolean }): Promise<MyPayDays> {
   const key = monthKey(year, month)
   const monthStart = `${key}-01`
   const monthEnd = `${key}-${String(daysInMonth(year, month)).padStart(2, '0')}`
   const from = toDateColumn(monthStart)
   const to = toDateColumn(monthEnd)
 
-  const [today, dates, policies, dayOffRows, attendance, leave] = await Promise.all([
+  const [today, timezone, dates, policies, dayOffRows, attendance, leave] = await Promise.all([
     companyToday(ctx),
+    companyTimezone(ctx),
     employmentDates(ctx.db, employeeId),
     repo.policiesForMonth(ctx.db, from, to),
     listDaysOff(ctx.db, from, to),
@@ -63,7 +75,9 @@ export async function myPayDays(ctx: AppContext, year: number, month: number): P
     repo.leaveForMonth(ctx.db, [employeeId], from, to),
   ])
   const empty: MyPayDays = { year, month, employed: false, paidDays: null, unpaidDays: null, employmentDays: 0, notMarkedDays: 0, leaveDays: [], absentDays: [] }
-  const window = employmentWindow({ year, month, dateOfJoining: fromDateColumn(dates?.dateOfJoining), lastWorkingDate: fromDateColumn(dates?.lastWorkingDate) })
+  // Removed with no last working day (somebody who never joined): employed until the day they were removed, as the reports count them.
+  const lastWorkingDate = fromDateColumn(dates?.lastWorkingDate) ?? (dates?.archivedAt ? zonedToday(dates.archivedAt, timezone) : null)
+  const window = employmentWindow({ year, month, dateOfJoining: fromDateColumn(dates?.dateOfJoining), lastWorkingDate })
   if (!window) return empty
 
   const policy = inForceOn(policies, window.from)
@@ -99,7 +113,8 @@ export async function myPayDays(ctx: AppContext, year: number, month: number): P
     .map((date) => {
       const asked = leave.find((l) => fromDateColumn(l.fromDate)! <= date && fromDateColumn(l.toDate)! >= date)
       const applied = Boolean(asked)
-      const why = applied ? null
+      // What the person may do about the day is said to them only: on somebody else's page, nothing is offered.
+      const why = applied || !own ? null
         : !monthOpen ? 'This month’s payroll is closed — ask HR.'
         : date < earliest ? `More than ${APPLY_DAYS_BACK} days ago — ask HR to record it.`
         : null
@@ -109,7 +124,7 @@ export async function myPayDays(ctx: AppContext, year: number, month: number): P
         leave: asked
           ? { status: asked.status === 'approved' ? 'approved' as const : 'pending' as const, leaveTypeName: asked.leaveType.name, half: asked.halfDayDates.includes(date) }
           : null,
-        canApply: !applied && why === null,
+        canApply: own && !applied && why === null,
         why,
       }
     })

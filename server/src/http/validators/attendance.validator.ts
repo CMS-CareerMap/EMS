@@ -49,7 +49,8 @@ export type PunchBody = z.infer<typeof punchSchema>
 export const dayEvidenceQuerySchema = z.object({ employeeId: z.uuid(), date: z.iso.date() }).strict()
 
 /** Phones for HR: the ones waiting, or all of them. */
-export const devicesQuerySchema = z.object({ status: z.enum(['waiting', 'all']).optional() }).strict()
+/** Phones waiting (when not said), or all of them — one person's, on their page. */
+export const devicesQuerySchema = z.object({ status: z.enum(['waiting', 'all']).default('waiting'), employee: z.uuid().optional() }).strict()
 
 /** Suspicious punches between two days (client, 11 Oct 2026); the last week when left out. */
 export const suspiciousQuerySchema = z
@@ -77,6 +78,13 @@ export const monthQuerySchema = z.object({
   month: z.coerce.number().int().min(1).max(12),
   employeeId: z.uuid().optional(),
 })
+
+/** One person's month page (client, 15 Oct 2026): who, from the path; which month, from the query. */
+export const personMonthParamsSchema = z.object({ employeeId: z.uuid() }).strict()
+export const personMonthQuerySchema = z.object({
+  year: z.coerce.number().int().min(2000).max(2100),
+  month: z.coerce.number().int().min(1).max(12),
+}).strict()
 
 /** One's own month in pay terms (client, 10 Oct 2026) — always one's own, so no employee is named. */
 export const payDaysQuerySchema = z.object({

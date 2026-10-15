@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client'
 import type { ScopedDb } from '../../platform/db/scoped'
 import type { TxDb } from '../../platform/db/transaction'
 
@@ -40,9 +41,9 @@ export async function findOpen(db: TxDb, employeeId: string) {
  * directory away from them — so this is the one list of people they can see,
  * and it carries only what setting a salary needs.
  */
-export async function listRoster(db: ScopedDb) {
+export async function listRoster(db: ScopedDb, people: Prisma.EmployeeWhereInput | null) {
   return db.employee.findMany({
-    where: { archivedAt: null },
+    where: { AND: [{ archivedAt: null }, people ?? {}] },
     select: {
       id: true,
       employeeCode: true,
@@ -62,9 +63,10 @@ export async function listRoster(db: ScopedDb) {
   })
 }
 
-export async function findEmployee(db: ScopedDb, employeeId: string) {
+/** Somebody within `people` (null: anybody in the company). */
+export async function findEmployee(db: ScopedDb, employeeId: string, people: Prisma.EmployeeWhereInput | null) {
   return db.employee.findFirst({
-    where: { id: employeeId },
+    where: { AND: [{ id: employeeId }, people ?? {}] },
     select: { id: true, fullName: true, dateOfJoining: true },
   })
 }

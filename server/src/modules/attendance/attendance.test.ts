@@ -48,7 +48,7 @@ async function cleanup(): Promise<void> {
 
 async function makeUser(
   key: string,
-  role: 'super_admin' | 'hr' | 'employee',
+  role: 'super_admin' | 'hr' | 'employee' | 'admin' | 'manager',
   options: { withEmployee?: boolean; attendanceMode?: 'app' | 'biometric'; shiftId?: string } = {},
 ): Promise<string | null> {
   const email = `${PREFIX}-${key}@example.com`
@@ -375,7 +375,7 @@ describe('phones, flags, the selfie and one phone (client, 11 Oct 2026)', () => 
   const lastEvidence = () => prisma.punchEvidence.findFirstOrThrow({ where: { employeeId: appEmpId }, orderBy: { at: 'desc' } })
 
   afterEach(async () => {
-    await security({ punchPhoneOnly: true, punchSelfie: false, punchSelfieKeepDays: 60, punchOneDevice: false })
+    await security({ punchMethod: 'location', punchSelfieKeepDays: 60, punchOneDevice: false })
     await prisma.punchDevice.deleteMany({ where: { organizationId: orgId } })
     await prisma.employee.update({ where: { id: appEmpId }, data: { workArrangement: 'office' } })
   })
@@ -390,11 +390,12 @@ describe('phones, flags, the selfie and one phone (client, 11 Oct 2026)', () => 
     expect((await start('app', {}, DESKTOP_UA)).status).toBe(200)
   })
 
-  it('with phones-only off, a computer’s punch is taken — and flagged', async () => {
-    await security({ punchPhoneOnly: false })
+  it('phones only is not a switch since the method (14 Oct 2026): the Selfie method reads no location, so a computer is taken — and flagged', async () => {
+    await security({ punchMethod: 'selfie' })
     const begun = await start('app', {}, DESKTOP_UA)
     expect(begun.status).toBe(200)
-    const res = await request(app).post('/api/attendance/punch-in').set(as('app', DESKTOP_UA)).send({ token: begun.body.data.token, ...asBurst(goodReading) })
+    expect(begun.body.data).toMatchObject({ location_needed: false, photo_needed: true })
+    const res = await request(app).post('/api/attendance/punch-in').set(as('app', DESKTOP_UA)).send({ token: begun.body.data.token, photo: SELFIE })
     expect(res.status).toBe(201)
     expect((await lastEvidence()).flags).toEqual(['not_a_phone'])
   })
@@ -419,7 +420,7 @@ describe('phones, flags, the selfie and one phone (client, 11 Oct 2026)', () => 
   })
 
   it('selfie: asked for at the start; a punch without one refused; with one, kept and shown — and deleted when its days are up', async () => {
-    await security({ punchSelfie: true })
+    await security({ punchMethod: 'location_selfie' })
     expect((await start('app')).body.data.photo_needed).toBe(true)
     const none = await punchIn('app', goodReading)
     expect(none.status).toBe(403)
@@ -460,7 +461,7 @@ describe('phones, flags, the selfie and one phone (client, 11 Oct 2026)', () => 
     const operator = await prisma.membership.findFirstOrThrow({ where: { organizationId: orgId, role: 'super_admin' } })
     expect(await prisma.notification.count({ where: { userId: operator.userId, event: 'attendance.device_waiting' } })).toBe(1)
 
-    const waiting = (await request(app).get('/api/attendance/devices').set(phone('operator'))).body.data
+    const waiting = (await request(app).get('/api/attendance/devices').set(phone('operator'))).body.data.phones
     expect(waiting.map((d: { status: string; full_name: string }) => `${d.status} ${d.full_name}`)).toEqual(['waiting app person'])
     expect((await request(app).post(`/api/attendance/devices/${waiting[0].id}/approve`).set(phone('operator'))).status).toBe(200)
     expect((await start('app', { deviceKey: B })).status).toBe(200)
@@ -470,7 +471,9 @@ describe('phones, flags, the selfie and one phone (client, 11 Oct 2026)', () => 
     const appLogin = await prisma.membership.findFirstOrThrow({ where: { employeeId: appEmpId } })
     expect(await prisma.notification.count({ where: { userId: appLogin.userId, event: 'attendance.device_approved' } })).toBe(1)
 
-    // Taken off by HR, it waits again — and HR is told again.
+    // Taken off by HR — the old phone, waiting again, refused first — it waits again, and HR is told again.
+    const old = await prisma.punchDevice.findFirstOrThrow({ where: { employeeId: appEmpId, status: 'waiting' } })
+    expect((await request(app).post(`/api/attendance/devices/${old.id}/retire`).set(phone('operator'))).status).toBe(200)
     expect((await request(app).post(`/api/attendance/devices/${waiting[0].id}/retire`).set(phone('operator'))).status).toBe(200)
     expect((await start('app', { deviceKey: B })).status).toBe(403)
     expect(await prisma.notification.count({ where: { userId: operator.userId, event: 'attendance.device_waiting' } })).toBe(3)
@@ -507,20 +510,39 @@ describe('check-in security, as the review left it (11 Oct 2026)', () => {
   })
 
   afterEach(async () => {
-    await security({ punchSelfie: false, punchOneDevice: false })
+    await security({ punchMethod: 'location', punchOneDevice: false })
     await prisma.punchDevice.deleteMany({ where: { organizationId: orgId } })
   })
 
-  it('one phone: once HR has taken a phone off, a new one waits — clearing the browser never registers again by itself', async () => {
+  it('one phone: a reset lets the next NEW phone register itself (14 Oct 2026) — the phone taken off stays refused', async () => {
     await security({ punchOneDevice: true })
     expect((await start('app', { deviceKey: 'phone-a-0123456789abcdef' })).status).toBe(200)
-    const first = await prisma.punchDevice.findFirstOrThrow({ where: { employeeId: appEmpId } })
+    // While they have a phone, a fresh key — a cleared browser — is refused.
+    const cleared = await start('app', { deviceKey: 'phone-b-0123456789abcdef' })
+    expect(cleared.status).toBe(403)
+    expect(cleared.body.error.message).toMatch(/not the one registered for you.*Contact HR/)
+    const first = await prisma.punchDevice.findFirstOrThrow({ where: { employeeId: appEmpId, status: 'approved' } })
+    // The cleared browser's key, waiting: refused first — a reset waits while a phone does.
+    const cleared2 = await prisma.punchDevice.findFirstOrThrow({ where: { employeeId: appEmpId, status: 'waiting' } })
+    expect((await request(app).post(`/api/attendance/devices/${cleared2.id}/retire`).set(phone('operator'))).status).toBe(200)
+    const appLogin = await prisma.membership.findFirstOrThrow({ where: { employeeId: appEmpId } })
+    const resets = () => prisma.notification.count({ where: { userId: appLogin.userId, event: 'attendance.device_reset' } })
+    const before = await resets()
     expect((await request(app).post(`/api/attendance/devices/${first.id}/retire`).set(phone('operator'))).status).toBe(200)
-    // No approved phone left, yet a fresh key is not theirs by itself.
-    const fresh = await start('app', { deviceKey: 'phone-c-0123456789abcdef' })
-    expect(fresh.status).toBe(403)
-    expect(fresh.body.error.message).toMatch(/not the one registered for you/)
-    expect(await prisma.punchDevice.count({ where: { employeeId: appEmpId, status: 'waiting' } })).toBe(1)
+    // She is told: the next new phone she checks in from becomes hers.
+    expect(await resets()).toBe(before + 1)
+    // The phone taken off: refused, waiting again.
+    expect((await start('app', { deviceKey: 'phone-a-0123456789abcdef' })).status).toBe(403)
+    // The refused phone, tried again, waits again — it is not "never seen".
+    expect((await start('app', { deviceKey: 'phone-b-0123456789abcdef' })).status).toBe(403)
+    // A phone never seen: theirs, by itself, as the first one was.
+    expect((await start('app', { deviceKey: 'phone-c-0123456789abcdef' })).status).toBe(200)
+    // The old phone, tried again after the reset, waits for a decision (HR told again); the new one is theirs.
+    const theirs = await prisma.punchDevice.findMany({ where: { employeeId: appEmpId }, orderBy: { firstSeenAt: 'asc' } })
+    expect(theirs.map((d) => d.status)).toEqual(['waiting', 'waiting', 'approved'])
+    // And the audit log says it was a reset.
+    const logged = await prisma.auditLog.findFirstOrThrow({ where: { organizationId: orgId, action: 'attendance.device_retired' }, orderBy: { createdAt: 'desc' } })
+    expect(logged.details).toMatchObject({ was: 'approved' })
   })
 
   it('phones go up the tree: never one’s own, nor a fellow HR’s', async () => {
@@ -533,11 +555,11 @@ describe('check-in security, as the review left it (11 Oct 2026)', () => {
     // Their own: not in what they look after, and not theirs to decide.
     expect((await start('hra', { deviceKey: 'hra-phone-a-0123456789' })).status).toBe(200)
     const own = await prisma.punchDevice.findFirstOrThrow({ where: { employeeId: hrA } })
-    const listed = (await request(app).get('/api/attendance/devices?status=all').set(phone('hra'))).body.data as { employee_id: string; status: string }[]
+    const listed = (await request(app).get('/api/attendance/devices?status=all').set(phone('hra'))).body.data.phones as { employee_id: string; status: string }[]
     expect(listed.some((d) => d.employee_id === hrA)).toBe(false)
     expect((await request(app).post(`/api/attendance/devices/${own.id}/retire`).set(phone('hra'))).status).toBe(403)
     // The Super Admin decides it; waiting ones listed first.
-    expect((await request(app).get('/api/attendance/devices?status=all').set(phone('operator'))).body.data[0].status).toBe('waiting')
+    expect((await request(app).get('/api/attendance/devices?status=all').set(phone('operator'))).body.data.phones[0].status).toBe('waiting')
     expect((await request(app).post(`/api/attendance/devices/${waiting.id}/approve`).set(phone('operator'))).status).toBe(200)
   })
 
@@ -556,22 +578,20 @@ describe('check-in security, as the review left it (11 Oct 2026)', () => {
     expect((await request(app).get(`/api/attendance/evidence?employeeId=${appEmpId}&date=${day}`).set(phone('hra'))).status).toBe(200)
   })
 
-  it('the selfie is kept only when the company asks; with a refusal only the first three a day; the very same photo again is flagged', async () => {
-    // Off: a photo sent anyway is not stored.
+  it('the selfie is kept only when the method takes one; the very same photo again is flagged', async () => {
+    // Location: a photo sent anyway is not stored.
     expect((await punchIn('app', { ...goodReading, photo: SELFIE })).status).toBe(201)
     expect((await lastEvidence()).photoKey).toBeNull()
     await prisma.punchEvidence.deleteMany({ where: { employeeId: appEmpId } })
     await prisma.attendance.deleteMany({ where: { employeeId: appEmpId } })
 
-    await security({ punchSelfie: true })
-    for (let i = 0; i < 4; i += 1) expect((await punchIn('app', { ...away, photo: SELFIE })).status).toBe(403)
-    expect(await prisma.punchEvidence.count({ where: { employeeId: appEmpId, refusedFor: 'outside' } })).toBe(4)
-    expect(await prisma.punchEvidence.count({ where: { employeeId: appEmpId, refusedFor: 'outside', photoKey: { not: null } } })).toBe(3)
-    // Taken at last with the same file: not a repeat of a refusal's.
-    expect((await punchIn('app', { ...goodReading, photo: SELFIE })).status).toBe(201)
+    await security({ punchMethod: 'location_selfie' })
+    // Wherever they are (another site, 1 km out): taken, the photo and the place kept.
+    expect((await punchIn('app', { ...away, photo: SELFIE })).status).toBe(201)
+    expect((await lastEvidence()).photoKey).not.toBeNull()
     expect((await lastEvidence()).flags).not.toContain('repeated_photo')
     // …but the same file again on the way out is: a camera never gives the same photo twice.
-    expect((await punchOut('app', { ...goodReading, photo: SELFIE })).status).toBe(200)
+    expect((await punchOut('app', { ...away, photo: SELFIE })).status).toBe(200)
     expect((await lastEvidence()).flags).toContain('repeated_photo')
   })
 
@@ -601,6 +621,280 @@ describe('check-in security, as the review left it (11 Oct 2026)', () => {
     const both = await Promise.all([punchIn('app', goodReading), punchIn('app', goodReading)])
     expect(both.map((r) => r.status).sort()).toEqual([201, 409])
     expect(await prisma.punchEvidence.count({ where: { employeeId: appEmpId, action: 'in', refusedFor: null } })).toBe(1)
+  })
+})
+
+/**
+ * The punch method (client, 14 Oct 2026): exactly one way a punch is proved —
+ * the office fence, a live selfie, or both — and the punch asks for that and
+ * nothing else; one phone works with whichever. A method that checks the
+ * office cannot be had without one, the office cannot go while it is used,
+ * and phones are decided by whoever holds the power — never a role's name.
+ */
+describe('the punch method (client, 14 Oct 2026)', () => {
+  const SELFIE = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA='
+  const DESKTOP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36'
+  const security = (data: object) => prisma.organization.update({ where: { id: orgId }, data })
+  const todayColumn = () => new Date(`${new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })}T00:00:00Z`)
+  const startOf = (key: string, action: 'in' | 'out', body: object = {}, ua = PHONE_UA) =>
+    request(app).post('/api/attendance/punch-start').set({ Authorization: at(key), 'User-Agent': ua }).send({ action, ...body })
+  /** A punch with a phone key: the start carries it too, as the page sends it. */
+  async function punchFrom(key: string, action: 'in' | 'out', deviceKey: string, body: object = {}) {
+    const begun = await startOf(key, action, { deviceKey })
+    if (begun.status !== 200) return begun
+    return request(app).post(`/api/attendance/punch-${action}`).set(phone(key)).send({ token: begun.body.data.token, deviceKey, ...asBurst(body) })
+  }
+  let hrEmpId = ''
+
+  beforeAll(async () => {
+    await makeUser('padmin', 'admin', { withEmployee: false })
+    await makeUser('pmgr', 'manager', { withEmployee: false })
+    hrEmpId = (await makeUser('phr', 'hr', { attendanceMode: 'app' }))!
+  })
+
+  afterEach(async () => {
+    await security({ punchMethod: 'location', punchOneDevice: false })
+    await prisma.punchDevice.deleteMany({ where: { organizationId: orgId } })
+    await prisma.employee.update({ where: { id: hrEmpId }, data: { reportingManagerId: null } })
+  })
+
+  it('Selfie: no location asked or needed — with no office at all — a live photo; none, refused; out the same way', async () => {
+    await security({ punchMethod: 'selfie' })
+    await prisma.geofenceLocation.updateMany({ where: { organizationId: orgId }, data: { isActive: false } })
+    try {
+      expect((await startOf('app', 'in')).body.data).toMatchObject({ location_needed: false, photo_needed: true, radius_meters: null })
+      expect((await request(app).get('/api/attendance/me/workplace').set(phone('app'))).body.data)
+        .toMatchObject({ punch_method: 'selfie', location_needed: false, check_out_location_needed: false, photo_needed: true })
+      const none = await punchIn('app', {})
+      expect(none.status).toBe(403)
+      expect(none.body.error.message).toMatch(/with your photo/)
+      const res = await punchIn('app', { photo: SELFIE })
+      expect(res.status).toBe(201)
+      expect(res.body.data).toMatchObject({ punch_method: 'selfie', geofence: null })
+      const day = await prisma.attendance.findFirstOrThrow({ where: { employeeId: appEmpId } })
+      expect([day.punchMethod, day.geofenceVerified]).toEqual(['selfie', null])
+      expect((await punchOut('app', {})).status).toBe(403)
+      expect((await punchOut('app', { photo: SELFIE })).status).toBe(200)
+    } finally {
+      await prisma.geofenceLocation.updateMany({ where: { organizationId: orgId }, data: { isActive: true } })
+    }
+  })
+
+  it('Location + Selfie: wherever they are — no office needed, nothing fenced — the current location is a must, then the photo; both kept, out the same way', async () => {
+    await security({ punchMethod: 'location_selfie' })
+    await prisma.geofenceLocation.updateMany({ where: { organizationId: orgId }, data: { isActive: false } })
+    try {
+      expect((await startOf('app', 'in')).body.data).toMatchObject({ location_needed: true, photo_needed: true, radius_meters: null, accuracy_meters: null })
+      expect((await request(app).get('/api/attendance/me/workplace').set(phone('app'))).body.data)
+        .toMatchObject({ punch_method: 'location_selfie', location_needed: true, fence_needed: false, check_out_location_needed: true, photo_needed: true })
+      const noLocation = await punchIn('app', { photo: SELFIE })
+      expect(noLocation.status).toBe(403)
+      expect(noLocation.body.error.message).toMatch(/Location is required to check in/)
+      const noPhoto = await punchIn('app', goodReading)
+      expect(noPhoto.status).toBe(403)
+      expect(noPhoto.body.error.message).toMatch(/with your photo/)
+      expect(await prisma.attendance.count({ where: { employeeId: appEmpId, checkIn: { not: null } } })).toBe(0)
+      // At a warehouse 3 km from the office: taken — the place kept, nothing judged against an office.
+      const warehouse = { latitude: OFFICE.latitude + 0.027, longitude: OFFICE.longitude, accuracyMeters: 9 }
+      const both = await punchIn('app', { ...warehouse, photo: SELFIE })
+      expect(both.status).toBe(201)
+      expect(both.body.data).toMatchObject({ punch_method: 'location_selfie', geofence: null })
+      const day = await prisma.attendance.findFirstOrThrow({ where: { employeeId: appEmpId } })
+      expect([Number(day.checkInLatitude).toFixed(4), day.geofenceVerified]).toEqual([warehouse.latitude.toFixed(4), null])
+      const kept = await prisma.punchEvidence.findFirstOrThrow({ where: { employeeId: appEmpId, refusedFor: null }, orderBy: { at: 'desc' } })
+      expect([kept.fenceApplied, kept.accuracyMeters, kept.photoKey !== null, kept.flags]).toEqual([false, 9, true, []])
+      // Out the same way: the location again, then the photo.
+      expect((await punchOut('app', { photo: SELFIE })).status).toBe(403)
+      expect((await punchOut('app', warehouse)).status).toBe(403)
+      expect((await punchOut('app', { ...warehouse, photo: SELFIE })).status).toBe(200)
+    } finally {
+      await prisma.geofenceLocation.updateMany({ where: { organizationId: orgId }, data: { isActive: true } })
+    }
+  })
+
+  it('Location + Selfie: a location too vague to say where is taken — never refused — and flagged for HR', async () => {
+    await security({ punchMethod: 'location_selfie' })
+    // "Precise location" off: the phone guesses by a kilometre.
+    expect((await punchIn('app', { ...OFFICE, accuracyMeters: 1500, photo: SELFIE })).status).toBe(201)
+    expect((await prisma.punchEvidence.findFirstOrThrow({ where: { employeeId: appEmpId, refusedFor: null }, orderBy: { at: 'desc' } })).flags).toContain('location_vague')
+    // On the Suspicious list, with where it was, for the map.
+    const list = (await request(app).get('/api/attendance/suspicious').set(phone('operator'))).body.data.days as { employee_id: string; punches: { flags: string[]; latitude: number | null }[] }[]
+    const hers = list.find((d) => d.employee_id === appEmpId)!.punches[0]!
+    expect(hers.flags).toContain('location_vague')
+    expect(hers.latitude).toBeCloseTo(OFFICE.latitude, 5)
+    // On a day away from the office too, the location is read: the method says so, wherever they work.
+    await prisma.employee.update({ where: { id: appEmpId }, data: { workArrangement: 'remote' } })
+    try {
+      expect((await request(app).get('/api/attendance/me/workplace').set(phone('app'))).body.data)
+        .toMatchObject({ work_mode: 'remote', location_needed: true, fence_needed: false, photo_needed: true })
+      // …and the check-out without it is refused in the check-out's own words.
+      const noLocation = await punchOut('app', { photo: SELFIE })
+      expect(noLocation.status).toBe(403)
+      expect(noLocation.body.error.message).toMatch(/^Location is required to check out/)
+    } finally {
+      await prisma.employee.update({ where: { id: appEmpId }, data: { workArrangement: 'office' } })
+    }
+  })
+
+  it('Location: a computer is refused — phones only is a rule now, not a switch — and no photo is asked', async () => {
+    const computer = await startOf('app', 'in', {}, DESKTOP_UA)
+    expect(computer.status).toBe(403)
+    expect(computer.body.error.message).toMatch(/Check in from your phone/)
+    expect((await startOf('app', 'in')).body.data).toMatchObject({ location_needed: true, photo_needed: false })
+  })
+
+  it('a check-out follows the method its day was checked in with, not the company’s since — either way round', async () => {
+    await security({ punchMethod: 'selfie' })
+    expect((await punchIn('app', { photo: SELFIE })).status).toBe(201)
+    await security({ punchMethod: 'location' })
+    expect((await startOf('app', 'out')).body.data).toMatchObject({ location_needed: false, photo_needed: true })
+    expect((await request(app).get('/api/attendance/me/today').set(phone('app'))).body.data.punch_method).toBe('selfie')
+    expect((await punchOut('app', { photo: SELFIE })).status).toBe(200)
+
+    await prisma.punchEvidence.deleteMany({ where: { employeeId: appEmpId } })
+    await prisma.attendance.deleteMany({ where: { employeeId: appEmpId } })
+    expect((await punchIn('app', goodReading)).status).toBe(201)
+    await security({ punchMethod: 'location_selfie' })
+    expect((await startOf('app', 'out')).body.data).toMatchObject({ location_needed: true, photo_needed: false })
+    expect((await punchOut('app', goodReading)).status).toBe(200)
+  })
+
+  it('one phone works with the Selfie method as with the location — and a computer is never somebody’s phone', async () => {
+    await security({ punchMethod: 'selfie', punchOneDevice: true })
+    // A laptop's selfie would register it, and the real phone wait once the method checks the location.
+    const laptop = await startOf('app', 'in', { deviceKey: 'selfie-laptop-0123456789' }, DESKTOP_UA)
+    expect(laptop.status).toBe(403)
+    expect(laptop.body.error.message).toMatch(/from your phone: each person checks in and out from their own phone/)
+    expect(await prisma.punchDevice.count({ where: { employeeId: appEmpId } })).toBe(0)
+    expect((await punchFrom('app', 'in', 'selfie-phone-a-0123456789', { photo: SELFIE })).status).toBe(201)
+    const other = await punchFrom('app', 'out', 'selfie-phone-b-0123456789', { photo: SELFIE })
+    expect(other.status).toBe(403)
+    expect(other.body.error.message).toMatch(/not the one registered for you/)
+    expect((await punchFrom('app', 'out', 'selfie-phone-a-0123456789', { photo: SELFIE })).status).toBe(200)
+  })
+
+  it('a reset waits while a phone waits: replace with it, or refuse it, first — so nobody is told a phone will register when it will not', async () => {
+    await security({ punchOneDevice: true })
+    expect((await startOf('app', 'in', { deviceKey: 'wait-phone-a-0123456789' })).status).toBe(200)
+    expect((await startOf('app', 'in', { deviceKey: 'wait-phone-b-0123456789' })).status).toBe(403)
+    const phones = (await request(app).get(`/api/attendance/devices?status=all&employee=${appEmpId}`).set(phone('operator'))).body.data.phones as { id: string; status: string }[]
+    const theirs = phones.find((p) => p.status === 'approved')!
+    const waiting = phones.find((p) => p.status === 'waiting')!
+    const refused = await request(app).post(`/api/attendance/devices/${theirs.id}/retire`).set(phone('operator'))
+    expect(refused.status).toBe(409)
+    expect(refused.body.error.message).toMatch(/is waiting for app person: replace their phone with it, or refuse it first/)
+    // Refused first: then the reset goes through.
+    expect((await request(app).post(`/api/attendance/devices/${waiting.id}/retire`).set(phone('operator'))).status).toBe(200)
+    expect((await request(app).post(`/api/attendance/devices/${theirs.id}/retire`).set(phone('operator'))).status).toBe(200)
+  })
+
+  it('a method that checks the office needs one saved; the office cannot go while the method uses it; a day begun against it still closes', async () => {
+    const put = (body: object) => request(app).put('/api/settings/attendance-security').set(phone('operator')).send(body)
+    const office = await prisma.geofenceLocation.findFirstOrThrow({ where: { organizationId: orgId, isActive: true } })
+    const remove = () => request(app).delete(`/api/settings/geofence/${office.id}`).set(phone('operator'))
+    try {
+      const used = await remove()
+      expect(used.status).toBe(409)
+      expect(used.body.error.message).toMatch(/Choose Selfie, or Location \+ Selfie, as the method first/)
+      const off = await request(app).put('/api/settings/geofence').set(phone('operator'))
+        .send({ name: office.name, latitude: Number(office.latitude), longitude: Number(office.longitude), radiusMeters: 20, isActive: false })
+      expect(off.status).toBe(409)
+      // Somebody checked in by the fence before the change…
+      expect((await punchIn('app', goodReading)).status).toBe(201)
+      expect((await put({ punchMethod: 'selfie' })).body.data).toMatchObject({ method: 'selfie', office_set: true })
+      // The version before reads the old selfie switch: kept in step, so a rollback keeps the photo.
+      expect((await prisma.organization.findUniqueOrThrow({ where: { id: orgId } })).punchSelfie).toBe(true)
+      expect((await remove()).status).toBe(204)
+      // …is never left with a day nobody can close: the office gone, the company's method (a photo) closes it.
+      expect((await startOf('app', 'out')).body.data).toMatchObject({ location_needed: false, photo_needed: true })
+      expect((await punchOut('app', { photo: SELFIE })).status).toBe(200)
+      // No office now: the methods that check it are refused, saying what to do.
+      // No office now: Location — the only method that checks it — is refused, saying what to do…
+      const refused = await put({ punchMethod: 'location' })
+      expect(refused.status).toBe(409)
+      expect(refused.body.error.message).toMatch(/Set and save the office location first/)
+      // …while Location + Selfie, wherever they are, needs none.
+      expect((await put({ punchMethod: 'location_selfie' })).body.data).toMatchObject({ method: 'location_selfie', office_set: false })
+      expect((await put({ punchMethod: 'selfie' })).status).toBe(200)
+      expect((await request(app).get('/api/settings/attendance-security').set(phone('operator'))).body.data).toMatchObject({ method: 'selfie', office_set: false })
+      // Never none, never anything else.
+      expect((await put({ punchMethod: 'none' })).status).toBe(422)
+      expect((await put({ punchSelfie: true })).status).toBe(422)
+      // The audit log says the method, in words.
+      const changed = await request(app).get('/api/audit-log?category=settings').set(phone('operator'))
+      expect(JSON.stringify(changed.body.data)).toMatch(/attendance method location → selfie/)
+    } finally {
+      await prisma.organization.update({ where: { id: orgId }, data: { punchSelfie: false } })
+      await prisma.geofenceLocation.upsert({
+        where: { id: office.id },
+        update: { isActive: true },
+        create: { id: office.id, organizationId: orgId, name: office.name, latitude: office.latitude, longitude: office.longitude, radiusMeters: office.radiusMeters, maxAccuracyMeters: office.maxAccuracyMeters },
+      })
+    }
+  })
+
+  it('phones are decided by whoever holds the power — Admin to start, with no attendance pages; never a role without it; the Super Admin changes who', async () => {
+    await security({ punchOneDevice: true })
+    const adminLogin = await prisma.user.findFirstOrThrow({ where: { email: `${PREFIX}-padmin@example.com` } })
+    const told = () => prisma.notification.count({ where: { userId: adminLogin.id, event: 'attendance.device_waiting', link: `/employees/${appEmpId}?tab=logins` } })
+    const before = await told()
+    expect((await startOf('app', 'in', { deviceKey: 'power-phone-a-0123456789' })).status).toBe(200)
+    expect((await startOf('app', 'in', { deviceKey: 'power-phone-b-0123456789' })).status).toBe(403)
+    // The people told: whoever holds the power and may decide hers — Admin among them, linked to her page.
+    expect(await told()).toBe(before + 1)
+    const listed = await request(app).get(`/api/attendance/devices?status=all&employee=${appEmpId}`).set(phone('padmin'))
+    expect(listed.status).toBe(200)
+    expect(listed.body.data.one_device).toBe(true)
+    const waitingId = listed.body.data.phones[0].id
+    expect(listed.body.data.phones.map((d: { status: string }) => d.status)).toEqual(['waiting', 'approved'])
+    expect(listed.body.data.phones[0]).toMatchObject({ may_decide: true, ask: null })
+    // A Manager holds no such power.
+    expect((await request(app).get('/api/attendance/devices').set(phone('pmgr'))).status).toBe(403)
+    expect((await request(app).post(`/api/attendance/devices/${waitingId}/approve`).set(phone('pmgr'))).status).toBe(403)
+    // Replace: the new phone theirs, the old one off — in one step.
+    expect((await request(app).post(`/api/attendance/devices/${waitingId}/approve`).set(phone('padmin'))).status).toBe(200)
+    const after = await prisma.punchDevice.findMany({ where: { employeeId: appEmpId }, orderBy: { firstSeenAt: 'asc' } })
+    expect(after.map((d) => d.status)).toEqual(['retired', 'approved'])
+    // The Super Admin takes the power from Admin: refused from the next request.
+    const adminRole = await prisma.role.findFirstOrThrow({ where: { organizationId: orgId, key: 'admin' } })
+    await prisma.role.update({ where: { id: adminRole.id }, data: { permissions: adminRole.permissions.filter((p) => p !== 'user:device:manage') } })
+    expect((await request(app).get('/api/attendance/devices').set(phone('padmin'))).status).toBe(403)
+    // …and gives it to the Manager: theirs from the next request.
+    const managerRole = await prisma.role.findFirstOrThrow({ where: { organizationId: orgId, key: 'manager' } })
+    await prisma.role.update({ where: { id: managerRole.id }, data: { permissions: [...managerRole.permissions, 'user:device:manage'] } })
+    try {
+      expect((await request(app).get('/api/attendance/devices?status=all').set(phone('pmgr'))).status).toBe(200)
+    } finally {
+      await prisma.role.update({ where: { id: managerRole.id }, data: { permissions: managerRole.permissions } })
+      await prisma.role.update({ where: { id: adminRole.id }, data: { permissions: adminRole.permissions } })
+    }
+  })
+
+  it('with one phone off, the list says so — and a reset tells nobody a registration that will not happen', async () => {
+    await security({ punchOneDevice: true })
+    expect((await startOf('app', 'in', { deviceKey: 'off-phone-a-0123456789' })).status).toBe(200)
+    await security({ punchOneDevice: false })
+    const listed = (await request(app).get(`/api/attendance/devices?status=all&employee=${appEmpId}`).set(phone('padmin'))).body.data
+    expect(listed.one_device).toBe(false)
+    const appLogin = await prisma.membership.findFirstOrThrow({ where: { employeeId: appEmpId } })
+    const resets = () => prisma.notification.count({ where: { userId: appLogin.userId, event: 'attendance.device_reset' } })
+    const before = await resets()
+    expect((await request(app).post(`/api/attendance/devices/${listed.phones[0].id}/retire`).set(phone('padmin'))).status).toBe(200)
+    expect(await resets()).toBe(before)
+  })
+
+  it('never a senior’s phone: somebody above the caller in the tree goes to the Super Admin', async () => {
+    await security({ punchOneDevice: true })
+    expect((await startOf('app', 'in', { deviceKey: 'senior-phone-a-0123456789' })).status).toBe(200)
+    expect((await startOf('app', 'in', { deviceKey: 'senior-phone-b-0123456789' })).status).toBe(403)
+    // The HR person reports to her: she is above them.
+    await prisma.employee.update({ where: { id: hrEmpId }, data: { reportingManagerId: appEmpId } })
+    const listed = (await request(app).get(`/api/attendance/devices?status=all&employee=${appEmpId}`).set(phone('phr'))).body.data.phones
+    expect(listed[0]).toMatchObject({ may_decide: false, ask: 'the Super Admin' })
+    const refused = await request(app).post(`/api/attendance/devices/${listed[0].id}/approve`).set(phone('phr'))
+    expect(refused.status).toBe(403)
+    expect(refused.body.error.message).toMatch(/above you in the company tree/)
+    expect((await request(app).post(`/api/attendance/devices/${listed[0].id}/approve`).set(phone('operator'))).status).toBe(200)
   })
 })
 
@@ -711,18 +1005,16 @@ describe('punching out — the thing that never worked', () => {
     expect((await punchOut('app')).status).toBe(200)
   })
 
-  it('with the check turned off, takes a check-out from anywhere — and keeps where it was', async () => {
-    await prisma.organization.update({ where: { id: orgId }, data: { punchCheckOutLocation: false } })
-    try {
-      await punchIn('app', goodReading)
-      const res = await punchOut('app', { latitude: 18.5234303, longitude: 73.8567437, accuracyMeters: 10 })
-      expect(res.status).toBe(200)
-      const kept = await prisma.punchEvidence.findFirstOrThrow({ where: { employeeId: appEmpId, action: 'out' }, orderBy: { at: 'desc' } })
-      expect([kept.fenceApplied, kept.refusedFor, kept.accuracyMeters]).toEqual([false, null, 10])
-      expect((await punchOut('app', {})).status).toBe(409)
-    } finally {
-      await prisma.organization.update({ where: { id: orgId }, data: { punchCheckOutLocation: true } })
-    }
+  it('a day the app did not begin is checked out by the company’s method — the fence, with the location method (14 Oct 2026)', async () => {
+    // HR began the day (no method kept on it): the check-out follows the company's method, the fence.
+    const day = new Date(`${new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })}T00:00:00Z`)
+    await prisma.attendance.create({ data: { organizationId: orgId, employeeId: appEmpId, date: day, status: 'present', source: 'manual', checkIn: new Date(Date.now() - 3_600_000) } })
+    const away = await punchOut('app', { latitude: 18.5234303, longitude: 73.8567437, accuracyMeters: 10 })
+    expect(away.status).toBe(403)
+    expect(away.body.error.code).toBe('LOCATION_REFUSED')
+    const res = await punchOut('app')
+    expect(res.status).toBe(200)
+    expect(res.body.data.punch_method).toBeNull()
   })
 })
 

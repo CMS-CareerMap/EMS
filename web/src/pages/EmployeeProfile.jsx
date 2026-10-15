@@ -15,9 +15,12 @@ import { Card, CardLink, Chip, EmptyState, Ring } from '../components/ui/bits'
 import { btn } from '../components/ui/styles'
 import AddEmployeeModal from '../features/employees/AddEmployeeModal'
 import EmployeeLogins from '../features/employees/EmployeeLogins'
+import PunchPhones from '../features/employees/PunchPhones'
 import EmploymentSection from '../features/employees/EmploymentSection'
 import EmployeeLeave from '../features/employees/EmployeeLeave'
-import { formatDay } from '../lib/dates'
+import PersonMonth from '../features/attendance/PersonMonth'
+import { usePersonMonth } from '../hooks/useAttendance'
+import { calendarDayIn, formatDay } from '../lib/dates'
 import { stageOf } from '../lib/lifecycle'
 
 /**
@@ -98,9 +101,11 @@ export default function EmployeeProfile() {
 
 function Profile({ employee }) {
   const can = useAuthStore((state) => state.can)
+  const ownId = useAuthStore((state) => state.profile?.id ?? null)
   const [params, setParams] = useSearchParams()
   const [editing, setEditing] = useState(false)
   const checksDocuments = can('document:verify')
+  const decidesPhones = can('user:device:manage')
   const has = (field) => Object.hasOwn(employee, field)
 
   const tabs = [
@@ -117,6 +122,10 @@ function Profile({ employee }) {
     // Their days a year of each leave type, for whoever manages leave balances
     // (client, 9 Oct 2026). Not for somebody who has left: nothing to grant.
     ...(can('leave:balance:manage') && !employee.archived_at ? [{ key: 'leave', label: 'Leave' }] : []),
+    // Their month of attendance (client, 15 Oct 2026) — the page their name on
+    // Attendance opens. The server decides whose: outside the caller's
+    // attendance reach the tab says so.
+    ...(can('attendance:read') ? [{ key: 'attendance', label: 'Attendance' }] : []),
   ]
   const tab = tabs.some((t) => t.key === params.get('tab')) ? params.get('tab') : 'about'
   const setTab = (key) => setParams(key === 'about' ? {} : { tab: key }, { replace: true })
@@ -167,11 +176,16 @@ function Profile({ employee }) {
           </Card>
         )
       )}
+      {/* The phone they punch from (client, 14 Oct 2026): app attendance only, somebody still here, never one's own — that goes up. */}
+      {tab === 'logins' && decidesPhones && employee.attendance_mode === 'app' && !left && (employee.id !== ownId || can('role:manage')) && (
+        <PunchPhones employee={employee} />
+      )}
       {tab === 'documents' && checksDocuments && <Documents employeeId={employee.id} />}
       {tab === 'salary' && <Salary employee={employee} />}
       {tab === 'statutory' && <Statutory employee={employee} />}
       {tab === 'bank' && <Bank employee={employee} />}
       {tab === 'leave' && <EmployeeLeave employeeId={employee.id} />}
+      {tab === 'attendance' && <Attendance employeeId={employee.id} />}
       </TabPanel>
 
       {/* Keyed, so each opening starts from the record as it is now. */}
@@ -229,6 +243,25 @@ function About({ employee }) {
         </Card>
       )}
     </div>
+  )
+}
+
+/** Their month of attendance, the month chosen here; the whole page is a link away. */
+function Attendance({ employeeId }) {
+  const timezone = useAuthStore((state) => state.organization?.timezone)
+  const today = calendarDayIn(timezone)
+  const [monthKey, setMonthKey] = useState(() => today.slice(0, 7))
+  const [year, month] = monthKey.split('-').map(Number)
+  const query = usePersonMonth(employeeId, year, month)
+  return (
+    <>
+      <PersonMonth query={query} monthKey={monthKey} onMonth={setMonthKey} today={today} />
+      {!query.isError && (
+        <Link to={`/attendance/people/${employeeId}?month=${monthKey}`} className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-800">
+          Open on Attendance<ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+        </Link>
+      )}
+    </>
   )
 }
 

@@ -1,5 +1,6 @@
 import { dayLabel, monthName, isCalendarDate } from '../shared/dates'
 import { NOTIFICATION_EVENTS, isNotificationEvent } from '../notifications/events'
+import { PUNCH_METHOD_WORDS } from '../attendance/punchMethod'
 
 /**
  * Every action the audit log records, what it is called, and how a row of it
@@ -276,7 +277,9 @@ const ACCOUNT_STATUS_WORDS: Record<string, string> = {
 
 /** Field names as a person would say them. Unknown ones are split out of camelCase. */
 const FIELD_LABELS: Record<string, string> = {
-  // Settings → Attendance Security (client, 11 Oct 2026).
+  // Settings → Attendance Security (client, 11 and 14 Oct 2026). The switches
+  // the punch method replaced keep their words: older rows name them.
+  punchMethod: 'attendance method',
   punchCheckOutLocation: 'check location at check-out',
   punchMachineMatch: 'confirm by the fingerprint machine',
   punchMachineMinutes: 'minutes the machine and the app may differ',
@@ -353,10 +356,11 @@ function changeList(value: unknown): string {
   return parts.length ? `: ${parts.join('; ')}` : ''
 }
 
-/** A stored value as words: text as it is, a number as digits, a switch as on or off. */
+/** A stored value as words: text as it is, a number as digits, a switch as on or off, a punch method as said. */
 function shown(value: unknown): string {
   if (typeof value === 'number' && Number.isFinite(value)) return String(value)
   if (typeof value === 'boolean') return value ? 'on' : 'off'
+  if (value === 'location_selfie') return PUNCH_METHOD_WORDS.location_selfie
   return text(value) ?? '(blank)'
 }
 
@@ -719,6 +723,9 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
     case 'attendance.device_approved':
       return `Approved ${text(d.label) ?? 'a phone'} for ${who()}’s punches${Number(d.retired) > 0 ? `, taking off ${count(d.retired, 'other phone')}` : ''}`
     case 'attendance.device_retired':
+      // Since 14 Oct 2026 the row says what the phone was: their phone, reset; or one that waited, refused.
+      if (d.was === 'approved') return `Reset ${who()}’s punch phone (${text(d.label) ?? 'a phone'}): the next new phone they punch from becomes theirs`
+      if (d.was === 'waiting') return `Refused ${text(d.label) ?? 'a phone'} for ${who()}’s punches`
       return `Took ${text(d.label) ?? 'a phone'} off ${who()}’s punches`
 
     case 'company.updated':
@@ -837,7 +844,7 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
     case 'payslip.downloaded':
       return d.own ? `Downloaded their own ${month(d)} payslip` : `Downloaded ${who()}’s ${month(d)} payslip`
     case 'payroll.bank_file_downloaded':
-      return `Downloaded the ${month(d)} bank file: ${count(d.payments, 'payment')}, ${money(d.total)}${Number(d.excluded) > 0 ? `, ${count(d.excluded, 'person', 'people')} left out` : ''}`
+      return `Downloaded the ${month(d)} bank file: ${count(d.payments, 'payment')}, ${money(d.total)}${Number(d.excluded) > 0 ? `, ${count(d.excluded, 'person', 'people')} left out` : ''}${d.partial === true ? ` — their own payroll's people only, ${count(d.others, 'other payslip')} of the month not in it` : ''}`
     case 'audit.exported':
       return `Exported the audit log: ${count(d.rows, 'row')}`
 

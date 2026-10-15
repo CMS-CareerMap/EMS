@@ -430,12 +430,12 @@ describe('a custom scope reaches only what the role can open (review fixes)', ()
     expect(inside.status, JSON.stringify(inside.body)).toBe(201)
   })
 
-  it('offers payslips only their own or the company’s, and refuses a team', async () => {
+  it('offers payslips every choice, as the other modules (15 Oct 2026) — a team’s included', async () => {
     const res = await create({ name: 'Payslip Team', description: '', parentKey: 'manager', permissions: ['payslip:read'], scopes: { payslip: 'DIRECT_REPORTS' } })
-    expect(res.status).toBe(400)
-    expect(res.body.error.message).toBe('For payslips, choose “Only their own” or “Whole company”.')
+    expect(res.status).toBe(201)
     const payslips = (await roles()).body.data.catalogue.modules.find((m: { key: string }) => m.key === 'payslips')
-    expect(payslips.scopes).toEqual(['SELF', 'ORGANIZATION'])
+    expect(payslips.scopes).toEqual(['SELF', 'DIRECT_REPORTS', 'ALL_REPORTS', 'DEPARTMENT', 'ORGANIZATION_EXCEPT_ABOVE', 'ORGANIZATION'])
+    expect((await remove(res.body.data.key)).status).toBe(204)
   })
 
   it('sends the request of somebody with nobody above to the Super Admin — not to a role that sees leave', async () => {

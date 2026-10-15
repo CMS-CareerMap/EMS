@@ -51,12 +51,11 @@ export async function componentInUse(db: ScopedDb, id: string): Promise<boolean>
   return amounts + entries > 0
 }
 
-/** People whose salary record in force today or later pays it. */
+/** People whose salary record in force today or later pays it — every one, so a refusal can name only those the caller may see. */
 export async function paidOnSalaries(db: ScopedDb, id: string, today: Date) {
   return db.employeeSalaryComponent.findMany({
     where: { salaryComponentId: id, financial: { OR: [{ effectiveTo: null }, { effectiveTo: { gte: today } }] } },
-    select: { financial: { select: { employee: { select: { fullName: true } } } } },
-    take: 10,
+    select: { financial: { select: { employee: { select: { id: true, fullName: true } } } } },
   })
 }
 

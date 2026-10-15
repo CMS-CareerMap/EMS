@@ -167,6 +167,9 @@ export const getBankFilePreview: RequestHandler = async (req, res) => {
     })),
     // False while the built-in layout is in use — the bank's own format not yet set up.
     template_saved: plan.template.saved,
+    // Some people's payroll only ("Whose payroll"): the file is theirs; `others` of the month's payslips are not in it.
+    partial: plan.partial,
+    others: plan.others,
   })
 }
 

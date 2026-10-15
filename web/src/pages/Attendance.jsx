@@ -60,8 +60,9 @@ export default function Attendance() {
   }
   // One person's punches that day, with their evidence (client, 11 Oct 2026).
   const [evidenceFor, setEvidenceFor] = useState(null)
-  const [date, setDate]             = useState(today)
-  const [monthKey, setMonthKey]     = useState(today.slice(0, 7))
+  // Back from somebody's month (client, 15 Oct 2026): the day or the month it was opened from.
+  const [date, setDate]             = useState(() => (/^\d{4}-\d{2}-\d{2}$/.test(params.get('date') ?? '') && params.get('date') <= today ? params.get('date') : today))
+  const [monthKey, setMonthKey]     = useState(() => (/^\d{4}-(0[1-9]|1[0-2])$/.test(params.get('month') ?? '') ? params.get('month') : today.slice(0, 7)))
   const [tab, setTab]               = useState('all')
   const [deptFilter, setDeptFilter] = useState('All')
   const [search, setSearch]         = useState('')

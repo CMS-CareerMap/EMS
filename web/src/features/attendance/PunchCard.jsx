@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import SelfieDialog from './SelfieDialog'
-import { LogIn, LogOut, Loader2, MapPin, CheckCircle2, Clock, Flag, AlertCircle } from 'lucide-react'
+import { LogIn, LogOut, Loader2, MapPin, CheckCircle2, Clock, Flag, AlertCircle, Camera } from 'lucide-react'
 import { useMyToday, useMyWorkplace, usePunchIn, usePunchOut } from '../../hooks/usePunch'
 import { useNow } from '../../hooks/useNow'
 import { WORK_MODES, minutesLabel } from '../../lib/requests'
@@ -10,7 +10,7 @@ import { Card, CardLink, Chip } from '../../components/ui/bits'
 import { btn } from '../../components/ui/styles'
 import { useAuthStore } from '../../stores/authStore'
 import { calendarDayIn, formatDay, isoInstant, wallClockIn } from '../../lib/dates'
-import { formatHours } from '../../lib/attendance'
+import { formatHours, methodNeeds } from '../../lib/attendance'
 import { LOCATION_UNREAD } from '../../lib/location'
 
 /**
@@ -98,6 +98,16 @@ function Today({ today, workplace, skewMs }) {
   useEffect(() => () => waiting.current?.(new Error('No photo was taken, so nothing was punched.')), [])
   const mode = today?.work_mode ?? workplace.data?.work_mode ?? 'office'
   const busy = punchIn.isPending || punchOut.isPending
+  // What a punch asks for (client, 14 Oct 2026): a check-in, the company's method today;
+  // a check-out, the method its day was checked in with — the company's for a day the app did not begin.
+  // Location checks the office fence; Location + Selfie reads where they are — any site — and only keeps it.
+  const inLocation = workplace.data?.location_needed === true
+  const inFence = workplace.data?.fence_needed === true
+  const inPhoto = workplace.data?.photo_needed === true
+  const dayNeeds = methodNeeds(today?.punch_method) ?? methodNeeds(workplace.data?.punch_method)
+  const outFence = mode === 'office' && dayNeeds?.fence === true
+  const outLocation = outFence || (dayNeeds?.location === true && dayNeeds?.fence === false)
+  const outPhoto = dayNeeds?.selfie === true
   const checkedIn = Boolean(today?.check_in)
   const checkedOut = Boolean(today?.check_out)
   // Checked in and not out yet: the time at work ticks by the second (the
@@ -179,7 +189,7 @@ function Today({ today, workplace, skewMs }) {
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
                 {/* Reading the GPS takes a few seconds, and saying so stops people from tapping again. */}
-                {workplace.data?.location_needed === false ? 'Checking in…' : 'Checking your location…'}
+                {inFence ? 'Checking your location…' : inLocation ? 'Reading your location…' : 'Checking in…'}
               </>
             ) : (
               <><LogIn className="w-4 h-4" />Check In</>
@@ -189,8 +199,8 @@ function Today({ today, workplace, skewMs }) {
         {checkedIn && !checkedOut && (
           <button onClick={() => punchOut.mutate({ takePhoto })} disabled={busy} className={btn.primary}>
             {punchOut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />}
-            {/* An office day's check-out reads the location too: a few seconds, said so nobody taps again. */}
-            {punchOut.isPending && mode === 'office' && workplace.data?.check_out_location_needed ? 'Checking your location…' : 'Check Out'}
+            {/* A check-out by the fence reads the location too: a few seconds, said so nobody taps again. */}
+            {punchOut.isPending ? (outFence ? 'Checking your location…' : outLocation ? 'Reading your location…' : 'Checking out…') : 'Check Out'}
           </button>
         )}
       </div>
@@ -208,7 +218,8 @@ function Today({ today, workplace, skewMs }) {
           <div className="text-sm text-red-800 space-y-1">
             <p>{refusedOut.message}</p>
             <p>
-              Already left the office?{' '}
+              {/* Refused at the office fence, or the location not read wherever they are (Location + Selfie). */}
+              {outFence ? 'Already left the office?' : 'Cannot share your location?'}{' '}
               <Link to={`/requests?new=attendance_correction&date=${today.date}&checkOut=${clock}`} className="font-semibold underline">
                 Ask HR to record your check-out
               </Link>{' '}
@@ -276,6 +287,13 @@ function Today({ today, workplace, skewMs }) {
           </span>
         </div>
       )}
+      {/* Location + Selfie: where they were is kept with the photo, never judged against an office. */}
+      {checkedIn && today?.punch_method === 'location_selfie' && (
+        <div className="flex items-center gap-2 text-xs text-emerald-700">
+          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+          <span>Your location was recorded with your photo</span>
+        </div>
+      )}
 
       {dayDone && (
         <p className="text-sm text-gray-500 text-center">Your day is recorded. See you tomorrow.</p>
@@ -288,18 +306,46 @@ function Today({ today, workplace, skewMs }) {
         />
       )}
 
-      {mode === 'office' && (!checkedIn || (atWork && workplace.data?.check_out_location_needed)) && (
+      {((!checkedIn && inFence) || (atWork && outFence)) && (
         <details className="group text-xs text-gray-500">
           <summary className="flex items-center gap-1.5 cursor-pointer list-none select-none hover:text-gray-700">
             <MapPin className="w-3.5 h-3.5 shrink-0" />
-            {checkedIn ? 'Your location is checked when you check out too' : 'Your location is checked when you check in'}
+            {checkedIn
+              ? `Your location is checked when you check out too${outPhoto ? ', then a photo is taken' : ''}`
+              : `Your location is checked when you check in${inPhoto ? ', then a photo is taken' : ''}`}
             <span className="text-brand-600 font-semibold group-open:hidden">· more</span>
           </summary>
           <p className="mt-1.5 pl-5">
             Allow location access and stay inside the office — your phone reads its location for a few seconds. A reading from outside the
             office, or one your phone is unsure about, is refused.
+            {(checkedIn ? outPhoto : inPhoto) && ' Without your location the camera does not open, and nothing is punched.'}
           </p>
         </details>
+      )}
+
+      {/* A location read and kept, never fenced — Location + Selfie at any site, or a day away that asks for it. */}
+      {((!checkedIn && inLocation && !inFence) || (atWork && outLocation && !outFence)) && (
+        <details className="group text-xs text-gray-500">
+          <summary className="flex items-center gap-1.5 cursor-pointer list-none select-none hover:text-gray-700">
+            <MapPin className="w-3.5 h-3.5 shrink-0" />
+            {checkedIn
+              ? `Your current location is recorded when you check out${outPhoto ? ', then a photo is taken' : ''}`
+              : `Your current location is recorded when you check in${inPhoto ? ', then a photo is taken' : ''}`}
+            <span className="text-brand-600 font-semibold group-open:hidden">· more</span>
+          </summary>
+          <p className="mt-1.5 pl-5">
+            Allow location access — your phone reads where you are for a few seconds, wherever you work today. It is kept with your punch.
+            {(checkedIn ? outPhoto : inPhoto) && ' Without your location the camera does not open, and nothing is punched.'}
+          </p>
+        </details>
+      )}
+
+      {/* A selfie with no location at all — the method is Selfie. */}
+      {((!checkedIn && inPhoto && !inLocation) || (atWork && outPhoto && !outLocation)) && (
+        <p className="flex items-center gap-1.5 text-xs text-gray-500">
+          <Camera className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+          {checkedIn ? 'A photo from your front camera is taken when you check out' : 'A photo from your front camera is taken when you check in'}
+        </p>
       )}
     </div>
   )

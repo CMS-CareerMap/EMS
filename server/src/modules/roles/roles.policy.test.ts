@@ -43,10 +43,12 @@ describe('the permission catalogue', () => {
     expect(offered).not.toContain('attendance:delete')
   })
 
-  it('offers payslips only their own or the whole company, and every other module every scope', () => {
-    expect(scopesFor('payslip')).toEqual(['SELF', 'ORGANIZATION'])
+  it('offers every module every scope — payslips and payroll as leave (15 Oct 2026)', () => {
     // With the two that follow the company tree (Day 22).
-    expect(scopesFor('leave')).toEqual(['SELF', 'DIRECT_REPORTS', 'ALL_REPORTS', 'DEPARTMENT', 'ORGANIZATION_EXCEPT_ABOVE', 'ORGANIZATION'])
+    const all = ['SELF', 'DIRECT_REPORTS', 'ALL_REPORTS', 'DEPARTMENT', 'ORGANIZATION_EXCEPT_ABOVE', 'ORGANIZATION']
+    for (const resource of ['employee', 'compensation', 'attendance', 'leave', 'payroll', 'payslip', 'document'] as const) {
+      expect({ resource, scopes: scopesFor(resource) }).toEqual({ resource, scopes: all })
+    }
   })
 
   it('names every permission in words, never twice the same', () => {
@@ -94,11 +96,21 @@ describe('what a role may be saved as', () => {
     ['missing what it needs', { permissions: ['leave:balance:manage'] }, /needs “See leave requests and balances” ticked too/],
     ['the leave approving that the company tree now decides', { permissions: ['leave:read', 'leave:approve'] }, /not one EMS knows/],
     ['a scope that is not one', { scopes: { leave: 'EVERYONE' } }, /Choose whose leave/],
-    ['a module that is not one', { scopes: { payroll: 'ORGANIZATION' } }, /not one EMS knows/],
+    ['a module that is not one', { scopes: { reports: 'ORGANIZATION' } }, /not one EMS knows/],
   ])('refuses %s', (_label, over, message) => {
     const r = checkRoleInput(input(over as Partial<Parameters<typeof checkRoleInput>[0]>), null, others, order)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.message).toMatch(message)
+  })
+
+  it('saves “Whose payroll” as chosen, whatever the payroll permissions — as every module (client, 15 Oct 2026)', () => {
+    for (const scope of ['SELF', 'DIRECT_REPORTS', 'ALL_REPORTS', 'DEPARTMENT', 'ORGANIZATION_EXCEPT_ABOVE', 'ORGANIZATION'] as const) {
+      const r = checkRoleInput(input({ permissions: ['payroll:structure:read', 'payroll:run:create', 'payroll:run:approve', 'employee:bank:read', 'payslip:read'], scopes: { payroll: scope, payslip: 'ORGANIZATION' } }), null, others, order)
+      expect(r.ok && r.role.scopes.payroll).toBe(scope)
+    }
+    // No payroll permission: stored as their own, like every module.
+    const none = checkRoleInput(input({ permissions: ['leave:read'], scopes: { payroll: 'ORGANIZATION' } }), null, others, order)
+    expect(none.ok && none.role.scopes.payroll).toBe('SELF')
   })
 
   it('lets a role keep its own name when edited', () => {
@@ -147,7 +159,7 @@ describe('keys and words', () => {
   })
 
   it('describes a change in the screen’s own words', () => {
-    const before = { permissions: ['leave:read'], scopes: { employee: 'SELF', compensation: 'SELF', attendance: 'SELF', leave: 'DIRECT_REPORTS', payslip: 'SELF', document: 'SELF' } as const }
+    const before = { permissions: ['leave:read'], scopes: { employee: 'SELF', compensation: 'SELF', attendance: 'SELF', leave: 'DIRECT_REPORTS', payroll: 'SELF', payslip: 'SELF', document: 'SELF' } as const }
     const after = { permissions: ['leave:read', 'leave:balance:manage'], scopes: { ...before.scopes, leave: 'ORGANIZATION' } as const }
     expect(describeChange(before, after)).toEqual({
       added: ['Give the yearly leave and correct balances'],

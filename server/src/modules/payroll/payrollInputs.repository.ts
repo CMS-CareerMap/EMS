@@ -54,9 +54,9 @@ export async function directivesFor(db: ScopedDb, employeeIds: string[], financi
 
 export type DirectiveRow = Awaited<ReturnType<typeof directivesFor>>[number]
 
-export async function listDirectives(db: ScopedDb, financialYear: number) {
+export async function listDirectives(db: ScopedDb, financialYear: number, people: Prisma.EmployeeWhereInput | null) {
   return db.employeeTdsDirective.findMany({
-    where: { financialYear },
+    where: { financialYear, ...(people ? { employee: people } : {}) },
     include: { employee: briefEmployee },
     orderBy: [{ employee: { employeeCode: 'asc' } }, { effectiveFrom: 'asc' }],
   })

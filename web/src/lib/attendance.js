@@ -25,7 +25,51 @@ export const PUNCH_FLAG_WORDS = {
   stale_reading: 'The reading’s time was far from the server’s',
   not_a_phone: 'From a computer, not a phone',
   new_device: 'From a phone not used in the last two months',
+  repeated_photo: 'The very same photo as an earlier punch — a camera never gives the same one twice',
+  mac_with_touch: 'An iPad — or a computer claiming a touch screen',
+  location_vague: 'The location was too vague to say where (over 100 m) — precise location may be off on the phone',
 }
+
+/**
+ * How an app punch is proved (client, 14 Oct 2026; the server's
+ * domain/attendance/punchMethod.ts): the Super Admin's one choice — never
+ * none. `steps` is what a check-in asks for, in order; `strength` is said
+ * beside it, honestly. Only Location checks the office (`fence`); Location +
+ * Selfie reads the location wherever the person is — one of several
+ * warehouses — and keeps it with the photo, for HR to see on the map.
+ */
+export const PUNCH_METHODS = {
+  location: {
+    label: 'Location',
+    needs: { location: true, fence: true, selfie: false },
+    steps: [{ icon: 'location', text: 'Inside the office radius, from a phone' }],
+    strength: { label: 'Medium', tone: 'warn' },
+    said: 'Check-in only inside the office saved below. A fake-location app is not caught by itself: the machine’s file and the flags help.',
+  },
+  selfie: {
+    label: 'Selfie',
+    needs: { location: false, fence: false, selfie: true },
+    steps: [{ icon: 'camera', text: 'A live photo from the front camera' }],
+    strength: { label: 'Low', tone: 'bad' },
+    said: 'A photo from anywhere — no office location. The room behind the person is the only proof of where they were.',
+  },
+  location_selfie: {
+    label: 'Location + Selfie',
+    needs: { location: true, fence: false, selfie: true },
+    steps: [
+      { icon: 'location', text: 'Their current location, wherever they are, from a phone' },
+      { icon: 'camera', text: 'Then a live photo from the front camera' },
+    ],
+    strength: { label: 'Good', tone: 'brand' },
+    said: 'For several sites — no office needed. Their current location first (no location, no camera), then the photo: both kept, and HR sees where on the map. Nothing is refused for where they stand.',
+  },
+}
+
+/** A map of where a punch was taken — Google Maps, in a new tab. */
+export const mapLink = (latitude, longitude) => `https://www.google.com/maps?q=${latitude},${longitude}`
+
+/** What a method asks of the phone; null for one this page does not know. */
+export const methodNeeds = (method) => PUNCH_METHODS[method]?.needs ?? null
 
 /** Why a punch was refused, in words — with how far, when it was the fence. */
 export function refusalWords(punch) {
@@ -128,6 +172,16 @@ export function payDayMaps(data) {
     absentOn: new Map((data?.absent_days ?? []).map((a) => [a.date, a])),
   }
 }
+
+/**
+ * How far the server's clock is ahead of this device's, in ms, from a month
+ * answer (`server_now`, `received_at`): today's time so far is counted by the
+ * server's clock, so a phone minutes out neither adds nor takes away.
+ */
+export const serverSkew = (d) => (d?.server_now && d?.received_at ? Date.parse(d.server_now) - d.received_at : 0)
+
+/** The day somebody is still at work on, from a month answer: { day, since } — today's, or a night shift's past midnight — or null. */
+export const openOf = (d) => (d?.totals?.open_since && d.totals.open_day ? { day: d.totals.open_day, since: d.totals.open_since } : null)
 
 /** A leave day's words: its type, "(half)" for half a day — said only where a type allows halves and one was taken. */
 export const leaveWords = (leave) => `${leave.leave_type_name}${leave.portion === 0.5 ? ' (half)' : ''}`

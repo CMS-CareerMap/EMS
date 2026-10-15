@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client'
 import type { ScopedDb } from '../../platform/db/scoped'
 import type { TxDb } from '../../platform/db/transaction'
 import { equalsInsensitive } from '../../platform/db/insensitive'
@@ -17,6 +18,11 @@ function inForceOn(on: Date) {
     effectiveFrom: { lte: on },
     OR: [{ effectiveTo: null }, { effectiveTo: { gte: on } }],
   }
+}
+
+/** Whether somebody is among `people` — the caller's payroll — before anything about them is worked out. */
+export async function employeeWithin(db: ScopedDb, employeeId: string, people: Prisma.EmployeeWhereInput | null): Promise<boolean> {
+  return (await db.employee.count({ where: { AND: [{ id: employeeId }, people ?? {}] } })) > 0
 }
 
 export async function findEmployee(db: ScopedDb, employeeId: string) {

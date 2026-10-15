@@ -1,6 +1,7 @@
 import type { ScopedDb } from '../../platform/db/scoped'
 import type { TxDb } from '../../platform/db/transaction'
 import { equalsInsensitive } from '../../platform/db/insensitive'
+import type { PunchMethod } from '../../domain/attendance/punchMethod'
 
 /**
  * Company configuration.
@@ -73,7 +74,7 @@ export interface GeofenceValues {
   isActive?: boolean
 }
 
-export async function findGeofence(db: ScopedDb, id: string) {
+export async function findGeofence(db: ScopedDb | TxDb, id: string) {
   return db.geofenceLocation.findFirst({ where: { id } })
 }
 
@@ -103,27 +104,28 @@ export async function deleteGeofence(db: TxDb, id: string) {
   return db.geofenceLocation.delete({ where: { id } })
 }
 
-/** Settings → Attendance Security (client, 11 Oct 2026): which layers the company has on. */
+/**
+ * Settings → Attendance Security (client, 11 and 14 Oct 2026): the punch
+ * method, one phone, and the fingerprint machine's file. The switches the
+ * method replaced (punchCheckOutLocation, punchPhoneOnly, punchSelfie) are
+ * left in the table for one release and read by nothing.
+ */
 export const ATTENDANCE_SECURITY_FIELDS = {
-  punchCheckOutLocation: true,
+  punchMethod: true,
   punchMachineMatch: true,
   punchMachineMinutes: true,
   punchMachineMissing: true,
   punchMachineFills: true,
-  punchPhoneOnly: true,
-  punchSelfie: true,
   punchSelfieKeepDays: true,
   punchOneDevice: true,
 } as const
 
 export type AttendanceSecurity = {
-  punchCheckOutLocation: boolean
+  punchMethod: PunchMethod
   punchMachineMatch: boolean
   punchMachineMinutes: number
   punchMachineMissing: 'flag' | 'absent'
   punchMachineFills: boolean
-  punchPhoneOnly: boolean
-  punchSelfie: boolean
   punchSelfieKeepDays: number
   punchOneDevice: boolean
 }
@@ -132,8 +134,9 @@ export async function attendanceSecurityOf(db: ScopedDb | TxDb, organizationId: 
   return db.organization.findUnique({ where: { id: organizationId }, select: ATTENDANCE_SECURITY_FIELDS })
 }
 
-export async function saveAttendanceSecurity(tx: TxDb, organizationId: string, data: Partial<AttendanceSecurity>): Promise<AttendanceSecurity> {
-  return tx.organization.update({ where: { id: organizationId }, data, select: ATTENDANCE_SECURITY_FIELDS })
+/** `legacy`: the old switch the version before still reads, kept in step for one release. */
+export async function saveAttendanceSecurity(tx: TxDb, organizationId: string, data: Partial<AttendanceSecurity>, legacy: { punchSelfie?: boolean } = {}): Promise<AttendanceSecurity> {
+  return tx.organization.update({ where: { id: organizationId }, data: { ...data, ...legacy }, select: ATTENDANCE_SECURITY_FIELDS })
 }
 
 export async function listLeaveTypes(db: ScopedDb) {

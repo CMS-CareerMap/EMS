@@ -281,6 +281,21 @@ export function downloadMyPayslip(id) {
   return saveFromApi(`/payslips/${id}/pdf`)
 }
 
+/**
+ * The paid payslips of the people "Whose payslips" reaches (client, 15 Oct
+ * 2026), a month at a time — the latest paid month until one is chosen — with
+ * the months there are. Under ['payslips'], so marking a payroll paid refreshes it.
+ */
+export function usePeoplesPayslips(monthKey, { enabled = true } = {}) {
+  const [year, month] = monthKey ? monthKey.split('-').map(Number) : []
+  return useQuery({
+    queryKey: ['payslips', 'people', monthKey ?? 'latest'],
+    queryFn: async () => (await api.get(`/payslips${year ? `?year=${year}&month=${month}` : ''}`)).data,
+    enabled,
+    placeholderData: (previous) => previous,
+  })
+}
+
 /** Where my salary is paid: the account Accounts recorded, its last four digits, or null. */
 export function useMyBankAccount() {
   return useQuery({

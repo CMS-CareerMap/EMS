@@ -81,7 +81,7 @@ The order decides who may hand out or manage which role (§8). It does **not** p
 | Holidays | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
 | Payroll — salary structures, runs | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ |
 | Payroll — approve, reopen | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Payroll — incentives | ✅ | ❌ | ✅ (within salary scope) | ❌ | ✅ | ❌ |
+| Payroll — incentives | ✅ | ❌ | ✅ (all but seniors') | ❌ | ✅ | ❌ |
 | Bank accounts — record, check | ✅ | ❌ | ❌ | ❌ | ✅ | send in own |
 | Bank transfer file | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ |
 | Payslips | ✅ all | own | own | own | ✅ all | own |
@@ -94,6 +94,7 @@ The order decides who may hand out or manage which role (§8). It does **not** p
 | Users, roles, company tree, approvals | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Set employees’ passwords — give an employee login, set a new password (§7.5) | ✅ any login | ❌ | ✅ employee logins | ❌ | ❌ | ❌ |
 | Change one's own password | ✅ | ❌ ask the Super Admin | ❌ ask the Super Admin | ❌ ask the Super Admin | ❌ ask the Super Admin | ❌ ask HR |
+| Replace or reset a person's punch phone (one phone per employee, 14 Oct 2026) | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | Audit log | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Notifications (the bell) | own | own | own | own | own | own |
 
@@ -103,11 +104,25 @@ Notes:
 
 - **Admin, HR:** Settings opens only for the tabs they run: leave types (Admin, HR), holidays (HR) and the document checklist (Admin, HR). HR also reads the Employee Lifecycle tab.
 - **HR and the lifecycle.** HR holds `employee:lifecycle:manage` (needs `employee:update`), within its employee scope. Accepting a resignation needs no tick: the person somebody reports to accepts it, as with leave.
-- **HR and salaries.** HR holds `employee:compensation:read` with the scope "Whole company, except seniors". HR sees salaries on employee records, never a senior's. HR does **not** hold `payroll:structure:read`, because Payroll shows every salary to whoever opens it.
+- **HR and salaries.** HR holds `employee:compensation:read` with the scope "Whole company, except seniors". HR sees salaries on employee records, never a senior's. HR does **not** hold `payroll:structure:read`, so it has no Payroll pages. It enters monthly incentives for the same people whose salaries it sees ("Whose payroll: Whole company, except seniors").
+- **Whose payroll** (15 Oct 2026). The Payroll module has a scope of its own, with the same choices as "Whose leave", and it works the same way: the choice decides whom the role is shown.
+  - It decides whose salaries, incentives, tax, loans, bank accounts, payslips, bank file lines and payroll reports a role works with. It also decides whose Bank account tab the role sees on a profile.
+  - Someone outside it is not found.
+  - With some people's payroll, a run, the home page's payroll card and the payroll reports show those people's figures only, never the company's totals.
+  - What a role may do is its ticks, as in every module. The month's payroll is one run for the company, so a role with "Prepare" or "Approve" ticked prepares or approves the month, while seeing only its own people in it. Anything about people outside its choice is counted, never named.
+- **Whose payslips** (15 Oct 2026) offers every choice too, like the other modules.
+  - With anything beyond "Only their own", Payslips gets a **People's payslips** tab: the paid payslips of the people chosen, a month at a time, each with its PDF.
+  - A payslip outside the choice is not found.
 - **Accounts** has no `employee:read`. Salaries and bank details reach Accounts through the payroll screens only.
 - **Admin and Accounts cannot apply for leave** from their role login. They do it from their employee login (§7).
 - **Manager, RM and Accounts** have no employee documents, so they cannot upload even their own from the role login. That is still an open question for the client (§12). From the employee login they can.
 - **HR and passwords.** HR holds `user:password:set`: it gives an employee login to somebody below HR who has none, and sets the password of an employee login — never a role login's, never its own, never a senior's. The two password rows are the starting settings (§7.5); handed back to the person, they change their own.
+- **Punch phones** (14 Oct 2026). `user:device:manage` — "Replace or reset the phone a person punches from" — is held by the Super Admin, HR and Admin to start, and the Super Admin gives it to any role or takes it away. It reaches the people the role's **employee** records reach (like the login permissions), so Admin, with no attendance permissions, replaces phones from the person's page (Punch phone card). Never one's own phone, a fellow phone-keeper's, or a senior's: those go up the tree (§6). It matters only while "One phone per employee" is on (Settings → Attendance Security).
+- **One person's attendance** (15 Oct 2026).
+  - A name on Attendance opens that person's month: the roster, the month's hours, Suspicious, and the Attendance tab on a profile.
+  - The month shows the calendar, the days, and the month so far counted to today, live while they are in. It includes paid days and unpaid days (loss of pay).
+  - The page follows the **attendance** scope: HR and the Super Admin see anybody, a manager their team, an employee themselves. Anybody else is told it is not theirs to see.
+  - Evidence of punches is never shown for one's own days, except to the Super Admin.
 
 ### 3.3 The starting scopes
 
@@ -117,6 +132,7 @@ Notes:
 | Salaries | Company | Own | Company except seniors | Own | Company | Own |
 | Attendance | Company | Own | Company | Team | Own | Own |
 | Leave | Company | Own | Company | Team | Own | Own |
+| Payroll | Company | Own | Company except seniors | Own | Company | Own |
 | Payslips | Company | Own | Own | Own | Company | Own |
 | Documents | Company | Company | Company | Own | Own | Own |
 
@@ -457,6 +473,8 @@ Accounts sets salaries → creates the month's run (draft) → recalculates as n
 - [ ] The menu shows only what the role opens; a direct URL to anything else is refused
 - [ ] A custom role does exactly what its ticks and scopes say, after a save, on the next click
 - [ ] HR sees every salary on employee records except the seniors'; never Payroll
+- [ ] A payroll role for one department sees only that department's salaries, bank accounts, payslips, bank file lines and reports; its share of a run is marked as such; what it may do is its ticks, as in every module
+- [ ] A name on Attendance opens that person's month, for whoever's attendance reach takes them in; anybody else is told "Not yours to see"
 
 **The tree**
 - [ ] Leave goes to the reporting manager, whatever their role; nobody above → the Super Admin

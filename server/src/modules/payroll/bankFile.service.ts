@@ -21,6 +21,7 @@ import { toCsv } from '../../domain/shared/csv'
 import { fromDateColumn, monthKey, type CalendarDate } from '../../domain/shared/dates'
 import * as bankRepo from './bankAccount.repository'
 import * as runRepo from './payrollRun.repository'
+import { payrollPeople } from './payrollReach'
 
 /**
  * The bank transfer advice: the file Accounts uploads to the bank to pay the
@@ -101,6 +102,9 @@ export interface BankFilePlan {
   payments: (BankPayment & { payslipId: string; employeeId: string })[]
   excluded: { payslipId: string; employeeId: string; employeeCode: string; fullName: string; netPayable: number; reason: BankExclusion }[]
   total: number
+  /** Some people's payroll only ("Whose payroll"): the file is theirs, and `others` payslips of the month are not in it. */
+  partial: boolean
+  others: number
 }
 
 async function planFile(ctx: AppContext, runId: string, payDate?: CalendarDate): Promise<BankFilePlan> {
@@ -115,7 +119,8 @@ async function planFile(ctx: AppContext, runId: string, payDate?: CalendarDate):
   }
 
   const template = await getTemplate(ctx)
-  const slips = await runRepo.payslipSummaries(ctx.db, runId)
+  // The people the caller's payroll reaches ("Whose payroll"): everybody's for the whole company, a department's for its own.
+  const slips = await runRepo.payslipSummaries(ctx.db, runId, payrollPeople(ctx))
   const accounts = new Map(
     (await bankRepo.accountsOf(ctx.db, slips.map((s) => s.employeeId))).map((a) => [a.employeeId, a]),
   )
@@ -162,6 +167,9 @@ async function planFile(ctx: AppContext, runId: string, payDate?: CalendarDate):
     payments,
     excluded,
     total,
+    partial: payrollPeople(ctx) !== null,
+    // The month's payslips this file leaves out: the people outside the caller's payroll.
+    others: Math.max(0, run.employeeCount - slips.length),
   }
 }
 
@@ -186,7 +194,7 @@ export async function bankFileCsv(ctx: AppContext, runId: string, payDate?: Cale
     action: 'payroll.bank_file_downloaded',
     entityType: 'payroll_run',
     entityId: plan.run.id,
-    details: { year: plan.run.year, month: plan.run.month, payments: plan.payments.length, total: formatAmount(plan.total), excluded: plan.excluded.length },
+    details: { year: plan.run.year, month: plan.run.month, payments: plan.payments.length, total: formatAmount(plan.total), excluded: plan.excluded.length, partial: plan.partial, others: plan.others },
   })
 
   return {

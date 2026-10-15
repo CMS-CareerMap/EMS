@@ -108,6 +108,8 @@ export const getPayroll: RequestHandler = async (_req, res) => {
         year: r.year,
         month: r.month,
         status: r.status,
+        // The figures are of the caller's payroll only ("Whose payroll"), not the company's.
+        partial: r.partial,
         employees: r.employees,
         gross: r.gross,
         deductions: r.deductions,

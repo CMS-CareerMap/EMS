@@ -15,7 +15,7 @@ import { companyToday } from '../organization/organization.service'
 import { BusinessRule } from '../../platform/errors/AppError'
 import * as repo from './payrollInputs.repository'
 import { assertWorkGoesUp, checkWork, loadWork } from '../organization/workRules.service'
-import { employeesInScope } from '../../platform/authz/scopeWhere'
+import { payrollPeople } from './payrollReach'
 
 /**
  * What people enter before a payroll run — the accountant's TDS directives,
@@ -61,8 +61,9 @@ export interface DirectiveInput {
   reason?: string | null | undefined
 }
 
+/** The year's directives of the people in the caller's payroll. */
 export async function listTdsDirectives(ctx: AppContext, financialYear: number) {
-  return repo.listDirectives(ctx.db, financialYear)
+  return repo.listDirectives(ctx.db, financialYear, payrollPeople(ctx))
 }
 
 /** Whether TDS is deducted under today's rules — for screens that cannot read Settings. */
@@ -79,7 +80,7 @@ export async function tdsEnabledToday(ctx: AppContext): Promise<boolean> {
  * corrects it; the audit row keeps what it said before.
  */
 export async function setTdsDirective(ctx: AppContext, input: DirectiveInput) {
-  const employee = await repo.findEmployeeBrief(ctx.db, input.employeeId)
+  const employee = await repo.findEmployeeBrief(ctx.db, input.employeeId, payrollPeople(ctx))
   if (!employee) throw NotFound('Employee not found')
   // Tax on your own pay — or on that of somebody who enters salaries too — is
   // entered by the people above them in the company tree (Day 22).
@@ -162,10 +163,12 @@ export interface EntryInput {
 /**
  * The month's entries — and the people whose amounts the caller may not
  * enter, each with whom to ask (Day 22: own work goes up the tree), so the
- * screen says so instead of offering a form the server would refuse.
+ * screen says so instead of offering a form the server would refuse. Whose:
+ * the caller's payroll ("Whose payroll", 15 Oct 2026) — HR's leaves out the
+ * people above them, as their salaries do.
  */
 export async function listMonthlyEntries(ctx: AppContext, year: number, month: number) {
-  const people = payPeople(ctx)
+  const people = payrollPeople(ctx)
   const [entries, work, outside] = await Promise.all([
     repo.entriesForMonth(ctx.db, year, month, people),
     loadWork(ctx.db, ctx.organizationId, 'incentive'),
@@ -180,21 +183,11 @@ export async function listMonthlyEntries(ctx: AppContext, year: number, month: n
     .map((b) => ({
       employeeId: b.employeeId,
       own: b.check.own,
-      // A senior's pay is not the caller's to see or set: whoever enters
-      // salaries does — by what they may do, not by a role's name.
-      ask: b.check.allowed ? 'whoever enters salaries in Payroll' : b.check.ask,
+      // Pay outside the caller's payroll — a senior's, for HR — is not theirs
+      // to see or set: whoever's payroll reaches the person does.
+      ask: b.check.allowed ? 'whoever looks after their payroll' : b.check.ask,
     }))
   return { entries, blocked }
-}
-
-/**
- * Whose incentives the caller may see and enter. Somebody who sees salaries
- * only through their record — HR, whose salary scope leaves out the people
- * above them (Day 22) — sees and enters only those people's: an incentive is
- * pay. Somebody who opens Payroll sees everybody's anyway (null: everybody).
- */
-function payPeople(ctx: AppContext) {
-  return ctx.can('payroll:structure:read') ? null : employeesInScope(ctx.scopeFor('compensation'))
 }
 
 /**
@@ -202,7 +195,7 @@ function payPeople(ctx: AppContext) {
  * in practice. Replaces what was there; nothing is added to it.
  */
 export async function setMonthlyEntry(ctx: AppContext, input: EntryInput) {
-  const employee = await repo.findEmployeeBrief(ctx.db, input.employeeId, payPeople(ctx))
+  const employee = await repo.findEmployeeBrief(ctx.db, input.employeeId, payrollPeople(ctx))
   if (!employee) throw NotFound('Employee not found')
   // Your own incentive — or that of somebody who enters incentives too — is
   // entered by the people above them in the company tree (Day 22).
@@ -280,7 +273,7 @@ export async function setMonthlyEntry(ctx: AppContext, input: EntryInput) {
 
 export async function deleteMonthlyEntry(ctx: AppContext, id: string): Promise<void> {
   const entry = await repo.findEntry(ctx.db, id)
-  const people = payPeople(ctx)
+  const people = payrollPeople(ctx)
   if (!entry || (people && !(await repo.employeeAmong(ctx.db, entry.employeeId, people)))) throw NotFound('Entry not found')
   await assertWorkGoesUp(ctx, ctx.db, 'incentive', entry.employeeId)
 

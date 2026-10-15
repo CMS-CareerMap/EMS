@@ -12,8 +12,8 @@ import { DATA_SCOPES, type DataScope, type ScopedResource } from './scope'
  *
  * `resource` ties a module to its data scope: the choice of whose information
  * the role reaches (only their own, their team, their department, the whole
- * company) applies to every permission in it. Modules without one — payroll,
- * reports, settings — act on the company as a whole.
+ * company) applies to every permission in it. Modules without one — reports,
+ * settings — act on the company as a whole, or by another module's reach.
  */
 
 export interface PermissionInfo {
@@ -43,9 +43,9 @@ export interface PermissionModule {
   /** The question the scope answers in this module: "Whose leave". */
   scopeQuestion?: string
   /**
-   * The scopes this module can honour, when not all of them. Payslips have no
-   * list of a team's or a department's — only one's own, or the whole
-   * company's through Payroll — so those are the only two offered.
+   * The scopes this module can honour, when not all of them. Every module
+   * honours all six today (Payslips since 15 Oct 2026); kept for one that
+   * cannot.
    */
   scopes?: readonly DataScope[]
   /** Said on the screen under the module's name: what its scope does NOT cover. */
@@ -86,7 +86,7 @@ export const PERMISSION_MODULES: readonly PermissionModule[] = [
     label: 'Salaries',
     resource: 'compensation',
     scopeQuestion: 'Whose salaries',
-    note: 'On employee records. Payroll and Reports show every salary to whoever can open them.',
+    note: 'On employee records. In Payroll, whose salaries a role sees is “Whose payroll”.',
     permissions: [{ key: 'employee:compensation:read', label: 'See salaries' }],
   },
   {
@@ -118,13 +118,14 @@ export const PERMISSION_MODULES: readonly PermissionModule[] = [
   {
     key: 'payroll',
     label: 'Payroll',
-    resource: null,
-    note: 'Payroll covers the whole company: whoever can open it sees every salary, payslip and bank account in it.',
+    resource: 'payroll',
+    scopeQuestion: 'Whose payroll',
+    note: 'The people chosen here are the ones whose salaries, incentives, tax, loans, bank accounts, payslips, bank file lines and payroll reports the role sees and works with.',
     permissions: [
       { key: 'payroll:structure:read', label: 'Open Payroll and see salary structures' },
       { key: 'payroll:structure:manage', label: 'Enter and change salaries', requires: ['payroll:structure:read'] },
-      // An incentive is pay: without seeing salaries, a role would reach only its
-      // own row — which goes up the tree — and the tick would do nothing.
+      // An incentive is pay: whoever enters it sees salaries too. Whose
+      // incentives is "Whose payroll"; one's own goes up the tree.
       { key: 'payroll:entry:manage', label: 'Enter monthly incentives', requires: ['employee:compensation:read'] },
       { key: 'payroll:run:create', label: 'Prepare the monthly payroll', requires: ['payroll:structure:read'] },
       { key: 'payroll:run:approve', label: 'Approve or reopen the payroll', requires: ['payroll:structure:read'] },
@@ -137,7 +138,7 @@ export const PERMISSION_MODULES: readonly PermissionModule[] = [
     label: 'Payslips',
     resource: 'payslip',
     scopeQuestion: 'Whose payslips',
-    scopes: ['SELF', 'ORGANIZATION'],
+    // Every choice, as the other modules (client, 15 Oct 2026): Payslips lists the paid payslips of the people chosen.
     permissions: [{ key: 'payslip:read', label: 'See payslips' }],
   },
   {
@@ -161,20 +162,21 @@ export const PERMISSION_MODULES: readonly PermissionModule[] = [
     key: 'reports',
     label: 'Reports',
     resource: null,
-    note: 'Reports cover the whole company, salaries included.',
+    note: 'Each report follows the role’s reach in its own module: attendance reports “Whose attendance”, payroll reports “Whose payroll”, and so on.',
     permissions: [{ key: 'report:read', label: 'See and download reports' }],
   },
   {
     key: 'settings',
     label: 'Settings and users',
     resource: null,
-    note: 'Logins are managed for the people “Whose records” (under Employees) reaches. The audit log shows the whole company.',
+    note: 'Logins and punch phones are managed for the people “Whose records” (under Employees) reaches. The audit log shows the whole company.',
     permissions: [
       { key: 'settings:read', label: 'Open company settings' },
       { key: 'settings:update', label: 'Change company settings', requires: ['settings:read'] },
       { key: 'user:invite', label: 'Invite people to EMS', reaches: 'employee' },
       { key: 'user:password:set', label: "Give employees a login and set their passwords (a role login's is the Super Admin's)", reaches: 'employee' },
       { key: 'user:status:update', label: 'Turn a login on or off', reaches: 'employee' },
+      { key: 'user:device:manage', label: 'Replace or reset the phone a person punches from (one phone per employee)', reaches: 'employee' },
       { key: 'user:delete', label: 'Remove a person from EMS (their login is closed and their record archived; history is kept)', reaches: 'employee' },
       { key: 'membership:role:assign', label: "Change a person's role", reaches: 'employee' },
       { key: 'audit:read', label: 'Read the audit log' },
@@ -207,6 +209,7 @@ export const RESOURCE_LABELS: Readonly<Record<ScopedResource, string>> = {
   compensation: 'Salaries',
   attendance: 'Attendance',
   leave: 'Leave',
+  payroll: 'Payroll',
   payslip: 'Payslips',
   document: 'Documents',
 }

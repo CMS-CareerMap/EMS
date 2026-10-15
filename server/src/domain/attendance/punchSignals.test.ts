@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { deviceKind, isPhone, punchSignals, STALE_MS } from './punchSignals'
+import { deviceKind, isPhone, punchSignals, STALE_MS, VAGUE_METRES } from './punchSignals'
 
 const at = (n: number) => 1_760_000_000_000 + n
 const real = [
@@ -35,6 +35,16 @@ describe('the signs a punch may not be what it seems (client, 11 Oct 2026)', () 
   it('a reading whose time is far from the server’s: stale', () => {
     expect(punchSignals({ ...base, now: at(2_000 + STALE_MS + 1) })).toEqual(['stale_reading'])
     expect(punchSignals({ ...base, best: { ...real[2]!, at: undefined }, now: at(10 * STALE_MS) })).toEqual([])
+  })
+
+  it('a Location + Selfie reading vaguer than 100 m: flagged — a fenced one is refused instead, and a work-from-home day’s is not judged, as before', () => {
+    const vague = { ...real[2]!, accuracyMeters: VAGUE_METRES + 1 }
+    expect(punchSignals({ ...base, best: vague, readings: [vague], keptAnywhere: true })).toEqual(['location_vague'])
+    // The office fence (refused instead), or a reading kept on a day away under Location: not this flag.
+    expect(punchSignals({ ...base, best: vague, readings: [vague], keptAnywhere: false })).toEqual([])
+    expect(punchSignals({ ...base, best: vague, readings: [vague] })).toEqual([])
+    const fine = { ...real[2]!, accuracyMeters: VAGUE_METRES }
+    expect(punchSignals({ ...base, best: fine, readings: [fine], keptAnywhere: true })).toEqual([])
   })
 
   it('from a computer: not a phone; a Mac with a touch screen: said too', () => {

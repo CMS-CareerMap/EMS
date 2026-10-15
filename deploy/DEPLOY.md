@@ -20,7 +20,7 @@ browser ──https──► edge Caddy (/srv/edge — the box owner's; 80/443, 
 
 On `edge`, EMS answers only to the name `ems-web` (and its container's own name), and finds its API by the name `ems-api`, so nothing of EMS's can be mistaken for a `web` or an `api` of the other project.
 
-Everything below was run end to end on a laptop rehearsal of the box (`deploy/local/`) on 5 Oct 2026, **except** what is marked *not yet run*: Cloudflare R2 (the rehearsal keeps files on a volume), the real box, its edge, its domain, and a reboot of the box. Those are run in step 4.
+Everything below was run end to end on a laptop rehearsal of the box (`deploy/local/`) on 5 Oct 2026, except Cloudflare R2 (the rehearsal keeps files on a volume), the real box, its edge, its domain, and a reboot of the box. Those were run for real at the first deploy, on 11 Oct 2026, and all passed: EMS is live at https://ems.careermapsolutions.in.
 
 ## Still to build, in this order
 
@@ -29,9 +29,9 @@ Everything below was run end to end on a laptop rehearsal of the box (`deploy/lo
 | 1 | **Packaging**: the two images, `compose.yml`, `deploy.sh`, the jobs, the laptop rehearsal | ✅ Built and rehearsed, 5 Oct 2026 |
 | 2 | **CI** (GitHub Actions, `.github/workflows/ci.yml`) on pull requests and `main`: the migrations on an empty Postgres 17, server typecheck, the §A5 rules, the field contract and every test (clock in UTC, as the containers run); web lint and build; both images built, not pushed | ✅ Built 7 Oct 2026. No secrets, so it runs on the repository where it is today and moves with it to the CMS-CareerMap organization. After the move: allow Actions in the organization, and require CI on `main` |
 | 3 | **The Caddy block** for the EMS domain, handed to the box owner | ✅ Written 7 Oct 2026: `deploy/edge/ems.caddy`, for `ems.careermapsolutions.in` (a subdomain: no `www`). Added at step 4, once the stack is up. Waiting on the client: the DNS A record `ems` → `187.77.96.52` |
-| 4 | **First deploy, by hand**: images over SSH, `.env`, the first Super Admin, the Caddy block, R2, the first backup and drill, a reboot, the smoke test, tag `v1.0` | Written in full 8 Oct 2026 (*On the box — the first deploy*). To run, it needs: the DNS record, the R2 keys (Devesh has them), the administrator and owner emails (or one, if the owner is not an employee), a reboot of the box by its owner. SSH as `deploy` works (checked 8 Oct); the owner keeps the backup passphrase |
-| 5 | **CD**: on a version tag, build, ship over SSH, `deploy.sh` | ✅ Written 8 Oct 2026: `.github/workflows/deploy.yml`, approved by a person each time (*Automatic deploys*). Its steps were run on the laptop with stand-ins; the first real run is the first version after `v1.0` |
-| 6 | **The client's go-live guide** (settings to fill in, first employees, first payroll) | After 4 |
+| 4 | **First deploy, by hand**: images over SSH, `.env`, the first Super Admin, the Caddy block, R2, the first backup and drill, a reboot, the smoke test, tag `v1.0` | ✅ Done 11 Oct 2026, following *On the box — the first deploy*: v1.0 live, every check in step 8 passed, the box rebooted and everything came back by itself, tag `v1.0` pushed. The bootstrap login is `admin@ems.careermapsolutions.in`; the owner keeps the backup passphrase. `deploy`'s `sudo` asks for a password, which the box owner gave, for the reboot only |
+| 5 | **CD**: on a version tag, build, ship over SSH, `deploy.sh` | ✅ Written 8 Oct 2026: `.github/workflows/deploy.yml`, approved by a person each time (*Automatic deploys*). Set up 11 Oct 2026 (*Setting it up, once*): the `production` environment, its four secrets, the `release-tags` ruleset. Proven the same day by re-running the `v1.0` deploy: every step passed |
+| 6 | **The client's go-live guide** (settings to fill in, first employees, first payroll) | ✅ `docs/client/EMS-Go-Live-Guide.pdf`, updated 11 Oct 2026 |
 
 ---
 
@@ -110,7 +110,7 @@ Stop it with `deploy/local/rehearse.sh --down` (the data stays), or remove it al
 
 ## On the box — the first deploy
 
-> *Not yet run on the real box.* Every command here was run in the laptop rehearsal; the SSH, the edge, R2, the domain and a reboot are run for the first time here. Go in this order: each step says how to see that it worked. EMS runs under the box's user **`deploy`** (`sudo` and `docker` groups).
+> *Run on the real box on 11 Oct 2026; every step passed.* Kept as the steps to follow if the box is ever set up again. Go in this order: each step says how to see that it worked. EMS runs under the box's user **`deploy`** (`sudo` and `docker` groups).
 
 **What to have first**
 
@@ -311,7 +311,7 @@ docker compose run --rm --no-deps api npx --no-install prisma migrate resolve --
 
 ## Backups
 
-The `jobs` container backs up every night at 02:30 IST: one `pg_dump`, sealed with the passphrase (AES-256-GCM) and stored under `backups/db/` (in R2 on the box — *not yet run*; on a volume in the rehearsal). Then old ones are pruned. Pruning counts **backups, not days**: it keeps the newest 30 backups, whenever they were taken, and the first backup of each of the last 12 months. A deploy and a hand backup each add one, so 30 backups can cover a little less than 30 days.
+The `jobs` container backs up every night at 02:30 IST: one `pg_dump`, sealed with the passphrase (AES-256-GCM) and stored under `backups/db/` (in R2 on the box — run and drilled 11 Oct 2026; on a volume in the rehearsal). Then old ones are pruned. Pruning counts **backups, not days**: it keeps the newest 30 backups, whenever they were taken, and the first backup of each of the last 12 months. A deploy and a hand backup each add one, so 30 backups can cover a little less than 30 days.
 
 The restore drill runs at 04:00 IST on the 2nd of each month: the newest backup is restored into a scratch database, every table's rows are counted against the backup, and the scratch database is dropped. Both jobs report to **Settings → Audit Log → System jobs**, where somebody sees a failure.
 
@@ -349,7 +349,7 @@ docker compose exec db dropdb -U ems ems_before_restore
 
 Rehearsed: a company's name changed by mistake came back from the backup, and its Super Admin signed in afterwards. The app needs no change of settings: it always uses the database named `ems`.
 
-**The box is lost:** on a new box, set up `/srv/ems` as for the first deploy, with the **same** R2 keys and the **same** backup passphrase (the company's copy), and `./deploy.sh` the same version. That creates an empty `ems` with tables, so restore beside it and swap, exactly as above. Files (documents, payslip PDFs, bank proofs) live in R2, not on the box, so nothing else needs restoring. *Not yet run* (it needs R2).
+**The box is lost:** on a new box, set up `/srv/ems` as for the first deploy, with the **same** R2 keys and the **same** backup passphrase (the company's copy), and `./deploy.sh` the same version. That creates an empty `ems` with tables, so restore beside it and swap, exactly as above. Files (documents, payslip PDFs, bank proofs) live in R2, not on the box, so nothing else needs restoring. *Not yet run*: no new box has been set up from R2 so far (the monthly drill restores the backups into a scratch database on this box).
 
 ## Looking at it
 
@@ -360,11 +360,11 @@ docker compose logs --tail 50 ems-web jobs db
 docker stats --no-stream                 # memory against each container's limit
 ```
 
-Docker keeps at most 5 × 10 MB of log per container. A container that crashes is started again (rehearsed: the API's process killed, back and healthy within seconds), and when Docker itself starts again it starts the stack (rehearsed by restarting Docker; a reboot of the box is *not yet run*).
+Docker keeps at most 5 × 10 MB of log per container. A container that crashes is started again (rehearsed: the API's process killed, back and healthy within seconds), and when Docker itself starts again it starts the stack (rehearsed by restarting Docker; a reboot of the real box on 11 Oct 2026 brought every container back by itself in about 30 seconds).
 
 ## R2 notes
 
-*Not yet run* — in step 4, with the company's keys.
+Run 11 Oct 2026 with the company's bucket `careermap-ems` (APAC, default jurisdiction, public r2.dev URL off) and an Account API token limited to it: `storage:check`, a sealed backup and the restore drill all passed.
 
 - **The bucket** is **private** and belongs to the **company's** Cloudflare account, not a developer's. It holds employees' documents.
 - **The API token** has **Object Read & Write** on that one bucket only.

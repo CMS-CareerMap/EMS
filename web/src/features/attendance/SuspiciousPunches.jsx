@@ -1,15 +1,16 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { ShieldAlert, MapPin, Fingerprint, Smartphone } from 'lucide-react'
 import { useDecideDevice, useDevices, useSuspiciousPunches } from '../../hooks/useAttendance'
 import { useAuthStore } from '../../stores/authStore'
-import DataState from '../../components/DataState'
+import DataState, { QueryError } from '../../components/DataState'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import PunchEvidenceDialog from './PunchEvidence'
 import { Avatar } from '../../components/ui/bits'
 import { btn, card, field } from '../../components/ui/styles'
 import { addDays, formatDay, formatDayOf, wallClockIn } from '../../lib/dates'
-import { MACHINE_MATCH, PUNCH_FLAG_WORDS, refusalWords, shortDevice } from '../../lib/attendance'
+import { MACHINE_MATCH, PUNCH_FLAG_WORDS, mapLink, refusalWords, shortDevice } from '../../lib/attendance'
 
 /**
  * Suspicious punches (client, 11 Oct 2026), for whoever looks after other
@@ -23,8 +24,8 @@ export default function SuspiciousPunches({ today }) {
   const [from, setFrom] = useState(addDays(today, -6))
   const [to, setTo] = useState(today)
   const list = useSuspiciousPunches(from, to)
-  // Whoever corrects attendance approves a new phone (one phone per employee).
-  const decidesPhones = useAuthStore((state) => state.can('attendance:update'))
+  // Whoever the Super Admin gives "replace or reset a punch phone" (one phone per employee, 14 Oct 2026).
+  const decidesPhones = useAuthStore((state) => state.can('user:device:manage'))
   // A day's punches with their evidence — a refused one's selfie included, which the roster cannot reach.
   const [evidence, setEvidence] = useState(null)
   return (
@@ -60,49 +61,63 @@ export default function SuspiciousPunches({ today }) {
 }
 
 /**
- * Phones waiting for approval (client, 11 Oct 2026: one phone per employee):
- * somebody punched from a phone that is not theirs. Approving it makes it
- * theirs and takes the old one off; taking it off keeps it refused.
+ * Phones waiting (client, 11 and 14 Oct 2026: one phone per employee):
+ * somebody punched from a phone that is not theirs. Replace makes it theirs
+ * and takes the old one off in the same step; Refuse keeps it refused. A
+ * fellow phone-keeper's, or a senior's, goes up: it says who may.
  */
 function WaitingPhones() {
   const timezone = useAuthStore((state) => state.organization?.timezone)
   const devices = useDevices('waiting')
   const decide = useDecideDevice()
-  // Asked first: approving takes the person's other phone off; taking off keeps this one refused.
+  // Asked first: replacing takes the person's other phone off; refusing keeps this one refused.
   const [asking, setAsking] = useState(null)
-  if (!devices.data?.length) return null
+  // A list that could not be read is said, never shown as "none waiting".
+  if (devices.isError) {
+    return (
+      <section aria-label="Phones waiting for approval" className={card}>
+        <QueryError error={devices.error} onRetry={() => devices.refetch()} retrying={devices.isFetching} compact />
+      </section>
+    )
+  }
+  const waiting = devices.data?.phones ?? []
+  if (!waiting.length) return null
   return (
     <section aria-label="Phones waiting for approval" className={`${card} p-4 space-y-3`}>
       <p className="text-sm font-semibold text-gray-900">Phones waiting for approval</p>
       <ul className="divide-y divide-gray-100">
-        {devices.data.map((d) => (
+        {waiting.map((d) => (
           <li key={d.id} className="py-2.5 flex flex-wrap items-center gap-3">
             <Smartphone className="w-4 h-4 text-amber-600 shrink-0" aria-hidden="true" />
             <div className="min-w-0 flex-1">
               <p className="text-sm text-gray-900"><b>{d.full_name}</b> <span className="font-mono text-xs text-gray-500">{d.employee_code}</span> — {d.label ?? 'a phone'}</p>
               <p className="text-xs text-gray-500">Tried {formatDayOf(d.last_seen_at, timezone)} at {wallClockIn(timezone, d.last_seen_at)}</p>
             </div>
-            <div className="flex gap-2">
-              <button type="button" disabled={decide.isPending} className={btn.primary} onClick={() => setAsking({ device: d, approve: true })}>
-                Approve
-              </button>
-              <button type="button" disabled={decide.isPending} className={btn.secondary} onClick={() => setAsking({ device: d, approve: false })}>
-                Take off
-              </button>
-            </div>
+            {d.may_decide ? (
+              <div className="flex flex-wrap gap-2">
+                <button type="button" disabled={decide.isPending} className={btn.primary} onClick={() => setAsking({ device: d, approve: true })}>
+                  Replace with this phone
+                </button>
+                <button type="button" disabled={decide.isPending} className={btn.secondary} onClick={() => setAsking({ device: d, approve: false })}>
+                  Refuse
+                </button>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-500">Decided by {d.ask}</p>
+            )}
           </li>
         ))}
       </ul>
       {asking && (
         <ConfirmDialog
-          title={asking.approve ? `Approve ${asking.device.full_name}’s new phone?` : `Take off ${asking.device.full_name}’s phone?`}
-          confirmLabel={asking.approve ? 'Approve' : 'Take off'}
+          title={asking.approve ? `Replace ${asking.device.full_name}’s phone?` : `Refuse this phone for ${asking.device.full_name}?`}
+          confirmLabel={asking.approve ? 'Replace' : 'Refuse'}
           danger={!asking.approve}
-          onConfirm={() => decide.mutateAsync({ id: asking.device.id, approve: asking.approve }).then(() => toast.success(asking.approve ? `${asking.device.full_name}’s new phone is approved` : 'Taken off — punches from it stay refused'))}
+          onConfirm={() => decide.mutateAsync({ id: asking.device.id, approve: asking.approve }).then(() => toast.success(asking.approve ? `${asking.device.label ?? 'The new phone'} is now ${asking.device.full_name}’s phone` : 'Refused — punches from it stay refused'))}
           onClose={() => setAsking(null)}
         >
           {asking.approve
-            ? <p>{asking.device.label ?? 'This phone'} becomes the one {asking.device.full_name} checks in and out from. Their other phone is taken off. Approve it only once you know the phone is theirs.</p>
+            ? <p>{asking.device.label ?? 'This phone'} becomes the phone {asking.device.full_name} checks in and out from, and their old phone is taken off — both at once. Do it only once you know the phone is theirs.</p>
             : <p>Punches from {asking.device.label ?? 'this phone'} stay refused. {asking.device.full_name} keeps the phone they have.</p>}
         </ConfirmDialog>
       )}
@@ -118,7 +133,8 @@ function Day({ day, onEvidence }) {
       <div className="flex items-center gap-3 min-w-0">
         <Avatar name={day.full_name} size="sm" />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-gray-900 truncate">{day.full_name}</p>
+          {/* Their month, by their name (client, 15 Oct 2026). */}
+          <Link to={`/attendance/people/${day.employee_id}?month=${day.date.slice(0, 7)}`} state={{ back: '/attendance?view=suspicious' }} className="block text-sm font-semibold text-gray-900 truncate hover:text-brand-700 hover:underline" title={`${day.full_name}’s attendance`}>{day.full_name}</Link>
           <p className="text-xs text-gray-500"><span className="font-mono">{day.employee_code}</span> · {formatDay(day.date, { weekday: true })}</p>
         </div>
         {day.punches.length > 0 && (
@@ -137,6 +153,13 @@ function Day({ day, onEvidence }) {
               <p className="text-gray-900">
                 <b>{p.action === 'in' ? 'Check-in' : 'Check-out'}</b> at {wallClockIn(timezone, p.at)}
                 {refused ? <span className="text-red-700"> — {refused}</span> : p.distance_meters != null ? <span className="text-gray-600"> — {p.distance_meters} m from the office</span> : null}
+                {/* Where it was taken, on the map — the evidence for a location kept but not fenced (14 Oct 2026). */}
+                {p.latitude != null && p.longitude != null && (
+                  <>
+                    <span className="text-xs text-gray-600">{` · at ${p.latitude.toFixed(5)}, ${p.longitude.toFixed(5)} · `}</span>
+                    <a href={mapLink(p.latitude, p.longitude)} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-brand-700 underline">Open map</a>
+                  </>
+                )}
               </p>
               {p.flags.length > 0 && (
                 <ul className="mt-1 space-y-0.5">

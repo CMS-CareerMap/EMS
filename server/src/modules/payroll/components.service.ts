@@ -7,6 +7,7 @@ import { monthKey, monthName, toDateColumn } from '../../domain/shared/dates'
 import { companyToday } from '../organization/organization.service'
 import { closedMonthKeys } from './payrollLock.service'
 import * as repo from './components.repository'
+import { shownOf } from './payrollReach'
 
 /**
  * The company's salary components (client §40): Basic, HRA and the rest, and
@@ -121,8 +122,13 @@ export async function archiveComponent(ctx: AppContext, id: string) {
 
   const paid = await repo.paidOnSalaries(ctx.db, id, toDateColumn(await companyToday(ctx)))
   if (paid.length > 0) {
-    const names = [...new Set(paid.map((p) => p.financial.employee.fullName))]
-    throw Conflict(`${existing.label} is on the salary of ${names.join(', ')}${paid.length >= 10 ? ' and others' : ''}. Take it off their salaries first.`)
+    // Named only for the people in the caller's payroll ("Whose payroll"); the rest counted.
+    const people = [...new Map(paid.map((p) => [p.financial.employee.id, p.financial.employee])).values()]
+    const { shown, others } = await shownOf(ctx, people, (p) => p.id)
+    const named = shown.slice(0, 10).map((p) => p.fullName)
+    const rest = shown.length - named.length + others
+    const whom = [named.length ? named.join(', ') : null, rest ? `${rest} ${named.length ? 'more ' : ''}${rest === 1 ? 'person' : 'people'}${others ? ' outside your payroll' : ''}` : null].filter(Boolean).join(' and ')
+    throw Conflict(`${existing.label} is on the salary of ${whom}. Take it off their salaries first.`)
   }
   const closed = await closedMonthKeys(ctx)
   const open = (await repo.enteredMonths(ctx.db, id)).filter((m) => !closed.has(monthKey(m.year, m.month)))

@@ -156,6 +156,24 @@ describe('a row as a sentence', () => {
   })
 })
 
+describe('the punch method and punch phones (client, 14 Oct 2026)', () => {
+  it('says the method in words, never its code', () => {
+    expect(row('attendance_security.updated', { changes: { punchMethod: { from: 'location', to: 'location_selfie' } } }))
+      .toBe('Changed attendance security: attendance method location → location + selfie')
+    expect(row('attendance_security.updated', { changes: { punchMethod: { from: 'location_selfie', to: 'selfie' }, punchOneDevice: { from: false, to: true } } }))
+      .toBe('Changed attendance security: attendance method location + selfie → selfie; one phone per employee off → on')
+  })
+
+  it('tells a reset from a refusal, and reads older rows as before', () => {
+    expect(row('attendance.device_retired', { employeeId: 'e-ravi', label: 'Android · Chrome', was: 'approved' }, { type: 'punch_device', id: 'd1' }))
+      .toBe('Reset Ravi Patil’s punch phone (Android · Chrome): the next new phone they punch from becomes theirs')
+    expect(row('attendance.device_retired', { employeeId: 'e-ravi', label: 'iPhone/iPad · Safari', was: 'waiting' }, { type: 'punch_device', id: 'd2' }))
+      .toBe('Refused iPhone/iPad · Safari for Ravi Patil’s punches')
+    expect(row('attendance.device_retired', { employeeId: 'e-ravi', label: 'Android · Chrome' }, { type: 'punch_device', id: 'd3' }))
+      .toBe('Took Android · Chrome off Ravi Patil’s punches')
+  })
+})
+
 describe('devices', () => {
   it('tells a browser and a system apart from the user agent', () => {
     expect(deviceOf('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36 Edg/140.0')).toBe('Edge on Windows')

@@ -93,7 +93,8 @@ export function useGeofences() {
 }
 
 export function useSaveGeofence() {
-  return useSettingMutation(keys.geofence, async (body) => (await api.put('/settings/geofence', body)).data)
+  // Whether an office is saved is part of Attendance Security (the setup banner, the methods it allows).
+  return useSettingMutation(keys.geofence, async (body) => (await api.put('/settings/geofence', body)).data, [keys.attendanceSecurity])
 }
 
 /** "Test this spot": the readings taken where the Super Admin stands, judged as a punch would be. Writes nothing. */
@@ -105,13 +106,17 @@ export function useTestGeofenceSpot() {
   })
 }
 
-/** Settings → Attendance Security (client, 11 Oct 2026): the layers the company has on. */
-export function useAttendanceSecurity() {
-  return useSetting(keys.attendanceSecurity, '/settings/attendance-security')
+/** Settings → Attendance Security (client, 11 and 14 Oct 2026): the punch method and the layers the company has on. */
+export function useAttendanceSecurity({ enabled = true } = {}) {
+  return useQuery({
+    queryKey: keys.attendanceSecurity,
+    queryFn: async () => (await api.get('/settings/attendance-security')).data,
+    enabled,
+  })
 }
 
 export function useSaveAttendanceSecurity() {
-  // The employee's own card reads whether check-out is checked, from their workplace.
+  // The employee's own card reads what a punch needs, from their workplace.
   return useSettingMutation(keys.attendanceSecurity, async (body) => (await api.put('/settings/attendance-security', body)).data, [['attendance', 'me']])
 }
 

@@ -15,6 +15,7 @@ import { monthKey, monthName, toDateColumn, type CalendarDate } from '../../doma
 import { assertCan, buildPayslips, getRun, planMonth, runLock, who } from './payrollRun.service'
 import { renderSlip, sha256, viewInputOf } from './payslip.service'
 import * as repo from './payrollRun.repository'
+import { shownOf } from './payrollReach'
 
 /**
  * Signing a payroll off, and recording that it was paid (guide, Day 17).
@@ -115,15 +116,18 @@ async function approveHoldingLock(ctx: AppContext, tx: TxDb, run: repo.RunRow, i
 
   const changed = payslipDifferences(stored.map(comparable), fresh.map(comparable))
   if (changed.length > 0) {
+    // Named for the people the caller's payroll reaches; the rest counted (`others`).
+    const { shown, others } = await shownOf(ctx, changed, (c) => c.employeeId)
     throw BusinessRule(
       `The records behind the ${label} payroll have changed since it was calculated. Recalculate it, check the figures, then approve.`,
       {
-        changed: changed.map((c) => ({
+        changed: shown.map((c) => ({
           employee_id: c.employeeId,
           full_name: c.employeeName,
           change: c.change,
           fields: c.fields,
         })),
+        others,
       },
     )
   }
@@ -140,12 +144,13 @@ async function approveHoldingLock(ctx: AppContext, tx: TxDb, run: repo.RunRow, i
   const assumedDays = assumed.reduce((n, a) => n + a.unmarked.length + a.notYet.length + a.markedLeave.length, 0)
 
   if (assumedDays > 0 && !input.confirmAssumedDays) {
+    const { shown, others } = await shownOf(ctx, assumed, (a) => a.employee.id)
     throw BusinessRule(
       `${assumedDays === 1 ? 'One day' : `${assumedDays} days`} in ${label} ${assumedDays === 1 ? 'was' : 'were'} counted as paid with no attendance behind ${assumedDays === 1 ? 'it' : 'them'}. Check them — mark what was not worked and recalculate — or approve again confirming you accept them.`,
       {
         assumed_days: assumedDays,
         confirm_with: 'confirmAssumedDays',
-        employees: assumed.map((a) => ({
+        employees: shown.map((a) => ({
           employee_id: a.employee.id,
           employee_code: a.employee.employeeCode,
           full_name: a.employee.fullName,
@@ -153,6 +158,8 @@ async function approveHoldingLock(ctx: AppContext, tx: TxDb, run: repo.RunRow, i
           days_not_yet_happened: a.notYet,
           marked_on_leave_without_request: a.markedLeave,
         })),
+        // People outside the caller's payroll with such days: counted, not named.
+        others,
       },
     )
   }
