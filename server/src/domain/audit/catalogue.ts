@@ -122,6 +122,7 @@ export const AUDIT_ACTIONS = {
   'attendance.imported': { label: 'Attendance imported', category: 'time' },
   'attendance.device_approved': { label: 'Phone approved for punching', category: 'time' },
   'attendance.device_retired': { label: 'Phone taken off for punching', category: 'time' },
+  'attendance.absent_rule': { label: 'Days with no check-in marked absent', category: 'system' },
   // Company rules
   'company.updated': { label: 'Company details changed', category: 'settings' },
   'company.owner_marked': { label: 'Owner marked', category: 'people' },
@@ -139,6 +140,7 @@ export const AUDIT_ACTIONS = {
   'geofence.saved': { label: 'Office location saved', category: 'settings' },
   'geofence.deleted': { label: 'Office location removed', category: 'settings' },
   'attendance_security.updated': { label: 'Attendance security changed', category: 'settings' },
+  'absent_rule.updated': { label: 'No-check-in rule changed', category: 'settings' },
   'leave_type.created': { label: 'Leave type added', category: 'settings' },
   'leave_type.restored': { label: 'Leave type restored', category: 'settings' },
   'leave_type.updated': { label: 'Leave type changed', category: 'settings' },
@@ -146,6 +148,9 @@ export const AUDIT_ACTIONS = {
   'holiday.added': { label: 'Holiday added', category: 'settings' },
   'holiday.changed': { label: 'Holiday changed', category: 'settings' },
   'holiday.removed': { label: 'Holiday removed', category: 'settings' },
+  'holiday.fixed_added': { label: 'Next year’s fixed holidays added', category: 'system' },
+  'work_week.changed': { label: 'Working week changed', category: 'settings' },
+  'work_week.cancelled': { label: 'Working week change cancelled', category: 'settings' },
   'master_data.added': { label: 'List entry added', category: 'settings' },
   'master_data.restored': { label: 'List entry restored', category: 'settings' },
   'master_data.renamed': { label: 'List entry renamed', category: 'settings' },
@@ -289,6 +294,7 @@ const FIELD_LABELS: Record<string, string> = {
   punchSelfie: 'selfie with every punch',
   punchSelfieKeepDays: 'days a selfie is kept',
   punchOneDevice: 'one phone per employee',
+  punchPreciseMeters: 'most vague location taken',
   fullName: 'name',
   personalEmail: 'personal email',
   phone: 'phone',
@@ -324,6 +330,15 @@ export function humanise(key: string): string {
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .toLowerCase()
     .trim()
+}
+
+const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+/** "Saturday and Sunday", Monday first; "no weekly off" for none. */
+function weekdaysOf(value: unknown): string {
+  const days = Array.isArray(value) ? value.filter((d): d is number => typeof d === 'number' && d >= 0 && d <= 6) : []
+  if (days.length === 0) return 'no weekly off'
+  return listOf([...new Set(days)].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)).map((d) => WEEKDAY_NAMES[d]!))
 }
 
 /** "phone, department and shift". */
@@ -718,6 +733,8 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
       return `Cancelled ${who()}’s ${d.wasApproved ? 'approved' : 'waiting'} ${leave()}, ${day(d.fromDate)} to ${day(d.toDate)}: after their last working day, ${day(d.lastWorkingDay)}${d.wasApproved ? `, returning ${count(d.daysReturned, 'day')}` : ''}`
     case 'attendance.marked':
       return `Marked ${who()} ${ATTENDANCE_WORDS[String(d.status)] ?? 'attended'} on ${day(d.date)}${typeof d.hoursWorked === 'number' ? `, ${d.hoursWorked} hours` : ''}`
+    case 'attendance.absent_rule':
+      return `No check-in means absent${d.trigger ? ` (${text(d.trigger)})` : ''}: ${count(d.marked, 'day')} marked absent, ${count(d.removed, 'day')} given back${Number(d.people) > 0 ? `, for ${count(d.people, 'person', 'people')}` : ''}`
     case 'attendance.imported':
       return `Imported ${count(d.rows, 'attendance row')}${d.replacedExisting ? ', replacing rows already there' : ''}${Number(d.notOnMachine) > 0 ? `; ${count(d.notOnMachine, 'app day')} not on the machine${Number(d.madeAbsent) > 0 ? `, ${count(d.madeAbsent, 'day')} made absent` : ''}` : ''}`
     case 'attendance.device_approved':
@@ -766,6 +783,15 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
       return `${d.created ? 'Added' : 'Changed'} the office location “${text(d.name) ?? 'unnamed'}”`
     case 'geofence.deleted':
       return `Removed the office location “${text(d.name) ?? 'unnamed'}”`
+    case 'absent_rule.updated': {
+      const c = (d.changes && typeof d.changes === 'object' ? d.changes : {}) as Details
+      const to = (k: string) => ((c[k] && typeof c[k] === 'object' ? c[k] : {}) as Details).to
+      const parts: string[] = []
+      if ('on' in c) parts.push(to('on') === true ? 'switched it on' : 'switched it off')
+      if ('from' in c && to('from')) parts.push(`it starts from ${day(to('from'))}`)
+      if ('waitDays' in c) parts.push(`machine and HR-marked days wait ${count(to('waitDays'), 'day')}`)
+      return `Changed “no check-in means absent”${parts.length ? `: ${parts.join('; ')}` : ''}`
+    }
     case 'attendance_security.updated':
       return `Changed attendance security${changeList(d.changes) || ''}`
     case 'leave_type.created':
@@ -783,6 +809,12 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
       const to = (d.to && typeof d.to === 'object' ? d.to : {}) as Details
       return `Changed the holiday “${text(from.name) ?? 'unnamed'}” on ${day(from.date)} to “${text(to.name) ?? 'unnamed'}” on ${day(to.date)}`
     }
+    case 'holiday.fixed_added':
+      return `Added the fixed national holidays of ${typeof d.year === 'number' ? d.year : 'the next year'}: ${count(d.added, 'holiday')}${Number(d.skipped) > 0 ? `, ${count(d.skipped, 'day')} already entered` : ''}`
+    case 'work_week.changed':
+      return `Changed the weekly offs from ${day(d.from)} to ${weekdaysOf(d.offDays)} (was ${weekdaysOf(d.before)})${Array.isArray(d.replaced) && d.replaced.length ? `, replacing ${count(d.replaced.length, 'change')} saved for later` : ''}`
+    case 'work_week.cancelled':
+      return `Cancelled the change of weekly offs to ${weekdaysOf(d.offDays)} saved for ${day(d.from)}`
     case 'holiday.removed':
       return `Removed the holiday “${text(d.name) ?? 'unnamed'}” on ${day(d.date)}`
     case 'master_data.added':
@@ -841,8 +873,13 @@ export function summarise(row: AuditRowIn, names: AuditNames): string {
       return `Exported the employee list: ${count(d.rows, 'row')}${d.withCompensation ? ', with salaries' : ''}`
     case 'attendance.exported':
       return `Exported attendance for ${day(d.date)}: ${count(d.rows, 'row')}`
-    case 'payslip.downloaded':
-      return d.own ? `Downloaded their own ${month(d)} payslip` : `Downloaded ${who()}’s ${month(d)} payslip`
+    case 'payslip.downloaded': {
+      // Inside a run before it is paid: a preview, drawn then, PAN and UAN on it.
+      const what = d.fromPayrollRun === true && d.runStatus !== 'paid'
+        ? `${month(d)} payslip (${d.runStatus === 'approved' ? 'approved, not yet paid' : 'draft'})`
+        : `${month(d)} payslip`
+      return d.own ? `Downloaded their own ${what}` : `Downloaded ${who()}’s ${what}`
+    }
     case 'payroll.bank_file_downloaded':
       return `Downloaded the ${month(d)} bank file: ${count(d.payments, 'payment')}, ${money(d.total)}${Number(d.excluded) > 0 ? `, ${count(d.excluded, 'person', 'people')} left out` : ''}${d.partial === true ? ` — their own payroll's people only, ${count(d.others, 'other payslip')} of the month not in it` : ''}`
     case 'audit.exported':

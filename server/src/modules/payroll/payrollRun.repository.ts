@@ -71,7 +71,6 @@ export async function policiesForMonth(db: ScopedDb, monthStart: Date, monthEnd:
       id: true,
       effectiveFrom: true,
       effectiveTo: true,
-      weeklyOffDays: true,
       lopBasis: true,
       sandwichRule: true,
       tdsEnabled: true,

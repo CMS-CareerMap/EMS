@@ -50,7 +50,7 @@ export default function LeaveSettings() {
       */}
       {canEditSettings && (
         <Section title="Working Week" desc="Which days the company is closed, and when a leave year begins.">
-          <Field label="Weekly Offs" hint="Saved on each click. Leave is not charged for these days.">
+          <Field label="Weekly Offs" hint="Each change says from when it starts: today, or the 1st of next month — the days before keep the week they had. Setting the week for the first time, the 1st of this month while its payroll is open.">
             <WeeklyOffPicker />
           </Field>
           <LeaveYear />

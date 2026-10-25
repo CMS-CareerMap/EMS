@@ -20,6 +20,12 @@ export interface SoFarRow {
   lateMinutes: number | null
   /** Whether the day has a check-in at all. */
   checkedIn: boolean
+  /**
+   * Typed by HR. Its form fills in a check-in by itself, so "present, a check-in,
+   * no check-out" is as HR left it — not a check-out forgotten (as the roster's
+   * No out reads it).
+   */
+  manual?: boolean
 }
 
 export interface SoFarDayOff {
@@ -37,6 +43,8 @@ export interface SoFarInput {
   rows: readonly SoFarRow[]
   /** Their shift's hours a day, for the hours expected of the days they worked. Null with no shift. */
   expectedPerDay: number | null
+  /** The day they are still at work on, if any — a night shift's is yesterday's past midnight: not a check-out missed. */
+  openDay?: CalendarDate | null
 }
 
 export interface MonthSoFar {
@@ -57,8 +65,15 @@ export interface MonthSoFar {
   holidays: number
   /** Hours of the days closed, two decimals — today's open day is added live by the page. */
   hoursWorked: number
-  /** What the shift expects of the days present (a half day half; today once closed). Null with no shift. */
+  /**
+   * What the shift expects of the days present whose hours are known (a half
+   * day half). A day checked into and never out has no hours, so it expects
+   * none either (25 Oct 2026: "16h 54m of 27h" counted such a day's nine
+   * hours against none worked). Null with no shift.
+   */
   expectedHours: number | null
+  /** Days gone by checked into and never out: no hours, so left out of the hours and of what was expected. */
+  withoutCheckOut: number
   daysWorked: number
   averageHours: number | null
   /** Days checked into, and of them the late ones. */
@@ -81,7 +96,7 @@ export function monthSoFar(input: SoFarInput): MonthSoFar {
 
   const empty: MonthSoFar = {
     from: null, to: null, ongoing: false, workingDays: 0, present: 0, halfDays: 0, absent: 0, onLeave: 0, notMarked: 0,
-    weeklyOffs: 0, holidays: 0, hoursWorked: 0, expectedHours: input.expectedPerDay === null ? null : 0, daysWorked: 0, averageHours: null, arrivals: 0, lateDays: 0,
+    weeklyOffs: 0, holidays: 0, hoursWorked: 0, expectedHours: input.expectedPerDay === null ? null : 0, withoutCheckOut: 0, daysWorked: 0, averageHours: null, arrivals: 0, lateDays: 0,
   }
   if (from > to) return empty
 
@@ -89,7 +104,7 @@ export function monthSoFar(input: SoFarInput): MonthSoFar {
   const rowOn = new Map(input.rows.map((r) => [r.date, r]))
   const result = { ...empty, from, to, ongoing: to === input.today }
   let hours = 0
-  // Days the shift's hours are expected of: a day present, a half day half — today once it is closed, as its hours are.
+  // Days the shift's hours are expected of: a day present, a half day half — once its hours are known, as they are counted.
   let expectedDays = 0
 
   for (let day = from; day <= to; day = addCalendarDays(day, 1)) {
@@ -113,8 +128,10 @@ export function monthSoFar(input: SoFarInput): MonthSoFar {
       hours += row.hoursWorked
       result.daysWorked++
     }
-    const stillOpen = day === input.today && row?.hoursWorked == null
-    if (!stillOpen) expectedDays += row?.status === 'present' ? 1 : row?.status === 'half_day' ? 0.5 : 0
+    const worked = row?.status === 'present' ? 1 : row?.status === 'half_day' ? 0.5 : 0
+    if (worked > 0 && row?.hoursWorked != null) expectedDays += worked
+    // In and never out on a day gone by: no hours to count — said, rather than counted as nothing worked.
+    else if (worked > 0 && row?.checkedIn && !row.manual && day < input.today && day !== input.openDay) result.withoutCheckOut++
     if (row?.checkedIn) {
       result.arrivals++
       if ((row.lateMinutes ?? 0) > 0) result.lateDays++

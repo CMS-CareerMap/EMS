@@ -15,28 +15,33 @@ import { formatDay } from '../../lib/dates'
  * of Pay" in amber — the unpaid colour everywhere — from `leaveOn` (the
  * pay-days answer). An absent day leave can still be asked for is a button,
  * when `onApply` is given: it opens the leave form on that day.
+ *
+ * A day Absent for no check-in says so (client, 25 Oct 2026), and a working
+ * day gone by with nothing recorded is "Not marked" — paid, until somebody
+ * marks it — so a blank square never has to be guessed at.
  */
 const SHORT = { present: 'Present', half_day: 'Half day', absent: 'Absent', on_leave: 'Leave', holiday: 'Holiday', weekly_off: 'Off' }
 
-export default function MonthCalendar({ year, month, today, rows, rowsQuery, calendarQuery, joinedOn = null, leftOn = null, openDay = null, leaveOn = null, absentOn = null, onApply = null }) {
+export default function MonthCalendar({ year, month, today, rows, rowsQuery, calendarQuery, joinedOn = null, leftOn = null, openDay = null, leaveOn = null, absentOn = null, onApply = null, showUnmarked = false }) {
   const anyUnpaid = leaveOn ? [...leaveOn.values()].some((l) => !l.paid) : false
   return (
     <div>
       {/* A month that failed to load is not a month of blank days. */}
       <DataState queries={[rowsQuery, calendarQuery]} compact loading="Loading the month…">
-        {([, calendar]) => <Grid year={year} month={month} today={today} rows={rows} calendar={calendar} joinedOn={joinedOn} leftOn={leftOn} openDay={openDay} leaveOn={leaveOn} absentOn={absentOn} onApply={onApply} />}
+        {([, calendar]) => <Grid year={year} month={month} today={today} rows={rows} calendar={calendar} joinedOn={joinedOn} leftOn={leftOn} openDay={openDay} leaveOn={leaveOn} absentOn={absentOn} onApply={onApply} showUnmarked={showUnmarked} />}
       </DataState>
       <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[11.5px] font-medium text-gray-500" aria-label="What the colours mean">
         {Object.entries(STATUS).map(([key, meta]) => (
           <li key={key} className="inline-flex items-center gap-1.5"><span className={`w-2.5 h-2.5 rounded-sm ${meta.dot}`} aria-hidden="true" />{meta.label}</li>
         ))}
         {anyUnpaid && <li className="inline-flex items-center gap-1.5"><span className={`w-2.5 h-2.5 rounded-sm ${UNPAID_LEAVE.dot}`} aria-hidden="true" />{UNPAID_LEAVE.label}</li>}
+        {showUnmarked && <li className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm border border-dashed border-gray-400" aria-hidden="true" />Not marked</li>}
       </ul>
     </div>
   )
 }
 
-function Grid({ year, month, today, rows, calendar, joinedOn, leftOn, openDay, leaveOn, absentOn, onApply }) {
+function Grid({ year, month, today, rows, calendar, joinedOn, leftOn, openDay, leaveOn, absentOn, onApply, showUnmarked }) {
   const days = daysOfMonth(year, month)
   const byDate = new Map(rows.map((r) => [r.date, r]))
   const offOn = new Map((calendar?.days_off ?? []).map((d) => [d.date, d]))
@@ -57,9 +62,15 @@ function Grid({ year, month, today, rows, calendar, joinedOn, leftOn, openDay, l
         // A row says what the day was; with none, the company's calendar may.
         const kind = row?.status ?? (off ? (off.kind === 'holiday' ? 'holiday' : 'weekly_off') : null)
         const meta = leave && !leave.paid ? UNPAID_LEAVE : kind ? STATUS[kind] : null
-        const open = row?.check_in && !row.check_out
+        // A day HR typed with a check-in only is as HR left it, not a check-out forgotten (as the roster's No out reads it).
+        const open = row?.check_in && !row.check_out && row.source !== 'manual'
         // Still at work on it: today, or a night shift's day past midnight (`openDay`).
         const running = day === today || day === openDay
+        // Not employed that day: before they joined, or after their last day (15 Oct 2026).
+        const before = (joinedOn && day < joinedOn) || (leftOn && day > leftOn)
+        // A working day gone by with nothing recorded: not marked, and paid until somebody marks it —
+        // drawn only where the page knows the days they were employed (`showUnmarked`).
+        const unmarked = showUnmarked && !row && !off && !before && day < today
         const label = open
           ? (running ? 'In' : 'No out')
           : row?.status === 'present' && row.hours_worked != null
@@ -68,9 +79,9 @@ function Grid({ year, month, today, rows, calendar, joinedOn, leftOn, openDay, l
               ? leaveWords(leave)
               : kind === 'holiday'
                 ? (off?.name ?? 'Holiday')
-                : kind ? SHORT[kind] : ''
-        // Not employed that day: before they joined, or after their last day (15 Oct 2026).
-        const before = (joinedOn && day < joinedOn) || (leftOn && day > leftOn)
+                : row?.no_check_in
+                  ? 'No check-in'
+                  : kind ? SHORT[kind] : unmarked ? 'Not marked' : ''
         const absent = row?.status === 'absent' ? absentOn?.get(day) : null
         const canApply = Boolean(onApply && absent?.can_apply)
         const asked = absent?.applied
@@ -79,7 +90,8 @@ function Grid({ year, month, today, rows, calendar, joinedOn, leftOn, openDay, l
         const words = [
           formatDay(day, { weekday: true, year: false }),
           off ? (off.name ?? 'Weekly off') : null,
-          leave ? leaveWords(leave) : row ? STATUS[row.status]?.label : null,
+          leave ? leaveWords(leave) : row ? STATUS[row.status]?.label : unmarked ? 'not marked' : null,
+          row?.no_check_in ? 'no check-in' : null,
           leave && !leave.paid ? 'unpaid' : null,
           open ? (running ? 'checked in' : 'no check-out') : null,
           row?.hours_worked != null ? formatHours(row.hours_worked) : null,
@@ -89,7 +101,7 @@ function Grid({ year, month, today, rows, calendar, joinedOn, leftOn, openDay, l
           absent && !absent.applied && !canApply ? absent.why : null,
         ].filter(Boolean)
         const className = `relative min-h-11 sm:min-h-16 rounded-lg border p-1 sm:p-1.5 flex flex-col justify-between overflow-hidden text-left
-          ${meta ? meta.cell : 'bg-white border-gray-100 text-gray-700'}
+          ${meta ? meta.cell : unmarked ? 'bg-white border-dashed border-gray-300 text-gray-400' : 'bg-white border-gray-100 text-gray-700'}
           ${open && !running ? 'border-red-200' : ''}
           ${day === today ? 'ring-2 ring-brand-500 ring-offset-1' : ''}
           ${before ? 'opacity-40' : ''}`

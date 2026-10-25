@@ -8,6 +8,8 @@ import { payDaysFor, type MyPayDays } from '../payroll/myPayDays.service'
 import { monthCalendar, type MonthCalendar } from './attendanceAdmin.service'
 import * as repo from './attendance.repository'
 import { isInScope } from '../../platform/authz/scopeWhere'
+import { workWeekOf } from '../settings/workWeek.repository'
+import { offDaysOn, scheduledAfter } from '../../domain/shared/workWeek'
 
 /**
  * One person's month of attendance (client, 15 Oct 2026): the page HR or a
@@ -33,6 +35,12 @@ export interface PersonMonth {
   openDay: CalendarDate | null
   /** Their last day here: the last working day, or the day they were removed; null while employed. */
   employedUntil: CalendarDate | null
+  /**
+   * The working week today, and the next change saved for later (client, 25 Oct
+   * 2026) — for the Timings card of somebody who does not check in on the app,
+   * who has no workplace to read it from.
+   */
+  weekToday: { offDays: number[]; next: { from: CalendarDate; offDays: number[] } | null }
 }
 
 export async function personMonth(ctx: AppContext, employeeId: string, year: number, month: number): Promise<PersonMonth> {
@@ -41,16 +49,18 @@ export async function personMonth(ctx: AppContext, employeeId: string, year: num
   const person = await repo.personForMonth(ctx.db, scope, employeeId)
   if (!person) throw NotFound('That person’s attendance is not one you see.')
 
-  const [days, calendar, payDays, today, timezone] = await Promise.all([
+  const [days, calendar, payDays, today, timezone, week] = await Promise.all([
     repo.list(ctx.db, scope, { year, month, employeeId }),
     monthCalendar(ctx, year, month),
     payDaysFor(ctx, employeeId, year, month, { own: employeeId === ctx.employeeId }),
     companyToday(ctx),
     companyTimezone(ctx),
+    workWeekOf(ctx.db),
   ])
   // Removed with no last working day (somebody who never joined): counted to the day they were removed, as payroll and the reports do.
   const left = fromDateColumn(person.lastWorkingDate) ?? (person.archivedAt ? zonedToday(person.archivedAt, timezone) : null)
 
+  const open = await openDayOf(ctx, person, today, timezone)
   const totals = monthSoFar({
     year,
     month,
@@ -64,10 +74,11 @@ export async function personMonth(ctx: AppContext, employeeId: string, year: num
       hoursWorked: d.hoursWorked == null ? null : Number(d.hoursWorked),
       lateMinutes: d.lateMinutes,
       checkedIn: d.checkIn !== null,
+      manual: d.source === 'manual',
     })),
     expectedPerDay: person.shift ? Number(person.shift.expectedHours) : null,
+    openDay: open?.date ?? null,
   })
-  const open = await openDayOf(ctx, person, today, timezone)
   // Live only in the month the open day belongs to: its hours are that day's.
   const openHere = open && totals.from && totals.to && open.date >= totals.from && open.date <= totals.to ? open : null
 
@@ -89,6 +100,7 @@ export async function personMonth(ctx: AppContext, employeeId: string, year: num
     openSince: openHere?.since ?? null,
     openDay: openHere?.date ?? null,
     employedUntil: left,
+    weekToday: ((next) => ({ offDays: [...offDaysOn(week, today)], next: next ? { from: next.from, offDays: [...next.offDays] } : null }))(scheduledAfter(week, today)[0]),
   }
 }
 

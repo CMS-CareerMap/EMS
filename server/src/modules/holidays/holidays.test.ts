@@ -62,8 +62,9 @@ beforeAll(async () => {
   // A five-day week, so a weekday holiday is the only thing that can shorten a
   // Monday-to-Wednesday request.
   await prisma.organizationPolicy.create({
-    data: { organizationId: orgId, effectiveFrom: toDateColumn('2020-04-01'), weeklyOffDays: [0, 6] },
+    data: { organizationId: orgId, effectiveFrom: toDateColumn('2020-04-01') },
   })
+  await prisma.workWeek.create({ data: { organizationId: orgId, effectiveFrom: toDateColumn('2020-04-01'), weeklyOffDays: [0, 6] } })
   leaveTypeId = (
     await prisma.leaveType.create({ data: { organizationId: orgId, name: 'Casual Leave', code: 'CL', annualQuota: 12 } })
   ).id

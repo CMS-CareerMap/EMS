@@ -48,7 +48,7 @@ export const runLock = (ctx: AppContext, year: number, month: number) =>
   `payroll-run:${ctx.organizationId}:${monthKey(year, month)}`
 
 /** The payroll lock of each month ("YYYY-MM"), once each, earliest first — the order every holder of more than one takes them in. */
-async function holdMonths(ctx: AppContext, tx: TxDb, keys: Iterable<string>): Promise<void> {
+async function holdMonths(ctx: Pick<AppContext, 'organizationId'>, tx: TxDb, keys: Iterable<string>): Promise<void> {
   for (const key of [...new Set(keys)].sort()) await lockFor(tx, `payroll-run:${ctx.organizationId}:${key}`)
 }
 
@@ -67,6 +67,16 @@ function refusal(run: { year: number; month: number; status: string }, what: str
 export async function closedMonthKeys(ctx: AppContext, tx?: TxDb, holding: readonly MonthRef[] = []): Promise<Map<string, string>> {
   if (tx) await holdMonths(ctx, tx, holding.map((m) => monthKey(m.year, m.month)))
   return new Map((await closedRuns(tx ?? ctx.db)).map((run) => [monthKey(run.year, run.month), run.status]))
+}
+
+/**
+ * The same as `closedMonthKeys`, for a writer with nobody signed in — the
+ * nightly job (client, 25 Oct 2026): the months in `holding` are locked first,
+ * by the same keys, so a month being approved and the job never cross.
+ */
+export async function closedMonthKeysFor(tx: TxDb, organizationId: string, holding: readonly string[] = []): Promise<Map<string, string>> {
+  await holdMonths({ organizationId }, tx, holding)
+  return new Map((await closedRuns(tx)).map((run) => [monthKey(run.year, run.month), run.status]))
 }
 
 /** Refuses if any of these days falls in a closed month. */

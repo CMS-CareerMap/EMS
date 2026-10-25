@@ -103,6 +103,11 @@ async function approveHoldingLock(ctx: AppContext, tx: TxDb, run: repo.RunRow, i
   if (current.calculatedAt.getTime() !== run.calculatedAt.getTime()) {
     throw Conflict('The draft was recalculated a moment ago. Check the new figures, then approve.')
   }
+  // Approved by somebody else while this waited for the lock: said plainly,
+  // before the month is worked out again for nothing.
+  if (current.status !== 'draft') {
+    throw Conflict(`The ${label} payroll was ${current.status === 'paid' ? 'approved and paid' : 'approved'} a moment ago. Refresh to see where it stands.`)
+  }
   // Overtime or an encashment approved for this month since it was
   // calculated is not in these payslips: recalculated first, it is paid.
   if ((await payDecidedSince(tx, run.year, run.month, current.calculatedAt)) > 0) {
@@ -127,6 +132,21 @@ async function approveHoldingLock(ctx: AppContext, tx: TxDb, run: repo.RunRow, i
           change: c.change,
           fields: c.fields,
         })),
+        others,
+      },
+    )
+  }
+
+  // A negative net pay cannot be paid: its payslip would say tax or deductions
+  // were taken that the month's pay never had, and the bank file leaves it out.
+  // This month's TDS or deduction is lowered first, and the month recalculated.
+  const negative = stored.filter((slip) => Number(slip.netPayable) < 0)
+  if (negative.length > 0) {
+    const { shown, others } = await shownOf(ctx, negative, (slip) => slip.employeeId)
+    throw BusinessRule(
+      `${negative.length === 1 ? 'One payslip has' : `${negative.length} payslips have`} a negative net pay in ${label}: the deductions are more than the month pays. Lower this month's TDS or deductions for ${negative.length === 1 ? 'them' : 'each'}, recalculate, then approve.`,
+      {
+        negative: shown.map((slip) => ({ employee_id: slip.employeeId, full_name: slip.employeeName, net_payable: Number(slip.netPayable) })),
         others,
       },
     )

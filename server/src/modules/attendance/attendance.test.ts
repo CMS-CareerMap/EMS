@@ -510,7 +510,7 @@ describe('check-in security, as the review left it (11 Oct 2026)', () => {
   })
 
   afterEach(async () => {
-    await security({ punchMethod: 'location', punchOneDevice: false })
+    await security({ punchMethod: 'location', punchOneDevice: false, punchPreciseMeters: 100 })
     await prisma.punchDevice.deleteMany({ where: { organizationId: orgId } })
   })
 
@@ -653,7 +653,7 @@ describe('the punch method (client, 14 Oct 2026)', () => {
   })
 
   afterEach(async () => {
-    await security({ punchMethod: 'location', punchOneDevice: false })
+    await security({ punchMethod: 'location', punchOneDevice: false, punchPreciseMeters: 100 })
     await prisma.punchDevice.deleteMany({ where: { organizationId: orgId } })
     await prisma.employee.update({ where: { id: hrEmpId }, data: { reportingManagerId: null } })
   })
@@ -684,7 +684,7 @@ describe('the punch method (client, 14 Oct 2026)', () => {
     await security({ punchMethod: 'location_selfie' })
     await prisma.geofenceLocation.updateMany({ where: { organizationId: orgId }, data: { isActive: false } })
     try {
-      expect((await startOf('app', 'in')).body.data).toMatchObject({ location_needed: true, photo_needed: true, radius_meters: null, accuracy_meters: null })
+      expect((await startOf('app', 'in')).body.data).toMatchObject({ location_needed: true, photo_needed: true, radius_meters: null, accuracy_meters: null, precise_meters: 100 })
       expect((await request(app).get('/api/attendance/me/workplace').set(phone('app'))).body.data)
         .toMatchObject({ punch_method: 'location_selfie', location_needed: true, fence_needed: false, check_out_location_needed: true, photo_needed: true })
       const noLocation = await punchIn('app', { photo: SELFIE })
@@ -712,28 +712,70 @@ describe('the punch method (client, 14 Oct 2026)', () => {
     }
   })
 
-  it('Location + Selfie: a location too vague to say where is taken — never refused — and flagged for HR', async () => {
+  it('Location + Selfie: precise location only — an approximate one is refused before any photo, kept for HR, and said how to put right (client, 25 Oct 2026)', async () => {
     await security({ punchMethod: 'location_selfie' })
-    // "Precise location" off: the phone guesses by a kilometre.
-    expect((await punchIn('app', { ...OFFICE, accuracyMeters: 1500, photo: SELFIE })).status).toBe(201)
+    // "Approximate" on the phone: it guesses by a kilometre and a half. Refused, the photo it came with not kept.
+    const approximate = await punchIn('app', { ...OFFICE, accuracyMeters: 1500, photo: SELFIE })
+    expect(approximate.status).toBe(403)
+    expect(approximate.body.error.code).toBe('LOCATION_IMPRECISE')
+    expect(approximate.body.error.message).toBe('Your phone gave only an approximate location (accurate to 1.5 km; up to 100 m is taken), so you cannot check in. Turn on precise location, then try again.')
+    expect(approximate.body.error.details).toMatchObject({ action: 'in', accuracy_meters: 1500, limit_meters: 100 })
+    expect(await prisma.attendance.count({ where: { employeeId: appEmpId, checkIn: { not: null } } })).toBe(0)
+    const kept = await prisma.punchEvidence.findFirstOrThrow({ where: { employeeId: appEmpId }, orderBy: { at: 'desc' } })
+    expect([kept.refusedFor, kept.accuracyMeters, Number(kept.latitude).toFixed(4), kept.photoKey]).toEqual(['unreliable', 1500, OFFICE.latitude.toFixed(4), null])
+    // Refused for the location before the photo is asked about: one with neither is told about the location.
+    expect((await punchIn('app', { ...OFFICE, accuracyMeters: 250 })).body.error.code).toBe('LOCATION_IMPRECISE')
+    // With neither a location nor a photo: refused for the photo, and kept, as before.
+    const neither = await punchIn('app', {})
+    expect(neither.body.error.message).toMatch(/with your photo/)
+    expect((await prisma.punchEvidence.findFirstOrThrow({ where: { employeeId: appEmpId }, orderBy: { at: 'desc' } })).refusedFor).toBe('no_photo')
+    // The edge, in whole metres as the evidence keeps it: 101 m refused, 100.4 m (100 m) taken.
+    expect((await punchIn('app', { ...OFFICE, accuracyMeters: 101, photo: SELFIE })).status).toBe(403)
+    expect((await punchIn('app', { ...OFFICE, accuracyMeters: 100.4, photo: SELFIE })).status).toBe(201)
+
+    // The check-out the same way, in its own words; then taken when precise.
+    const outApproximate = await punchOut('app', { ...OFFICE, accuracyMeters: 2400, photo: SELFIE })
+    expect(outApproximate.status).toBe(403)
+    expect(outApproximate.body.error).toMatchObject({ code: 'LOCATION_IMPRECISE', details: { action: 'out', accuracy_meters: 2400, limit_meters: 100 } })
+    expect(outApproximate.body.error.message).toMatch(/accurate to 2\.4 km; up to 100 m is taken\), so you cannot check out\./)
+    expect((await punchOut('app', { ...goodReading, photo: SELFIE })).status).toBe(200)
+  })
+
+  it('Location + Selfie: the most vague location taken is the Super Admin’s; between 100 m and it, taken and flagged for HR', async () => {
+    await security({ punchMethod: 'location_selfie' })
+    // Only the Super Admin sets it, 20 to 500 m — "Approximate" (a kilometre and more) is refused whatever is chosen.
+    expect((await request(app).put('/api/settings/attendance-security').set('Authorization', at('phr')).send({ punchPreciseMeters: 300 })).status).toBe(403)
+    expect((await request(app).put('/api/settings/attendance-security').set('Authorization', at('operator')).send({ punchPreciseMeters: 501 })).status).toBe(422)
+    expect((await request(app).put('/api/settings/attendance-security').set('Authorization', at('operator')).send({ punchPreciseMeters: 19 })).status).toBe(422)
+    const saved = await request(app).put('/api/settings/attendance-security').set('Authorization', at('operator')).send({ punchPreciseMeters: 300 })
+    expect(saved.status).toBe(200)
+    expect(saved.body.data.precise_meters).toBe(300)
+    expect((await startOf('app', 'in')).body.data.precise_meters).toBe(300)
+    // 250 m: taken now — and, being over 100 m, flagged and on the Suspicious list with where it was, for the map.
+    expect((await punchIn('app', { ...OFFICE, accuracyMeters: 250, photo: SELFIE })).status).toBe(201)
     expect((await prisma.punchEvidence.findFirstOrThrow({ where: { employeeId: appEmpId, refusedFor: null }, orderBy: { at: 'desc' } })).flags).toContain('location_vague')
-    // On the Suspicious list, with where it was, for the map.
     const list = (await request(app).get('/api/attendance/suspicious').set(phone('operator'))).body.data.days as { employee_id: string; punches: { flags: string[]; latitude: number | null }[] }[]
-    const hers = list.find((d) => d.employee_id === appEmpId)!.punches[0]!
-    expect(hers.flags).toContain('location_vague')
+    const hers = list.find((d) => d.employee_id === appEmpId)!.punches.find((p) => p.flags.includes('location_vague'))!
     expect(hers.latitude).toBeCloseTo(OFFICE.latitude, 5)
     // On a day away from the office too, the location is read: the method says so, wherever they work.
     await prisma.employee.update({ where: { id: appEmpId }, data: { workArrangement: 'remote' } })
     try {
       expect((await request(app).get('/api/attendance/me/workplace').set(phone('app'))).body.data)
         .toMatchObject({ work_mode: 'remote', location_needed: true, fence_needed: false, photo_needed: true })
-      // …and the check-out without it is refused in the check-out's own words.
+      // …and the check-out without it is refused in the check-out's own words; an approximate one too.
       const noLocation = await punchOut('app', { photo: SELFIE })
       expect(noLocation.status).toBe(403)
       expect(noLocation.body.error.message).toMatch(/^Location is required to check out/)
+      expect((await punchOut('app', { ...OFFICE, accuracyMeters: 1200, photo: SELFIE })).body.error.code).toBe('LOCATION_IMPRECISE')
     } finally {
       await prisma.employee.update({ where: { id: appEmpId }, data: { workArrangement: 'office' } })
     }
+  })
+
+  it('the office fence keeps its own accuracy: no precise metres asked of a fenced punch, or of a selfie', async () => {
+    expect((await startOf('app', 'in')).body.data).toMatchObject({ location_needed: true, precise_meters: null })
+    await security({ punchMethod: 'selfie' })
+    expect((await startOf('app', 'in')).body.data).toMatchObject({ location_needed: false, precise_meters: null })
   })
 
   it('Location: a computer is refused — phones only is a rule now, not a switch — and no photo is asked', async () => {

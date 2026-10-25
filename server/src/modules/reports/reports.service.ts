@@ -3,8 +3,8 @@ import { BadRequest, Forbidden } from '../../platform/errors/AppError'
 import type { Permission } from '../../platform/authz/permissions'
 import type { ScopedResource } from '../../platform/authz/scope'
 import { employeesInScope } from '../../platform/authz/scopeWhere'
-import { isUnlimited, type Weekday } from '../../domain/leave/leaveDays'
-import { attendancePercent, leaveDaysWithin, notMarkedDays, type Calendar } from '../../domain/reports/reportMath'
+import { isUnlimited } from '../../domain/leave/leaveDays'
+import { attendancePercent, daysOffWithin, leaveDaysWithin, notMarkedDays, type Calendar } from '../../domain/reports/reportMath'
 import {
   addCalendarDays,
   dayLabel,
@@ -20,6 +20,7 @@ import { leaveYearOf } from '../leave/leave.service'
 import { REQUEST_LABELS, requestNumber } from '../../domain/requests/requests'
 import { requestReach } from '../requests/requests.service'
 import * as repo from './reports.repository'
+import { workWeekOf } from '../settings/workWeek.repository'
 
 /**
  * The reports on the Reports page, worked out here from the records.
@@ -159,12 +160,12 @@ function sum(rows: ReportRow[], key: string): number {
 }
 
 async function calendarFor(ctx: AppContext, window: { from: CalendarDate; to: CalendarDate }): Promise<Calendar> {
-  const [off, holidays] = await Promise.all([
-    // The rules the month had, as payroll counts it — not today's.
-    repo.weeklyOffDays(ctx.db, toDateColumn(window.from)),
+  const [week, holidays] = await Promise.all([
+    // Each day by the working week in force on it, as payroll and leave count it (client, 25 Oct 2026).
+    workWeekOf(ctx.db),
     repo.daysOff(ctx.db, toDateColumn(window.from), toDateColumn(window.to)),
   ])
-  return { weeklyOffDays: (off ?? [0]) as Weekday[], holidays: holidays.map((h) => fromDateColumn(h.date)) }
+  return { weeklyOffDays: week, holidays: holidays.map((h) => fromDateColumn(h.date)) }
 }
 
 // ── Attendance ──────────────────────────────────────────────────────────────
@@ -183,10 +184,17 @@ async function attendanceRows(ctx: AppContext, p: ReportParams) {
   for (const c of counts) countOf.set(`${c.employeeId}:${c.status}`, c._count._all)
   const hoursOf = new Map(hours.map((h) => [h.employeeId, h._sum.hoursWorked ? Number(h._sum.hoursWorked) : 0]))
   const markedOf = new Map<string, Set<CalendarDate>>()
+  // A working day marked off for somebody alone — a weekly off or a holiday of theirs.
+  const markedOffOf = new Map<string, Map<CalendarDate, 'holiday' | 'weekly_off'>>()
   for (const m of marked) {
     const set = markedOf.get(m.employeeId) ?? new Set<CalendarDate>()
     set.add(fromDateColumn(m.date))
     markedOf.set(m.employeeId, set)
+    if (m.status === 'holiday' || m.status === 'weekly_off') {
+      const off = markedOffOf.get(m.employeeId) ?? new Map<CalendarDate, 'holiday' | 'weekly_off'>()
+      off.set(fromDateColumn(m.date), m.status)
+      markedOffOf.set(m.employeeId, off)
+    }
   }
 
   const rows = people.flatMap(({ employee: e, employed }) => {
@@ -194,6 +202,7 @@ async function attendanceRows(ctx: AppContext, p: ReportParams) {
     const present = n('present')
     const half = n('half_day')
     const absent = n('absent')
+    const off = daysOffWithin(employed, today, calendar, markedOffOf.get(e.id) ?? new Map())
     return [{
       employee: e,
       row: {
@@ -204,8 +213,8 @@ async function attendanceRows(ctx: AppContext, p: ReportParams) {
         half_day: half,
         absent,
         on_leave: n('on_leave'),
-        holiday: n('holiday'),
-        weekly_off: n('weekly_off'),
+        holiday: off.holiday,
+        weekly_off: off.weeklyOff,
         not_marked: notMarkedDays(employed, today, calendar, markedOf.get(e.id) ?? new Set()),
         hours: round2(hoursOf.get(e.id) ?? 0),
         attendance_pct: attendancePercent(present, half, absent),

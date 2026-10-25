@@ -343,6 +343,12 @@ describe('from draft to paid payslips', () => {
     expect(res.headers['content-type']).toBe('application/pdf')
     expect((res.body as Buffer).subarray(0, 5).toString('latin1')).toBe('%PDF-')
     expect(await prisma.payslip.count({ where: { payrollRunId: runId, pdfKey: { not: null } } })).toBe(0)
+    // It prints her PAN and UAN: who opened it is on record, as for a paid one.
+    const opened = await prisma.auditLog.findFirst({
+      where: { organizationId: org.id, action: 'payslip.downloaded', entityId: slipOf[asha] },
+      orderBy: { createdAt: 'desc' },
+    })
+    expect(opened?.details).toMatchObject({ employeeId: asha, year: 2026, month: 8, own: false, fromPayrollRun: true, runStatus: 'approved' })
   })
 
   it('does not show an employee a payslip that has not been paid', async () => {
@@ -445,6 +451,11 @@ describe('from draft to paid payslips', () => {
     const stored = await prisma.payslip.findUniqueOrThrow({ where: { id: slipOf[ravi]! } })
     const res = await download(org, 'accounts', `/api/payroll-runs/${runId}/payslips/${slipOf[ravi]}/pdf`)
     expect(sha(res.body as Buffer)).toBe(stored.pdfSha256)
+    const opened = await prisma.auditLog.findFirst({
+      where: { organizationId: org.id, action: 'payslip.downloaded', entityId: slipOf[ravi] },
+      orderBy: { createdAt: 'desc' },
+    })
+    expect(opened?.details).toMatchObject({ employeeId: ravi, fromPayrollRun: true, runStatus: 'paid' })
   })
 
   it('refuses a stored file that is not the one that was written', async () => {
@@ -507,6 +518,36 @@ describe('two approvers at the same moment', () => {
     ])
     expect([a.status, b.status].sort()).toEqual([200, 409])
     expect(await prisma.auditLog.count({ where: { organizationId: org.id, action: 'payroll.run_approved' } })).toBe(1)
+    // The one that waited is told what happened, not asked about days again.
+    const loser = a.status === 409 ? a : b
+    // (Or, had it looked only after the other was saved, the plain refusal.)
+    expect(loser.body.error.message).toMatch(/August 2026 payroll was approved a moment ago|It is approved/)
+  })
+})
+
+describe('a negative net pay', () => {
+  it('is not approved: the approver is told whose, and approves once it is put right', async () => {
+    const org = await makeOrg('negative')
+    await prisma.salaryComponent.create({ data: { organizationId: org.id, code: 'CANTEEN', label: 'Canteen', type: 'deduction', entry: 'monthly', displayOrder: 9 } })
+    const lata = await hire(org, { name: 'Lata Pawar', salary: { BASIC: 10_000 } })
+    await hire(org, { name: 'Mohan Das', salary: { BASIC: 20_000 } })
+    const canteen = (amount: number) => api(org, 'hr').put('/api/payroll/monthly-entries', { employeeId: lata, componentCode: 'CANTEEN', ...AUGUST, amount })
+    expect((await canteen(12_000)).status).toBe(200)
+    const run = (await api(org).post('/api/payroll-runs', AUGUST)).body.data
+    const net = run.payslips.find((s: { employee_id: string }) => s.employee_id === lata).net_payable
+    expect(net).toBeLessThan(0)
+
+    const res = await api(org, 'super_admin').post(`/api/payroll-runs/${run.id}/approve`, { confirmAssumedDays: true })
+    expect(res.status).toBe(422)
+    expect(res.body.error.message).toMatch(/^One payslip has a negative net pay in August 2026/)
+    expect(res.body.error.details).toEqual({ negative: [{ employee_id: lata, full_name: 'Lata Pawar', net_payable: net }], others: 0 })
+    expect((await prisma.payrollRun.findUniqueOrThrow({ where: { id: run.id } })).status).toBe('draft')
+
+    // This month's deduction lowered and the month recalculated: it goes through.
+    expect((await canteen(2_000)).status).toBe(200)
+    const again = await api(org).post(`/api/payroll-runs/${run.id}/recalculate`)
+    expect(again.status).toBe(200)
+    expect((await api(org, 'super_admin').post(`/api/payroll-runs/${run.id}/approve`, { confirmAssumedDays: true })).status).toBe(200)
   })
 })
 

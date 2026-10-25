@@ -4,7 +4,7 @@ import { createApp } from '../../app'
 import { prisma } from '../../platform/db/prisma'
 import { hashPassword } from '../../platform/auth/password'
 import { leaveYearOf } from './leave.service'
-import { policySchema } from '../../http/validators/settings.validator'
+import { policySchema, workWeekSchema } from '../../http/validators/settings.validator'
 import { fromDateColumn } from '../../domain/shared/dates'
 
 /**
@@ -549,12 +549,14 @@ describe('withdrawing', () => {
 })
 
 describe('a five-day week is a setting, not a code change', () => {
-  /** Restores the six-day week so the other tests are unaffected. */
+  /**
+   * The working week, as one rule from long before (client, 25 Oct 2026: it is
+   * dated, and kept apart from the payroll policy). The tests restore the
+   * six-day week so the others are unaffected.
+   */
   async function setWeeklyOff(days: number[]) {
-    await prisma.organizationPolicy.updateMany({
-      where: { organizationId: orgId },
-      data: { weeklyOffDays: days },
-    })
+    await prisma.workWeek.deleteMany({ where: { organizationId: orgId } })
+    await prisma.workWeek.create({ data: { organizationId: orgId, effectiveFrom: new Date('2020-04-01T00:00:00Z'), weeklyOffDays: days } })
   }
 
   it('charges the Saturday on a six-day week', async () => {
@@ -600,13 +602,15 @@ describe('a five-day week is a setting, not a code change', () => {
     // Tested against the schema directly. Sending this over HTTP as HR would
     // be refused for lacking settings:update and the validator would never
     // run — a green test that proves nothing.
-    const result = policySchema.safeParse({ weeklyOffDays: [0, 1, 2, 3, 4, 5, 6] })
+    const result = workWeekSchema.safeParse({ weeklyOffDays: [0, 1, 2, 3, 4, 5, 6], from: '2026-11-01' })
 
     // Otherwise leave becomes impossible to take, and the reason would be a
     // settings page nobody thought to look at.
     expect(result.success).toBe(false)
 
-    expect(policySchema.safeParse({ weeklyOffDays: [0, 6] }).success).toBe(true)
-    expect(policySchema.safeParse({ weeklyOffDays: [7] }).success).toBe(false)
+    expect(workWeekSchema.safeParse({ weeklyOffDays: [0, 6], from: '2026-11-01' }).success).toBe(true)
+    expect(workWeekSchema.safeParse({ weeklyOffDays: [7], from: '2026-11-01' }).success).toBe(false)
+    // The payroll rules no longer carry the week: it is refused there, so nobody saves it where nothing reads it.
+    expect(policySchema.safeParse({ weeklyOffDays: [0, 6] }).success).toBe(false)
   })
 })

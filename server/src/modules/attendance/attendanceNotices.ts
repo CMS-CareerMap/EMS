@@ -16,15 +16,18 @@ import { usersOfEmployeeHolding } from '../notifications/notification.repository
  * Told on the logins they apply for leave from — the link is the way to; on
  * another (an Accounts role login beside theirs, Day 23) it would lead nowhere.
  */
-export async function tellAbsent(actor: NoticeActor, tx: TxDb, employeeId: string, days: readonly CalendarDate[], options: { includeActor?: boolean } = {}): Promise<void> {
+export async function tellAbsent(actor: NoticeActor, tx: TxDb, employeeId: string, days: readonly CalendarDate[], options: { includeActor?: boolean; noCheckIn?: boolean } = {}): Promise<void> {
   const sorted = [...new Set(days)].sort()
   if (sorted.length === 0) return
   const one = sorted.length === 1 ? sorted[0]! : null
+  // No check-in means absent (client, 25 Oct 2026): why, and the second way out — they were at work.
+  const why = options.noCheckIn ? ` There was no check-in${one ? '' : ' on those days'}, and no leave.` : ''
+  const worked = options.noCheckIn ? ' If you were at work, ask for an attendance correction in Requests.' : ''
   await notify(actor, tx, {
     event: 'attendance.absent',
     to: { users: await usersOfEmployeeHolding(tx, employeeId, 'leave:apply') },
     title: one ? `Marked absent on ${dayLabel(one)}` : `Marked absent on ${sorted.length} days`,
-    message: `${one ? `You were marked absent on ${dayLabel(one)}.` : `You were marked absent on ${sorted.map((d) => dayLabel(d)).join(', ')}.`} An absent day is cut from pay. If you were on leave, apply for it — with leave left, the day is paid. Attendance shows each absent day with "Apply leave".`,
+    message: `${one ? `You were marked absent on ${dayLabel(one)}.` : `You were marked absent on ${sorted.map((d) => dayLabel(d)).join(', ')}.`}${why} An absent day is cut from pay. If you were on leave, apply for it — with leave left, the day is paid. Attendance shows each absent day with "Apply leave".${worked}`,
     link: one ? `/leave?apply=1&from=${one}&to=${one}` : '/attendance',
     ...(options.includeActor ? { includeActor: true } : {}),
   })

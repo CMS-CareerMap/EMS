@@ -342,10 +342,10 @@ describe('geofence, which used to live in one admin browser', () => {
 
 describe('attendance security (client, 11 Oct 2026)', () => {
   it('reads the method and the layers, and saves a change with who changed what', async () => {
-    // The defaults (client, 11 and 14 Oct 2026): the office fence, one phone off — and whether an office is saved.
+    // The defaults (client, 11, 14 and 25 Oct 2026): the office fence, one phone off, precise location to 100 m — and whether an office is saved.
     expect((await get('/attendance-security')).body.data).toEqual({
       method: 'location', one_device: false, office_set: expect.any(Boolean),
-      machine_match: true, machine_minutes: 30, machine_missing: 'flag', machine_fills: true, selfie_keep_days: 60,
+      machine_match: true, machine_minutes: 30, machine_missing: 'flag', machine_fills: true, selfie_keep_days: 60, precise_meters: 100,
     })
     const saved = await put('/attendance-security', { punchOneDevice: true })
     expect(saved.status).toBe(200)

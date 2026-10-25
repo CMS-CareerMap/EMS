@@ -9,6 +9,7 @@ import DataState from '../../components/DataState'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import { Chip } from '../../components/ui/bits'
 import { Section, Field, SaveBar, Toggle, inp, inpSm } from './ui'
+import AbsentRuleSection from './AbsentRuleSection'
 
 /**
  * Settings → Attendance Security (client, 11 and 14 Oct 2026). The Super
@@ -62,6 +63,8 @@ function SecurityForm({ offices, security }) {
         </p>
       </div>
       <MethodSection security={security} canEdit={canEdit} />
+      <PreciseLocation security={security} canEdit={canEdit} />
+      <AbsentRuleSection canEdit={canEdit} />
       <OnePhoneLayer security={security} canEdit={canEdit} />
       <OfficeLocation office={office} canEdit={canEdit} />
       <SelfieKeep security={security} canEdit={canEdit} />
@@ -179,6 +182,44 @@ function OnePhoneLayer({ security, canEdit }) {
           <Toggle label="One phone per employee" checked={security.one_device} disabled={!canEdit || save.isPending}
             onChange={(on) => save.mutate({ punchOneDevice: on }, { onSuccess: () => toast.success(on ? 'Each person punches from one phone' : 'Punches from another phone are only flagged') })} />
           <span className="text-sm text-gray-700">{security.one_device ? 'On' : 'Off'}</span>
+        </div>
+      </Field>
+    </Section>
+  )
+}
+
+/**
+ * Precise location only (client, 25 Oct 2026): where a punch reads the location and does not judge
+ * it against the office — Location + Selfie, or a day away that asks for it — the vaguest reading taken.
+ */
+function PreciseLocation({ security, canEdit }) {
+  const save = useSaveAttendanceSecurity()
+  const [metres, setMetres] = useState(null)
+  const shown = metres ?? String(security.precise_meters)
+  const locked = !canEdit || save.isPending
+  function saveMetres() {
+    const value = Number(shown)
+    if (!Number.isInteger(value) || value < 20 || value > 500) {
+      toast.error('Between 20 and 500 metres.')
+      return
+    }
+    // The figure already saved, typed again: nothing to save, and no Save left showing.
+    if (value === security.precise_meters) {
+      setMetres(null)
+      return
+    }
+    save.mutate({ punchPreciseMeters: value }, { onSuccess: () => { setMetres(null); toast.success(`Locations up to ${value} m are taken`) } })
+  }
+  return (
+    <Section title="Precise Location" desc="Where a punch reads the location without checking it against the office — Location + Selfie, or a day away that asks for it — only a precise one is taken. A phone set to “Approximate” gives 1–3 km: it is refused, no camera opens, and the person is told how to turn precise location on.">
+      <Field label="Most Vague Location Taken" hint="Precise locations indoors are usually 10–65 m. 20 to 500 m.">
+        <div className="flex items-center gap-2 flex-wrap">
+          <input type="number" min="20" max="500" step="1" className={`${inpSm} w-24`} value={shown} aria-label="Most vague location taken, in metres"
+            onChange={(e) => setMetres(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && metres !== null) saveMetres() }} disabled={locked} />
+          <span className="text-sm text-gray-600">metres</span>
+          {canEdit && metres !== null && (
+            <button type="button" onClick={saveMetres} disabled={save.isPending} className="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold disabled:opacity-60">Save</button>
+          )}
         </div>
       </Field>
     </Section>

@@ -48,6 +48,7 @@ const SUITES = {
   punchmethod: { seed: ['day20', null, 'day20-fixture.json'] },
   personmonth: { seed: ['day20', null, 'day20-fixture.json'] },
   payrollscope: { seed: ['day20', null, 'day20-fixture.json'] },
+  absentrule: { seed: ['day20', null, 'day20-fixture.json'] },
 }
 
 const flags = new Set(process.argv.slice(2).filter((a) => a.startsWith('--')))

@@ -99,18 +99,6 @@ export const policySchema = z
     // exist in February, and the bug only appears once a year.
     payslipLockDay: z.number().int().min(1).max(28).nullish(),
 
-    /**
-     * Which weekdays the company does not work, as Sunday=0.
-     *
-     * [0] is a six-day week with Sunday off; [0, 6] is the five-day week.
-     * Capped at six so a company cannot accidentally close every day and
-     * make leave impossible to take.
-     */
-    weeklyOffDays: z
-      .array(z.number().int().min(0).max(6))
-      .max(6, 'A company cannot be closed every day of the week')
-      .optional(),
-
     leaveYearStartMonth: z.number().int().min(1).max(12).optional(),
     fiscalYearStartMonth: z.number().int().min(1).max(12).optional(),
 
@@ -166,6 +154,9 @@ export const attendanceSecuritySchema = z
     punchMachineFills: z.boolean().optional(),
     /// A selfie is kept 7 to 365 days.
     punchSelfieKeepDays: z.number().int().min(7, 'Between 7 and 365 days.').max(365, 'Between 7 and 365 days.').optional(),
+    /// Precise location only (client, 25 Oct 2026): the vaguest reading taken, 20 to 500 m —
+    /// "Approximate" (1–3 km) is refused whatever is chosen here.
+    punchPreciseMeters: z.number().int().min(20, 'Between 20 and 500 metres.').max(500, 'Between 20 and 500 metres.').optional(),
   })
   .strict()
 
@@ -263,3 +254,37 @@ export const ptTableSchema = z
 
 /** Whether an earning component counts as PF wages. */
 export const pfComponentSchema = z.object({ countsForPf: z.boolean() }).strict()
+
+/**
+ * PUT /api/settings/work-week (client, 25 Oct 2026): the weekly offs, and the
+ * day they start — today, the 1st of next month, or the 1st of this one. The
+ * service decides which days are allowed; this only checks the shape.
+ *
+ * [0] is a six-day week with Sunday off; [0, 6] is the five-day week. Capped
+ * at six so a company cannot accidentally close every day and make leave
+ * impossible to take.
+ */
+export const workWeekSchema = z
+  .object({
+    weeklyOffDays: z
+      .array(z.number().int().min(0).max(6))
+      .max(6, 'A company cannot be closed every day of the week'),
+    from: z.iso.date('Choose the day the change starts'),
+  })
+  .strict()
+
+/** DELETE /api/settings/work-week/:from — a change saved for a later day. */
+export const workWeekParamsSchema = z.object({ from: z.iso.date() }).strict()
+
+/**
+ * No check-in means Absent (client, 25 Oct 2026): on or off, the day it
+ * starts from, and how many days the machine's file or HR's marking is waited
+ * for. The service checks the day against today; this, the shape.
+ */
+export const absentRuleSchema = z
+  .object({
+    on: z.boolean(),
+    from: z.iso.date('Choose the day the rule starts from').nullable(),
+    waitDays: z.number().int().min(1, 'Between 1 and 14 days.').max(14, 'Between 1 and 14 days.'),
+  })
+  .strict()

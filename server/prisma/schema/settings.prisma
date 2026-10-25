@@ -56,6 +56,10 @@ model OrganizationPolicy {
   /// Null means never locked, which is a decision rather than an oversight.
   payslipLockDay Int?
 
+  /// NOT READ since 25 Oct 2026: the working week is dated on its own
+  /// (`WorkWeek`), which the migration copied this into. Kept one release, so
+  /// the version before still runs.
+  ///
   /// Which weekdays the company does not work, as Sunday=0.
   ///
   /// Default [0] — Sunday only, which is the common Indian office pattern.
@@ -119,6 +123,36 @@ model OrganizationPolicy {
 
   @@unique([organizationId, effectiveFrom])
   @@index([organizationId, effectiveTo])
+}
+
+/// The working week, dated (client, 25 Oct 2026): from `effectiveFrom`, these
+/// weekdays are off — until the next row begins. Settings → Leave Config →
+/// Working Week.
+///
+/// A day is off by the row in force ON THAT DAY (domain/shared/workWeek), so a
+/// change can start today, on the 1st of next month, or — while this month's
+/// payroll is open — on the 1st of this one, and every screen agrees about
+/// every day. A row may begin in the future: that is a change saved for later.
+/// Before the first row, the first row's week applies.
+///
+/// Kept apart from OrganizationPolicy: a policy period starts the day it is
+/// saved and carries the pay rules, and a week starting next month must not
+/// carry this month's rates into it. `OrganizationPolicy.weeklyOffDays` is no
+/// longer read; the migration that made this copied it here.
+model WorkWeek {
+  id             String @id @default(uuid())
+  organizationId String
+
+  effectiveFrom DateTime @db.Date
+  /// Sunday = 0. Empty: no weekly off at all.
+  weeklyOffDays Int[]
+
+  createdByUserId String?
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, effectiveFrom])
 }
 
 /// The number of days a month's pay is divided into.

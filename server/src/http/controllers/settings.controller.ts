@@ -4,6 +4,9 @@ import * as settings from '../../modules/settings/settings.service'
 import {
   companySchema,
   policySchema,
+  workWeekSchema,
+  workWeekParamsSchema,
+  absentRuleSchema,
   geofenceSchema,
   geofenceTestSchema,
   attendanceSecuritySchema,
@@ -15,6 +18,8 @@ import {
 } from '../validators/settings.validator'
 import { parseBody } from '../validators/parse'
 import { setPtTable } from '../../modules/settings/ptSlabs.service'
+import * as workWeek from '../../modules/settings/workWeek.service'
+import * as absentRule from '../../modules/attendance/absentRule.service'
 import { appContext } from '../context'
 import { fromDateColumn } from '../../domain/shared/dates'
 import { isUnlimited } from '../../domain/leave/leaveDays'
@@ -105,10 +110,6 @@ function policyPayload(policy: Policy) {
     esi_threshold: num(policy.esiThreshold),
     pay_day: policy.payDay,
     payslip_lock: policy.payslipLockDay,
-    // Numbers for the form to bind to, and names so a settings page can
-    // render "Saturday, Sunday" without a lookup table of its own.
-    weekly_off_days: policy.weeklyOffDays,
-    weekly_off_day_names: policy.weeklyOffDays.map((d) => WEEKDAY_NAMES[d] ?? String(d)),
     leave_year_start_month: policy.leaveYearStartMonth,
     fiscal_year_start_month: policy.fiscalYearStartMonth,
     lop_basis: policy.lopBasis,
@@ -261,6 +262,7 @@ function attendanceSecurityPayload(s: settings.AttendanceSecurityView) {
     machine_missing: s.punchMachineMissing,
     machine_fills: s.punchMachineFills,
     selfie_keep_days: s.punchSelfieKeepDays,
+    precise_meters: s.punchPreciseMeters,
   }
 }
 
@@ -401,3 +403,68 @@ export const putPtSlabs: RequestHandler = async (req, res) => {
   ok(res, rows.map(ptSlabRow))
 }
 
+
+// ── Working week (client, 25 Oct 2026) ──────────────────────────────────────
+
+const weekdays = (days: readonly number[]) => ({ weekly_off_days: [...days], names: days.map((d) => WEEKDAY_NAMES[d] ?? String(d)) })
+
+function workWeekPayload(v: workWeek.WorkWeekView) {
+  return {
+    today: v.today,
+    current: { from: v.current.from, ...weekdays(v.current.offDays) },
+    scheduled: v.scheduled.map((r) => ({ from: r.from, ...weekdays(r.offDays) })),
+    // The days a change may start on: today, the 1st of this month (null when not offered), the 1st of next month.
+    starts: { today: v.starts.today, this_month: v.starts.thisMonth, next_month: v.starts.nextMonth },
+    this_month_closed: v.thisMonthClosed,
+  }
+}
+
+/** GET /api/settings/work-week */
+export const getWorkWeek: RequestHandler = async (_req, res) => {
+  ok(res, workWeekPayload(await workWeek.getWorkWeek(appContext(res))))
+}
+
+/** PUT /api/settings/work-week — the weekly offs, from a day. */
+export const putWorkWeek: RequestHandler = async (req, res) => {
+  const ctx = appContext(res)
+  const { weeklyOffDays: offDays, from } = parseBody(workWeekSchema, req.body)
+  const saved = await workWeek.setWorkWeek(ctx, { offDays, from })
+  ok(res, { ...workWeekPayload(saved.view), changed_days: saved.changedDays.length, approved_leave_affected: saved.approvedLeaveAffected })
+}
+
+/** DELETE /api/settings/work-week/:from — cancels a change saved for a later day. */
+export const deleteWorkWeek: RequestHandler = async (req, res) => {
+  const ctx = appContext(res)
+  const { from } = parseBody(workWeekParamsSchema, req.params)
+  ok(res, workWeekPayload(await workWeek.cancelScheduled(ctx, from)))
+}
+
+// ── No check-in means Absent (client, 25 Oct 2026) ──────────────────────────
+
+function absentRulePayload(r: absentRule.AbsentRuleView) {
+  return { on: r.on, from: r.from, wait_days: r.waitDays, today: r.today, earliest_from: r.earliestFrom }
+}
+
+function runPayload(run: absentRule.RuleRun) {
+  return { marked: run.marked, removed: run.removed, people: run.people, closed_months: run.closedMonths }
+}
+
+/** GET /api/settings/absent-rule */
+export const getAbsentRule: RequestHandler = async (_req, res) => {
+  ok(res, absentRulePayload(await absentRule.getAbsentRule(appContext(res))))
+}
+
+/** POST /api/settings/absent-rule/preview — what saving would do, nothing written. */
+export const previewAbsentRule: RequestHandler = async (req, res) => {
+  const ctx = appContext(res)
+  const input = parseBody(absentRuleSchema, req.body)
+  ok(res, runPayload(await absentRule.previewAbsentRule(ctx, input)))
+}
+
+/** PUT /api/settings/absent-rule — saved, and the days put right by it at once. */
+export const putAbsentRule: RequestHandler = async (req, res) => {
+  const ctx = appContext(res)
+  const input = parseBody(absentRuleSchema, req.body)
+  const saved = await absentRule.saveAbsentRule(ctx, input)
+  ok(res, { ...absentRulePayload(saved.rule), run: runPayload(saved.run) })
+}

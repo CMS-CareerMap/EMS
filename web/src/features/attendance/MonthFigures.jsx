@@ -1,7 +1,7 @@
 import DataState from '../../components/DataState'
 import { Card } from '../../components/ui/bits'
 import { useNow } from '../../hooks/useNow'
-import { formatHours, monthLabel, serverSkew } from '../../lib/attendance'
+import { formatHours, monthLabel, serverSkew, unpaidDaysWords } from '../../lib/attendance'
 import { formatDay } from '../../lib/dates'
 import { minutesLabel } from '../../lib/requests'
 
@@ -56,6 +56,8 @@ function Figures({ d, now }) {
         {line('Hours worked', formatHours(t.hours_worked), [
           liveMinutes > 0 ? `+ ${minutesLabel(liveMinutes)} today so far` : null,
           t.expected_hours != null ? `of ${formatHours(t.expected_hours)} expected for the days worked` : null,
+          // In and never out: no hours, so neither counted nor expected — said, not hidden (25 Oct 2026).
+          t.without_check_out > 0 ? `${days(t.without_check_out)} with no check-out not counted` : null,
         ].filter(Boolean).join(' · ') || null)}
         {line('Working days', t.working_days, `${t.weekly_offs} weekly off · ${t.holidays} holiday${t.holidays === 1 ? '' : 's'}`)}
         {line('Days present', t.present + t.half_days, t.half_days ? `${t.half_days} of them half days` : null)}
@@ -79,19 +81,14 @@ function nothingCounted(d) {
 }
 
 /**
- * Paid days and unpaid days (loss of pay), from the server's reckoning — the
- * payroll run's own. Nothing where they were not employed; a dash where no
- * pay rules were in force.
+ * The days cut from pay (loss of pay), from the server's reckoning — the
+ * payroll run's own. Nothing where they were not employed; a dash where no pay
+ * rules were in force. Not "Paid days 31 of 31" (client, 25 Oct 2026): it
+ * counted the whole month beside figures counted to today, and confused; what
+ * matters through the month is what is cut. The payslip says the days paid.
  */
 function PayDaysLines({ payDays: d, line }) {
   if (!d || !d.employed) return null
-  const days = (n) => `${n} day${n === 1 ? '' : 's'}`
-  return (
-    <>
-      {line('Paid days', d.paid_days === null ? '—' : `${d.paid_days} of ${d.employment_days}`,
-        d.not_marked_days > 0 ? `so far · ${days(d.not_marked_days)} not marked yet, counted as paid` : 'so far · the payslip is final')}
-      {line('Unpaid days (loss of pay)', d.unpaid_days === null ? '—' : <span className={d.unpaid_days > 0 ? 'text-amber-800' : ''}>{d.unpaid_days}</span>,
-        d.unpaid_days > 0 ? 'cut from pay: absent, short days, or unpaid leave' : null)}
-    </>
-  )
+  return line('Unpaid days (loss of pay)', d.unpaid_days === null ? '—' : <span className={d.unpaid_days > 0 ? 'text-amber-800' : ''}>{d.unpaid_days}</span>,
+    d.unpaid_days === null ? null : unpaidDaysWords(d))
 }

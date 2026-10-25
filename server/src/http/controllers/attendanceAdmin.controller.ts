@@ -6,6 +6,7 @@ import {
   monthlySummary,
   todaySummary,
   markAttendance,
+  markMany,
   amendAttendance,
   dayRoster,
 } from '../../modules/attendance/attendanceAdmin.service'
@@ -21,6 +22,7 @@ import {
   monthQuerySchema,
   daySummaryQuerySchema,
   markAttendanceSchema,
+  markManySchema,
   amendAttendanceSchema,
   attendanceIdSchema,
   attendanceImportSchema,
@@ -66,6 +68,9 @@ function dayFields(record: Omit<AttendanceRow, 'employee'>) {
     machine_match: record.machineMatch,
     machine_first_scan: isoInstant(record.machineFirstScan),
     machine_last_scan: isoInstant(record.machineLastScan),
+    // Absent because nothing was there by the day's end (client, 25 Oct 2026): the
+    // whole day, or the half not on leave — so the day can say why it is absent.
+    no_check_in: record.source === 'system' || (record.status === 'absent' && record.statusBeforeSystem !== null),
 
     note: record.note,
   }
@@ -105,6 +110,8 @@ export const getDayRoster: RequestHandler = async (req, res) => {
       date: roster.date,
       // The server's clock, so the time at work runs right on a computer whose own is out.
       server_now: isoInstant(roster.now),
+      // A weekly off or a holiday for everybody (client, 25 Oct 2026): nobody is "no check-in" on it.
+      day_off: roster.dayOff,
       employees: roster.employees.map((employee) => ({
         employee_id: employee.id,
         employee_code: employee.employeeCode,
@@ -116,6 +123,10 @@ export const getDayRoster: RequestHandler = async (req, res) => {
         // Checked in and still at work now, by the rule their own card counts by:
         // the roster runs their time from check-in (client, 9 Oct 2026).
         at_work: roster.atWork.has(employee.id),
+        // Their day is over — the shift ended (client, 25 Oct 2026): nothing in it is "no check-in", an open one "no out".
+        day_over: roster.dayOver.has(employee.id),
+        // In and never out, no longer their day: "No out" (one rule for the roster and its export).
+        no_out: roster.noOut.has(employee.id),
         // Null when the caller may mark this day; otherwise whom it goes to (Day 22).
         mark_goes_to: roster.markGoesTo.get(employee.id) ?? null,
       })),
@@ -184,6 +195,7 @@ export const getPersonMonth: RequestHandler = async (req, res) => {
         holidays: t.holidays,
         hours_worked: t.hoursWorked,
         expected_hours: t.expectedHours,
+        without_check_out: t.withoutCheckOut,
         days_worked: t.daysWorked,
         average_hours: t.averageHours,
         arrivals: t.arrivals,
@@ -193,9 +205,13 @@ export const getPersonMonth: RequestHandler = async (req, res) => {
         open_day: m.openDay,
       },
       days: m.days.map(row),
-      weekly_off_days: m.calendar.weeklyOffDays,
       days_off: m.calendar.daysOff,
       pay_days: payDaysPayload(m.payDays),
+      // The week today, and the next change saved for later (client, 25 Oct 2026).
+      week_today: {
+        weekly_off_days: m.weekToday.offDays,
+        next: m.weekToday.next ? { from: m.weekToday.next.from, weekly_off_days: m.weekToday.next.offDays } : null,
+      },
     },
     meta: { requestId: res.locals.requestId, server_now: isoInstant(new Date()) },
   })
@@ -204,8 +220,9 @@ export const getPersonMonth: RequestHandler = async (req, res) => {
 /**
  * GET /api/attendance/calendar?year=&month=
  *
- * The company's days off in a month — holidays by name, and weekly offs — for
- * the attendance calendar, which has no rows on those days to draw from.
+ * The company's days off in a month — holidays by name, and weekly offs, each
+ * day by the working week in force on it — for the attendance calendar, which
+ * has no rows on those days to draw from.
  */
 export const getMonthCalendar: RequestHandler = async (req, res) => {
   const ctx = appContext(res)
@@ -217,7 +234,6 @@ export const getMonthCalendar: RequestHandler = async (req, res) => {
     data: {
       year: calendar.year,
       month: calendar.month,
-      weekly_off_days: calendar.weeklyOffDays,
       days_off: calendar.daysOff,
     },
     meta: { requestId: res.locals.requestId },
@@ -292,6 +308,17 @@ export const postMark: RequestHandler = async (req, res) => {
   const saved = await markAttendance(ctx, input)
 
   res.status(201).json({ data: row(saved), meta: { requestId: res.locals.requestId } })
+}
+
+/** POST /api/attendance/mark-many — the people ticked, one status (client, 25 Oct 2026). */
+export const postMarkMany: RequestHandler = async (req, res) => {
+  const ctx = appContext(res)
+  const input = parseBody(markManySchema, req.body)
+  const result = await markMany(ctx, input)
+  res.status(200).json({
+    data: { marked: result.marked, refused: result.refused.map((r) => ({ employee_id: r.employeeId, reason: r.reason })) },
+    meta: { requestId: res.locals.requestId },
+  })
 }
 
 /** PATCH /api/attendance/:id — regularisation. */

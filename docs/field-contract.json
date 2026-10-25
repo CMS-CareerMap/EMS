@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-10-15",
+  "generatedAt": "2026-10-25",
   "note": "Field names the frontend reads, pinned so the API cannot quietly stop sending one. A serializer that stops sending one of these will render an empty cell rather than an error, so check new serializers against this list. Regenerate with: cd server && npm run field-contract",
-  "fieldCount": 334,
+  "fieldCount": 345,
   "allFields": [
     "absent_days",
     "accept_as_backup",
@@ -52,6 +52,7 @@
     "check_in_at",
     "check_in_device",
     "check_out",
+    "closed_months",
     "closed_note",
     "company_days",
     "component_code",
@@ -71,6 +72,7 @@
     "date_of_birth",
     "date_of_joining",
     "day_off",
+    "day_over",
     "days_absent",
     "days_half",
     "days_in_month",
@@ -87,6 +89,7 @@
     "designation_id",
     "display_order",
     "distance_meters",
+    "earliest_from",
     "early_leaving_minutes",
     "edge_nights_left_out",
     "effective_date",
@@ -210,10 +213,13 @@
     "min_notice_days",
     "monthly_amount",
     "net_payable",
+    "next_month",
+    "no_check_in",
     "no_joining_date",
     "no_manager_approver_can_sign_in",
     "no_manager_approver_id",
     "no_manager_approver_name",
+    "no_out",
     "not_filled",
     "not_in_file",
     "not_marked",
@@ -262,6 +268,7 @@
     "pf_wage_ceiling",
     "pf_wages",
     "photo_needed",
+    "precise_meters",
     "present_days",
     "pro_rated",
     "probation_end_date",
@@ -304,6 +311,7 @@
     "team_away",
     "template_saved",
     "this_month",
+    "this_month_closed",
     "this_year",
     "time_differs",
     "to_check",
@@ -324,15 +332,18 @@
     "verified_documents",
     "wages_share_enabled",
     "wages_share_percent",
+    "wait_days",
     "waiting_count",
     "waiting_for_me",
     "waiting_for_password",
+    "week_today",
     "weekly_off",
     "weekly_off_days",
     "weekly_offs",
     "wfh_approver",
     "wfh_gps_required",
     "with_login",
+    "without_check_out",
     "work_arrangement",
     "work_mode",
     "working_days",
@@ -386,6 +397,10 @@
       "check_out",
       "full_name"
     ],
+    "web/src/features/attendance/MarkManyDialog.jsx": [
+      "employee_id",
+      "full_name"
+    ],
     "web/src/features/attendance/MonthCalendar.jsx": [
       "can_apply",
       "check_in",
@@ -393,26 +408,25 @@
       "days_off",
       "hours_worked",
       "leave_type_name",
+      "no_check_in",
       "on_leave"
     ],
     "web/src/features/attendance/MonthFigures.jsx": [
       "average_hours",
       "date_of_joining",
       "employed_until",
-      "employment_days",
       "expected_hours",
       "half_days",
       "hours_worked",
       "last_working_date",
       "late_days",
       "not_marked",
-      "not_marked_days",
       "on_leave",
       "open_since",
-      "paid_days",
       "pay_days",
       "unpaid_days",
       "weekly_offs",
+      "without_check_out",
       "working_days"
     ],
     "web/src/features/attendance/MonthTotals.jsx": [
@@ -474,6 +488,7 @@
       "open_day",
       "pay_days",
       "start_time",
+      "week_today",
       "weekly_off_days",
       "work_mode"
     ],
@@ -492,10 +507,13 @@
     ],
     "web/src/features/attendance/TeamDay.jsx": [
       "at_work",
+      "attendance_mode",
       "check_in",
       "check_in_at",
       "check_in_device",
       "check_out",
+      "day_off",
+      "day_over",
       "early_leaving_minutes",
       "employee_code",
       "full_name",
@@ -504,6 +522,7 @@
       "late_minutes",
       "machine_match",
       "mark_goes_to",
+      "no_out",
       "overtime_minutes",
       "work_mode"
     ],
@@ -898,6 +917,11 @@
       "overtime_enabled",
       "overtime_minutes"
     ],
+    "web/src/features/settings/AbsentRuleSection.jsx": [
+      "closed_months",
+      "earliest_from",
+      "wait_days"
+    ],
     "web/src/features/settings/ApprovalsSettings.jsx": [
       "can_sign_in",
       "no_manager_approver_can_sign_in",
@@ -915,6 +939,7 @@
       "max_accuracy_meters",
       "office_set",
       "one_device",
+      "precise_meters",
       "radius_meters",
       "selfie_keep_days"
     ],
@@ -1045,6 +1070,10 @@
       "user_id"
     ],
     "web/src/features/settings/WeeklyOffPicker.jsx": [
+      "approved_leave_affected",
+      "next_month",
+      "this_month",
+      "this_month_closed",
       "weekly_off_days"
     ],
     "web/src/hooks/useAttendance.js": [
@@ -1085,7 +1114,8 @@
       "accuracy_meters",
       "expires_in_seconds",
       "location_needed",
-      "photo_needed"
+      "photo_needed",
+      "precise_meters"
     ],
     "web/src/hooks/useRoles.js": [
       "parent_key"
@@ -1106,11 +1136,14 @@
       "distance_meters",
       "leave_days",
       "leave_type_name",
+      "no_check_in",
+      "not_marked_days",
       "open_day",
       "open_since",
       "received_at",
       "refused_for",
-      "server_now"
+      "server_now",
+      "unpaid_days"
     ],
     "web/src/lib/leaveTypes.js": [
       "leave_type",
@@ -1141,20 +1174,23 @@
     ],
     "web/src/pages/Attendance.jsx": [
       "at_work",
+      "attendance_mode",
       "check_in",
       "check_in_device",
       "check_out",
+      "day_off",
+      "day_over",
       "early_leaving_minutes",
       "employee_code",
       "employee_id",
-      "employment_days",
       "full_name",
       "hours_worked",
       "late_minutes",
       "machine_match",
       "mark_goes_to",
+      "no_check_in",
+      "no_out",
       "overtime_minutes",
-      "paid_days",
       "server_now",
       "unpaid_days",
       "work_mode"

@@ -5,10 +5,10 @@ import { withTransaction } from '../../platform/db/transaction'
 import { lockFor } from '../../platform/db/locks'
 import { logger } from '../../platform/logger'
 import { toDateColumn, fromDateColumn, dayLabel, type CalendarDate } from '../../domain/shared/dates'
-import { workingDays, type Weekday } from '../../domain/leave/leaveDays'
+import { workingDays } from '../../domain/leave/leaveDays'
 import * as repo from './leave.repository'
 import * as attendanceRepo from '../attendance/attendance.repository'
-import { getCurrentPolicy } from '../settings/settings.repository'
+import { workWeekOf } from '../settings/workWeek.repository'
 import { listDaysOff } from '../holidays/holidays.repository'
 import { audit } from '../audit/audit.service'
 import { assertMonthsOpen, holdPayrollFrom, isOpenFrom, monthsBetween } from '../payroll/payrollLock.service'
@@ -36,13 +36,13 @@ import { halfDayNote, type HalfDaySession } from '../../domain/leave/rules'
  */
 
 async function leaveSettings(ctx: AppContext, from: CalendarDate, to: CalendarDate) {
-  const [policy, holidays] = await Promise.all([
-    getCurrentPolicy(ctx.db),
+  const [week, holidays] = await Promise.all([
+    workWeekOf(ctx.db),
     listDaysOff(ctx.db, toDateColumn(from), toDateColumn(to)),
   ])
 
   return {
-    weeklyOffDays: (policy?.weeklyOffDays ?? [0]) as Weekday[],
+    week,
     holidays: holidays.map((h) => fromDateColumn(h.date)),
   }
 }
@@ -124,7 +124,7 @@ export async function recordApproval(
   const counted = workingDays({
     from,
     to,
-    weeklyOffDays: settings.weeklyOffDays,
+    weeklyOffDays: settings.week,
     holidays: settings.holidays,
     halfDays: request.halfDayDates as CalendarDate[],
   })

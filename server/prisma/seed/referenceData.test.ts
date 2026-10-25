@@ -67,6 +67,11 @@ describe('reference data', () => {
     const nextYear = await prisma.holiday.count({ where: { organizationId: orgId, date: new Date(Date.UTC(2027, 0, 26)) } })
     expect(nextYear).toBe(1)
 
+    // A bonus is outside ESI wages, and outside the salary PT is charged on
+    // (the Maharashtra PT Act: "does not include bonus in any form").
+    const bonus = await prisma.salaryComponent.findFirstOrThrow({ where: { organizationId: orgId, code: 'BONUS' } })
+    expect([bonus.countsForPf, bonus.countsForEsi, bonus.countsForPt]).toEqual([false, false, false])
+
     // The client's day (8 Oct 2026) on every shift: nine hours, a full day from
     // eight worked, a half day from four and a half, no break taken off.
     const shifts = await prisma.shift.findMany({ where: { organizationId: orgId }, orderBy: { name: 'asc' } })

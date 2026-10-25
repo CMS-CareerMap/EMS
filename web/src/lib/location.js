@@ -44,6 +44,12 @@ export function isPhoneBrowser() {
 /** The location could not be read at all — said by its code, so a check-out can offer to ask HR instead. */
 export const LOCATION_UNREAD = 'LOCATION_UNREAD'
 const unread = (message) => Object.assign(new Error(message), { code: LOCATION_UNREAD })
+/**
+ * Only readings kilometres out came (client, 25 Oct 2026): the phone on "Approximate", most
+ * likely — said by the server's own code for an approximate location, so the card says how to
+ * turn precise location on rather than "move near a window".
+ */
+const imprecise = () => Object.assign(new Error('Your phone gave only an approximate location, so it cannot be used. Turn on precise location, then try again.'), { code: 'LOCATION_IMPRECISE' })
 
 /** Whether the site may already read the location: then no question is asked, and the time starts at once. */
 async function alreadyAllowed() {
@@ -78,8 +84,12 @@ function bestAccuracy(readings) {
  * allowed, at once; otherwise at the first answer, the browser's question
  * ("Allow location?") given its own time — an iPhone asks again now and then,
  * and reading the question must not use up the seconds a fix indoors needs.
+ *
+ * `limit` (client, 25 Oct 2026): the vaguest reading the punch takes. Until one
+ * as precise has come, the watch is not ended for having enough readings — a
+ * phone still warming its GPS up gets the whole time to — only by the time.
  */
-export async function readLocationBurst({ target = 20, maxMs = BURST_MS } = {}) {
+export async function readLocationBurst({ target = 20, maxMs = BURST_MS, limit = null } = {}) {
   const allowed = await alreadyAllowed()
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
@@ -87,6 +97,8 @@ export async function readLocationBurst({ target = 20, maxMs = BURST_MS } = {}) 
       return
     }
     const readings = []
+    // Readings left out as kilometres out: none kept and some of these, and the phone is on "Approximate".
+    let tooVague = 0
     let started = Date.now()
     let counting = allowed
     let watchId = null
@@ -110,20 +122,24 @@ export async function readLocationBurst({ target = 20, maxMs = BURST_MS } = {}) 
       clearTimeout(timer)
       clearInterval(poll)
       if (readings.length > 0) resolve(readings.slice(-BURST_MAX))
-      else reject(error ?? unread('Your location could not be read. Move near a window and try again.'))
+      else reject(error ?? (tooVague > 0 ? imprecise() : unread('Your location could not be read. Move near a window and try again.')))
     }
 
     function enough() {
       if (readings.length === 0) return false
       const best = bestAccuracy(readings)
-      return readings.length >= BURST_MAX || (readings.length >= 3 && best <= target) || (Date.now() - started >= 4_000 && best <= target / 2)
+      const preciseEnough = limit === null || Math.round(best) <= limit
+      return (readings.length >= BURST_MAX && preciseEnough) || (readings.length >= 3 && best <= target) || (Date.now() - started >= 4_000 && best <= target / 2)
     }
 
     watchId = navigator.geolocation.watchPosition(
       (position) => {
         startCounting()
         // Kilometres out is the phone saying it has no idea: not a reading.
-        if (!(position.coords.accuracy <= VAGUEST_METRES)) return
+        if (!(position.coords.accuracy <= VAGUEST_METRES)) {
+          tooVague += 1
+          return
+        }
         readings.push(asReading(position))
         if (enough()) finish()
       },

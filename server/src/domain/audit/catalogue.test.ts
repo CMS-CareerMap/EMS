@@ -88,6 +88,13 @@ describe('a row as a sentence', () => {
       .toBe('Sign-in to Neha Sharma refused: wrong password')
     expect(row('report.exported', { report: 'leave-taken', year: 2026, month: 8, rows: 12, departmentId: 'd1' }))
       .toBe('Exported “Leave taken” for August 2026: 12 rows, filtered')
+    // Inside a payroll run: before it is paid, a preview with that day's PAN and UAN.
+    expect(row('payslip.downloaded', { employeeId: 'e-ravi', year: 2026, month: 9, own: false, fromPayrollRun: true, runStatus: 'draft' }))
+      .toBe('Downloaded Ravi Patil’s September 2026 payslip (draft)')
+    expect(row('payslip.downloaded', { employeeId: 'e-ravi', year: 2026, month: 9, own: false, fromPayrollRun: true, runStatus: 'approved' }))
+      .toBe('Downloaded Ravi Patil’s September 2026 payslip (approved, not yet paid)')
+    expect(row('payslip.downloaded', { employeeId: 'e-ravi', year: 2026, month: 9, own: true, fromPayrollRun: true, runStatus: 'paid' }))
+      .toBe('Downloaded their own September 2026 payslip')
   })
 
   it('states money the Indian way, with what it was before', () => {

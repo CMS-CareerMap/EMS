@@ -8,6 +8,7 @@ import { listDaysOff } from '../holidays/holidays.repository'
 import { employmentWindow as employmentDates } from '../leave/leave.repository'
 import * as repo from './payrollRun.repository'
 import { inForceOn, lossOfPayOf } from './payrollRun.service'
+import { workWeekOf } from '../settings/workWeek.repository'
 import { closedMonthKeys } from './payrollLock.service'
 
 /**
@@ -65,11 +66,12 @@ export async function payDaysFor(ctx: AppContext, employeeId: string, year: numb
   const from = toDateColumn(monthStart)
   const to = toDateColumn(monthEnd)
 
-  const [today, timezone, dates, policies, dayOffRows, attendance, leave] = await Promise.all([
+  const [today, timezone, dates, policies, week, dayOffRows, attendance, leave] = await Promise.all([
     companyToday(ctx),
     companyTimezone(ctx),
     employmentDates(ctx.db, employeeId),
     repo.policiesForMonth(ctx.db, from, to),
+    workWeekOf(ctx.db),
     listDaysOff(ctx.db, from, to),
     repo.attendanceForMonth(ctx.db, [employeeId], from, to),
     repo.leaveForMonth(ctx.db, [employeeId], from, to),
@@ -82,11 +84,11 @@ export async function payDaysFor(ctx: AppContext, employeeId: string, year: numb
 
   const policy = inForceOn(policies, window.from)
   const holidays = dayOffRows.map((row) => fromDateColumn(row.date)!)
-  const { calendar, weeklyOffDays, lop } = lossOfPayOf({
-    year, month, window,
-    // With no pay rules yet, the days still have names — on Sunday off, as leave is counted then too
-    // (leave.service leaveContext); the paid and unpaid figures stay null.
-    policy: policy ?? { weeklyOffDays: [0], sandwichRule: false },
+  const { calendar, lop } = lossOfPayOf({
+    year, month, window, week,
+    // With no pay rules yet, the days still have names — the working week is its own setting —
+    // and the paid and unpaid figures stay null.
+    policy: policy ?? { sandwichRule: false },
     holidays, attendance, leave, today,
   })
   const pay = policy ? proration({ lopBasis: policy.lopBasis, calendar, window, lopDays: lop.lopDays }) : null
@@ -94,7 +96,7 @@ export async function payDaysFor(ctx: AppContext, employeeId: string, year: numb
   // Each day of approved leave, named by its type — one request at a time, so each day knows whose type it is.
   const leaveDays = leave
     .filter((row) => row.status === 'approved')
-    .flatMap((row) => leaveDaysIn([{ from: fromDateColumn(row.fromDate)!, to: fromDateColumn(row.toDate)!, halfDays: row.halfDayDates, paid: row.leaveType.isPaid }], calendar, weeklyOffDays)
+    .flatMap((row) => leaveDaysIn([{ from: fromDateColumn(row.fromDate)!, to: fromDateColumn(row.toDate)!, halfDays: row.halfDayDates, paid: row.leaveType.isPaid }], calendar, week)
       .filter((d) => d.date >= window.from && d.date <= window.to)
       .map((d) => ({ date: d.date, portion: d.portion, paid: d.paid, leaveTypeName: row.leaveType.name, code: row.leaveType.code })))
     .sort((a, b) => a.date.localeCompare(b.date))

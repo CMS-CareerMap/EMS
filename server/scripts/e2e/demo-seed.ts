@@ -18,6 +18,7 @@ import { addCalendarDays, fromDateColumn, monthOfDay, toDateColumn, zonedToday, 
 import { hoursBetween } from '../../src/domain/attendance/hours'
 import { measureInstants, shiftRulesOf } from '../../src/domain/attendance/shiftRules'
 import { proRatedQuota } from '../../src/domain/leave/grant'
+import { isWeeklyOff, workWeek, type Weekday } from '../../src/domain/shared/workWeek'
 
 assertLocalDatabase()
 const url = new URL(process.env.DATABASE_URL ?? '')
@@ -114,6 +115,7 @@ async function seed() {
   await prisma.$transaction((tx) => seedForOrganization(tx, { id: organizationId, timezone: TZ }), { timeout: 60_000 })
   // Statutory rates and PT from before anybody here joined, so every month of the story has them.
   await prisma.organizationPolicy.updateMany({ where: { organizationId }, data: { effectiveFrom: toDateColumn('2021-04-01') } })
+  await prisma.workWeek.updateMany({ where: { organizationId }, data: { effectiveFrom: toDateColumn('2021-04-01') } })
   await prisma.ptSlab.updateMany({ where: { organizationId }, data: { effectiveFrom: toDateColumn('2021-04-01') } })
 
   const dept = Object.fromEntries((await prisma.department.findMany({ where: { organizationId } })).map((d) => [d.name, d.id]))
@@ -125,8 +127,8 @@ async function seed() {
   const policy = await prisma.organizationPolicy.findFirstOrThrow({ where: { organizationId } })
   const holidays = new Set((await prisma.holiday.findMany({ where: { organizationId } })).map((h) => fromDateColumn(h.date)))
 
-  const weekday = (d: CalendarDate) => new Date(`${d}T00:00:00Z`).getUTCDay()
-  const working = (d: CalendarDate) => !policy.weeklyOffDays.includes(weekday(d)) && !holidays.has(d)
+  const week = workWeek((await prisma.workWeek.findMany({ where: { organizationId } })).map((w) => ({ from: fromDateColumn(w.effectiveFrom), offDays: w.weeklyOffDays as Weekday[] })))
+  const working = (d: CalendarDate) => !isWeeklyOff(week, d) && !holidays.has(d)
   const onOrAfter = (d: CalendarDate) => { let x = d; while (!working(x)) x = addCalendarDays(x, 1); return x }
   const before = (d: CalendarDate) => { let x = addCalendarDays(d, -1); while (!working(x)) x = addCalendarDays(x, -1); return x }
   /** `count` working days from `from`, and the calendar range that holds them. */
@@ -179,9 +181,12 @@ async function seed() {
     n += 1
     const code = `CMS${String(n).padStart(3, '0')}`
     const memberships: string[] = []
+    // Added to EMS, login and all, the day they joined — as HR would have: the no-check-in rule
+    // (client, 25 Oct 2026) judges nobody's day before their record and login were made.
+    const madeOn = new Date(`${p.joined}T04:30:00Z`)
     for (const [email, role] of p.logins) {
       const user = await prisma.user.create({ data: { email, passwordHash } })
-      const m = await prisma.membership.create({ data: { userId: user.id, organizationId, role, status: 'active' } })
+      const m = await prisma.membership.create({ data: { userId: user.id, organizationId, role, status: 'active', createdAt: madeOn } })
       memberships.push(m.id)
       users[email] = { email, role }
     }
@@ -190,7 +195,7 @@ async function seed() {
     const employee = await prisma.employee.create({
       data: {
         organizationId, employeeCode: code, fullName: p.name, gender: p.gender, phone: p.phone,
-        personalEmail: `${p.key}.personal@example.com`, dateOfJoining: toDateColumn(p.joined),
+        personalEmail: `${p.key}.personal@example.com`, dateOfJoining: toDateColumn(p.joined), createdAt: madeOn,
         dateOfBirth: toDateColumn(`${1985 + (n % 12)}-${String((n % 12) + 1).padStart(2, '0')}-${String((n * 3) % 27 + 1).padStart(2, '0')}`),
         nationality: 'Indian', address: `${n * 7}, Baner Road, Pune 411045`,
         emergencyContactName: `${p.name.split(' ')[1]} family`, emergencyContactRelation: 'Parent', emergencyContactPhone: `98200${String(22000 + n)}`,

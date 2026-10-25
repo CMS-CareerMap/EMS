@@ -50,8 +50,14 @@ async function punch(action, takePhoto) {
   let start = await begin()
   // The location first (client, 14 Oct 2026): no location — permission refused, or nothing
   // read — and the camera never opens, so no photo is taken for a punch that cannot be made.
-  const readings = start.location_needed ? await readLocationBurst({ target: start.accuracy_meters ?? 20 }) : []
-  const photo = start.photo_needed ? await takePhoto() : null
+  const readings = start.location_needed ? await readLocationBurst({ target: start.accuracy_meters ?? 20, limit: start.precise_meters ?? null }) : []
+  // Precise location only (client, 25 Oct 2026): a reading vaguer than the company takes — a phone
+  // on "Approximate" — and the camera does not open either. The punch goes without a photo, for the
+  // server to refuse in words that say how to turn precise location on, and to keep as evidence.
+  // In whole metres, as the server judges it.
+  const best = readings.reduce((most, r) => Math.min(most, r.accuracyMeters), Infinity)
+  const precise = start.precise_meters == null || Math.round(best) <= start.precise_meters
+  const photo = start.photo_needed && precise ? await takePhoto() : null
   // A slow camera, or a long look at the browser's questions, can outlast the start:
   // begun again, so the punch is not refused for the time it took — the photo and readings kept.
   if (Date.now() - start.at > (start.expires_in_seconds - 15) * 1000) start = await begin()
@@ -68,6 +74,8 @@ export function usePunchIn() {
     // Started fresh each time: a request approved since the page opened counts.
     // `takePhoto`: the card's camera dialog, when the company asks for a selfie with every punch.
     mutationFn: ({ takePhoto = noCamera } = {}) => punch('in', takePhoto),
+    // Said on the card, with how to turn precise location on — too much for a toast that goes away.
+    meta: { quietCodes: ['LOCATION_IMPRECISE'] },
     // Returned: the button stays busy until today's row shows the punch, so
     // it cannot be pressed a second time in between.
     onSuccess: () => Promise.all([
@@ -90,8 +98,8 @@ export function usePunchOut() {
     // record the check-out instead.
     mutationFn: ({ takePhoto = noCamera } = {}) => punch('out', takePhoto),
     // Said on the card, with the way to ask HR — not as a toast that goes away:
-    // refused at the office fence, or the location not read at all.
-    meta: { quietCodes: ['LOCATION_REFUSED', LOCATION_UNREAD] },
+    // refused at the office fence, the location not read at all, or only approximately.
+    meta: { quietCodes: ['LOCATION_REFUSED', LOCATION_UNREAD, 'LOCATION_IMPRECISE'] },
     onSuccess: () => Promise.all([
       queryClient.invalidateQueries({ queryKey: KEY }),
       queryClient.invalidateQueries({ queryKey: ['dashboard'] }),

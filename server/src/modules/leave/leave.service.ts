@@ -12,10 +12,11 @@ import {
   isUnlimited,
   splitAtBalance,
   InvalidRangeError,
-  type Weekday,
   type WorkingDaysResult,
   type LeavePart,
 } from '../../domain/leave/leaveDays'
+import type { WorkWeek } from '../../domain/shared/workWeek'
+import { workWeekOf } from '../settings/workWeek.repository'
 import * as repo from './leave.repository'
 import { companyTimezone } from '../organization/organization.service'
 import { getCurrentPolicy, findLeaveType } from '../settings/settings.repository'
@@ -54,22 +55,24 @@ import { pendingEncashDays } from '../requests/requests.repository'
 interface LeaveContext {
   timezone: string
   leaveYearStartMonth: number
-  weeklyOffDays: Weekday[]
+  /** The working week, day by day: a change from the 25th makes the 31st off here as everywhere. */
+  week: WorkWeek
   holidays: CalendarDate[]
 }
 
 /** Everything the day count depends on, read once per request. */
 async function leaveContext(ctx: AppContext, from: CalendarDate, to: CalendarDate): Promise<LeaveContext> {
-  const [timezone, policy, holidays] = await Promise.all([
+  const [timezone, policy, week, holidays] = await Promise.all([
     companyTimezone(ctx),
     getCurrentPolicy(ctx.db),
+    workWeekOf(ctx.db),
     listDaysOff(ctx.db, toDateColumn(from), toDateColumn(to)),
   ])
 
   return {
     timezone,
     leaveYearStartMonth: policy?.leaveYearStartMonth ?? 4,
-    weeklyOffDays: (policy?.weeklyOffDays ?? [0]) as Weekday[],
+    week,
     holidays: holidays.map((h) => fromDateColumn(h.date)),
   }
 }
@@ -220,7 +223,7 @@ async function assess(
     counted = workingDays({
       from: range.from,
       to: range.to,
-      weeklyOffDays: type.countsNonWorkingDays ? [] : context.weeklyOffDays,
+      weeklyOffDays: type.countsNonWorkingDays ? [] : context.week,
       holidays: type.countsNonWorkingDays ? [] : context.holidays,
       halfDays: range.halfDays,
     })

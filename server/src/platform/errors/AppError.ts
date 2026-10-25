@@ -60,6 +60,14 @@ export const FileUnavailable = (
 export const LocationRefused = (message: string, details: { action: 'in' | 'out'; reason: string; date: string }) =>
   new AppError(403, 'LOCATION_REFUSED', message, details)
 
+/**
+ * An app punch refused because the phone gave only an approximate location
+ * (client, 25 Oct 2026). Its own code, so the page can say how to turn precise
+ * location on — and, on a check-out, offer to ask HR to record it.
+ */
+export const LocationImprecise = (message: string, details: { action: 'in' | 'out'; date: string; accuracy_meters: number; limit_meters: number }) =>
+  new AppError(403, 'LOCATION_IMPRECISE', message, details)
+
 /** A file larger than allowed — the company's cap, or the system's ceiling. */
 export const PayloadTooLarge = (message = 'That upload is too large.') =>
   new AppError(413, 'PAYLOAD_TOO_LARGE', message)

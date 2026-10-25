@@ -28,6 +28,7 @@
     "reset-link": "tsx scripts/resetLink.ts",
     "storage:check": "tsx scripts/storageCheck.ts",
     "maintenance": "tsx scripts/maintenance.ts",
+    "hourly": "tsx scripts/hourly.ts",
     "backup": "tsx scripts/backup/backup.ts",
     "restore": "tsx scripts/backup/restore.ts",
     "backup:drill": "tsx scripts/backup/drill.ts"

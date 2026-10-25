@@ -51,12 +51,12 @@ export function Field({ label, hint, children }) {
  * sent — on two tabs nothing ever was. `saving` comes from the mutation; `saved`
  * is set by the tab after the request succeeds.
  */
-export function SaveBar({ onSave, saving, saved, disabled }) {
+export function SaveBar({ onSave, saving, saved, disabled, label = 'Save Changes' }) {
   return (
     <div className="flex justify-end pt-4">
       <button type="button" onClick={onSave} disabled={saving || disabled} className={`${btn.primary} w-full sm:w-auto`}>
         {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : saved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-        {saving ? 'Saving…' : saved ? 'Saved' : 'Save Changes'}
+        {saving ? 'Saving…' : saved ? 'Saved' : label}
       </button>
     </div>
   )

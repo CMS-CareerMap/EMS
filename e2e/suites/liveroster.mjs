@@ -59,8 +59,10 @@ async function open(who, viewport) {
 }
 const shown = (locator, timeout = 20_000) => locator.first().waitFor({ timeout }).then(() => true, () => false)
 const rosterRow = (page) => page.locator('table tr', { hasText: PRIYA }).first()
+// HR marks days: the first column ticks people to mark together (client, 25 Oct 2026), so a cell is one further on.
+const TICK = 1
 const SO_FAR = /^(\d+)h (\d+)m\s*so far$/
-const hoursCell = async (page) => (await rosterRow(page).locator('td').nth(4).innerText()).replace(/\s+/g, ' ').trim()
+const hoursCell = async (page) => (await rosterRow(page).locator('td').nth(4 + TICK).innerText()).replace(/\s+/g, ' ').trim()
 
 try {
   // ═══════════════════════════════════════════════════════════════════════
@@ -80,7 +82,7 @@ try {
   const first = await hoursCell(hema)
   check('…her time so far, from 0h 0m', /^0h [01]m so far$/.test(first), first)
   check('…marked as running', (await rosterRow(hema).locator('.animate-pulse, [class*="animate-pulse"]').count()) >= 1)
-  check('…and the time she came in, beside it', (await rosterRow(hema).locator('td').nth(2).innerText()).trim().match(/^\d\d:\d\d/) !== null)
+  check('…and the time she came in, beside it', (await rosterRow(hema).locator('td').nth(2 + TICK).innerText()).trim().match(/^\d\d:\d\d/) !== null)
   await hema.screenshot({ path: `${SHOTS}/roster-at-work.png` })
 
   // A minute on, the minutes move.
@@ -152,7 +154,7 @@ try {
   }
   // Her stored hours lead the cell (a shift's "left early" may follow them).
   check('within a minute, HR’s roster shows her hours, no longer “so far”', /^\d+h \d+m/.test(stored) && !/so far/.test(stored), stored)
-  check('…with her check-out time', (await rosterRow(hema).locator('td').nth(3).innerText()).trim().match(/^\d\d:\d\d/) !== null)
+  check('…with her check-out time', (await rosterRow(hema).locator('td').nth(3 + TICK).innerText()).trim().match(/^\d\d:\d\d/) !== null)
   await manoj.reload()
   await team.waitFor({ timeout: 20_000 })
   const after = (await team.locator('li', { hasText: PRIYA }).first().innerText()).replace(/\s+/g, ' ')
@@ -179,8 +181,8 @@ try {
   await hema.locator('input[type="date"]').first().fill('2026-09-22')
   await hema.waitForLoadState('networkidle').catch(() => undefined)
   // The 22nd's row, not the 21st's still on screen: only the 22nd says 09:30 (the 21st, 09:15).
-  const onThe22nd = await shown(raviRow.locator('td').nth(2).getByText('09:30', { exact: true }))
-  const typed = (await raviRow.locator('td').nth(4).innerText()).replace(/\s+/g, ' ').trim()
+  const onThe22nd = await shown(raviRow.locator('td').nth(2 + TICK).getByText('09:30', { exact: true }))
+  const typed = (await raviRow.locator('td').nth(4 + TICK).innerText()).replace(/\s+/g, ' ').trim()
   check('…shows no hours and no warning', onThe22nd && typed === '—', `${onThe22nd ? '' : '(the 22nd never showed) '}${typed}`)
   await hema.context().close()
   await priya.context().close()

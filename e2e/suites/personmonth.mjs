@@ -127,8 +127,8 @@ try {
   check('…the open day from her check-in, kept as a time', typeof d.totals.open_since === 'string' && d.totals.open_since.length > 0 && d.totals.open_day === today)
   const hours = await figure(hr, 'Month so far', 'Hours worked')
   check('…today’s time at work runs live: + 1h 35m or so', liveOk(hours.hint, /\+ (.+) today so far/, d.totals.open_since), hours.hint)
-  const paid = await figure(hr, 'Month so far', 'Paid days')
-  check('…the days paid, as payroll counts them', d.pay_days?.employed && paid.value === `${d.pay_days.paid_days} of ${d.pay_days.employment_days}`, `${paid.value} / ${JSON.stringify(d.pay_days)}`)
+  // Not "Paid days 31 of 31" any more (client, 25 Oct 2026): the month shows what is cut.
+  check('…no "Paid days" line — the days cut are what the month shows', d.pay_days?.employed && !(await hr.getByRole('region', { name: 'Month so far' }).innerText().catch(() => (hr.locator('main').innerText()))).includes('Paid days'))
   const unpaid = await figure(hr, 'Month so far', 'Unpaid days (loss of pay)')
   check('…and unpaid (loss of pay) — shown to whoever sees her attendance', unpaid.value === String(d.pay_days.unpaid_days), unpaid.value)
   check('the calendar is open first', (await hr.getByRole('tab', { name: 'Calendar' }).getAttribute('aria-selected')) === 'true')
