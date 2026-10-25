@@ -393,7 +393,8 @@ export async function importAttendance(
       const classification = halfLeave ? withHalfDayLeave(measure.classification) : measure.classification
       status = classification?.status ?? 'present'
     }
-    if (existing) wouldOverwrite += 1
+    // An Absent the no-check-in rule wrote is nobody's record: the machine's day replaces it as marking, not correcting (client, 25 Oct 2026).
+    if (existing && existing.source !== 'system') wouldOverwrite += 1
     return { employee, date, start: first, end: last, hours, status, note, measure, expectedHours: graded.expectedHours, shiftId: graded.shiftId, fromMachine: fromMachine && (first !== null || last !== null) ? { first, last } : null }
   }
 
@@ -445,7 +446,8 @@ export async function importAttendance(
       }
     }
     // An edge night is made whole only on a day the machine itself wrote — never over the app's or HR's.
-    if (edge && existing!.source !== 'biometric') {
+    // An Absent the no-check-in rule wrote is nobody's, and the file replaces it (25 Oct 2026).
+    if (edge && existing!.source !== 'biometric' && existing!.source !== 'system') {
       edgeNightsLeftOut += 1
       continue
     }

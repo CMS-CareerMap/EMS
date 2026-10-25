@@ -24,7 +24,7 @@ import { parse } from '@babel/parser'
  * "today" off a UTC clock fails at 1 a.m. in Pune.
  */
 
-export type Rule = 'R1' | 'R2' | 'R3' | 'R4' | 'R5' | 'R6' | 'R7' | 'R8'
+export type Rule = 'R1' | 'R2' | 'R3' | 'R4' | 'R5' | 'R6' | 'R7' | 'R8' | 'R9'
 
 export interface Violation {
   file: string
@@ -317,6 +317,22 @@ export function checkSource(file: string, code: string, options: CheckOptions): 
     if (file !== 'domain/shared/dates.ts' && isMember(node) && propertyName(node) === 'toISOString') {
       report(node, 'R8', 'calls toISOString(); use fromDateColumn / zonedToday for a day, isoInstant for a moment (domain/shared/dates.ts)')
     }
+
+    // ── Rule 9 — a weekly off is decided in one place ───────────────────────
+    // Client, 25 Oct 2026: the calendar and payroll went by one rule, leave and
+    // the home page by another, and the same Saturday was off on one screen and
+    // a working day on the next. Every day is now asked of domain/shared/workWeek.
+    // The working week's own repository reads its rows; settings.service carries
+    // the old policy column forward, unread, for the version before.
+    if (!isTest) {
+      const readsWeek = inDomain || file === 'modules/settings/workWeek.repository.ts' || file === 'modules/settings/settings.service.ts'
+      if (!readsWeek && isMember(node) && propertyName(node) === 'weeklyOffDays') {
+        report(node, 'R9', 'reads weeklyOffDays; ask domain/shared/workWeek (workWeekOf, isWeeklyOff) — a weekly off is decided in one place')
+      }
+      if (!inDomain && isMember(node) && ['getUTCDay', 'getDay'].includes(propertyName(node) ?? '')) {
+        report(node, 'R9', 'works out a weekday; ask domain/shared/workWeek (weekdayOf, isWeeklyOff)')
+      }
+    }
   })
 
   return violations
@@ -393,4 +409,5 @@ export const RULES: Record<Rule, string> = {
   R6: 'serializers list fields and invent no fallback values',
   R7: 'no statutory constant outside domain/',
   R8: 'no toISOString() outside domain/shared/dates.ts',
+  R9: 'a weekly off is decided only by domain/shared/workWeek',
 }

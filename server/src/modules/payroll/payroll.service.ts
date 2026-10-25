@@ -14,7 +14,8 @@ import { requestNumber } from '../../domain/requests/requests'
 import { arrearsFor, monthCalendar, proration, type LopBasis } from '../../domain/payroll/payDays'
 import { money as rupees } from '../../domain/audit/catalogue'
 import { EPS_AGE_LIMIT, epsAgeInMonth, isEpsMember, type Gender, type PtSlabRule } from '../../domain/payroll/statutory'
-import type { Weekday } from '../../domain/leave/leaveDays'
+import type { WorkWeek } from '../../domain/shared/workWeek'
+import { workWeekOf } from '../settings/workWeek.repository'
 import { toDateColumn, fromDateColumn, dayLabel, addCalendarDays, type CalendarDate } from '../../domain/shared/dates'
 import { listDaysOff } from '../holidays/holidays.repository'
 import { coverageFor, type Coverage } from './esiCoverage.service'
@@ -65,6 +66,8 @@ export interface CalculationOptions {
    * working-days basis needs them.
    */
   holidays?: readonly CalendarDate[]
+  /** The working week, day by day, when the caller already has it — as for the holidays. */
+  week?: WorkWeek
 }
 
 export interface Calculation {
@@ -317,7 +320,8 @@ export async function calculate(
   const calendar = monthCalendar({
     year,
     month,
-    weeklyOffDays: policy.weeklyOffDays as Weekday[],
+    // Each day by the working week in force on it (client, 25 Oct 2026).
+    weeklyOffDays: options.week ?? (await workWeekOf(ctx.db)),
     holidays,
   })
 

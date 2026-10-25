@@ -129,6 +129,19 @@ describe('rule 8 — calendar days', () => {
   })
 })
 
+describe('rule 9 — a weekly off is decided in one place', () => {
+  it('refuses reading a weekly-off list, or working out a weekday, outside the domain', () => {
+    expect(rules('modules/dashboard/dashboard.service.ts', `const off = policy.weeklyOffDays.includes(3)`)).toEqual(['R9'])
+    expect(rules('modules/leave/leave.service.ts', `const weekday = new Date(day).getUTCDay()`)).toEqual(['R9'])
+    expect(rules('domain/payroll/payDays.ts', `const off = input.weeklyOffDays`)).toEqual([])
+    expect(rules('modules/settings/workWeek.repository.ts', `const days = row.weeklyOffDays`)).toEqual([])
+  })
+
+  it('lets a key be named so — only reading it is the rule', () => {
+    expect(rules('modules/payroll/payroll.service.ts', `monthCalendar({ year, month, weeklyOffDays: week, holidays })`)).toEqual([])
+  })
+})
+
 describe('server/src', () => {
   it('keeps every §A5 rule', () => {
     const violations = checkServer(resolve(__dirname, '..'))

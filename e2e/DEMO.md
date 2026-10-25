@@ -83,7 +83,7 @@ karan, pooja, neha, sunil.
    type than she has left: the form offers the days she has, and the rest as Loss of Pay, in one
    application. Working from home is not in the leave list: the form points to Requests.
    Leave Balance → **Statement** on any type: every day given and taken, like a passbook.
-   Attendance: each leave day by its type, and the month's paid and unpaid days; an
+   Attendance: each leave day by its type, and the month's unpaid days (loss of pay); an
    absent day offers **Apply leave**.
 3. Requests: her correction is waiting for Rekha.
 4. Payslips: the paid month's payslip; download the PDF.
@@ -112,7 +112,9 @@ karan, pooja, neha, sunil.
 3. Employees → Neha Gupta → Employment: **Complete onboarding**. Kiran Kumar shows as left.
 4. Attendance: mark a day for somebody; export the month. **Click a name** for that person's
    month: the calendar, each day, and the month so far counted to today (live while they are in),
-   with paid and unpaid days. The same is the **Attendance** tab on their profile.
+   with the unpaid days (loss of pay). The same is the **Attendance** tab on their profile.
+   On a past day, **tick** a few people and press **Mark the ticked…** (say why): only they are
+   marked. **No Out** lists days somebody checked in and never out.
 5. Leave: everybody's leave and balances (she sees them all, decides none). Loss of Pay shows
    the days taken; it has nothing to correct.
 6. Employees → anybody → **Leave**: their days a year of each type; **Change** gives them their
@@ -142,7 +144,8 @@ karan, pooja, neha, sunil.
    **Attendance Security**: the **Attendance Method** — Location, Selfie, or Location + Selfie,
    always exactly one (the demo has no office saved, so Location waits for it; choose **Selfie**
    to check in from this laptop's camera; Location + Selfie needs no office but reads a phone's
-   location, so it is for a phone on the real site) — one phone per employee, the office location
+   precise location — a phone set to Approximate is refused, with how to fix it — so it is for a
+   phone on the real site) — Precise Location (100 m), one phone per employee, the office location
    (radius 15–20 m) and the fingerprint machine's confirmation. Attendance → **Suspicious** lists punches
    worth a second look; a person's punch phone is replaced or reset on their page, Punch phone.
 4. Audit Log: every step above, by whom, with old and new values.
@@ -152,6 +155,12 @@ karan, pooja, neha, sunil.
    reports, and a month's payroll as their share — the choice works as it does for leave.
    **Whose payslips** offers every choice too: give the Manager role "Their team", and Manoj's
    Payslips page gets a People's payslips tab with his team's paid payslips.
+7. Settings → Leave Config → **Change weekly offs**: Saturday too, from the 1st of next month
+   (saved for later, and Priya's Timings say so) or from today — the calendar, leave and payroll
+   then agree on every day. Settings → Attendance Security → **No Check-in Means Absent**: switch
+   it on from the 1st of last month, read what it will do, save — every working day nobody
+   recorded becomes "Absent · no check-in" (a person's month shows it); switch it off and they
+   all come back.
 
 ### On a phone
 In Edge or Chrome press F12, then the phone icon (Ctrl+Shift+M), and pick a phone. The app is

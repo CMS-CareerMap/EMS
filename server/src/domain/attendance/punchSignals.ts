@@ -27,9 +27,10 @@ export type PunchFlag =
   /** A Mac's browser claiming a touch screen: an iPad says it is a Mac — and so can a laptop told to. Taken as a phone, and said. */
   | 'mac_with_touch'
   /**
-   * A location kept but not fenced (Location + Selfie, wherever they are) that is too vague to say
-   * where — "precise location" off, the phone guessing by kilometres. Taken, never refused (a
-   * warehouse's metal roof must not stop a punch), and said, so HR knows the record says little.
+   * A location kept but not fenced (Location + Selfie, wherever they are) vaguer than 100 m. Since
+   * 25 Oct 2026 a reading vaguer than the company's precise-location limit (100 m to start) is
+   * refused before this is asked; one taken under a limit set higher (up to 500 m — a warehouse's
+   * metal roof) is said, so HR knows the record says little.
    */
   | 'location_vague'
 

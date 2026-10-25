@@ -85,6 +85,8 @@ try {
   check('…and no break to mention, with no shift', (await priya.getByText(/unpaid break is taken off/).count()) === 0)
   check('…nor a full day to count down to: no shift grades her day', (await priya.getByText(/^Full day/).count()) === 0)
   check('…and no line of the day drawn in colour any more (9 Oct 2026)', (await priya.getByRole('region', { name: 'Time today' }).getByText(/^\d\d:00$/).count()) === 0)
+  // No shift, nothing measured: not "on time", nor "outside your shift hours" (client, 25 Oct 2026).
+  check('…her check-in chip claims no timeliness with no shift to measure it by', /^Checked in at \d\d:\d\d$/.test((await priya.getByText(/^Checked in at \d\d:\d\d/).first().innerText()).trim()), await priya.getByText(/^Checked in at/).first().innerText().catch(() => ''))
   await priya.screenshot({ path: `${SHOTS}/priya-at-work.png` })
   await priya.waitForTimeout(61_000)
   const later = (await big(priya).innerText()).trim()
@@ -123,8 +125,22 @@ try {
   await ravi.reload()
   check('…and once it is reached, “Full day done”', await shown(ravi.getByText('Full day done', { exact: true })))
   psql(`UPDATE "Attendance" SET "checkIn" = '${realIn}' WHERE ${openRow}`)
-  await ravi.reload()
-  await big(ravi).waitFor({ timeout: 20_000 })
+  // "On time" only when it was measured so (client, 25 Oct 2026): a check-in more than twelve
+  // hours from the shift's start — 23:07 on a 09:30 shift — is not measured, and is said so.
+  const realLate = psql(`SELECT coalesce("lateMinutes"::text, 'NULL') FROM "Attendance" WHERE ${openRow}`)
+  const chipAfter = async (late) => {
+    psql(`UPDATE "Attendance" SET "lateMinutes" = ${late} WHERE ${openRow}`)
+    await ravi.reload()
+    await big(ravi).waitFor({ timeout: 20_000 })
+    return (await ravi.getByText(/^Checked in at \d\d:\d\d/).first().innerText()).trim()
+  }
+  const onTime = await chipAfter(0)
+  check('his chip: measured, not late — “on time”', /^Checked in at \d\d:\d\d · on time$/.test(onTime), onTime)
+  const outside = await chipAfter('NULL')
+  check('…not measured (far from his 09:30–18:30 shift) — “outside your shift hours”, never “on time”', /^Checked in at \d\d:\d\d · outside your shift hours$/.test(outside), outside)
+  const late = await chipAfter(25)
+  check('…late — neither, and the lateness said below it', /^Checked in at \d\d:\d\d$/.test(late) && await shown(ravi.getByText('Checked in 25m after your shift started.')), late)
+  await chipAfter(realLate)
   await checkOut(ravi)
   check('after Check Out, it says the break came off the hours', await shown(ravi.getByText(/^Worked( today)? · at work \d\d:\d\d – \d\d:\d\d, less a 45m unpaid break$/)))
   check('…and the hours read as Xh Ym (under the break: 0h 0m)', (await figure(ravi)) === '0h 0m', await figure(ravi))

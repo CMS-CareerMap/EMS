@@ -130,9 +130,21 @@ export async function paidPayslipPdf(ctx: AppContext, id: string): Promise<PdfFi
   if (!slip) throw NotFound('Payslip not found')
 
   const bytes = await storedPdf(slip)
+  await recordDownload(ctx, slip)
+  return { filename: filenameOf(slip), bytes }
+}
 
-  // Who opened whose payslip. Best effort: a download never fails for want of
-  // an audit row.
+/**
+ * Who opened whose payslip — from the people's payslips or inside a run, where
+ * one not yet paid is drawn then, with the PAN and UAN (today's on a draft,
+ * approval's copies once approved). Best effort: a download never fails for
+ * want of an audit row.
+ */
+async function recordDownload(
+  ctx: AppContext,
+  slip: { id: string; employeeId: string; year: number; month: number },
+  run?: { status: string },
+) {
   await recordSecurityEvent({
     organizationId: ctx.organizationId,
     actorUserId: ctx.userId,
@@ -141,10 +153,14 @@ export async function paidPayslipPdf(ctx: AppContext, id: string): Promise<PdfFi
     action: 'payslip.downloaded',
     entityType: 'payslip',
     entityId: slip.id,
-    details: { employeeId: slip.employeeId, year: slip.year, month: slip.month, own: slip.employeeId === ctx.employeeId },
+    details: {
+      employeeId: slip.employeeId,
+      year: slip.year,
+      month: slip.month,
+      own: slip.employeeId === ctx.employeeId,
+      ...(run ? { fromPayrollRun: true, runStatus: run.status } : {}),
+    },
   })
-
-  return { filename: filenameOf(slip), bytes }
 }
 
 // ── For payroll staff, inside a run ─────────────────────────────────────────
@@ -161,7 +177,9 @@ export async function runPayslipPdf(ctx: AppContext, runId: string, payslipId: s
   if (!run || !slip) throw NotFound('Payslip not found')
 
   if (run.status === 'paid') {
-    return { filename: filenameOf(slip), bytes: await storedPdf(slip) }
+    const bytes = await storedPdf(slip)
+    await recordDownload(ctx, slip, run)
+    return { filename: filenameOf(slip), bytes }
   }
 
   let employer: { name: string; address: string | null }
@@ -179,8 +197,10 @@ export async function runPayslipPdf(ctx: AppContext, runId: string, payslipId: s
       : NO_IDENTIFIERS
   }
 
-  return renderSlip(
+  const file = await renderSlip(
     viewInputOf(slip, { status: run.status, payDate: null, employer, identifiers }),
     run.calculatedAt,
   )
+  await recordDownload(ctx, slip, run)
+  return file
 }

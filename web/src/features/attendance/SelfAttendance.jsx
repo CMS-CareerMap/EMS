@@ -9,6 +9,7 @@ import DataState from '../../components/DataState'
 import Tabs, { TabPanel } from '../../components/ui/Tabs'
 import { Card, CardLink, Chip, EmptyState, IconBox } from '../../components/ui/bits'
 import { btn } from '../../components/ui/styles'
+import { formatDay } from '../../lib/dates'
 import { WEEKDAYS, WEEK_MONDAY_FIRST, openOf, payDayMaps, serverSkew, weekdayOf } from '../../lib/attendance'
 import { WORK_MODES, minutesLabel, statusOf, summaryOf, typeLabel } from '../../lib/requests'
 import { REQUEST_TONE, kindOf } from '../../lib/requestKinds'
@@ -100,7 +101,7 @@ export default function SelfAttendance({ monthKey, onMonth, today }) {
 
         {sub === 'calendar' && (
           <div className="p-4">
-            <MonthCalendar year={year} month={month} today={today} rows={rows} rowsQuery={monthOf} calendarQuery={monthOf} joinedOn={joinedOn}
+            <MonthCalendar year={year} month={month} today={today} rows={rows} rowsQuery={monthOf} calendarQuery={monthOf} showUnmarked joinedOn={joinedOn}
               leftOn={monthOf.data?.person?.employed_until ?? null} openDay={monthOf.data?.totals?.open_day ?? null} leaveOn={leaveOn} absentOn={absentOn} onApply={applyFor} />
             {asks && (
               <p className="mt-3 text-xs text-gray-500">
@@ -136,8 +137,12 @@ function HowRecorded({ mode, mayPunch }) {
 
 /** The working week and the shift: which days are off, and the hours of the ones that are not. */
 function Timings({ workplace, calendar, today, mayPunch }) {
-  // The week as it is now; the calendar's is the shown month's, which may be an older rule.
-  const offs = workplace.data?.weekly_off_days ?? calendar.data?.weekly_off_days ?? null
+  // The week as it is today (the calendar draws each day by the week in force on it) — from their own
+  // month, which every login with a record reads, punching or not (client, 25 Oct 2026).
+  const week = calendar.data?.week_today ?? null
+  const offs = week?.weekly_off_days ?? null
+  // A change saved for a later day: what is coming, said now.
+  const nextWeek = week?.next ?? null
   const shift = workplace.data?.shift ?? null
   const todayWeekday = weekdayOf(today)
 
@@ -191,8 +196,14 @@ function Timings({ workplace, calendar, today, mayPunch }) {
               )}
               <div className="flex items-baseline justify-between gap-3 py-2 border-t border-gray-100">
                 <dt className="text-gray-600">Weekly off</dt>
-                <dd className="font-bold text-gray-900 text-right">{offs?.length ? WEEK_MONDAY_FIRST.filter((d) => offs.includes(d)).map((d) => WEEKDAYS[d]).join(', ') : 'None'}</dd>
+                <dd className="font-bold text-gray-900 text-right">{offs === null ? '…' : offs.length ? WEEK_MONDAY_FIRST.filter((d) => offs.includes(d)).map((d) => WEEKDAYS[d]).join(', ') : 'None'}</dd>
               </div>
+              {nextWeek && (
+                <div className="flex items-baseline justify-between gap-3 py-2 border-t border-gray-100">
+                  <dt className="text-gray-600">From {formatDay(nextWeek.from)}</dt>
+                  <dd className="font-bold text-brand-700 text-right">{nextWeek.weekly_off_days.length ? WEEK_MONDAY_FIRST.filter((d) => nextWeek.weekly_off_days.includes(d)).map((d) => WEEKDAYS[d]).join(', ') : 'No weekly off'}</dd>
+                </div>
+              )}
               {workplace.data?.work_mode && workplace.data.work_mode !== 'office' && (
                 <div className="flex items-baseline justify-between gap-3 py-2 border-t border-gray-100">
                   <dt className="text-gray-600">Today</dt>

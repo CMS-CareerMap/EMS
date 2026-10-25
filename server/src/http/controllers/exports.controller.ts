@@ -130,7 +130,7 @@ function wallClock(instant: Date | null, timezone: string): string | null {
 const attendanceExportSchema = z
   .object({
     date: z.iso.date().optional(),
-    status: z.enum(['all', 'unmarked', 'present', 'half_day', 'absent', 'on_leave', 'holiday', 'weekly_off']).default('all'),
+    status: z.enum(['all', 'unmarked', 'present', 'half_day', 'absent', 'on_leave', 'holiday', 'weekly_off', 'no_out']).default('all'),
     department: z.string().trim().max(100).optional(),
     search: z.string().trim().max(100).optional(),
   })
@@ -146,7 +146,8 @@ export const getAttendanceExport: RequestHandler = async (req, res) => {
     date: full.date,
     employees: full.employees.filter((e) => {
       const status = e.attendance[0]?.status ?? null
-      if (q.status === 'unmarked' ? status !== null : q.status !== 'all' && status !== q.status) return false
+      // "No out" is the roster's own rule (client, 25 Oct 2026), not a status.
+      if (q.status === 'no_out' ? !full.noOut.has(e.id) : q.status === 'unmarked' ? status !== null : q.status !== 'all' && status !== q.status) return false
       if (q.department && (e.department?.name ?? '') !== q.department) return false
       if (search && !e.fullName.toLowerCase().includes(search) && !e.employeeCode.toLowerCase().includes(search)) return false
       return true

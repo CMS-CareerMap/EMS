@@ -23,6 +23,11 @@ enum AttendanceSource {
   leave
   /// Set by an approved attendance correction request (client §29).
   correction
+  /// Written by the system (client, 25 Oct 2026): a working day that ended
+  /// with no check-in, no leave and nobody's mark — Absent, "no check-in".
+  /// Only rows of this source are ever changed or removed by the rule; any
+  /// punch, leave, correction, HR mark or machine file replaces them.
+  system
 }
 
 enum AttendanceStatus {
@@ -124,6 +129,17 @@ model Attendance {
   /// A day the company's rule made absent for not being on the machine: what
   /// it was before, so a later file that has it puts it back.
   statusBeforeMachine AttendanceStatus?
+
+  /// A day of half-day leave with no check-in for the other half, made absent
+  /// by the no-check-in rule (client, 25 Oct 2026): what it was before
+  /// (on_leave), so the rule can put it back when the day is no longer due —
+  /// the rule switched off, the day made a holiday, the other half on leave.
+  /// Null otherwise; whoever else writes the day clears it.
+  statusBeforeSystem AttendanceStatus?
+
+  /// When the person was told they had not checked out (client, 25 Oct 2026),
+  /// so they are told once. Null: not told.
+  checkOutNudgedAt DateTime? @db.Timestamptz(3)
 
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)

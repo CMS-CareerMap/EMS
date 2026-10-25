@@ -666,6 +666,8 @@ describe('part months', () => {
     // 16th to 30th inclusive: 15 of 30 days, so exactly half.
     expect(d.employment_days).toBe(15)
     expect(d.paid_days).toBe(15)
+    // The days before they joined are not loss of pay — as on their payslip.
+    expect(d.lop_days).toBe(0)
     expect(d.gross_earnings).toBe(15_000)
     // PF on the prorated basic: 12% of 7,500.
     expect(d.employee_pf).toBe(900)
@@ -683,6 +685,7 @@ describe('part months', () => {
 
     // 1st to 10th: a third of the month, 10,000 of 30,000.
     expect(d.paid_days).toBe(10)
+    expect(d.lop_days).toBe(0)
     expect(d.gross_earnings).toBe(10_000)
     expect(d.employee_pf).toBe(600)
     // 10,000 exactly sits in the ₹175 slab (7,500.01 to 10,000).

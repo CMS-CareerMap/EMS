@@ -107,9 +107,32 @@ model Organization {
   punchSelfie           Boolean        @default(false)
   /// How long a punch's selfie is kept before the nightly job deletes it.
   punchSelfieKeepDays   Int            @default(60)
+  /// Precise location only (client, 25 Oct 2026): where a punch reads the
+  /// location and does not judge it against the office (Location + Selfie, a
+  /// day away that asks for it), a reading vaguer than this many metres is
+  /// refused — no camera, no punch. A phone on "Approximate" gives 1–3 km.
+  punchPreciseMeters    Int            @default(100)
   /// One phone per employee, with whichever method: punches from another
   /// phone are refused, and the people who look after phones are told.
   punchOneDevice        Boolean        @default(false)
+
+  /// No check-in means Absent (client, 25 Oct 2026): a working day that ended
+  /// with no punch, no leave and nobody's mark is recorded Absent — for
+  /// everybody, from `absentWithoutCheckInFrom`. Off: such a day stays "not
+  /// marked", and is paid. Days in a month whose payroll is closed never change.
+  absentWithoutCheckIn     Boolean   @default(false)
+  absentWithoutCheckInFrom DateTime? @db.Date
+  /// For people whose days come from the fingerprint machine's file or from
+  /// HR's marking: how many days to wait for them before a day is judged.
+  absentWaitDays           Int       @default(3)
+
+  /// The last year whose three fixed national holidays the nightly job added
+  /// (client, 25 Oct 2026) — added once a year, so one the company removes is
+  /// not put back. Null: none added by the job yet.
+  fixedHolidaysThrough Int?
+  /// The year the people who keep the holiday calendar were last reminded that
+  /// the next year's holidays are not entered. Null: never.
+  holidayReminderYear  Int?
 
   /// Settings → Users & Roles → Passwords (client, 6 Oct 2026). Who sets the
   /// password of an employee login: the company — HR, or the Super Admin —
@@ -145,6 +168,7 @@ model Organization {
   punchDevices        PunchDevice[]
 
   policies  OrganizationPolicy[]
+  workWeeks WorkWeek[]
   ptSlabs   PtSlab[]
   holidays  Holiday[]
   geofences GeofenceLocation[]

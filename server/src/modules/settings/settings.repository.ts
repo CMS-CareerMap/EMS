@@ -118,6 +118,7 @@ export const ATTENDANCE_SECURITY_FIELDS = {
   punchMachineFills: true,
   punchSelfieKeepDays: true,
   punchOneDevice: true,
+  punchPreciseMeters: true,
 } as const
 
 export type AttendanceSecurity = {
@@ -128,6 +129,7 @@ export type AttendanceSecurity = {
   punchMachineFills: boolean
   punchSelfieKeepDays: number
   punchOneDevice: boolean
+  punchPreciseMeters: number
 }
 
 export async function attendanceSecurityOf(db: ScopedDb | TxDb, organizationId: string): Promise<AttendanceSecurity | null> {

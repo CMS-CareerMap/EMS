@@ -73,6 +73,18 @@ export async function renderPayslipPdf(view: PayslipView, options: RenderOptions
   const left = doc.page.margins.left
   const width = doc.page.width - doc.page.margins.left - doc.page.margins.right
   const rule = (y: number) => doc.moveTo(left, y).lineTo(left + width, y).lineWidth(0.6).strokeColor(RULE).stroke()
+  const footer = () => {
+    const footerY = doc.page.height - doc.page.margins.bottom - 12
+    doc.font('body').fontSize(7.5).fillColor(MUTED).text(view.footer, left, footerY, { width, align: 'center', lineBreak: false })
+  }
+  // What does not fit above the footer goes on to a new page, rather than
+  // running into the footer and off the page.
+  const room = (at: number, needed: number): number => {
+    if (at + needed <= doc.page.height - doc.page.margins.bottom - 24) return at
+    footer()
+    doc.addPage()
+    return doc.page.margins.top
+  }
 
   // ── Employer and heading ────────────────────────────────────────────────
   let y = doc.page.margins.top
@@ -148,23 +160,38 @@ export async function renderPayslipPdf(view: PayslipView, options: RenderOptions
   doc.moveTo(dedX, y).lineTo(dedX + half, y).lineWidth(0.6).strokeColor(RULE).stroke()
   y += 5
 
+  const earnLabelWidth = half - rateWidth - amountWidth - 4
+  const dedLabelWidth = half - amountWidth - 4
+  const oneLine = doc.font('body').fontSize(8.5).heightOfString('Basic', { width: earnLabelWidth })
   const lines = Math.max(view.earnings.length, view.deductions.length, 1)
   for (let i = 0; i < lines; i++) {
     const earning = view.earnings[i]
     const deduction = view.deductions[i]
+    doc.font('body').fontSize(8.5)
+    // A label too long for its column wraps, and its row grows by the lines
+    // it adds — "Children Education Allowance" no longer runs into the line
+    // below. A one-line row stays 14pt.
+    const labelHeight = Math.max(
+      earning ? doc.heightOfString(earning.label, { width: earnLabelWidth }) : 0,
+      deduction ? doc.heightOfString(deduction.label, { width: dedLabelWidth }) : 0,
+    )
+    const rowHeight = 14 + Math.max(0, labelHeight - oneLine)
+    y = room(y, rowHeight)
+    // After room(): a new page's footer leaves its own smaller font behind.
     doc.font('body').fontSize(8.5).fillColor(INK)
     if (earning) {
-      doc.text(earning.label, earnX, y, { width: half - rateWidth - amountWidth - 4 })
+      doc.text(earning.label, earnX, y, { width: earnLabelWidth })
       doc.fillColor(MUTED).text(earning.rate ?? '', earnX + half - rateWidth - amountWidth, y, { width: rateWidth, align: 'right' })
       doc.fillColor(INK).text(earning.amount, earnX + half - amountWidth, y, { width: amountWidth, align: 'right' })
     }
     if (deduction) {
-      doc.fillColor(INK).text(deduction.label, dedX, y, { width: half - amountWidth - 4 })
+      doc.fillColor(INK).text(deduction.label, dedX, y, { width: dedLabelWidth })
       doc.text(deduction.amount, dedX + half - amountWidth, y, { width: amountWidth, align: 'right' })
     }
-    y += 14
+    y += rowHeight
   }
 
+  y = room(y, 29)
   y += 2
   doc.moveTo(earnX, y).lineTo(earnX + half, y).lineWidth(0.6).strokeColor(RULE).stroke()
   doc.moveTo(dedX, y).lineTo(dedX + half, y).lineWidth(0.6).strokeColor(RULE).stroke()
@@ -184,6 +211,7 @@ export async function renderPayslipPdf(view: PayslipView, options: RenderOptions
 
   // ── Net pay ─────────────────────────────────────────────────────────────
   const netHeight = view.net.words ? 44 : 28
+  y = room(y, netHeight + 14)
   doc.rect(left, y, width, netHeight).fillColor('#f3f4f6').fill()
   doc.font('bold').fontSize(11).fillColor(INK).text(view.net.label, left + 10, y + 8, { width: width / 2 })
   doc.font('bold').fontSize(12).text(view.net.value, left + width / 2, y + 7, { width: width / 2 - 10, align: 'right' })
@@ -194,6 +222,7 @@ export async function renderPayslipPdf(view: PayslipView, options: RenderOptions
 
   // ── What the employer paid on top ───────────────────────────────────────
   if (view.employerContributions) {
+    y = room(y, 20 + Math.max(1, view.employerContributions.rows.length) * 14)
     doc.font('bold').fontSize(9).fillColor(INK).text(view.employerContributions.title, left, y, { width })
     y = doc.y + 4
     if (view.employerContributions.rows.length === 0) {
@@ -208,8 +237,7 @@ export async function renderPayslipPdf(view: PayslipView, options: RenderOptions
   }
 
   // ── Footer ──────────────────────────────────────────────────────────────
-  const footerY = doc.page.height - doc.page.margins.bottom - 12
-  doc.font('body').fontSize(7.5).fillColor(MUTED).text(view.footer, left, footerY, { width, align: 'center', lineBreak: false })
+  footer()
 
   doc.end()
   return done

@@ -120,7 +120,7 @@ Notes:
 - **Punch phones** (14 Oct 2026). `user:device:manage` — "Replace or reset the phone a person punches from" — is held by the Super Admin, HR and Admin to start, and the Super Admin gives it to any role or takes it away. It reaches the people the role's **employee** records reach (like the login permissions), so Admin, with no attendance permissions, replaces phones from the person's page (Punch phone card). Never one's own phone, a fellow phone-keeper's, or a senior's: those go up the tree (§6). It matters only while "One phone per employee" is on (Settings → Attendance Security).
 - **One person's attendance** (15 Oct 2026).
   - A name on Attendance opens that person's month: the roster, the month's hours, Suspicious, and the Attendance tab on a profile.
-  - The month shows the calendar, the days, and the month so far counted to today, live while they are in. It includes paid days and unpaid days (loss of pay).
+  - The month shows the calendar, the days, and the month so far counted to today, live while they are in. It includes the unpaid days (loss of pay), and the days not marked, paid until marked; the days paid are on the payslip.
   - The page follows the **attendance** scope: HR and the Super Admin see anybody, a manager their team, an employee themselves. Anybody else is told it is not theirs to see.
   - Evidence of punches is never shown for one's own days, except to the Super Admin.
 
@@ -193,7 +193,7 @@ Somebody who does a kind of work never does it on their own record. Neither do t
 | Checking a bank account | `employee:bank:manage` |
 | Correcting a leave balance | `leave:balance:manage` |
 | Checking (or removing a checked) document | `document:verify` |
-| Marking or correcting attendance, attendance import rows | `attendance:mark` / `attendance:update` (a day already recorded is corrected only with `attendance:update`; `attendance:delete` is checked by nothing and is not offered) |
+| Marking or correcting attendance, attendance import rows, marking the people ticked | `attendance:mark` / `attendance:update` (a day already recorded is corrected only with `attendance:update`; an Absent the no-check-in rule wrote on a day with nothing in it is nobody's record, so marking over it needs only `attendance:mark` — a half day of leave it made absent is the leave's, and is corrected; `attendance:delete` is checked by nothing and is not offered) |
 | Entering an incentive | `payroll:entry:manage` |
 | Entering a salary or TDS | `payroll:structure:manage` |
 | A lifecycle step: onboarding, probation, confirmation, transfer, promotion, recording a resignation, exit | `employee:lifecycle:manage` |
@@ -331,6 +331,7 @@ Employee sends a request (Requests → New request)
 - A correction for a month whose payroll is approved is refused. Overtime can be claimed only for a day that recorded it, no more than it recorded, and only while the company pays overtime (the switch as it is today — turned on today, yesterday's long day can be claimed). A claim once approved is paid, at the rate of the month it is paid in.
 - Overtime and encashment are never paid after the month somebody leaves in: once that payroll is approved, they are refused (pay them with the final settlement). Leaving closes whatever of theirs still waits.
 - A payroll that an overtime claim or encashment approved after its calculation would change is not approved until it is recalculated.
+- A payroll with a negative net pay (deductions more than the month pays, e.g. a fixed TDS on a leaver's few days) is not approved: that month's TDS or deduction is lowered first, then the month recalculated. The approver is told whose.
 - The person can withdraw a request while it waits, and an approved work-from-home or on-duty request before its first day. A file (PDF or photo) can go with a request.
 - HR (and anybody who corrects attendance or keeps balances) sees **All requests** within their reach; a request waiting for somebody shows on their dashboard.
 
@@ -340,6 +341,15 @@ Employee sends a request (Requests → New request)
 - Behind the sliders button: a grace period at either end; a late threshold and an early-leaving threshold past which a day is at best a half day (off to start); and when overtime starts (30 minutes past the shift's hours to start — then all of it counts).
 - Lateness, leaving early and overtime are worked out when a day has its times — at check-out, when HR marks or corrects a day, and on a biometric import — and shown on the attendance roster and the person's check-in card.
 - Only approved overtime is paid, and only once the company turns overtime on (Settings → Payroll Config; off to start, so nobody is paid overtime by surprise). The rate (twice to start) and what an hour is worked out from (the full salary, or Basic and DA) are there too. Lateness and overtime are recorded on the days either way.
+
+### Attendance days
+
+- **No check-in means Absent** (Settings → Attendance Security, Super Admin; off to start). From the day chosen — for each person from the day they were added, and on the app from the day they were given a login — a working day that ends with no check-in, no leave and nobody's mark is recorded **Absent — no check-in**, for everybody, and the person is told how to apply leave or ask for a correction. On the app a day ends when the shift does (a night shift the next morning); for people on the fingerprint machine or marked by HR, after the days of waiting set there (3 to start). Weekly offs and holidays never are. It is put right every night and at once after a change of the setting, the working week or a holiday: a check-in, approved leave, a correction, HR's mark or the machine's file replaces it, and switching it off gives back every day it wrote. A month whose payroll is approved or paid never changes.
+- **Half a day of leave with no check-in** for the other half: that half is Absent (loss of pay), the leave half paid.
+- **Forgot to check out:** the day stays Present. The person is told two hours after their shift ended; HR sees it under **No Out** on the roster and puts the check-out in.
+- **Marking the people ticked:** on the day's roster, whoever has "Mark attendance" ticks people and marks them together, with a reason kept on each day — only those ticked, each as if marked one by one. A day with a check-in is not offered (its times are its evidence), nor somebody whose day goes to somebody else.
+- **The working week** (Settings → Leave Config, Super Admin) is dated: a change starts today or on the 1st of next month, and the days before keep the week they had; setting the week up for the first time, it can start on the 1st of this month while its payroll is open. Every day goes by the week in force on it, on every screen and for every role.
+- **Holidays** (Settings → Leave Config, Super Admin and HR — "Keep the holiday calendar", which the Super Admin can give any role): any day of a month whose payroll is open, for the whole company. The next year's three fixed national holidays are added by themselves from October, once; in December whoever keeps the calendar is told if the festivals are not entered yet.
 
 ### Employee lifecycle
 
@@ -385,7 +395,7 @@ Accounts sets salaries → creates the month's run (draft) → recalculates as n
 - **Mark paid** stores every payslip as a PDF with a SHA-256 hash. A paid month cannot change.
 - One's own salary, TDS and incentive go up the tree (§6).
 - **The Labour Codes wages rule** (Settings → Payroll Config, the Super Admin's; off to start): PF wages are at least a set share of what each person earned in the month — one half, changeable when the government notifies another share. Like every payroll rule it applies from the next month's payroll: a month is worked out on the rules in force on its first day. A payslip it changed says so ("PF wages raised from … to 50% of gross earned"), and the payslip PDF stays as the client approved it.
-- **Salary components** (Payroll → Components; Accounts and the Super Admin): add an earning or a deduction, on the salary record or entered each month, and say whether it counts for PF, ESI and professional tax. Bonus (outside ESI) and Commission are there to start. A component somebody is paid keeps its kind; it can be archived only when no salary in force and no open month uses it.
+- **Salary components** (Payroll → Components; Accounts and the Super Admin): add an earning or a deduction, on the salary record or entered each month, and say whether it counts for PF, ESI and professional tax. Bonus (outside ESI and professional tax: the Maharashtra PT Act leaves bonus out) and Commission are there to start. A component somebody is paid keeps its kind; it can be archived only when no salary in force and no open month uses it.
 - **Overtime and leave encashment** are paid as their own payslip lines from approved requests; leave encashment counts for professional tax but not for ESI.
 - **Loans and salary advances** (Payroll → Loans & advances; Accounts and the Super Admin): an amount and a monthly recovery from a month. Each payslip recovers the installment, never more than the month pays; a draft recalculated twice recovers once. Close one repaid in cash or written off; remove one only while nothing has been recovered.
 - **Before approval** the run lists every correction, overtime claim or encashment still waiting for that month, as it lists waiting leave.

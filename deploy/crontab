@@ -11,9 +11,15 @@
 0 21 * * * npm run --silent backup
 
 # 21:30 UTC = 03:00 IST — orphaned-file sweep, old-notice purge, the leave year's grants
-# (new joiners missed, a new year on its first day) and the year-end lapse reminder.
+# (new joiners missed, a new year on its first day), the year-end lapse reminder, the
+# no-check-in rule (days ended with no punch made Absent, when it is on) and next
+# year's fixed holidays (client, 25 Oct 2026).
 # Before it first runs: `docker compose exec jobs npm run maintenance` (a dry run) and read it.
 30 21 * * * npm run --silent maintenance -- --apply
+
+# Every hour at :10 — somebody checked in on the app and not out two hours after their
+# shift ended is told once (client, 25 Oct 2026). The day stays present; HR sees it under "No out".
+10 * * * * npm run --silent hourly -- --apply
 
 # 22:30 UTC on the 1st = 04:00 IST on the 2nd — the monthly restore drill: the newest
 # backup is restored into a scratch database and every table's rows are checked

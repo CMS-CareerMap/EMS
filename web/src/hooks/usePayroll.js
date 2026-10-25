@@ -85,8 +85,8 @@ export function useApproveRun() {
   return useRunMutation(
     async ({ id, confirmAssumedDays }) =>
       (await api.post(`/payroll-runs/${id}/approve`, confirmAssumedDays ? { confirmAssumedDays: true } : {})).data,
-    // The approval screen answers these itself: the days to confirm, or the
-    // records that changed since the draft.
+    // The approval screen answers these itself: the days to confirm, the
+    // records that changed since the draft, or whose net pay is negative.
     { quietCodes: ['BUSINESS_RULE'] },
   )
 }

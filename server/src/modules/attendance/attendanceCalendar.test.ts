@@ -65,8 +65,10 @@ beforeAll(async () => {
 
   // Sundays off. April 2026 starts on a Wednesday: its Sundays are the 5th, 12th, 19th and 26th.
   await prisma.organizationPolicy.create({
-    data: { organizationId: orgId, effectiveFrom: toDateColumn('2020-04-01'), weeklyOffDays: [0] },
+    data: { organizationId: orgId, effectiveFrom: toDateColumn('2020-04-01') },
   })
+  // The working week is dated on its own (client, 25 Oct 2026).
+  await prisma.workWeek.create({ data: { organizationId: orgId, effectiveFrom: toDateColumn('2020-04-01'), weeklyOffDays: [0] } })
   await prisma.holiday.createMany({
     data: [
       // On a Sunday: the holiday's name wins over "weekly off".
@@ -101,7 +103,6 @@ describe('the month calendar — days off nobody marks', () => {
     expect(res.body.data).toEqual({
       year: 2026,
       month: 4,
-      weekly_off_days: [0],
       days_off: [
         { date: '2026-04-05', kind: 'holiday', name: 'Easter Sunday' },
         { date: '2026-04-11', kind: 'weekly_off', name: null },
@@ -168,41 +169,34 @@ describe('the workplace — the Timings card', () => {
 })
 
 describe('a working week that changed', () => {
-  it('draws each month by the rules in force then — September before Saturdays were added, October after', async () => {
-    // Saturdays off too, from 1 Oct 2026: the policy in force until then ends on 30 Sep.
-    const before = await prisma.organizationPolicy.findFirstOrThrow({ where: { organizationId: orgId, effectiveTo: null } })
-    await prisma.organizationPolicy.update({ where: { id: before.id }, data: { effectiveTo: toDateColumn('2026-09-30') } })
-    const added = await prisma.organizationPolicy.create({
-      data: { organizationId: orgId, effectiveFrom: toDateColumn('2026-10-01'), weeklyOffDays: [0, 6] },
-    })
+  it('draws each day by the week in force on it — Saturdays off from the 15th leave the ones before it working days', async () => {
+    // Saturdays off too, from Thursday 15 Oct 2026 (client, 25 Oct 2026: the week is dated, day by day).
+    const added = await prisma.workWeek.create({ data: { organizationId: orgId, effectiveFrom: toDateColumn('2026-10-15'), weeklyOffDays: [0, 6] } })
     try {
       const september = await get('/calendar?year=2026&month=9', 'hr')
-      const days = september.body.data.days_off.map((d: { date: string }) => d.date)
       // Sundays only: the 6th, 13th, 20th and 27th — not Saturday the 5th.
-      expect(days).toEqual(['2026-09-06', '2026-09-13', '2026-09-20', '2026-09-27'])
-      expect(september.body.data.weekly_off_days).toEqual([0])
+      expect(september.body.data.days_off.map((d: { date: string }) => d.date)).toEqual(['2026-09-06', '2026-09-13', '2026-09-20', '2026-09-27'])
 
-      const october = await get('/calendar?year=2026&month=10', 'hr')
-      expect(october.body.data.days_off.map((d: { date: string }) => d.date)).toContain('2026-10-03')
-      expect(october.body.data.weekly_off_days).toEqual([0, 6])
+      const october = (await get('/calendar?year=2026&month=10', 'hr')).body.data.days_off.map((d: { date: string }) => d.date)
+      // The Saturdays before the 15th work (the 3rd and 10th); those after are off (the 17th, 24th, 31st).
+      expect(october).not.toContain('2026-10-03')
+      expect(october).not.toContain('2026-10-10')
+      expect(october).toEqual(expect.arrayContaining(['2026-10-17', '2026-10-24', '2026-10-31', '2026-10-04', '2026-10-25']))
     } finally {
-      await prisma.organizationPolicy.delete({ where: { id: added.id } })
-      await prisma.organizationPolicy.update({ where: { id: before.id }, data: { effectiveTo: null } })
+      await prisma.workWeek.delete({ where: { id: added.id } })
     }
   })
 })
 
 describe('a company with no working week written yet', () => {
   it('takes Sunday off, as leave is counted', async () => {
-    await prisma.organizationPolicy.deleteMany({ where: { organizationId: orgId } })
+    await prisma.workWeek.deleteMany({ where: { organizationId: orgId } })
     try {
       const res = await get('/calendar?year=2026&month=2', 'hr')
-      expect(res.body.data.weekly_off_days).toEqual([0])
-      expect(res.body.data.days_off).toHaveLength(4)
+      // February 2026's Sundays: the 1st, 8th, 15th and 22nd.
+      expect(res.body.data.days_off.map((d: { date: string }) => d.date)).toEqual(['2026-02-01', '2026-02-08', '2026-02-15', '2026-02-22'])
     } finally {
-      await prisma.organizationPolicy.create({
-        data: { organizationId: orgId, effectiveFrom: toDateColumn('2020-04-01'), weeklyOffDays: [0] },
-      })
+      await prisma.workWeek.create({ data: { organizationId: orgId, effectiveFrom: toDateColumn('2020-04-01'), weeklyOffDays: [0] } })
     }
   })
 })

@@ -108,7 +108,9 @@ export const postCalculate: RequestHandler = async (req, res) => {
     days_in_month: r.daysInMonth,
     employment_days: calc.basis.employmentDays,
     paid_days: r.paidDays,
-    lop_days: r.lopDays,
+    // The days of loss of pay inside their employment, as the payslip stores them —
+    // not the days of the month outside it.
+    lop_days: calc.basis.lopDays,
 
     basis: {
       salary_effective_from: calc.basis.salaryEffectiveFrom,

@@ -6,6 +6,7 @@ import { logger } from '../../platform/logger'
 import * as repo from './holidays.repository'
 import { withAudit } from '../audit/audit.service'
 import { assertDaysOpen } from '../payroll/payrollLock.service'
+import { reconcileAfter } from '../attendance/absentRule.service'
 
 /**
  * The holiday calendar.
@@ -59,6 +60,8 @@ export async function add(ctx: AppContext, input: HolidayInput) {
     (row) => ({ action: 'holiday.added', entityType: 'holiday', entityId: row.id, details: { date: input.date, name, type: input.type } }),
   )
   logger.info('Holiday added', { by: ctx.userId, date: input.date, type: input.type })
+  // A day off now: an Absent the no-check-in rule wrote on it is taken back at once (client, 25 Oct 2026).
+  await reconcileAfter(ctx, 'holiday')
 
   return { holiday, approvedLeaveAffected: await approvedLeaveOn(ctx, date) }
 }
@@ -98,6 +101,7 @@ export async function edit(ctx: AppContext, id: string, input: Partial<HolidayIn
     }),
   )
   logger.info('Holiday changed', { by: ctx.userId, id })
+  await reconcileAfter(ctx, 'holiday')
 
   return { holiday, approvedLeaveAffected: await approvedLeaveOn(ctx, date) }
 }
@@ -123,6 +127,7 @@ export async function remove(ctx: AppContext, id: string) {
     () => ({ action: 'holiday.removed', entityType: 'holiday', entityId: id, details: { date: fromDateColumn(existing.date), name: existing.name, type: existing.type } }),
   )
   logger.info('Holiday removed', { by: ctx.userId, id })
+  await reconcileAfter(ctx, 'holiday')
 
   return { approvedLeaveAffected: await approvedLeaveOn(ctx, existing.date) }
 }

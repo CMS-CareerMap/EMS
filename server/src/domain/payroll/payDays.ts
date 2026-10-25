@@ -1,5 +1,6 @@
 import { type CalendarDate } from '../shared/dates'
-import { workingDays, type Weekday } from '../leave/leaveDays'
+import { workingDays } from '../leave/leaveDays'
+import { isWeeklyOff, type WeekInput } from '../shared/workWeek'
 import type { EmploymentWindow } from './salary'
 
 /**
@@ -40,7 +41,9 @@ export interface MonthCalendar {
 }
 
 /**
- * The month as the company works it.
+ * The month as the company works it — each day by the working week in force
+ * on that day (shared/workWeek), so a change from the 25th makes the 31st off
+ * here as it does for leave.
  *
  * A weekly off wins over a holiday on the same day, as it does for leave — the
  * day is off either way, and it is off once.
@@ -48,11 +51,10 @@ export interface MonthCalendar {
 export function monthCalendar(input: {
   year: number
   month: number
-  weeklyOffDays: readonly Weekday[]
+  weeklyOffDays: WeekInput
   /** Days off for everybody: public holidays, and weekly offs declared as holidays. */
   holidays: readonly CalendarDate[]
 }): MonthCalendar {
-  const offDays = new Set<number>(input.weeklyOffDays)
   const holidays = new Set(input.holidays)
   const mm = String(input.month).padStart(2, '0')
   const total = new Date(Date.UTC(input.year, input.month, 0)).getUTCDate()
@@ -62,9 +64,8 @@ export function monthCalendar(input: {
 
   for (let d = 1; d <= total; d++) {
     const date = `${input.year}-${mm}-${String(d).padStart(2, '0')}`
-    const weekday = new Date(`${date}T00:00:00Z`).getUTCDay()
 
-    const kind: DayKind = offDays.has(weekday) ? 'weekly_off' : holidays.has(date) ? 'holiday' : 'working'
+    const kind: DayKind = isWeeklyOff(input.weeklyOffDays, date) ? 'weekly_off' : holidays.has(date) ? 'holiday' : 'working'
     if (kind === 'working') working += 1
     days.push({ date, kind })
   }
@@ -98,7 +99,7 @@ export interface ApprovedLeave {
 export function leaveDaysIn(
   requests: readonly ApprovedLeave[],
   calendar: MonthCalendar,
-  weeklyOffDays: readonly Weekday[],
+  weeklyOffDays: WeekInput,
 ): LeaveDay[] {
   const first = calendar.days[0]?.date
   const last = calendar.days[calendar.days.length - 1]?.date

@@ -1,8 +1,11 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { toast } from 'sonner'
 import { ChevronLeft, ChevronRight, Search, Edit2, UserCheck, UserX, Clock, CalendarDays, CircleDashed } from 'lucide-react'
 import { Avatar, Chip, StatTile } from '../../components/ui/bits'
 import { btn, card, field, th, td } from '../../components/ui/styles'
 import { MACHINE_MATCH, STATUS, formatHours, soFarLabel } from '../../lib/attendance'
+import MarkManyDialog from './MarkManyDialog'
 import { useAuthStore } from '../../stores/authStore'
 
 /**
@@ -54,6 +57,8 @@ import { WORK_MODES, minutesLabel } from '../../lib/requests'
 const FILTERS = [
   ['all', 'All'], ['present', 'Present'], ['half_day', 'Half Day'], ['absent', 'Absent'],
   ['on_leave', 'On Leave'], ['weekly_off', 'Weekly Off'], ['unmarked', 'Not Marked'],
+  // Checked in and not out, the day over (client, 25 Oct 2026): HR puts the check-out in.
+  ['no_out', 'No Out'],
 ]
 
 const TILES = [
@@ -70,11 +75,36 @@ export default function TeamDay({
 }) {
   // Their time at work so far, while they are in: the stored hours come at check-out.
   const soFar = (rec) => soFarLabel(nowMs - Date.parse(rec.check_in_at))
-  // In, never out, and no longer their day: somebody has to put the check-out
-  // in. Never today — somebody not on the app, in since this morning, may yet
-  // leave. A day HR typed is as HR left it — the form fills in a check-in by
-  // itself, so "present, no times" would read as a forgotten check-out.
-  const noCheckOut = (rec) => date !== today && !rec.at_work && rec.check_in && !rec.check_out && rec.hours_worked == null && rec.source !== 'manual'
+  // In, never out, and no longer their day: somebody has to put the check-out in (the server's rule).
+  const noCheckOut = (rec) => rec.no_out
+  // Nothing on an app day that is over (client, 25 Oct 2026): not "not marked" — they did not check in. Never on a day off.
+  const noCheckIn = (rec) => !rec.status && date === today && rec.day_over && !rec.day_off && rec.attendance_mode === 'app'
+  const notMarked = (rec) => (noCheckIn(rec) ? <Chip tone="bad" dot={false}>No check-in</Chip> : <Chip tone="gray" dot={false}>Not marked</Chip>)
+
+  // Ticked to be marked together (client, 25 Oct 2026): ONLY those ticked. Somebody whose day
+  // goes to somebody else is not offered, nor a day with a check-in — its times are its evidence.
+  // Kept with the day it was ticked on, so another day starts with none.
+  const [tick, setTick] = useState({ date, ids: new Set() })
+  const [marking, setMarking] = useState(false)
+  const ticked = tick.date === date ? tick.ids : new Set()
+  const selectable = (rec) => canMark && !rec.mark_goes_to && !rec.check_in
+  const shownSelectable = filtered.filter(selectable)
+  const allTicked = shownSelectable.length > 0 && shownSelectable.every((r) => ticked.has(r.id))
+  const toggle = (id) => {
+    const next = new Set(ticked)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setTick({ date, ids: next })
+  }
+  const toggleAll = () => {
+    const next = new Set(ticked)
+    for (const r of shownSelectable) if (allTicked) next.delete(r.id); else next.add(r.id)
+    setTick({ date, ids: next })
+  }
+  const tickedPeople = records.filter((r) => ticked.has(r.id) && selectable(r))
+  const tickBox = (rec) => (selectable(rec)
+    ? <input type="checkbox" checked={ticked.has(rec.id)} onChange={() => toggle(rec.id)} aria-label={`Tick ${rec.full_name}`} className="w-4 h-4 accent-brand-600" />
+    : <input type="checkbox" disabled aria-label={`${rec.full_name} cannot be ticked`} title={rec.check_in ? 'Checked in that day: open their day to change it' : rec.mark_goes_to ? `Goes to ${rec.mark_goes_to}` : undefined} className="w-4 h-4 opacity-30" />)
   const marked = records.length - stats.unmarked
   // The day's attendance: present or half day, of everybody on the roster.
   const attended = records.length ? Math.round(((stats.present + stats.half_day) / records.length) * 100) : 0
@@ -134,12 +164,32 @@ export default function TeamDay({
           ))}
         </div>
 
+        {canMark && tickedPeople.length > 0 && (
+          <div className="mx-4 mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-brand-200 bg-brand-50/60 px-3 py-2 text-sm" role="status">
+            <span className="font-semibold text-gray-900">{tickedPeople.length} ticked</span>
+            <span className="text-xs text-gray-500">Only they are marked.</span>
+            <span className="flex-1" />
+            <button type="button" onClick={() => setTick({ date, ids: new Set() })} className={btn.secondarySm}>Clear</button>
+            <button type="button" onClick={() => setMarking(true)} className={btn.primarySm}>Mark the ticked…</button>
+          </div>
+        )}
+        {marking && (
+          <MarkManyDialog date={date} people={tickedPeople} onClose={() => setMarking(false)}
+            onDone={(n) => { setMarking(false); setTick({ date, ids: new Set() }); if (n > 0) toast.success(`${n} ${n === 1 ? 'person' : 'people'} marked`) }} />
+        )}
+
         {/* A computer: the table, with the day on a line. */}
         <div className="hidden md:block overflow-x-auto mt-3">
           <table className="w-full min-w-200">
             <thead>
               <tr>
-                <th className={`${th} pl-5`}>Employee</th>
+                {canMark && (
+                  <th className={`${th} pl-5 w-10`}>
+                    <input type="checkbox" checked={allTicked} onChange={toggleAll} disabled={shownSelectable.length === 0}
+                      aria-label="Tick everybody shown who can be marked" className="w-4 h-4 accent-brand-600" />
+                  </th>
+                )}
+                <th className={`${th} ${canMark ? '' : 'pl-5'}`}>Employee</th>
                 <th className={th}>Department</th>
                 <th className={th}>Check-in</th>
                 <th className={th}>Check-out</th>
@@ -152,12 +202,13 @@ export default function TeamDay({
               {/* The roster has answered by now, so nothing here is the empty of a
                   failed request — only of the filters. */}
               {filtered.length === 0 ? (
-                <tr><td colSpan={canMark ? 7 : 6} className="text-center py-14 text-sm text-gray-400">No records found.</td></tr>
+                <tr><td colSpan={canMark ? 8 : 6} className="text-center py-14 text-sm text-gray-400">No records found.</td></tr>
               ) : filtered.map((rec) => {
                 const meta = rec.status ? STATUS[rec.status] : null
                 return (
                   <tr key={rec.id} className="hover:bg-gray-50 transition-colors">
-                    <td className={`${td} pl-5`}>
+                    {canMark && <td className={`${td} pl-5 w-10`}>{tickBox(rec)}</td>}
+                    <td className={`${td} ${canMark ? '' : 'pl-5'}`}>
                       <div className="flex items-center gap-3">
                         <Avatar name={rec.full_name} size="sm" />
                         <div className="min-w-0">
@@ -198,9 +249,7 @@ export default function TeamDay({
                           <Chip tone={meta.tone}>{meta.label}</Chip>
                           {rec.note && <span className="text-xs text-gray-400 truncate max-w-24" title={rec.note}>{rec.note}</span>}
                         </div>
-                      ) : (
-                        <Chip tone="gray" dot={false}>Not marked</Chip>
-                      )}
+                      ) : notMarked(rec)}
                       <MachineChip match={rec.machine_match} />
                     </td>
                     {canMark && (
@@ -228,6 +277,7 @@ export default function TeamDay({
             const meta = rec.status ? STATUS[rec.status] : null
             return (
               <li key={rec.id} className="px-4 py-3 flex items-center gap-3">
+                {canMark && tickBox(rec)}
                 <Avatar name={rec.full_name} size="sm" />
                 <div className="min-w-0 flex-1">
                   <PersonLink rec={rec} date={date} />
@@ -238,7 +288,7 @@ export default function TeamDay({
                   <MachineChip match={rec.machine_match} />
                   <EvidenceButton rec={rec} onEvidence={onEvidence} />
                 </div>
-                {meta ? <Chip tone={meta.tone}>{meta.label}</Chip> : <Chip tone="gray" dot={false}>Not marked</Chip>}
+                {meta ? <Chip tone={meta.tone}>{meta.label}</Chip> : notMarked(rec)}
                 {canMark && !rec.mark_goes_to && (
                   <button type="button" onClick={() => onMark(rec)} className={btn.icon} aria-label={`${rec.status ? 'Edit' : 'Mark'} ${rec.full_name}`}>
                     <Edit2 className="w-4 h-4" />

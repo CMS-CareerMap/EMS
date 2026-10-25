@@ -494,6 +494,7 @@ function ApproveDialog({ run, onClose }) {
   const assumed = askedDays ? (reply.details.employees ?? []) : []
   const changedAsked = Array.isArray(reply?.details?.changed)
   const changed = changedAsked ? reply.details.changed : []
+  const negative = Array.isArray(reply?.details?.negative) ? reply.details.negative : null
   const others = reply?.details?.others ?? 0
 
   return (
@@ -561,7 +562,17 @@ function ApproveDialog({ run, onClose }) {
         </>
       )}
 
-      {reply && !askedDays && !changedAsked && (
+      {reply && negative && (
+        <>
+          <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-lg p-3">{reply.message}</p>
+          <ul className="text-sm text-gray-700 list-disc pl-5 space-y-0.5">
+            {negative.map((n) => <li key={n.employee_id}>{n.full_name}: net pay {money(n.net_payable)}</li>)}
+            {others > 0 && <li className="text-gray-500">And {others} {others === 1 ? 'person' : 'people'} outside your payroll</li>}
+          </ul>
+        </>
+      )}
+
+      {reply && !askedDays && !changedAsked && !negative && (
         <p className="text-sm text-red-700">{reply.message}</p>
       )}
     </Dialog>

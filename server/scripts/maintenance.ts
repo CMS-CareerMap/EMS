@@ -5,6 +5,8 @@ import { sweepOrganization } from '../src/modules/files/sweeper.service'
 import { sweepOldNotices } from '../src/modules/notifications/notification.service'
 import { grantWithNobodySignedIn, remindLeaveYearEnd } from '../src/modules/leave/leaveEntitlement.service'
 import { purgeOldPunchPhotos } from '../src/modules/attendance/punchPhotos.service'
+import { reconcileAbsent } from '../src/modules/attendance/absentRule.service'
+import { keepHolidayYear } from '../src/modules/holidays/holidayYear.service'
 
 /**
  *   npm run maintenance              — what would be done, nothing changed
@@ -21,6 +23,12 @@ import { purgeOldPunchPhotos } from '../src/modules/attendance/punchPhotos.servi
  *     start), each employee is told once of the days that will lapse.
  *   · punch selfies older than the company's days for keeping them
  *     (Settings → Attendance Security, 60 to start) are deleted.
+ *   · no check-in means absent (client, 25 Oct 2026), when the company has it
+ *     on: every working day that has ended with no punch, no leave and
+ *     nobody's mark is made Absent — and what the rule no longer says is
+ *     taken back — in every month whose payroll is still open.
+ *   · the next year's three fixed national holidays from October, once; in
+ *     December, whoever keeps the calendar is told if the festivals are missing.
  *
  * Meant for a daily cron on the server once it is live (Day 20). Safe to run
  * any time: it never touches a file a row still points at, and grants nothing
@@ -40,6 +48,8 @@ async function main(): Promise<void> {
       const leave = await grantWithNobodySignedIn(db, organization.id, { withoutJoiningDate: false, apply, via: 'nightly' })
       const lapsing = await remindLeaveYearEnd(db, organization.id, { apply })
       const selfies = await purgeOldPunchPhotos(db, organization.id, { apply })
+      const absent = await reconcileAbsent(db, organization.id, { apply, trigger: 'nightly' })
+      const holidays = await keepHolidayYear(db, organization.id, { apply })
 
       logger.info(apply ? 'Maintenance done' : 'Maintenance (dry run — add --apply to do it)', {
         organization: organization.name,
@@ -54,6 +64,11 @@ async function main(): Promise<void> {
         leaveLapsingToldTo: lapsing.people,
         oldSelfies: selfies.found,
         selfiesDeleted: selfies.deleted,
+        absentMarked: absent.marked,
+        absentTakenBack: absent.removed,
+        absentClosedMonths: absent.closedMonths.length,
+        fixedHolidaysAdded: holidays.added,
+        holidayReminder: holidays.reminded,
       })
     } catch (err: unknown) {
       logger.error('Maintenance failed for a company', { organization: organization.name, error: err instanceof Error ? err.message : String(err) })

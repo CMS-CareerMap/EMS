@@ -13,6 +13,8 @@ import { api } from '../api/http'
 const keys = {
   company: ['settings', 'company'],
   payroll: ['settings', 'payroll'],
+  workWeek: ['settings', 'work-week'],
+  absentRule: ['settings', 'absent-rule'],
   geofence: ['settings', 'geofence'],
   attendanceSecurity: ['settings', 'attendance-security'],
   leaveTypes: ['settings', 'leave-types'],
@@ -55,6 +57,56 @@ export function useSaveCompany() {
 
 export function usePayrollSettings() {
   return useSetting(keys.payroll, '/settings/payroll')
+}
+
+/**
+ * The working week, dated (client, 25 Oct 2026): the weekly offs in force
+ * today, changes saved for later, and the days a change may start on.
+ */
+export function useWorkWeek() {
+  return useSetting(keys.workWeek, '/settings/work-week')
+}
+
+/**
+ * Everything a weekly off shows on: every attendance page, the home page,
+ * leave counts and balances, pay days and payroll, the reports.
+ */
+const WEEK_SHOWN = [['attendance'], ['dashboard'], ['leave'], ['payroll'], ['reports']]
+
+/** Saves the weekly offs from a day: `{ weeklyOffDays, from }`. */
+export function useSaveWorkWeek() {
+  return useSettingMutation(keys.workWeek, async (body) => (await api.put('/settings/work-week', body)).data, WEEK_SHOWN)
+}
+
+/**
+ * No check-in means Absent (client, 25 Oct 2026): on or off, from which day,
+ * and how long the machine's file or HR's marking is waited for.
+ */
+export function useAbsentRule() {
+  return useSetting(keys.absentRule, '/settings/absent-rule')
+}
+
+/**
+ * What saving these values would do — days marked, days given back — asked
+ * again as they change; nothing is written. Only while they differ from the
+ * rule saved, and make sense (on, with a day).
+ */
+export function useAbsentRulePreview(values, { enabled }) {
+  return useQuery({
+    queryKey: ['settings', 'absent-rule-preview', values.on, values.from, values.waitDays],
+    queryFn: async () => (await api.post('/settings/absent-rule/preview', values)).data,
+    enabled,
+  })
+}
+
+/** Saves the rule; the days are put right by it at once, so everything that shows a day is asked again. */
+export function useSaveAbsentRule() {
+  return useSettingMutation(keys.absentRule, async (body) => (await api.put('/settings/absent-rule', body)).data, WEEK_SHOWN)
+}
+
+/** Cancels a change saved for a later day. */
+export function useCancelWorkWeek() {
+  return useSettingMutation(keys.workWeek, async (from) => (await api.del(`/settings/work-week/${from}`)).data, WEEK_SHOWN)
 }
 
 export function useSavePayroll() {
@@ -185,7 +237,7 @@ export function useAddHoliday() {
   return useSettingMutation(keys.holidays, async (body) => {
     const payload = await api.post('/holidays', body)
     return { row: payload.data, approvedLeaveAffected: payload.meta?.approved_leave_affected ?? 0 }
-  }, DAYS_OFF_SHOWN)
+  }, WEEK_SHOWN)
 }
 
 /** Moves or renames one — Eid's date is often only certain the evening before. */
@@ -193,12 +245,12 @@ export function useUpdateHoliday() {
   return useSettingMutation(keys.holidays, async ({ id, ...body }) => {
     const payload = await api.patch(`/holidays/${id}`, body)
     return { row: payload.data, approvedLeaveAffected: payload.meta?.approved_leave_affected ?? 0 }
-  }, DAYS_OFF_SHOWN)
+  }, WEEK_SHOWN)
 }
 
 export function useDeleteHoliday() {
   return useSettingMutation(keys.holidays, async ({ id }) => {
     const payload = await api.del(`/holidays/${id}`)
     return { approvedLeaveAffected: payload?.meta?.approved_leave_affected ?? 0 }
-  }, DAYS_OFF_SHOWN)
+  }, WEEK_SHOWN)
 }

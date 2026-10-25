@@ -1,6 +1,6 @@
 import type { AttendanceStatus } from '@prisma/client'
 import type { AppContext } from '../../platform/context'
-import { BadRequest, Conflict, Forbidden, NotFound } from '../../platform/errors/AppError'
+import { AppError, BadRequest, Conflict, Forbidden, NotFound } from '../../platform/errors/AppError'
 import { logger } from '../../platform/logger'
 import {
   zonedToday,
@@ -13,7 +13,9 @@ import {
   type CalendarDate,
 } from '../../domain/shared/dates'
 import { listDaysOffNamed } from '../holidays/holidays.repository'
-import { listPolicies } from '../settings/settings.repository'
+import { workWeekOf } from '../settings/workWeek.repository'
+import { dayEndsAt, noCheckOut } from '../../domain/attendance/noCheckIn'
+import { isWeeklyOff } from '../../domain/shared/workWeek'
 import { hoursBetween, hoursBetweenWallClock } from '../../domain/attendance/hours'
 import {
   forWorkedHalf,
@@ -81,8 +83,6 @@ export interface MonthlySummaryResult {
 export interface MonthCalendar {
   year: number
   month: number
-  /** The working week's days off, Sunday as 0. */
-  weeklyOffDays: number[]
   /** Every day off in the month, in order: a holiday by its name, or a weekly off. */
   daysOff: { date: CalendarDate; kind: 'holiday' | 'weekly_off'; name: string | null }[]
 }
@@ -100,28 +100,24 @@ export async function monthCalendar(ctx: AppContext, year: number, month: number
 
   const first = `${year}-${String(month).padStart(2, '0')}-01` as CalendarDate
   const last = fromDateColumn(new Date(Date.UTC(year, month, 0))) as CalendarDate
-  const [policies, rows] = await Promise.all([
-    listPolicies(ctx.db),
+  const [week, rows] = await Promise.all([
+    workWeekOf(ctx.db),
     listDaysOffNamed(ctx.db, toDateColumn(first), toDateColumn(last)),
   ])
 
-  // The month by the rules in force as it began — as payroll counts a month,
-  // by one policy throughout — not by today's weekly offs: policies are dated.
-  // The latest one begun by then (`listPolicies` is newest first); before the
-  // first, the earliest; with none at all, Sunday — as leave is counted, and
-  // as the column defaults.
-  const inForce = policies.find((p) => fromDateColumn(p.effectiveFrom)! <= first) ?? policies.at(-1)
-  const weeklyOffDays = [...(inForce?.weeklyOffDays ?? [0])]
+  // Each day by the working week in force on it (client, 25 Oct 2026) — as
+  // leave and payroll count it: weekly offs changed from the 25th make the
+  // 31st off here too, and leave the days before as they were.
   const holidays = new Map(rows.filter((r) => r.type === 'public').map((r) => [fromDateColumn(r.date), r.name]))
   const offRows = new Set(rows.filter((r) => r.type === 'weekly_off').map((r) => fromDateColumn(r.date)))
 
   const daysOff: MonthCalendar['daysOff'] = []
   for (let day = first; day <= last; day = addCalendarDays(day, 1)) {
     if (holidays.has(day)) daysOff.push({ date: day, kind: 'holiday', name: holidays.get(day) ?? null })
-    else if (weeklyOffDays.includes(new Date(`${day}T00:00:00Z`).getUTCDay()) || offRows.has(day)) daysOff.push({ date: day, kind: 'weekly_off', name: null })
+    else if (isWeeklyOff(week, day) || offRows.has(day)) daysOff.push({ date: day, kind: 'weekly_off', name: null })
   }
 
-  return { year, month, weeklyOffDays, daysOff }
+  return { year, month, daysOff }
 }
 
 /**
@@ -154,7 +150,8 @@ export async function monthlySummary(
       if (!employee) return null
 
       const perDay = employee.shift ? Number(employee.shift.expectedHours) : 0
-      const workedDays = total.daysPresent + total.daysHalf * 0.5
+      // The days whose hours are known, as the person's month counts them (domain/attendance/monthSoFar).
+      const workedDays = total.daysPresentTimed + total.daysHalfTimed * 0.5
 
       return {
         employeeId: total.employeeId,
@@ -199,7 +196,13 @@ export async function dayRoster(ctx: AppContext, date?: string) {
   const day = date ?? today
   if (!isCalendarDate(day)) throw BadRequest(`"${day}" is not a date`)
 
-  const employees = await repo.dayRoster(ctx.db, ctx.scopeFor('attendance'), day)
+  const [employees, week, holidays] = await Promise.all([
+    repo.dayRoster(ctx.db, ctx.scopeFor('attendance'), day),
+    workWeekOf(ctx.db),
+    listDaysOffNamed(ctx.db, toDateColumn(day), toDateColumn(day)),
+  ])
+  // The company's day off — a weekly off by the week in force on it, or a holiday: nobody is "no check-in" on it.
+  const dayOff = isWeeklyOff(week, day) || holidays.length > 0
 
   // Who is at work now, by the rule their own card counts by — so whoever
   // watches the roster sees the time run as they do (client, 9 Oct 2026). Only
@@ -227,7 +230,18 @@ export async function dayRoster(ctx: AppContext, date?: string) {
       if (!check.allowed) markGoesTo.set(e.id, check.ask ?? 'the Super Admin')
     }
   }
-  return { date: day, employees, markGoesTo, atWork, now }
+  // Whose day is over — their shift ended, a night shift the next morning (client, 25 Oct 2026):
+  // nothing in it by then is "no check-in", and an open one is a check-out not made.
+  const dayOver = new Set(employees.filter((e) => now.getTime() >= dayEndsAt(day, e.attendance[0]?.shift ?? e.shift, timezone).getTime()).map((e) => e.id))
+  // In and never out, no longer their day: "No out" — the one rule for the roster and its export.
+  const noOut = new Set(employees.filter((e) => {
+    const row = e.attendance[0]
+    return row && noCheckOut({
+      checkedIn: row.checkIn !== null, checkedOut: row.checkOut !== null, hoursWorked: row.hoursWorked === null ? null : Number(row.hoursWorked),
+      source: row.source, atWork: atWork.has(e.id), isToday: day === today, dayOver: dayOver.has(e.id),
+    })
+  }).map((e) => e.id))
+  return { date: day, employees, markGoesTo, atWork, dayOver, dayOff, noOut, now }
 }
 
 /** A day before somebody joined, or after their last working day, is no working day of theirs. */
@@ -377,6 +391,43 @@ export async function markAttendance(ctx: AppContext, input: MarkInput) {
   })
 
   return row
+}
+
+export interface MarkManyInput {
+  date: CalendarDate
+  employeeIds: string[]
+  status: AttendanceStatus
+  note: string
+}
+
+/**
+ * Several people's day at once (client, 25 Oct 2026) — a morning the app was
+ * down, an office closed for the rain: ONLY the people ticked, each marked
+ * exactly as marking them one by one would — the same reach, the same payroll
+ * lock, the same audit row, the same notice. Somebody who cannot be marked is
+ * named with the reason, and the rest are still marked.
+ *
+ * A day with a check-in is left out: marked here it would lose its times,
+ * which are the evidence of the day. It is opened and changed on its own.
+ */
+export async function markMany(ctx: AppContext, input: MarkManyInput) {
+  const marked: string[] = []
+  const refused: { employeeId: string; reason: string }[] = []
+  for (const employeeId of [...new Set(input.employeeIds)]) {
+    try {
+      // Outside the caller's reach is "not found", before anything is said of the day.
+      if (!(await repo.findEmployeeWithShift(ctx.db, ctx.scopeFor('attendance'), employeeId))) throw NotFound('Employee not found')
+      const existing = await repo.findDay(ctx.db, employeeId, toDateColumn(input.date))
+      if (existing?.checkIn) throw Conflict('Checked in that day: open their day to change it, so its times are kept.')
+      await markAttendance(ctx, { employeeId, date: input.date, status: input.status, note: input.note })
+      marked.push(employeeId)
+    } catch (err) {
+      if (!(err instanceof AppError)) throw err
+      refused.push({ employeeId, reason: err.message })
+    }
+  }
+  logger.info('Attendance marked for several people', { by: ctx.userId, date: input.date, status: input.status, marked: marked.length, refused: refused.length })
+  return { marked, refused }
 }
 
 /**

@@ -129,7 +129,7 @@ try {
   const stats = priya.getByRole('region', { name: 'Attendance stats' }).or(priya.locator('section', { hasText: 'Attendance stats' })).first()
   await shown(stats.getByText('Unpaid days (loss of pay)'))
   const statsText = flat(await stats.innerText())
-  check('Month figures: Paid days, of the days employed', statsText.includes(`Paid days ${pay.paid_days} of ${pay.employment_days}`), statsText)
+  check('Month figures: no "Paid days … of …" — the days cut are what the month shows (client, 25 Oct 2026)', !statsText.includes('Paid days'), statsText)
   check('Month figures: Unpaid days (loss of pay), as the server counts them', statsText.includes(`Unpaid days (loss of pay) ${pay.unpaid_days}`), statsText)
   const logRow = (d) => priya.locator('table tr', { hasText: logDay(d) }).first()
   await shown(logRow(D3))

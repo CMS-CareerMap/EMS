@@ -23,11 +23,27 @@ import { LOCATION_UNREAD } from '../../lib/location'
  *
  * Punch errors are mostly not handled here. Every failure — outside the fence,
  * a vague GPS reading, blocked permission — arrives as a toast from the global
- * handler in main.jsx, carrying the sentence the server wrote. The one
- * exception is a check-out the office fence refused, or whose location could
- * not be read (client, 11 Oct 2026): the card says it, with the way out —
- * asking HR to record the check-out.
+ * handler in main.jsx, carrying the sentence the server wrote. The exceptions
+ * are said on the card itself: a check-out the office fence refused, or whose
+ * location could not be read (client, 11 Oct 2026), with the way out — asking
+ * HR to record the check-out; and a punch refused for an approximate location
+ * (client, 25 Oct 2026), with how to turn precise location on.
  */
+
+/** How to turn precise location on — where a punch was refused for an approximate one (client, 25 Oct 2026). */
+function PreciseHelp() {
+  return (
+    <div className="space-y-1">
+      <p className="font-semibold">Turn on precise location:</p>
+      <ul className="list-disc pl-5 space-y-0.5">
+        <li><b>Android (Chrome):</b> tap the icon left of the web address → Permissions → Reset permissions. Press the button again and choose <b>Precise</b>. Still approximate? Phone Settings → Apps → Chrome → Permissions → Location → turn on <b>Use precise location</b>.</li>
+        <li><b>iPhone (Safari):</b> Settings → Privacy &amp; Security → Location Services → Safari Websites → turn on <b>Precise Location</b>.</li>
+        <li><b>iPhone (Chrome or another browser):</b> Settings → that browser (for example Chrome) → Location → turn on <b>Precise Location</b>.</li>
+        <li>Precise already on? Step outside or near a window, then try again.</li>
+      </ul>
+    </div>
+  )
+}
 
 /** A punch on the company's clock, as the Attendance page shows it — not the device's. */
 function time(iso, timezone) {
@@ -133,8 +149,10 @@ function Today({ today, workplace, skewMs }) {
   // The unpaid break the day's own shift takes off the time at work when it
   // closes — the server's figure for this day, not today's shift (domain/attendance/hours.ts).
   const breakMinutes = today?.break_minutes ?? 0
-  // A check-out the fence refused — or whose location could not be read — while the day is still open (client, 11 Oct 2026).
-  const refusedOut = atWork && ['LOCATION_REFUSED', LOCATION_UNREAD].includes(punchOut.error?.code) ? punchOut.error : null
+  // A check-out the fence refused — or whose location could not be read, or only approximately — while the day is still open (client, 11 and 25 Oct 2026).
+  const refusedOut = atWork && ['LOCATION_REFUSED', LOCATION_UNREAD, 'LOCATION_IMPRECISE'].includes(punchOut.error?.code) ? punchOut.error : null
+  // A check-in refused for an approximate location: said here, with how to turn precise location on.
+  const impreciseIn = !checkedIn && punchIn.error?.code === 'LOCATION_IMPRECISE' ? punchIn.error : null
   const dayLine = lastNight ? `Shift of ${formatDay(today.date, { year: false })}` : formatDay(calendarDayIn(timezone), { weekday: true })
 
   // How far to a full day, in words — the one thing the person wants to know
@@ -207,16 +225,37 @@ function Today({ today, workplace, skewMs }) {
 
       <div className="flex flex-wrap gap-1.5">
         {!checkedIn && <Chip tone="gray">Not checked in yet</Chip>}
-        {checkedIn && <Chip tone={today.late_minutes > 0 ? 'warn' : 'ok'}>Checked in at {time(today.check_in, timezone)}{today.late_minutes > 0 ? '' : ' · on time'}</Chip>}
+        {/* "On time" only when it was measured so (client, 25 Oct 2026): an app check-in far from the
+            shift's hours — 23:07 on a 09:30 shift — is not measured against it, and is said so. By the
+            day's own shift (its break is there only with one) and only for a day the app began: a day
+            HR marked, a worked holiday say, is not measured either, and is not "outside" anything. */}
+        {checkedIn && (
+          <Chip tone={today.late_minutes > 0 ? 'warn' : today.late_minutes === 0 ? 'ok' : 'gray'}>
+            Checked in at {time(today.check_in, timezone)}
+            {today.late_minutes === 0 ? ' · on time'
+              : today.late_minutes == null && today.punch_method && today.break_minutes != null ? ' · outside your shift hours' : ''}
+          </Chip>
+        )}
         {checkedOut && <Chip tone="brand">Checked out at {time(today.check_out, timezone)}</Chip>}
         {today?.status && today.status !== 'present' && <Chip tone="info" dot={false}><span className="capitalize">{today.status.replace('_', ' ')}</span></Chip>}
       </div>
+
+      {impreciseIn && (
+        <div role="alert" className="flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-200">
+          <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" aria-hidden="true" />
+          <div className="text-sm text-red-800 space-y-2">
+            <p>{impreciseIn.message}</p>
+            <PreciseHelp />
+          </div>
+        </div>
+      )}
 
       {refusedOut && (
         <div role="alert" className="flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-200">
           <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" aria-hidden="true" />
           <div className="text-sm text-red-800 space-y-1">
             <p>{refusedOut.message}</p>
+            {refusedOut.code === 'LOCATION_IMPRECISE' && <PreciseHelp />}
             <p>
               {/* Refused at the office fence, or the location not read wherever they are (Location + Selfie). */}
               {outFence ? 'Already left the office?' : 'Cannot share your location?'}{' '}
@@ -335,7 +374,8 @@ function Today({ today, workplace, skewMs }) {
           </summary>
           <p className="mt-1.5 pl-5">
             Allow location access — your phone reads where you are for a few seconds, wherever you work today. It is kept with your punch.
-            {(checkedIn ? outPhoto : inPhoto) && ' Without your location the camera does not open, and nothing is punched.'}
+            {' '}Choose <b>Precise</b> when your phone asks: an approximate location is not taken.
+            {(checkedIn ? outPhoto : inPhoto) && ' Without your precise location the camera does not open, and nothing is punched.'}
           </p>
         </details>
       )}

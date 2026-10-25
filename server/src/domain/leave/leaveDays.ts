@@ -10,21 +10,22 @@
  */
 
 import { isCalendarDate, fromDateColumn, type CalendarDate } from '../shared/dates'
+import { isWeeklyOff, type WeekInput } from '../shared/workWeek'
 
-/** Sunday is 0, matching getUTCDay(). */
-export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6
+export type { Weekday } from '../shared/workWeek'
 
 export interface WorkingDaysInput {
   from: CalendarDate
   to: CalendarDate
   /**
-   * Which weekdays the company does not work.
+   * Which weekdays the company does not work — by the rule in force on each
+   * day (shared/workWeek), or one list for every day.
    *
    * An argument rather than a constant, because it is not the same everywhere:
    * most Indian offices take Sunday, many take Saturday too, and plenty take
    * alternate Saturdays — which this cannot express and is flagged below.
    */
-  weeklyOffDays: readonly Weekday[]
+  weeklyOffDays: WeekInput
   /** Public holidays that fall inside the range, as calendar dates. */
   holidays: readonly CalendarDate[]
   /**
@@ -61,7 +62,6 @@ export function workingDays(input: WorkingDaysInput): WorkingDaysResult {
     throw new InvalidRangeError('The last day of leave cannot be before the first')
   }
 
-  const offDays = new Set<number>(input.weeklyOffDays)
   const holidays = new Set(input.holidays)
   const halfDays = new Set(input.halfDays ?? [])
 
@@ -87,7 +87,7 @@ export function workingDays(input: WorkingDaysInput): WorkingDaysResult {
     // a half day on a public holiday is not charged at all — the day is already
     // free. Checking "is it a working day" before "how much of it" is what
     // keeps those cases from colliding.
-    if (offDays.has(cursor.getUTCDay())) {
+    if (isWeeklyOff(input.weeklyOffDays, date)) {
       breakdown.push({ date, counted: 0, reason: 'weekly_off' })
     } else if (holidays.has(date)) {
       breakdown.push({ date, counted: 0, reason: 'holiday' })
@@ -199,13 +199,13 @@ export function splitAtBalance(
 /**
  * KNOWN GAP — alternate Saturdays.
  *
- * `weeklyOffDays` can say "every Saturday" or "no Saturday", and cannot say
+ * A working-week rule can say "every Saturday" or "no Saturday", and cannot say
  * "the second and fourth", which is what a large share of Indian offices
  * actually do. Nobody has asked for it, so it is not built — but a company that
  * works alternate Saturdays would be charged leave for the ones they are off.
  *
- * The fix, when it is asked for, is a rule on OrganizationPolicy rather than a
- * change here: this function would take the resulting list of non-working days.
+ * The fix, when it is asked for, belongs in shared/workWeek (`isWeeklyOff`),
+ * which every count of a day already asks — not here.
  */
 export const OPEN_QUESTIONS = [
   'Does the company work alternate Saturdays? The weekly-off setting is all-or-nothing today.',

@@ -175,7 +175,7 @@ export const getMySummary: RequestHandler = async (_req, res) => {
         absent_days: summary.thisMonth.absentDays,
         leave_days: summary.thisMonth.leaveDays,
         total_hours: summary.thisMonth.totalHours,
-        weekly_off_days: summary.thisMonth.weeklyOffDays,
+        weekly_off_days: summary.thisMonth.weeklyOffCount,
       },
       today: {
         status: summary.today.status,

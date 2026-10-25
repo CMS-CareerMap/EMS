@@ -16,7 +16,7 @@ import { useAuthStore } from '../stores/authStore'
 import { saveFromApi } from '../api/http'
 import { useDownload } from '../hooks/useDownload'
 import { addDays, calendarDayIn, wallClockIn, formatCalendarDay } from '../lib/dates'
-import { clockSkew, monthLabel, payDayMaps } from '../lib/attendance'
+import { clockSkew, monthLabel, payDayMaps, unpaidDaysWords } from '../lib/attendance'
 import DataState from '../components/DataState'
 import PageHeader from '../components/ui/PageHeader'
 import Segmented from '../components/ui/Segmented'
@@ -95,6 +95,15 @@ export default function Attendance() {
     // rule, their own card's): the roster runs their time from it (client, 9 Oct 2026).
     check_in_at: emp.attendance?.check_in ?? null,
     at_work: Boolean(emp.at_work),
+    // Their day is over — the shift ended (client, 25 Oct 2026): nothing in it is "no check-in", an open one "no out".
+    day_over: Boolean(emp.day_over),
+    // A weekly off or a holiday for everybody: nobody is "no check-in" on it.
+    day_off: Boolean(rosterData?.day_off),
+    // In and never out, no longer their day — the server's one rule, as the export applies it.
+    no_out: Boolean(emp.no_out),
+    // Absent because nothing was there by the day's end.
+    no_check_in: Boolean(emp.attendance?.no_check_in),
+    attendance_mode: emp.attendance_mode,
     // What wrote the day: the app, the machine, or HR by hand.
     source: emp.attendance?.source ?? null,
     hours_worked: emp.attendance?.hours_worked ?? null,
@@ -135,11 +144,12 @@ export default function Attendance() {
       on_leave: count('on_leave'),
       weekly_off: count('weekly_off'),
       unmarked: records.filter((r) => r.status === null).length,
+      no_out: records.filter((r) => r.no_out).length,
     }
   }, [records])
 
   const filtered = useMemo(() => records.filter((r) => {
-    if (tab === 'unmarked' ? r.status !== null : tab !== 'all' && r.status !== tab) return false
+    if (tab === 'no_out' ? !r.no_out : tab === 'unmarked' ? r.status !== null : tab !== 'all' && r.status !== tab) return false
     if (deptFilter !== 'All' && r.department !== deptFilter) return false
     if (search.trim()) {
       const q = search.toLowerCase()
@@ -283,11 +293,11 @@ function TeamMonth({ monthKey, onMonth, today, myEmployeeId }) {
       <MonthNav value={monthKey} onChange={onMonth} />
       {myEmployeeId && (
         <Card title={`${monthLabel(year, month)} — My attendance`} subtitle="Your own days, holidays and weekly offs">
-          {pd?.employed && pd.paid_days !== null && (
+          {/* What is cut from pay — not "Paid days 31 of 31", which confused (client, 25 Oct 2026). */}
+          {pd?.employed && pd.unpaid_days !== null && (
             <p className="mb-3 text-sm text-gray-700">
-              Paid days <b className="tabular-nums">{pd.paid_days} of {pd.employment_days}</b>
-              {' · '}Unpaid days (loss of pay) <b className={`tabular-nums ${pd.unpaid_days > 0 ? 'text-amber-800' : ''}`}>{pd.unpaid_days}</b>
-              <span className="text-xs text-gray-400"> · so far; the payslip is final</span>
+              Unpaid days (loss of pay) <b className={`tabular-nums ${pd.unpaid_days > 0 ? 'text-amber-800' : ''}`}>{pd.unpaid_days}</b>
+              <span className="text-xs text-gray-400"> · {unpaidDaysWords(pd)}</span>
             </p>
           )}
           <MonthCalendar year={year} month={month} today={today} rows={mine} rowsQuery={records} calendarQuery={calendar}

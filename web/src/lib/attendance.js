@@ -57,11 +57,11 @@ export const PUNCH_METHODS = {
     label: 'Location + Selfie',
     needs: { location: true, fence: false, selfie: true },
     steps: [
-      { icon: 'location', text: 'Their current location, wherever they are, from a phone' },
+      { icon: 'location', text: 'Their current, precise location, wherever they are, from a phone' },
       { icon: 'camera', text: 'Then a live photo from the front camera' },
     ],
     strength: { label: 'Good', tone: 'brand' },
-    said: 'For several sites — no office needed. Their current location first (no location, no camera), then the photo: both kept, and HR sees where on the map. Nothing is refused for where they stand.',
+    said: 'For several sites — no office needed. Their current, precise location first (none, or only an approximate one: no camera), then the photo: both kept, and HR sees where on the map. Nothing is refused for where they stand.',
   },
 }
 
@@ -195,14 +195,31 @@ export const leaveWords = (leave) => `${leave.leave_type_name}${leave.portion ==
 export function dayState({ date, row, dayOff, today, leave = null }) {
   const status = row?.status
   if (status === 'on_leave') return leave ? { label: leaveWords(leave), tone: leave.paid ? 'leave' : 'warn' } : { label: 'On leave', tone: 'leave' }
-  if (status === 'absent') return { label: 'Absent', tone: 'bad' }
+  // Why it is absent, where the day says (client, 25 Oct 2026): nothing by the day's end, or too few hours.
+  if (status === 'absent') return { label: row.no_check_in ? 'Absent · no check-in' : row.check_in && row.check_out ? 'Absent · under half a day' : 'Absent', tone: 'bad' }
   if (status === 'holiday') return { label: dayOff?.name ?? 'Holiday', tone: 'warn' }
   if (status === 'weekly_off') return { label: 'Weekly off', tone: 'gray' }
-  if (row?.check_in && !row.check_out) return date === today ? { label: 'Checked in', tone: 'info' } : { label: 'No check-out', tone: 'bad' }
+  // A day HR typed with a check-in only is as HR left it (its form fills one in), not a check-out forgotten.
+  if (row?.check_in && !row.check_out && row.source !== 'manual') return date === today ? { label: 'Checked in', tone: 'info' } : { label: 'No check-out', tone: 'bad' }
   if (status === 'half_day') return { label: 'Half day', tone: 'brand' }
   if (status === 'present') return { label: 'Present', tone: 'ok' }
   if (dayOff?.kind === 'holiday') return { label: dayOff.name ?? 'Holiday', tone: 'warn' }
   if (dayOff?.kind === 'weekly_off') return { label: 'Weekly off', tone: 'gray' }
   if (date === today) return { label: 'Not checked in yet', tone: 'gray' }
   return { label: 'Not marked', tone: 'gray' }
+}
+
+/**
+ * Under "Unpaid days (loss of pay)", in words (client, 25 Oct 2026): what is
+ * cut, or that nothing is — and the days not marked, which are paid until
+ * somebody marks them. "Paid days 31 of 31" is gone from the month: it counted
+ * the whole month, days still to come included, beside figures counted to
+ * today, and the client found it confusing; the payslip says the days paid.
+ */
+export function unpaidDaysWords(d) {
+  const days = (n) => `${n} day${n === 1 ? '' : 's'}`
+  return [
+    d.unpaid_days > 0 ? 'cut from pay: absent, short days, or unpaid leave' : 'nothing cut so far',
+    d.not_marked_days > 0 ? `${days(d.not_marked_days)} not marked, paid until marked` : null,
+  ].filter(Boolean).join(' · ')
 }

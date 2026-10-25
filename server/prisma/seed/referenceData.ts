@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client'
 import { zonedToday } from '../../src/domain/shared/dates'
+import { FIXED_HOLIDAYS } from '../../src/modules/holidays/fixedHolidays'
 
 /**
  * Reference data — what a company needs before anybody can use it: departments,
@@ -96,8 +97,10 @@ const SALARY_COMPONENTS = [
   { code: 'SPECIAL', label: 'Special Allowance', type: 'earning', countsForPf: false, taxable: true, displayOrder: 5 },
   // Entered per employee per month, never on a salary record (§A1.5).
   { code: 'INCENTIVE', label: 'Incentive', type: 'earning', countsForPf: false, taxable: true, displayOrder: 6, entry: 'monthly' },
-  // Client §40, entered monthly like an incentive. A bonus is outside ESI wages.
-  { code: 'BONUS', label: 'Bonus', type: 'earning', countsForPf: false, countsForEsi: false, taxable: true, displayOrder: 7, entry: 'monthly' },
+  // Client §40, entered monthly like an incentive. A bonus is outside ESI wages,
+  // and outside the salary PT is charged on (the Maharashtra PT Act: "does not
+  // include bonus in any form").
+  { code: 'BONUS', label: 'Bonus', type: 'earning', countsForPf: false, countsForEsi: false, countsForPt: false, taxable: true, displayOrder: 7, entry: 'monthly' },
   { code: 'COMMISSION', label: 'Commission', type: 'earning', countsForPf: false, taxable: true, displayOrder: 8, entry: 'monthly' },
   // The difference a salary that starts inside a month leaves unpaid for its
   // days — the payslip's warning gives the figure. Arrears of Basic are PF
@@ -123,17 +126,6 @@ const MAHARASHTRA_PT = [
   { gender: 'female', minGross: 0, maxGross: 25000, amount: 0, februaryAmount: null },
   { gender: 'female', minGross: 25000.01, maxGross: null, amount: 200, februaryAmount: 300 },
 ] as const
-
-/**
- * Only the three fixed-date national holidays. Diwali, Holi and Eid move with
- * the lunar calendar and states add their own; a guessed date would sit in the
- * leave calendar looking authoritative. The company enters those.
- */
-const FIXED_HOLIDAYS = [
-  { name: 'Republic Day', month: 1, day: 26 },
-  { name: 'Independence Day', month: 8, day: 15 },
-  { name: 'Gandhi Jayanti', month: 10, day: 2 },
-]
 
 /** The client of whatever kind — the plain one, or a transaction on it. */
 type Db = Prisma.TransactionClient
@@ -205,6 +197,17 @@ export async function seedForOrganization(db: Db, organization: SeedTarget, now:
         await db.holiday.create({ data: { organizationId, name: holiday.name, date, type: 'public' } })
       }
     }
+  }
+  // The nightly job adds the years after these, once each (client, 25 Oct 2026).
+  const through = (await db.organization.findUnique({ where: { id: organizationId }, select: { fixedHolidaysThrough: true } }))?.fixedHolidaysThrough ?? null
+  if (through === null || through < year + 1) {
+    await db.organization.update({ where: { id: organizationId }, data: { fixedHolidaysThrough: year + 1 } })
+  }
+
+  // The working week, dated (client, 25 Oct 2026): Sunday off, from when the
+  // seeded rules take effect, until the company says otherwise.
+  if ((await db.workWeek.count({ where: { organizationId } })) === 0) {
+    await db.workWeek.create({ data: { organizationId, effectiveFrom: financialYearStart, weeklyOffDays: [0] } })
   }
 
   // The statutory defaults, so payroll has rates before anyone opens Settings.

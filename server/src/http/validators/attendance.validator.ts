@@ -129,3 +129,17 @@ export const attendanceImportSchema = z.object({
   /// Preview unless told otherwise, like the employee importer.
   dryRun: z.boolean().default(true),
 })
+
+/**
+ * Several people's day at once (client, 25 Oct 2026): the people ticked, one
+ * status, and why — a reason is kept on every day it writes. Not "on leave":
+ * leave is applied for and approved, never typed over a day in bulk.
+ */
+export const markManySchema = z
+  .object({
+    date: z.iso.date(),
+    employeeIds: z.array(z.uuid()).min(1, 'Tick at least one person.').max(500, 'At most 500 people at once.'),
+    status: z.enum(['present', 'half_day', 'absent', 'holiday', 'weekly_off']),
+    note: z.string().trim().min(3, 'Say why, in a few words — it is kept on every day marked.').max(500),
+  })
+  .strict()

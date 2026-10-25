@@ -7,6 +7,7 @@ What the client asked for:
 - **The punch follows whatever the Super Admin turns on.** Turn on Selfie and nothing else, and the punch is by selfie alone. No layer may be required that the Super Admin did not choose.
 - **At least one way is always on**, so attendance is never unproved by mistake.
 - **Location + Selfie** must take the location first. Without the location permission, there is no punch, whatever the photo.
+- **Precise location only (client, 25 Oct 2026):** "ekdm strict rule rhe … current location hi uthaye … koyi approximate nahi". The phone's Approximate choice (Android, iPhone) cannot be hidden by a website, so a reading vaguer than the company's metres is refused: no camera, no punch, at check-in and at check-out. See "Precise location" below.
 - **One phone per employee** works with whichever way is chosen, and only when it is switched on.
   - The first phone a person checks in from becomes theirs, by itself.
   - Any other phone is refused, and the person is told to contact HR.
@@ -118,3 +119,18 @@ Look at the live values before deploying.
   - one phone off.
 - **Server, elsewhere:** `settings.test.ts`, `punchMethod.test.ts`, and `catalogue.test.ts` (method and reset wording).
 - **E2E** `punchmethod`, and the updated `checkinsecurity`. In `punchmethod`, Ravi checks in at a warehouse 3 km out with a vague reading; HR sees the flag, Open map and the evidence.
+
+## Precise location (25 Oct 2026)
+
+The client saw Android ask "Precise / Approximate" on the live site and asked that only the current, precise location be taken: at check-in, then the camera; at check-out the same.
+
+- **What a website can do.** The Precise / Approximate choice is the phone's (Android 12+, iOS 14+) and cannot be hidden. Approximate gives a reading 1–3 km wide; a precise one indoors is usually 10–65 m (an iPhone indoors often reports 65 m). So the reading's own accuracy decides.
+- **The rule.** Where a punch reads the location and does not judge it against the office — Location + Selfie, check-in and check-out, or a day away that asks for it — a reading vaguer than `Organization.punchPreciseMeters` (100 m to start, 20–500, Super Admin, Settings → Attendance Security → Precise Location) is refused. The Location method keeps its fence's own accuracy (20 m).
+- **Order.** The page reads the location; a reading too vague and the camera does not open — the punch is sent without a photo, the server refuses it (`LOCATION_IMPRECISE`, 403, with the reading's accuracy and the limit) before it asks about the photo, and keeps the try as evidence (`refusedFor: unreliable`, the reading kept, no photo). The server refuses the same whatever the page does.
+- **Said on the card**, not as a toast: the message and how to turn precise location on (Android: reset the site's permission and choose Precise, or the Chrome app's "Use precise location"; iPhone: Safari Websites → Precise Location). On a check-out, with the way to ask HR to record it.
+- **Between 100 m and a higher limit** a Location + Selfie reading is taken and still flagged `location_vague` for HR (a day away under another method keeps it, unflagged). Whole metres throughout: 100.4 m is 100 m, on the page, the server and the evidence.
+- **Kilometres out** (over 10 km — some phones on Approximate): the page keeps no such reading, and with none left says it is an approximate location, with the same help, rather than "move near a window". Until a reading as precise as the limit comes, the page keeps reading for its whole 10 seconds (a GPS warming up), not stopping at ten readings.
+- **The iPhone help** names Safari (Safari Websites) and other browsers (their own Location setting).
+- Migration `20261025181827_punch_precise_location` (every company starts at 100 m). Tests: `attendance.test.ts` (refused in and out, the edge 100/101 m, the setting and its bounds, evidence without the photo), E2E `punchmethod` (approximate refused with no camera and the help on the card; precise taken; check-out the same, with "Ask HR").
+
+**"On time" (point 4 of the 25 Oct check-in audit).** The card said "on time" whenever lateness was not above zero — also when it was not measured: a check-in more than twelve hours from the shift's start (23:07 on a 09:30 shift) or with no shift at all. It now says "on time" only when lateness was measured as 0, "outside your shift hours" when a shift exists but the check-in was too far from it to measure, and nothing with no shift. E2E `livetime`.

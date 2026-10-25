@@ -111,6 +111,13 @@ export interface MonthlyTotal {
   daysHalf: number
   daysAbsent: number
   daysOnLeave: number
+  /**
+   * Of the days present and half days, those whose hours are known: what the
+   * shift's hours are expected of (25 Oct 2026). A day checked into and never
+   * out — today's still open, too — has no hours, so expects none.
+   */
+  daysPresentTimed: number
+  daysHalfTimed: number
 }
 
 /**
@@ -140,7 +147,7 @@ export async function monthlyTotals(
     ...(employeeId ? { employeeId } : {}),
   }
 
-  const [sums, statusCounts] = await Promise.all([
+  const [sums, statusCounts, timedCounts] = await Promise.all([
     db.attendance.groupBy({
       by: ['employeeId'],
       where,
@@ -149,6 +156,11 @@ export async function monthlyTotals(
     db.attendance.groupBy({
       by: ['employeeId', 'status'],
       where,
+      _count: { _all: true },
+    }),
+    db.attendance.groupBy({
+      by: ['employeeId', 'status'],
+      where: { AND: [where, { hoursWorked: { not: null } }] },
       _count: { _all: true },
     }),
   ])
@@ -163,6 +175,8 @@ export async function monthlyTotals(
       daysHalf: 0,
       daysAbsent: 0,
       daysOnLeave: 0,
+      daysPresentTimed: 0,
+      daysHalfTimed: 0,
     })
   }
 
@@ -175,6 +189,12 @@ export async function monthlyTotals(
     else if (row.status === 'half_day') entry.daysHalf = count
     else if (row.status === 'absent') entry.daysAbsent = count
     else if (row.status === 'on_leave') entry.daysOnLeave = count
+  }
+  for (const row of timedCounts) {
+    const entry = byEmployee.get(row.employeeId)
+    if (!entry) continue
+    if (row.status === 'present') entry.daysPresentTimed = row._count._all
+    else if (row.status === 'half_day') entry.daysHalfTimed = row._count._all
   }
 
   return [...byEmployee.values()]
@@ -261,7 +281,9 @@ export const SHIFT_RULES_SELECT = {
 
 /** Whether this person's day is already recorded — marking it again is correcting it. */
 export async function dayRecorded(db: TxDb, employeeId: string, date: CalendarDate): Promise<boolean> {
-  return (await db.attendance.count({ where: { employeeId, date: toDateColumn(date) } })) > 0
+  // An Absent the no-check-in rule wrote (client, 25 Oct 2026) is nobody's record of the day: marking
+  // over it is marking, not correcting — or a role that marks could never mark the day it is for.
+  return (await db.attendance.count({ where: { employeeId, date: toDateColumn(date), source: { not: 'system' } } })) > 0
 }
 
 export async function upsertDay(
@@ -295,6 +317,8 @@ export async function upsertDay(
     machineMatch: null,
     machineCheckedAt: null,
     statusBeforeMachine: null,
+    // …nor what the no-check-in rule kept of it (client, 25 Oct 2026): this is somebody's word on the day now.
+    statusBeforeSystem: null,
   }
 
   const row = existing
@@ -347,6 +371,8 @@ export async function dayRoster(db: ScopedDb, scope: ScopeContext, day: Calendar
       attendanceMode: true,
       department: { select: { name: true } },
       designation: { select: { name: true } },
+      // Their shift now: whether a day with nothing in it is over yet (client, 25 Oct 2026).
+      shift: { select: { startTime: true, endTime: true } },
       // With the shift it was recorded on: whether an open day is still somebody's day depends on it.
       attendance: { where: { date }, take: 1, include: { shift: { select: SHIFT_RULES_SELECT } } },
     },
@@ -417,7 +443,7 @@ export async function releaseLeaveDays(db: TxDb, employeeId: string, from: Date,
   for (const day of takenOver) {
     await db.attendance.update({
       where: { id: day.id },
-      data: { status: day.statusBeforeLeave!, source: day.sourceBeforeLeave ?? 'manual', statusBeforeLeave: null, sourceBeforeLeave: null },
+      data: { status: day.statusBeforeLeave!, source: day.sourceBeforeLeave ?? 'manual', statusBeforeLeave: null, sourceBeforeLeave: null, ...(day.sourceBeforeLeave === 'system' ? { note: 'No check-in' } : {}) },
     })
   }
 }
@@ -429,7 +455,8 @@ export async function releaseLeaveDays(db: TxDb, employeeId: string, from: Date,
 export async function takeOverAbsentDay(db: TxDb, day: { id: string; status: AttendanceStatus; source: AttendanceSource }, markedByUserId: string) {
   return db.attendance.update({
     where: { id: day.id },
-    data: { status: 'on_leave', source: 'leave', statusBeforeLeave: day.status, sourceBeforeLeave: day.source, markedByUserId },
+    // The no-check-in rule's note goes with its Absent; a reversal puts both back (releaseLeaveDays).
+    data: { status: 'on_leave', source: 'leave', statusBeforeLeave: day.status, sourceBeforeLeave: day.source, markedByUserId, ...(day.source === 'system' ? { note: null } : {}) },
   })
 }
 
@@ -585,7 +612,8 @@ export async function photoSeenBefore(db: ScopedDb | TxDb, employeeId: string, s
 
 /** Writes a check-in on a day that has a row with none yet — null when a check-in landed a moment ago (two taps at once). */
 export async function checkInIf(db: TxDb, id: string, data: Prisma.AttendanceUncheckedUpdateManyInput) {
-  const result = await db.attendance.updateMany({ where: { id, checkIn: null }, data })
+  // A punch is their word on the day: what the no-check-in rule kept of it before is no longer anybody's to put back.
+  const result = await db.attendance.updateMany({ where: { id, checkIn: null }, data: { ...data, statusBeforeSystem: null } })
   return result.count === 1 ? db.attendance.findUniqueOrThrow({ where: { id } }) : null
 }
 
@@ -615,9 +643,9 @@ export async function closeDayIf(db: TxDb, id: string, data: Prisma.AttendanceUn
 /** Writes one person's day: the row there is, changed — or a new one. */
 export async function replaceDay(db: TxDb, organizationId: string, employeeId: string, date: Date, data: DayValues) {
   const existing = await findDay(db, employeeId, date)
-  // Replaced now: whatever an approved leave took over is no longer there to give back.
+  // Replaced now: whatever an approved leave, or the no-check-in rule, took over is no longer there to give back.
   return existing
-    ? db.attendance.update({ where: { id: existing.id }, data: { ...data, statusBeforeLeave: null, sourceBeforeLeave: null } })
+    ? db.attendance.update({ where: { id: existing.id }, data: { ...data, statusBeforeLeave: null, sourceBeforeLeave: null, statusBeforeSystem: null } })
     : db.attendance.create({ data: { ...data, organizationId, employeeId, date } })
 }
 
@@ -771,6 +799,6 @@ export async function statusesBetween(db: ScopedDb, scope: ScopeContext, from: D
 export async function daysFor(db: ScopedDb, employeeId: string, from: Date, to: Date) {
   return db.attendance.findMany({
     where: { employeeId, date: { gte: from, lte: to } },
-    select: { date: true, status: true, checkIn: true, checkOut: true, hoursWorked: true, lateMinutes: true },
+    select: { date: true, status: true, source: true, checkIn: true, checkOut: true, hoursWorked: true, lateMinutes: true },
   })
 }

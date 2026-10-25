@@ -80,3 +80,24 @@ describe('the month so far (client, 15 Oct 2026)', () => {
     expect(r.notMarked).toBe(9)
   })
 })
+
+describe('a day checked into and never out (25 Oct 2026)', () => {
+  it('has no hours, so expects none either — and is said, not hidden', () => {
+    // The screenshot: 8h 8m and 8h 46m worked, the 9th checked in and never out — "16h 54m of 27h".
+    const r = monthSoFar({
+      ...base,
+      today: '2026-10-25',
+      rows: [row('2026-10-01', 'present', 8.13), row('2026-10-03', 'present', 8.77), row('2026-10-09', 'present', null)],
+    })
+    expect(r.hoursWorked).toBe(16.9)
+    expect(r.expectedHours).toBe(18)
+    expect(r.withoutCheckOut).toBe(1)
+    expect(r.present).toBe(3)
+  })
+
+  it('is not the day still open — today, or a night shift’s yesterday past midnight', () => {
+    const r = monthSoFar({ ...base, today: '2026-10-15', openDay: '2026-10-14', rows: [row('2026-10-14', 'present', null), row('2026-10-15', 'present', null)] })
+    expect(r.withoutCheckOut).toBe(0)
+    expect(r.expectedHours).toBe(0)
+  })
+})

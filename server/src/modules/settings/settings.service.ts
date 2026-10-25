@@ -95,7 +95,6 @@ export interface PolicyInput {
   esiThreshold?: number | undefined
   payDay?: number | undefined
   payslipLockDay?: number | null | undefined
-  weeklyOffDays?: number[] | undefined
   leaveYearStartMonth?: number | undefined
   fiscalYearStartMonth?: number | undefined
   lopBasis?: 'calendar_days' | 'fixed_30' | 'working_days' | undefined
@@ -220,6 +219,7 @@ export async function updatePolicy(ctx: AppContext, input: PolicyInput) {
       esiThreshold: current.esiThreshold,
       payDay: current.payDay,
       payslipLockDay: current.payslipLockDay,
+      // No longer read (the working week is WorkWeek since 25 Oct 2026); carried so the version before still finds what it had.
       weeklyOffDays: current.weeklyOffDays,
       leaveYearStartMonth: current.leaveYearStartMonth,
       fiscalYearStartMonth: current.fiscalYearStartMonth,

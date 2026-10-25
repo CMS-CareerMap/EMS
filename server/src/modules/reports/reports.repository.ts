@@ -85,7 +85,7 @@ export async function markedDays(db: ScopedDb, employeeIds: string[], from: Date
   if (employeeIds.length === 0) return []
   return db.attendance.findMany({
     where: { employeeId: { in: employeeIds }, date: { gte: from, lte: to } },
-    select: { employeeId: true, date: true },
+    select: { employeeId: true, date: true, status: true },
   })
 }
 
@@ -94,22 +94,6 @@ export async function daysOff(db: ScopedDb, from: Date, to: Date) {
     where: { date: { gte: from, lte: to }, type: { in: ['public', 'weekly_off'] } },
     select: { date: true },
   })
-}
-
-/**
- * The weekly offs of the policy in force on a day — policies are dated, and a
- * past month is counted by the rules it had (as payroll does), not today's.
- * Before the first policy, the earliest one; with none at all, null.
- */
-export async function weeklyOffDays(db: ScopedDb, on: Date): Promise<number[] | null> {
-  const inForce = await db.organizationPolicy.findFirst({
-    where: { effectiveFrom: { lte: on }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: on } }] },
-    orderBy: { effectiveFrom: 'desc' },
-    select: { weeklyOffDays: true },
-  })
-  if (inForce) return inForce.weeklyOffDays
-  const earliest = await db.organizationPolicy.findFirst({ orderBy: { effectiveFrom: 'asc' }, select: { weeklyOffDays: true } })
-  return earliest?.weeklyOffDays ?? null
 }
 
 export async function leaveYearStartMonth(db: ScopedDb): Promise<number> {

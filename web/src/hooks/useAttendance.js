@@ -257,6 +257,24 @@ export function useMarkAttendance() {
   })
 }
 
+/**
+ * Several people's day at once (client, 25 Oct 2026): only the people ticked,
+ * one status and why. The answer names who was marked and who was not, with
+ * the reason — the rest are marked all the same.
+ */
+export function useMarkMany() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ date, employeeIds, status, note }) =>
+      (await api.post('/attendance/mark-many', { date, employeeIds, status, note })).data,
+    onSuccess: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['attendance'] }),
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+      queryClient.invalidateQueries({ queryKey: ['payroll'] }),
+    ]),
+  })
+}
+
 /** Correcting an existing row. The employee and date come from the row. */
 export function useAmendAttendance() {
   const queryClient = useQueryClient()

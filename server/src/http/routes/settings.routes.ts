@@ -5,6 +5,12 @@ import {
   getPolicy,
   putPolicy,
   getPolicyHistory,
+  getWorkWeek,
+  putWorkWeek,
+  deleteWorkWeek,
+  getAbsentRule,
+  previewAbsentRule,
+  putAbsentRule,
   getPfComponents,
   patchPfComponent,
   getGeofences,
@@ -45,6 +51,10 @@ settingsRouter.put('/company', authorize('settings:update'), putCompany)
 settingsRouter.get('/payroll', authorize('settings:read'), getPolicy)
 settingsRouter.put('/payroll', authorize('settings:update'), putPolicy)
 settingsRouter.get('/payroll/history', authorize('settings:read'), getPolicyHistory)
+// The working week, dated (client, 25 Oct 2026): from today, the 1st of next month, or the 1st of this one.
+settingsRouter.get('/work-week', authorize('settings:read'), getWorkWeek)
+settingsRouter.put('/work-week', authorize('settings:update'), putWorkWeek)
+settingsRouter.delete('/work-week/:from', authorize('settings:update'), deleteWorkWeek)
 // Which earnings are PF wages: Basic and DA to start, the accountant's to widen.
 settingsRouter.get('/pf-components', authorize('settings:read'), getPfComponents)
 settingsRouter.patch('/pf-components/:id', authorize('settings:update'), patchPfComponent)
@@ -57,6 +67,10 @@ settingsRouter.delete('/geofence/:id', authorize('settings:update'), deleteGeofe
 settingsRouter.post('/geofence/test', authorize('settings:update'), postGeofenceTest)
 settingsRouter.get('/attendance-security', authorize('settings:read'), getAttendanceSecurity)
 settingsRouter.put('/attendance-security', authorize('settings:update'), putAttendanceSecurity)
+// No check-in means Absent (client, 25 Oct 2026): from a day, for everybody; previewed before it is saved.
+settingsRouter.get('/absent-rule', authorize('settings:read'), getAbsentRule)
+settingsRouter.post('/absent-rule/preview', authorize('settings:update'), previewAbsentRule)
+settingsRouter.put('/absent-rule', authorize('settings:update'), putAbsentRule)
 
 // Leave configuration is gated on its own permission, so HR can manage leave
 // without also being handed statutory rates and user management.

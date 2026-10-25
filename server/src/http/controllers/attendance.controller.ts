@@ -100,6 +100,7 @@ export const postPunchStart: RequestHandler = async (req, res) => {
       location_needed: start.locationNeeded,
       radius_meters: start.radiusMeters,
       accuracy_meters: start.accuracyMeters,
+      precise_meters: start.preciseMeters,
       photo_needed: start.photoNeeded,
     },
     meta: { requestId: res.locals.requestId },
@@ -128,7 +129,8 @@ export const getMyWorkplace: RequestHandler = async (_req, res) => {
             half_day_hours: where.shift.halfDayHours,
           }
         : null,
-      weekly_off_days: where.weeklyOffDays,
+      weekly_off_days: where.offDaysToday,
+      next_week: where.nextWeek ? { from: where.nextWeek.from, weekly_off_days: where.nextWeek.offDays } : null,
       date_of_joining: where.dateOfJoining,
     },
     meta: { requestId: res.locals.requestId },

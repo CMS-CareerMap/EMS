@@ -13,6 +13,8 @@ import * as repo from './dashboard.repository'
 import { leaveYearOf } from '../leave/leave.service'
 import { companyTimezone } from '../organization/organization.service'
 import { getCurrentPolicy } from '../settings/settings.repository'
+import { workWeekOf } from '../settings/workWeek.repository'
+import { isWeeklyOff } from '../../domain/shared/workWeek'
 import { approvalWorld, deciderOf, peopleDecidedBy } from '../leave/leaveApprover.service'
 import { listRuns } from '../payroll/payrollRun.service'
 import { listLoans } from '../payroll/loans.service'
@@ -47,8 +49,6 @@ function reachOf(scope: ScopeContext): 'company' | 'team' | 'self' {
   if (scope.scope === 'ORGANIZATION' || scope.scope === 'ORGANIZATION_EXCEPT_ABOVE') return 'company'
   return 'team'
 }
-
-const weekdayOf = (day: CalendarDate) => new Date(`${day}T00:00:00Z`).getUTCDay()
 
 // ── Today ───────────────────────────────────────────────────────────────────
 
@@ -106,8 +106,8 @@ export async function todaySummary(ctx: AppContext): Promise<TodaySummary> {
   const weekFrom = addCalendarDays(today, -6)
   const aheadTo = addCalendarDays(today, 6)
 
-  const policy = await getCurrentPolicy(ctx.db)
-  const weeklyOffDays = policy?.weeklyOffDays ?? [0]
+  // Each day by the working week in force on it (client, 25 Oct 2026), as everywhere.
+  const workWeek = await workWeekOf(ctx.db)
 
   const [roster, weekRows, daysOff] = await Promise.all([
     attendanceRepo.dayRoster(ctx.db, scope, today),
@@ -128,7 +128,7 @@ export async function todaySummary(ctx: AppContext): Promise<TodaySummary> {
   const holidays = new Map(daysOff.filter((d) => d.type === 'public').map((d) => [fromDateColumn(d.date), d.name]))
   const offRows = new Set(daysOff.filter((d) => d.type === 'weekly_off').map((d) => fromDateColumn(d.date)))
   const dayOffOf = (day: CalendarDate): 'holiday' | 'weekly_off' | null =>
-    holidays.has(day) ? 'holiday' : weeklyOffDays.includes(weekdayOf(day)) || offRows.has(day) ? 'weekly_off' : null
+    holidays.has(day) ? 'holiday' : isWeeklyOff(workWeek, day) || offRows.has(day) ? 'weekly_off' : null
 
   const todays = roster.map((person) => ({ person, row: person.attendance[0] ?? null }))
   const statusCount = (status: string) => todays.filter((t) => t.row?.status === status).length
@@ -396,7 +396,8 @@ export interface MySummary {
     leaveDays: number
     totalHours: number
     /** Their weekly offs from the 1st to today — the company's calendar, and any day marked one for them (monthSoFar). */
-    weeklyOffDays: number
+    /** Weekly offs in the month so far — a count. */
+    weeklyOffCount: number
   }
   today: { status: string | null; checkIn: string | null; checkOut: string | null; hoursWorked: number | null; lateMinutes: number | null }
   /** Their last seven days, today last — with the company's days off named, which have no rows. */
@@ -441,7 +442,7 @@ export async function mySummary(ctx: AppContext): Promise<MySummary> {
   const monthStart = `${today.slice(0, 7)}-01`
   const weekFrom = addCalendarDays(today, -6)
 
-  const policy = await getCurrentPolicy(ctx.db)
+  const [policy, workWeek] = await Promise.all([getCurrentPolicy(ctx.db), workWeekOf(ctx.db)])
   const leaveYear = leaveYearOf(today, policy?.leaveYearStartMonth ?? 4)
 
   const { year: thisYear, month: thisMonth } = monthOfDay(today)
@@ -458,9 +459,6 @@ export async function mySummary(ctx: AppContext): Promise<MySummary> {
   const waitingForMe = await leaveRepo.countPendingOf(ctx.db, peopleDecidedBy(world, deciderOf(ctx)))
 
   const todayRow = lastWeek.find((r) => fromDateColumn(r.date) === today)
-  // The week's days off by the rule in force — Sunday with no policy written yet, as the column defaults.
-  const offs = policy?.weeklyOffDays ?? [0]
-
   // "My month" is the month so far as their Attendance page, and the page HR or
   // their manager opens for them, count it (client, 15 Oct 2026) — one count,
   // so the three never disagree: the 1st (or the day they joined) to today.
@@ -477,6 +475,7 @@ export async function mySummary(ctx: AppContext): Promise<MySummary> {
       hoursWorked: r.hoursWorked ? Number(r.hoursWorked) : null,
       lateMinutes: r.lateMinutes,
       checkedIn: r.checkIn !== null,
+      manual: r.source === 'manual',
     })),
     expectedPerDay: null,
   })
@@ -500,7 +499,8 @@ export async function mySummary(ctx: AppContext): Promise<MySummary> {
       checkOut: isoInstant(row?.checkOut),
       hoursWorked: row?.hoursWorked ? Number(row.hoursWorked) : null,
       lateMinutes: row?.lateMinutes ?? null,
-      dayOff: holidays.has(day) ? 'holiday' : offs.includes(weekdayOf(day)) || offRows.has(day) ? 'weekly_off' : null,
+      // Each day by the working week in force on it (client, 25 Oct 2026).
+      dayOff: holidays.has(day) ? 'holiday' : isWeeklyOff(workWeek, day) || offRows.has(day) ? 'weekly_off' : null,
       holiday: holidays.get(day) ?? null,
       atWork,
     })
@@ -528,7 +528,7 @@ export async function mySummary(ctx: AppContext): Promise<MySummary> {
       // The figure the client asked to see. Summed from stored hours, so it
       // matches what the attendance page and the payslip will say.
       totalHours: soFar.hoursWorked,
-      weeklyOffDays: soFar.weeklyOffs,
+      weeklyOffCount: soFar.weeklyOffs,
     },
     today: {
       status: todayRow?.status ?? null,

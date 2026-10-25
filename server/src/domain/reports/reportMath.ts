@@ -1,4 +1,6 @@
-import { workingDays, type Weekday } from '../leave/leaveDays'
+import { workingDays } from '../leave/leaveDays'
+import { isWeeklyOff, type WeekInput } from '../shared/workWeek'
+import { addCalendarDays } from '../shared/dates'
 import type { CalendarDate } from '../shared/dates'
 
 /**
@@ -10,7 +12,8 @@ import type { CalendarDate } from '../shared/dates'
  */
 
 export interface Calendar {
-  weeklyOffDays: readonly Weekday[]
+  /** The working week, day by day (shared/workWeek). */
+  weeklyOffDays: WeekInput
   holidays: readonly CalendarDate[]
 }
 
@@ -49,8 +52,34 @@ export function notMarkedDays(
 ): number {
   const range = overlap(window, { from: window.from, to: upTo })
   if (!range) return 0
-  const { breakdown } = workingDays({ from: range.from, to: range.to, weeklyOffDays: [...calendar.weeklyOffDays], holidays: [...calendar.holidays] })
+  const { breakdown } = workingDays({ from: range.from, to: range.to, weeklyOffDays: calendar.weeklyOffDays, holidays: [...calendar.holidays] })
   return breakdown.filter((d) => d.counted > 0 && !marked.has(d.date)).length
+}
+
+/**
+ * The weekly offs and holidays of somebody's window, to a day — as their
+ * month counts them (domain/attendance/monthSoFar, 25 Oct 2026): the company's
+ * days off, by the week in force on each day, a holiday over a weekly off on
+ * the same day; and a working day marked off for them alone. The report's
+ * columns used to count only the days marked, which nobody marks — so every
+ * row read nought, beside a month page saying "4 weekly off · 1 holiday".
+ */
+export function daysOffWithin(
+  window: { from: CalendarDate; to: CalendarDate },
+  upTo: CalendarDate,
+  calendar: Calendar,
+  markedOff: ReadonlyMap<CalendarDate, 'holiday' | 'weekly_off'>,
+): { weeklyOff: number; holiday: number } {
+  const range = overlap(window, { from: window.from, to: upTo })
+  const out = { weeklyOff: 0, holiday: 0 }
+  if (!range) return out
+  const holidays = new Set(calendar.holidays)
+  for (let day = range.from; day <= range.to; day = addCalendarDays(day, 1)) {
+    const kind = holidays.has(day) ? 'holiday' : isWeeklyOff(calendar.weeklyOffDays, day) ? 'weekly_off' : markedOff.get(day) ?? null
+    if (kind === 'holiday') out.holiday += 1
+    else if (kind === 'weekly_off') out.weeklyOff += 1
+  }
+  return out
 }
 
 /** The days of one leave request that fall inside a window — half days as halves. */
@@ -64,7 +93,7 @@ export function leaveDaysWithin(
   return workingDays({
     from: range.from,
     to: range.to,
-    weeklyOffDays: [...calendar.weeklyOffDays],
+    weeklyOffDays: calendar.weeklyOffDays,
     holidays: [...calendar.holidays],
     halfDays: [...request.halfDays],
   }).days

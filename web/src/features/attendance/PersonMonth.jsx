@@ -64,7 +64,7 @@ export default function PersonMonth({ query, monthKey, onMonth, today }) {
           <TabPanel id="person-month-panel" tab={sub}>
             {sub === 'calendar' && (
               <div className="p-4">
-                <MonthCalendar year={year} month={month} today={day} rows={d?.days ?? []} rowsQuery={query} calendarQuery={query} joinedOn={joinedOn}
+                <MonthCalendar year={year} month={month} today={day} rows={d?.days ?? []} rowsQuery={query} calendarQuery={query} showUnmarked joinedOn={joinedOn}
                   leftOn={leftOn} openDay={d?.totals?.open_day ?? null} leaveOn={leaveOn} absentOn={absentOn} />
               </div>
             )}

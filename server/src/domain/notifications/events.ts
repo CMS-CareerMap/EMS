@@ -60,6 +60,18 @@ export const NOTIFICATION_EVENTS = {
     label: 'A day is recorded as absent',
     tells: 'The employee, with a link to apply for leave for that day',
   },
+  // Client, 25 Oct 2026: checked in and not out, told once, a while after the shift ended.
+  'attendance.no_check_out': {
+    kind: 'system', group: 'Attendance', optional: true,
+    label: 'Somebody checked in and has not checked out',
+    tells: 'The employee, two hours after their shift ended — the day stays present, and HR sees it under "No out"',
+  },
+  // Client, 25 Oct 2026: December, and next year's holiday calendar has none of the festivals.
+  'holidays.next_year_missing': {
+    kind: 'system', group: 'Leave', optional: true,
+    label: 'Next year’s holidays are not entered yet',
+    tells: 'Whoever keeps the holiday calendar, once in December',
+  },
   // One phone per employee (client, 11 and 14 Oct 2026).
   'attendance.device_waiting': {
     kind: 'system', group: 'Attendance', optional: true,

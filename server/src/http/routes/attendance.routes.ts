@@ -10,6 +10,7 @@ import {
   getDaySummary,
   getDayRoster,
   postMark,
+  postMarkMany,
   patchAttendance,
   postImport,
   getSuspicious,
@@ -70,6 +71,8 @@ attendanceRouter.get('/export', authorize('attendance:read'), getAttendanceExpor
 // Recording somebody else's day, and correcting one. Separate permissions
 // from reading: a manager may see their team's attendance and may not edit it.
 attendanceRouter.post('/mark', authorize('attendance:mark'), postMark)
+// Only the people ticked, each as one by one (client, 25 Oct 2026).
+attendanceRouter.post('/mark-many', authorize('attendance:mark'), postMarkMany)
 attendanceRouter.patch('/:id', authorize('attendance:update'), patchAttendance)
 
 // Its own body parser, for the same reason as the employee importer: a 1 MB

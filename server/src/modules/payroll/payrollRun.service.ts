@@ -19,7 +19,8 @@ import { leaveDaysIn, lossOfPay, monthCalendar, type LossOfPay } from '../../dom
 import { directiveFor, financialYearLabel, financialYearOf } from '../../domain/payroll/tds'
 import { runTotals } from '../../domain/payroll/run'
 import { transition, type RunAction, type RunStatus } from '../../domain/payroll/runStatus'
-import type { Weekday } from '../../domain/leave/leaveDays'
+import type { WeekInput, WorkWeek } from '../../domain/shared/workWeek'
+import { workWeekOf } from '../settings/workWeek.repository'
 import { fromDateColumn, toDateColumn, monthKey, monthName, type CalendarDate } from '../../domain/shared/dates'
 import { REQUEST_LABELS, requestNumber } from '../../domain/requests/requests'
 import { payrollPeople, shownOf } from './payrollReach'
@@ -80,6 +81,8 @@ export interface MonthPlan {
   /** The rules the run is labelled with — those in force on the earliest day anybody in it was employed. */
   rules: { lopBasis: LopBasis; sandwichRule: boolean; tdsEnabled: boolean } | null
   holidays: CalendarDate[]
+  /** The working week, day by day — read once for everybody, as the holidays are. */
+  week: WorkWeek
   people: Person[]
   blockers: Blocker[]
   warnings: string[]
@@ -137,19 +140,21 @@ export function inForceOn<T extends { effectiveFrom: Date; effectiveTo: Date | n
  * company's days off, their attendance and their approved leave — paid or
  * unpaid by its type. One function for the run and for the person's own
  * Attendance page (client, 10 Oct 2026), so the two can never disagree.
+ * Each day is off or not by the working week in force on it (client, 25 Oct
+ * 2026), as the leave count and the calendar decide it.
  */
 export function lossOfPayOf(input: {
   year: number
   month: number
   window: EmploymentWindow
-  policy: { weeklyOffDays: unknown; sandwichRule: boolean }
+  week: WeekInput
+  policy: { sandwichRule: boolean }
   holidays: readonly CalendarDate[]
   attendance: readonly { date: Date; status: Parameters<typeof lossOfPay>[0]['attendance'][number]['status'] }[]
   leave: readonly { status: string; fromDate: Date; toDate: Date; halfDayDates: string[]; leaveType: { isPaid: boolean } }[]
   today: CalendarDate
 }) {
-  const weeklyOffDays = input.policy.weeklyOffDays as Weekday[]
-  const calendar = monthCalendar({ year: input.year, month: input.month, weeklyOffDays, holidays: input.holidays })
+  const calendar = monthCalendar({ year: input.year, month: input.month, weeklyOffDays: input.week, holidays: input.holidays })
   const approved = input.leave
     .filter((row) => row.status === 'approved')
     .map((row) => ({
@@ -162,11 +167,11 @@ export function lossOfPayOf(input: {
     calendar,
     window: input.window,
     attendance: input.attendance.map((row) => ({ date: fromDateColumn(row.date)!, status: row.status })),
-    leave: leaveDaysIn(approved, calendar, weeklyOffDays),
+    leave: leaveDaysIn(approved, calendar, input.week),
     sandwichRule: input.policy.sandwichRule,
     today: input.today,
   })
-  return { calendar, weeklyOffDays, lop }
+  return { calendar, lop }
 }
 
 export async function planMonth(ctx: AppContext, year: number, month: number): Promise<MonthPlan> {
@@ -193,8 +198,9 @@ export async function planMonth(ctx: AppContext, year: number, month: number): P
   const ids = onPayroll.map((e) => e.id)
   const financialYear = financialYearOf(year, month)
 
-  const [policies, dayOffRows, attendance, leave, directives, entries, salaries, waitingRequests, security] = await Promise.all([
+  const [policies, week, dayOffRows, attendance, leave, directives, entries, salaries, waitingRequests, security] = await Promise.all([
     repo.policiesForMonth(ctx.db, from, to),
+    workWeekOf(ctx.db),
     listDaysOff(ctx.db, from, to),
     repo.attendanceForMonth(ctx.db, ids, from, to),
     repo.leaveForMonth(ctx.db, ids, from, to),
@@ -255,6 +261,7 @@ export async function planMonth(ctx: AppContext, year: number, month: number): P
         year,
         month,
         window,
+        week,
         policy,
         holidays,
         attendance: attendanceOf.get(employee.id) ?? [],
@@ -338,7 +345,7 @@ export async function planMonth(ctx: AppContext, year: number, month: number): P
   }
 
   const left = unrecorded.map((e) => ({ id: e.id, fullName: e.fullName, employeeCode: e.employeeCode }))
-  return { year, month, rules, holidays, people, blockers, warnings: monthWarnings(year, month, today, left), unrecorded: left, today }
+  return { year, month, rules, holidays, week, people, blockers, warnings: monthWarnings(year, month, today, left), unrecorded: left, today }
 }
 
 /** What is said about the month as a whole: who was left out, and whether it is over. */
@@ -502,6 +509,7 @@ export async function buildPayslips(ctx: AppContext, plan: MonthPlan): Promise<r
         tds: directive ? Number(directive.monthlyAmount) : 0,
         monthlyAmounts: Object.fromEntries(person.entries.map((entry) => [entry.component.code, Number(entry.amount)])),
         holidays: plan.holidays,
+        week: plan.week,
       })
       return { ok: true as const, payslip: toPayslip(person, lop, directive, calc) }
     } catch (err) {

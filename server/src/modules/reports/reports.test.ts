@@ -296,7 +296,9 @@ describe('people who left, and rules that changed since', () => {
     })
     // From October Saturdays are off too; June was counted by the old rule.
     await prisma.organizationPolicy.updateMany({ where: { organizationId: orgId, effectiveTo: null }, data: { effectiveTo: day('2026-09-30') } })
-    await prisma.organizationPolicy.create({ data: { organizationId: orgId, effectiveFrom: day('2026-10-01'), weeklyOffDays: [0, 6], leaveYearStartMonth: 4 } })
+    await prisma.organizationPolicy.create({ data: { organizationId: orgId, effectiveFrom: day('2026-10-01'), leaveYearStartMonth: 4 } })
+    // The working week is dated on its own (client, 25 Oct 2026): Sundays until then, Saturdays too from October.
+    await prisma.workWeek.createMany({ data: [{ organizationId: orgId, effectiveFrom: day('2020-04-01'), weeklyOffDays: [0] }, { organizationId: orgId, effectiveFrom: day('2026-10-01'), weeklyOffDays: [0, 6] }] })
 
     // June's payroll: Asha was in Tech then (Sales now); Farid's net came out below zero.
     const juneRun = await prisma.payrollRun.create({
@@ -322,7 +324,7 @@ describe('people who left, and rules that changed since', () => {
     expect(names).toContain('Esha')
     expect(names).toContain('Farid')
     // Esha: 1–18 June is 16 working days (the 7th and 14th are Sundays); three marked present.
-    expect(rowOf(res.body, 'Esha')).toMatchObject({ present: 3, not_marked: 13 })
+    expect(rowOf(res.body, 'Esha')).toMatchObject({ present: 3, not_marked: 13, weekly_off: 2, holiday: 0 })
     // Farid: 1–10 June, 9 working days, none marked.
     expect(rowOf(res.body, 'Farid')).toMatchObject({ not_marked: 9 })
   })

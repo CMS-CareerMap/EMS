@@ -87,9 +87,12 @@ const flat = (s) => s.replace(/\s+/g, ' ').trim()
 
 const balances = async (who = 'emp') => (await api(who, 'GET', '/leave-requests/balances')).body.data.balances
 const typeId = async (code) => (await balances()).find((b) => b.code === code)?.leave_type_id
+// Priya's days of loss of pay in a month, as payroll counts them (lossOfPayOf, through her month's pay days).
+// Not the month's payroll readiness: the Monday these tests take can be in a month not started yet
+// (25 Oct 2026: "next Monday" was 2 Nov), which has no payroll to ask.
 const lopOf = async (month) => {
-  const r = await api('sa', 'GET', `/payroll-runs/readiness?year=${Number(month.slice(0, 4))}&month=${Number(month.slice(5, 7))}`)
-  return r.body?.data?.employees?.find((e) => e.employee_id === PRIYA.id)?.lop_days ?? null
+  const r = await api('sa', 'GET', `/attendance/people/${PRIYA.id}/month?year=${Number(month.slice(0, 4))}&month=${Number(month.slice(5, 7))}`)
+  return r.body?.data?.pay_days?.unpaid_days ?? null
 }
 
 let CL = null
